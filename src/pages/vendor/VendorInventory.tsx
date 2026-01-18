@@ -12,6 +12,7 @@ import { useCategories } from '../../hooks/useCategories';
 import { formatCurrency } from '../../lib/utils';
 import { VendorItemForm } from '../../components/vendor/VendorItemForm';
 import { VendorBatchEntry } from '../../components/vendor/VendorBatchEntry';
+import { Tabs } from '../../components/ui/Tabs';
 import type { Item } from '../../types';
 
 export function VendorInventory() {
@@ -20,8 +21,7 @@ export function VendorInventory() {
     const { consignors } = useConsignors();
     const { getCategoryNames } = useCategories();
 
-    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-    const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+    const [view, setView] = useState<'list' | 'single' | 'batch'>('list');
     const [editingItem, setEditingItem] = useState<Item | null>(null);
     const [deletingItem, setDeletingItem] = useState<Item | null>(null);
 
@@ -41,7 +41,7 @@ export function VendorInventory() {
         );
 
         if (!result.error) {
-            setIsAddModalOpen(false);
+            setView('list');
         }
         return result;
     };
@@ -78,7 +78,7 @@ export function VendorInventory() {
         const result = await createItems(itemsToCreate);
 
         if (!result.error) {
-            setIsBatchModalOpen(false);
+            setView('list');
         }
         return result;
     };
@@ -97,11 +97,24 @@ export function VendorInventory() {
             header: 'Item',
             sortable: true,
             render: (item) => (
-                <div>
-                    <p className="font-medium">{item.name}</p>
-                    {item.variant && (
-                        <p className="text-xs text-[var(--color-muted)]">{item.variant}</p>
-                    )}
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-[var(--color-surface)] flex-shrink-0 flex items-center justify-center border border-[var(--color-border)]">
+                        {item.image_url ? (
+                            <img
+                                src={item.image_url}
+                                alt={item.name}
+                                className="w-full h-full object-cover"
+                            />
+                        ) : (
+                            <ImagePlaceholderIcon />
+                        )}
+                    </div>
+                    <div>
+                        <p className="font-medium">{item.name}</p>
+                        {item.variant && (
+                            <p className="text-xs text-[var(--color-muted)]">{item.variant}</p>
+                        )}
+                    </div>
                 </div>
             ),
         },
@@ -151,61 +164,88 @@ export function VendorInventory() {
         },
     ];
 
+    const tabs = [
+        { id: 'list', label: 'View All Items' },
+        { id: 'single', label: 'Add Single Item' },
+        { id: 'batch', label: 'Batch Entry' },
+    ];
+
     return (
-        <div className="animate-fadeIn">
+        <div className="animate-fadeIn space-y-6">
             <Header
                 title="My Inventory"
                 description="Manage your consigned items"
-                actions={
-                    <div className="flex gap-2">
-                        <Button variant="secondary" onClick={() => setIsBatchModalOpen(true)}>
-                            Add Multiple
-                        </Button>
-                        <Button onClick={() => setIsAddModalOpen(true)}>
-                            Add Item
-                        </Button>
-                    </div>
-                }
             />
 
-            {items.length === 0 && !isLoading ? (
-                <div className="py-12">
-                    <EmptyState
-                        icon={<PackageIcon />}
-                        title="No items yet"
-                        description="Start adding items to your inventory"
-                        action={
-                            <Button onClick={() => setIsAddModalOpen(true)}>
-                                Add Your First Item
-                            </Button>
-                        }
-                    />
-                </div>
-            ) : (
-                <Table
-                    data={items}
-                    columns={columns}
-                    keyExtractor={(item) => item.id}
-                    searchable
-                    searchPlaceholder="Search items..."
-                    searchKeys={['name', 'sku', 'category', 'variant']}
-                    isLoading={isLoading}
-                />
-            )}
+            <Tabs
+                tabs={tabs}
+                activeTab={view}
+                onChange={(id) => setView(id as any)}
+                className="max-w-md"
+            />
 
-            {/* Add Modal */}
-            <Modal
-                isOpen={isAddModalOpen}
-                onClose={() => setIsAddModalOpen(false)}
-                title="Add Item"
-                size="md"
-            >
-                <VendorItemForm
-                    consignorId={userRecord?.consignor_id || ''}
-                    onSubmit={handleAddItem}
-                    onCancel={() => setIsAddModalOpen(false)}
-                />
-            </Modal>
+            <div className="bg-white rounded-xl border border-[var(--color-border)] shadow-sm overflow-hidden p-6">
+                {view === 'list' && (
+                    <>
+                        {items.length === 0 && !isLoading ? (
+                            <div className="py-12">
+                                <EmptyState
+                                    icon={<PackageIcon />}
+                                    title="No items yet"
+                                    description="Start adding items to your inventory"
+                                    action={
+                                        <Button onClick={() => setView('single')}>
+                                            Add Your First Item
+                                        </Button>
+                                    }
+                                />
+                            </div>
+                        ) : (
+                            <Table
+                                data={items}
+                                columns={columns}
+                                keyExtractor={(item) => item.id}
+                                searchable
+                                searchPlaceholder="Search items..."
+                                searchKeys={['name', 'sku', 'category', 'variant']}
+                                isLoading={isLoading}
+                            />
+                        )}
+                    </>
+                )}
+
+                {view === 'single' && (
+                    <div className="max-w-3xl mx-auto">
+                        <div className="mb-6">
+                            <h2 className="text-lg font-semibold">Add New Item</h2>
+                            <p className="text-sm text-[var(--color-muted)]">
+                                Add a single item to your inventory with detailed information.
+                            </p>
+                        </div>
+                        <VendorItemForm
+                            consignorId={userRecord?.consignor_id || ''}
+                            onSubmit={handleAddItem}
+                            onCancel={() => setView('list')}
+                        />
+                    </div>
+                )}
+
+                {view === 'batch' && (
+                    <div>
+                        <div className="mb-6">
+                            <h2 className="text-lg font-semibold">Batch Entry</h2>
+                            <p className="text-sm text-[var(--color-muted)]">
+                                Quickly add multiple items at once.
+                            </p>
+                        </div>
+                        <VendorBatchEntry
+                            categories={getCategoryNames()}
+                            onSubmit={handleBatchSubmit}
+                            onCancel={() => setView('list')}
+                        />
+                    </div>
+                )}
+            </div>
 
             {/* Edit Modal */}
             <Modal
@@ -246,20 +286,16 @@ export function VendorInventory() {
                     </div>
                 </div>
             </Modal>
-
-            {/* Batch Entry Modal */}
-            <Modal
-                isOpen={isBatchModalOpen}
-                onClose={() => setIsBatchModalOpen(false)}
-                title="Add Multiple Items"
-                size="lg"
-            >
-                <VendorBatchEntry
-                    categories={getCategoryNames()}
-                    onSubmit={handleBatchSubmit}
-                    onCancel={() => setIsBatchModalOpen(false)}
-                />
-            </Modal>
         </div>
+    );
+}
+
+function ImagePlaceholderIcon() {
+    return (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <circle cx="9" cy="9" r="2" />
+            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+        </svg>
     );
 }

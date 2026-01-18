@@ -86,78 +86,85 @@ export function ItemForm({
                 </div>
             )}
 
-            {!hideConsignor && (
-                <Select
-                    label="Consignor"
-                    options={consignorOptions}
-                    value={formData.consignor_id}
-                    onChange={(e) => updateField('consignor_id', e.target.value)}
-                    placeholder="Select consignor..."
-                    required
-                />
-            )}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Column 1: Item Details */}
+                <div className="space-y-3">
+                    {!hideConsignor && (
+                        <Select
+                            label="Consignor"
+                            options={consignorOptions}
+                            value={formData.consignor_id}
+                            onChange={(e) => updateField('consignor_id', e.target.value)}
+                            placeholder="Select..."
+                            required
+                        />
+                    )}
+                    <Input
+                        label="Item Name"
+                        value={formData.name}
+                        onChange={(e) => updateField('name', e.target.value)}
+                        placeholder="Vintage Jacket"
+                        required
+                    />
+                    <Input
+                        label="Variant"
+                        value={formData.variant}
+                        onChange={(e) => updateField('variant', e.target.value)}
+                        placeholder="Size M, Blue"
+                    />
+                </div>
 
-            <Input
-                label="SKU"
-                value={formData.sku}
-                onChange={(e) => updateField('sku', e.target.value)}
-                placeholder="Leave blank to auto-generate"
-                hint="Custom SKU or auto-generated if empty"
-                className="font-mono"
-            />
+                {/* Column 2: Pricing & Inventory */}
+                <div className="space-y-3">
+                    <Select
+                        label="Category"
+                        options={categoryOptions}
+                        value={formData.category}
+                        onChange={(e) => updateField('category', e.target.value)}
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                        <Input
+                            label="Qty"
+                            type="number"
+                            min="0"
+                            value={formData.quantity}
+                            onChange={(e) => updateField('quantity', parseInt(e.target.value) || 0)}
+                        />
+                        <Input
+                            label="Price"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={formData.price}
+                            onChange={(e) => updateField('price', parseFloat(e.target.value) || 0)}
+                            leftIcon={<span className="text-[var(--color-muted)]">$</span>}
+                            required
+                        />
+                    </div>
+                    <Input
+                        label="SKU"
+                        value={formData.sku}
+                        onChange={(e) => updateField('sku', e.target.value)}
+                        placeholder="Auto if empty"
+                        className="font-mono"
+                    />
+                </div>
 
-            <Input
-                label="Item Name"
-                value={formData.name}
-                onChange={(e) => updateField('name', e.target.value)}
-                placeholder="Vintage Leather Jacket"
-                required
-            />
-
-            <Input
-                label="Variant"
-                value={formData.variant}
-                onChange={(e) => updateField('variant', e.target.value)}
-                placeholder="Size M, Blue"
-                hint="Optional: size, color, or other details"
-            />
-
-            <div className="grid grid-cols-2 gap-4">
-                <Select
-                    label="Category"
-                    options={categoryOptions}
-                    value={formData.category}
-                    onChange={(e) => updateField('category', e.target.value)}
-                />
-                <Input
-                    label="Quantity"
-                    type="number"
-                    min="0"
-                    value={formData.quantity}
-                    onChange={(e) => updateField('quantity', parseInt(e.target.value) || 0)}
-                />
+                {/* Column 3: Image Upload */}
+                {formData.consignor_id && (
+                    <div className="space-y-2">
+                        <label className="block text-sm font-medium text-[var(--color-foreground)]">
+                            Photo
+                        </label>
+                        <ImageUpload
+                            value={formData.image_url}
+                            onChange={(url) => updateField('image_url', url)}
+                            consignorId={formData.consignor_id}
+                            itemId={item?.id}
+                        />
+                    </div>
+                )}
             </div>
-
-            <Input
-                label="Price"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.price}
-                onChange={(e) => updateField('price', parseFloat(e.target.value) || 0)}
-                leftIcon={<span className="text-[var(--color-muted)]">$</span>}
-                required
-            />
-
-            {/* Image Upload */}
-            {formData.consignor_id && (
-                <ImageUpload
-                    value={formData.image_url}
-                    onChange={(url) => updateField('image_url', url)}
-                    consignorId={formData.consignor_id}
-                    itemId={item?.id}
-                />
-            )}
 
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
                 <Button type="button" variant="ghost" onClick={onCancel}>

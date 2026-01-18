@@ -55,6 +55,7 @@ export function useInventory(consignorId?: string) {
                     category: input.category || 'Other',
                     quantity: input.quantity ?? 1,
                     price: input.price,
+                    image_url: input.image_url || null,
                 })
                 .select(`
           *,
@@ -85,6 +86,7 @@ export function useInventory(consignorId?: string) {
                 category: input.category || 'Other',
                 quantity: input.quantity ?? 1,
                 price: input.price,
+                image_url: input.image_url || null,
             }));
 
             const { data, error: createError } = await supabase

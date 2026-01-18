@@ -77,11 +77,24 @@ export function Inventory() {
             header: 'Item',
             sortable: true,
             render: (item) => (
-                <div>
-                    <p className="font-medium text-[var(--color-foreground)]">{item.name}</p>
-                    {item.variant && (
-                        <p className="text-xs text-[var(--color-muted)]">{item.variant}</p>
-                    )}
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-[var(--color-surface)] flex-shrink-0 flex items-center justify-center border border-[var(--color-border)]">
+                        {item.image_url ? (
+                            <img
+                                src={item.image_url}
+                                alt={item.name}
+                                className="w-full h-full object-cover"
+                            />
+                        ) : (
+                            <ImagePlaceholderIcon />
+                        )}
+                    </div>
+                    <div>
+                        <p className="font-medium text-[var(--color-foreground)]">{item.name}</p>
+                        {item.variant && (
+                            <p className="text-xs text-[var(--color-muted)]">{item.variant}</p>
+                        )}
+                    </div>
                 </div>
             ),
         },
@@ -234,7 +247,7 @@ export function Inventory() {
                 isOpen={!!editItem}
                 onClose={() => setEditItem(null)}
                 title="Edit Item"
-                size="md"
+                size="lg"
             >
                 {editItem && (
                     <ItemForm
@@ -290,6 +303,16 @@ function TrashIcon() {
     return (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+        </svg>
+    );
+}
+
+function ImagePlaceholderIcon() {
+    return (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <circle cx="9" cy="9" r="2" />
+            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
         </svg>
     );
 }

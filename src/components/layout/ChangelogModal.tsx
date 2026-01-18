@@ -79,7 +79,21 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                         Bug Fixes
                     </h3>
                     <ul className="list-disc pl-9 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                        <li>Fixed image uploads not saving when vendors create new items.</li>
                         <li>Resolved an issue with autofocus behavior during checkout.</li>
+                    </ul>
+                </div>
+
+                <div className="space-y-3">
+                    <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
+                        <span className="p-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                            <SparklesIcon className="w-4 h-4" />
+                        </span>
+                        Improvements
+                    </h3>
+                    <ul className="list-disc pl-9 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                        <li>Added image thumbnails to inventory lists for both admin and vendor views.</li>
+                        <li>Redesigned the admin item edit modal with a compact 3-column layout.</li>
                     </ul>
                 </div>
 
@@ -104,6 +118,16 @@ function WrenchIcon({ className }: { className?: string }) {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
             <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+        </svg>
+    )
+}
+
+function SparklesIcon({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+            <path d="M17 4a2 2 0 0 0 2 2a2 2 0 0 0 -2 2a2 2 0 0 0 -2 -2a2 2 0 0 0 2 -2" />
+            <path d="M19 11h2m-1 -1v2" />
         </svg>
     )
 }
