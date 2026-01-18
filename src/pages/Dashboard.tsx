@@ -79,10 +79,10 @@ export function Dashboard() {
     }, [analyticsExpanded, dateRange, getSalesTrend, getSalesByCategory, getCustomerGrowth]);
 
     const quickLinks = [
-        { href: '/pos', label: 'Open Register', icon: RegisterIcon, color: 'bg-[var(--color-primary)]' },
-        { href: '/add-items', label: 'Add Items', icon: PlusIcon, color: 'bg-emerald-500' },
-        { href: '/consignors', label: 'Consignors', icon: UsersIcon, color: 'bg-violet-500' },
-        { href: '/labels', label: 'Print Labels', icon: TagIcon, color: 'bg-amber-500' },
+        { href: '/admin/pos', label: 'Open Register', icon: RegisterIcon, color: 'bg-[var(--color-primary)]' },
+        { href: '/admin/add-items', label: 'Add Items', icon: PlusIcon, color: 'bg-emerald-500' },
+        { href: '/admin/consignors', label: 'Consignors', icon: UsersIcon, color: 'bg-violet-500' },
+        { href: '/admin/labels', label: 'Print Labels', icon: TagIcon, color: 'bg-amber-500' },
     ];
 
     if (isLoading || consignorsLoading || itemsLoading) {

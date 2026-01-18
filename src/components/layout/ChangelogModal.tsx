@@ -81,6 +81,9 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                     <ul className="list-disc pl-9 space-y-1 text-sm text-[var(--color-muted-foreground)]">
                         <li>Fixed image uploads not saving when vendors create new items.</li>
                         <li>Resolved an issue with autofocus behavior during checkout.</li>
+                        <li>Fixed Chrome-specific infinite loading issue caused by blocking auth state.</li>
+                        <li>Fixed React setState-during-render error in Login page that caused cascading re-renders.</li>
+                        <li>Fixed Dashboard quick action buttons navigating to wrong routes.</li>
                     </ul>
                 </div>
 
@@ -94,6 +97,8 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                     <ul className="list-disc pl-9 space-y-1 text-sm text-[var(--color-muted-foreground)]">
                         <li>Added image thumbnails to inventory lists for both admin and vendor views.</li>
                         <li>Redesigned the admin item edit modal with a compact 3-column layout.</li>
+                        <li>Improved app performance with non-blocking auth loading — pages now render faster.</li>
+                        <li>Added session recovery option for users stuck in broken auth states.</li>
                     </ul>
                 </div>
 

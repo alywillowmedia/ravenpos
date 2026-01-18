@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Input } from '../components/ui/Input';
@@ -14,10 +14,16 @@ export function Login() {
     const [error, setError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // If already logged in, redirect based on role
+    // If already logged in, redirect based on role (in useEffect, not during render)
+    useEffect(() => {
+        if (!isLoading && userRecord) {
+            const redirectPath = userRecord.role === 'admin' ? '/admin' : '/vendor';
+            navigate(redirectPath, { replace: true });
+        }
+    }, [isLoading, userRecord, navigate]);
+
+    // Show nothing while redirecting (already logged in)
     if (!isLoading && userRecord) {
-        const redirectPath = userRecord.role === 'admin' ? '/admin' : '/vendor';
-        navigate(redirectPath, { replace: true });
         return null;
     }
 

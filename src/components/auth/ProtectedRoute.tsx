@@ -8,10 +8,10 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
-    const { user, userRecord, isLoading, isAdmin, isVendor } = useAuth();
+    const { user, userRecord, isLoading, isAdmin, isVendor, signOut } = useAuth();
     const location = useLocation();
 
-    // Show loading while checking auth state
+    // Show loading while checking initial auth state
     if (isLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)]">
@@ -25,15 +25,24 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
         return <Navigate to="/login" state={{ from: location }} replace />;
     }
 
-    // No user record (shouldn't happen, but handle gracefully)
+    // User is logged in but user record is still loading (non-blocking fetch)
+    // Show a brief loading state while we wait for it
     if (!userRecord) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)]">
-                <div className="text-center p-8">
-                    <h1 className="text-xl font-semibold mb-2">Account Not Found</h1>
-                    <p className="text-[var(--color-muted)]">
-                        Your user account is not properly configured. Please contact an administrator.
-                    </p>
+                <div className="text-center">
+                    <LoadingSpinner size={32} />
+                    <p className="mt-4 text-sm text-[var(--color-muted)]">Loading your account...</p>
+                    {/* Add a timeout recovery after 10 seconds */}
+                    <button
+                        onClick={async () => {
+                            await signOut();
+                            window.location.href = '/login';
+                        }}
+                        className="mt-4 text-sm text-[var(--color-primary)] hover:underline"
+                    >
+                        Taking too long? Sign out and retry
+                    </button>
                 </div>
             </div>
         );

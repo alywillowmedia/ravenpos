@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 
@@ -21,6 +21,7 @@ interface AuthContextValue {
     isVendor: boolean;
     signIn: (email: string, password: string) => Promise<{ error: string | null }>;
     signOut: () => Promise<void>;
+    refreshUserRecord: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -35,56 +36,81 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const [userRecord, setUserRecord] = useState<UserRecord | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Fetch user record from users table
-    const fetchUserRecord = async (userId: string) => {
-        const { data, error } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', userId)
-            .single();
+    // Track if we're currently fetching to prevent duplicate requests
+    const fetchingRef = useRef(false);
+    const lastUserIdRef = useRef<string | null>(null);
 
-        if (error) {
-            console.error('Error fetching user record:', error);
-            return null;
+    // Fetch user record - doesn't block, just updates state when ready
+    const fetchUserRecord = useCallback(async (userId: string) => {
+        // Skip if already fetching for this user
+        if (fetchingRef.current && lastUserIdRef.current === userId) {
+            return;
         }
 
-        return data as UserRecord;
-    };
+        fetchingRef.current = true;
+        lastUserIdRef.current = userId;
+
+        try {
+            const { data, error } = await supabase
+                .from('users')
+                .select('*')
+                .eq('id', userId)
+                .single();
+
+            if (error) {
+                console.error('Error fetching user record:', error);
+                setUserRecord(null);
+            } else {
+                setUserRecord(data as UserRecord);
+            }
+        } catch (err) {
+            console.error('Exception fetching user record:', err);
+            setUserRecord(null);
+        } finally {
+            fetchingRef.current = false;
+        }
+    }, []);
 
     // Initialize auth state
     useEffect(() => {
-        // Get initial session
-        supabase.auth.getSession().then(async ({ data: { session } }) => {
+        let mounted = true;
+
+        // Get initial session - DON'T await user record, let it load async
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (!mounted) return;
+
             setSession(session);
             setUser(session?.user ?? null);
+            setIsLoading(false); // Set loading false IMMEDIATELY
 
+            // Fetch user record in background (non-blocking)
             if (session?.user) {
-                const record = await fetchUserRecord(session.user.id);
-                setUserRecord(record);
+                fetchUserRecord(session.user.id);
             }
-
-            setIsLoading(false);
         });
 
         // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (_event, session) => {
+            (_event, session) => {
+                if (!mounted) return;
+
                 setSession(session);
                 setUser(session?.user ?? null);
 
                 if (session?.user) {
-                    const record = await fetchUserRecord(session.user.id);
-                    setUserRecord(record);
+                    // Fetch user record in background (non-blocking)
+                    fetchUserRecord(session.user.id);
                 } else {
                     setUserRecord(null);
                 }
-
-                setIsLoading(false);
             }
         );
 
-        return () => subscription.unsubscribe();
-    }, []);
+        return () => {
+            mounted = false;
+            subscription.unsubscribe();
+        };
+    }, [fetchUserRecord]);
 
     const signIn = async (email: string, password: string) => {
         const { error } = await supabase.auth.signInWithPassword({
@@ -104,7 +130,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser(null);
         setSession(null);
         setUserRecord(null);
+        lastUserIdRef.current = null;
     };
+
+    // Expose a way to manually refresh user record if needed
+    const refreshUserRecord = useCallback(async () => {
+        if (user?.id) {
+            await fetchUserRecord(user.id);
+        }
+    }, [user?.id, fetchUserRecord]);
 
     const value: AuthContextValue = {
         user,
@@ -115,6 +149,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         isVendor: userRecord?.role === 'vendor',
         signIn,
         signOut,
+        refreshUserRecord,
     };
 
     return (
