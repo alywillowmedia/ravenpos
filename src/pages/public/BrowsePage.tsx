@@ -1,8 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { usePublicInventory } from '../../hooks/usePublicInventory';
 import { ProductCard } from '../../components/storefront/ProductCard';
-import { VendorCard } from '../../components/storefront/VendorCard';
-import { CategoryCard } from '../../components/storefront/CategoryCard';
 import { HeroSection } from '../../components/storefront/HeroSection';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
