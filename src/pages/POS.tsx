@@ -10,15 +10,28 @@ import { useInventory } from '../hooks/useInventory';
 import { useSales } from '../hooks/useSales';
 import { useCategories } from '../hooks/useCategories';
 import { useCustomers } from '../hooks/useCustomers';
+import { useStripeTerminal } from '../hooks/useStripeTerminal';
 import { createCartItem, calculateCartTotals } from '../lib/tax';
 import { formatCurrency } from '../lib/utils';
-import type { CartItem, Sale, Customer, CustomerInput } from '../types';
+import type { CartItem, Sale, Customer, CustomerInput, PaymentMethod } from '../types';
 
 export function POS() {
     const scannerRef = useRef<HTMLInputElement>(null);
     const { getItemBySku } = useInventory();
     const { completeSale, isProcessing } = useSales();
     const { searchCustomers, createCustomer } = useCustomers();
+
+    // Stripe Terminal
+    const {
+        status: terminalStatus,
+        error: terminalError,
+        discoveredReaders,
+        connectedReader,
+        discoverReaders,
+        connectReader,
+        disconnectReader,
+        collectCardPayment,
+    } = useStripeTerminal();
 
     // Fetch categories to ensure tax rates are synced from database
     useCategories();
@@ -28,6 +41,11 @@ export function POS() {
     const [scanError, setScanError] = useState<string | null>(null);
     const [cashTendered, setCashTendered] = useState<string>('');
     const [completedSale, setCompletedSale] = useState<Sale | null>(null);
+
+    // Payment method state
+    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+    const [isCollectingCard, setIsCollectingCard] = useState(false);
+    const [showReaderModal, setShowReaderModal] = useState(false);
 
     // Customer state
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -137,7 +155,7 @@ export function POS() {
         setCart((prev) => prev.filter((_, i) => i !== index));
     };
 
-    const handleCompleteSale = async () => {
+    const handleCompleteCashSale = async () => {
         if (cart.length === 0) return;
         if (cashAmount < total) {
             setScanError('Insufficient cash');
@@ -151,7 +169,8 @@ export function POS() {
             total,
             cashAmount,
             change,
-            selectedCustomer?.id
+            selectedCustomer?.id,
+            'cash'
         );
 
         if (error) {
@@ -162,6 +181,55 @@ export function POS() {
         setCompletedSale(sale);
     };
 
+    const handleCompleteCardSale = async () => {
+        if (cart.length === 0) return;
+        if (!connectedReader) {
+            setScanError('No card reader connected');
+            return;
+        }
+
+        setIsCollectingCard(true);
+        setScanError(null);
+
+        // Convert total to cents for Stripe
+        const amountInCents = Math.round(total * 100);
+
+        const { paymentIntentId, error: cardError } = await collectCardPayment(amountInCents);
+
+        if (cardError) {
+            setScanError(cardError);
+            setIsCollectingCard(false);
+            return;
+        }
+
+        // Complete the sale in our database
+        const { data: sale, error } = await completeSale(
+            cart,
+            subtotal,
+            taxTotal,
+            total,
+            0,
+            0,
+            selectedCustomer?.id,
+            'card',
+            paymentIntentId
+        );
+
+        setIsCollectingCard(false);
+
+        if (error) {
+            setScanError(error);
+            return;
+        }
+
+        setCompletedSale(sale);
+    };
+
+    const handleDiscoverReaders = async () => {
+        setShowReaderModal(true);
+        await discoverReaders(true); // Use simulated readers for sandbox
+    };
+
     const handleNewSale = () => {
         setCart([]);
         setCashTendered('');
@@ -169,6 +237,8 @@ export function POS() {
         setScanError(null);
         setSelectedCustomer(null);
         setCustomerSearch('');
+        setPaymentMethod('cash');
+        setIsCollectingCard(false);
         scannerRef.current?.focus();
     };
 
@@ -421,80 +491,222 @@ export function POS() {
                         </CardContent>
                     </Card>
 
-                    {/* Cash Tender */}
+                    {/* Payment Method */}
                     <Card variant="outlined" className="flex-1">
                         <CardContent className="h-full flex flex-col">
-                            <p className="text-sm font-medium mb-2">Cash Tendered</p>
-                            <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={cashTendered}
-                                onChange={(e) => setCashTendered(e.target.value)}
-                                inputSize="lg"
-                                leftIcon={<span className="text-[var(--color-muted)]">$</span>}
-                                placeholder="0.00"
-                            />
-
-                            {/* Quick amounts */}
-                            <div className="grid grid-cols-3 gap-2 mt-3">
-                                {quickCashAmounts.map((amount) => (
-                                    <button
-                                        key={amount}
-                                        onClick={() => setCashTendered(amount.toString())}
-                                        className="py-2 px-3 rounded-lg bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-sm font-medium transition-colors"
-                                    >
-                                        ${amount}
-                                    </button>
-                                ))}
-                                {total > 0 && (
-                                    <button
-                                        onClick={() => setCashTendered(Math.ceil(total).toString())}
-                                        className="col-span-3 py-2 px-3 rounded-lg bg-[var(--color-primary)]/10 hover:bg-[var(--color-primary)]/20 text-[var(--color-primary)] text-sm font-medium transition-colors"
-                                    >
-                                        Exact: {formatCurrency(Math.ceil(total))}
-                                    </button>
-                                )}
+                            {/* Payment Method Toggle */}
+                            <div className="flex gap-2 mb-4">
+                                <button
+                                    onClick={() => setPaymentMethod('cash')}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                                        paymentMethod === 'cash'
+                                            ? 'bg-[var(--color-primary)] text-white'
+                                            : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
+                                    }`}
+                                >
+                                    <CashIcon />
+                                    Cash
+                                </button>
+                                <button
+                                    onClick={() => setPaymentMethod('card')}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                                        paymentMethod === 'card'
+                                            ? 'bg-[var(--color-primary)] text-white'
+                                            : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
+                                    }`}
+                                >
+                                    <CardIcon />
+                                    Card
+                                </button>
                             </div>
 
-                            {/* Change Display */}
-                            {cashAmount > 0 && (
-                                <div
-                                    className={`mt-4 p-4 rounded-xl text-center ${change >= 0
-                                        ? 'bg-[var(--color-success-bg)]'
-                                        : 'bg-[var(--color-danger-bg)]'
-                                        }`}
-                                >
-                                    <p className="text-sm text-[var(--color-muted)]">
-                                        {change >= 0 ? 'Change Due' : 'Amount Short'}
-                                    </p>
-                                    <p
-                                        className={`text-3xl font-bold ${change >= 0
-                                            ? 'text-[var(--color-success)]'
-                                            : 'text-[var(--color-danger)]'
-                                            }`}
-                                    >
-                                        {formatCurrency(Math.abs(change))}
-                                    </p>
-                                </div>
+                            {paymentMethod === 'cash' ? (
+                                <>
+                                    <p className="text-sm font-medium mb-2">Cash Tendered</p>
+                                    <Input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={cashTendered}
+                                        onChange={(e) => setCashTendered(e.target.value)}
+                                        inputSize="lg"
+                                        leftIcon={<span className="text-[var(--color-muted)]">$</span>}
+                                        placeholder="0.00"
+                                    />
+
+                                    {/* Quick amounts */}
+                                    <div className="grid grid-cols-3 gap-2 mt-3">
+                                        {quickCashAmounts.map((amount) => (
+                                            <button
+                                                key={amount}
+                                                onClick={() => setCashTendered(amount.toString())}
+                                                className="py-2 px-3 rounded-lg bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-sm font-medium transition-colors"
+                                            >
+                                                ${amount}
+                                            </button>
+                                        ))}
+                                        {total > 0 && (
+                                            <button
+                                                onClick={() => setCashTendered(Math.ceil(total).toString())}
+                                                className="col-span-3 py-2 px-3 rounded-lg bg-[var(--color-primary)]/10 hover:bg-[var(--color-primary)]/20 text-[var(--color-primary)] text-sm font-medium transition-colors"
+                                            >
+                                                Exact: {formatCurrency(Math.ceil(total))}
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Change Display */}
+                                    {cashAmount > 0 && (
+                                        <div
+                                            className={`mt-4 p-4 rounded-xl text-center ${change >= 0
+                                                ? 'bg-[var(--color-success-bg)]'
+                                                : 'bg-[var(--color-danger-bg)]'
+                                                }`}
+                                        >
+                                            <p className="text-sm text-[var(--color-muted)]">
+                                                {change >= 0 ? 'Change Due' : 'Amount Short'}
+                                            </p>
+                                            <p
+                                                className={`text-3xl font-bold ${change >= 0
+                                                    ? 'text-[var(--color-success)]'
+                                                    : 'text-[var(--color-danger)]'
+                                                    }`}
+                                            >
+                                                {formatCurrency(Math.abs(change))}
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* Complete Cash Sale Button */}
+                                    <div className="mt-auto pt-4">
+                                        <Button
+                                            size="xl"
+                                            className="w-full"
+                                            onClick={handleCompleteCashSale}
+                                            disabled={cart.length === 0 || cashAmount < total}
+                                            isLoading={isProcessing}
+                                        >
+                                            Complete Cash Sale
+                                        </Button>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    {/* Card Reader Status */}
+                                    <div className="mb-4">
+                                        <p className="text-sm font-medium mb-2">Card Reader</p>
+                                        {connectedReader ? (
+                                            <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-success-bg)] border border-[var(--color-success)]/20">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-2 h-2 rounded-full bg-[var(--color-success)]" />
+                                                    <span className="text-sm font-medium">{connectedReader.label}</span>
+                                                </div>
+                                                <button
+                                                    onClick={disconnectReader}
+                                                    className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+                                                >
+                                                    Disconnect
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={handleDiscoverReaders}
+                                                className="w-full p-3 rounded-lg border-2 border-dashed border-[var(--color-border)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 transition-colors text-sm text-[var(--color-muted)]"
+                                            >
+                                                {terminalStatus === 'discovering' ? (
+                                                    <span className="flex items-center justify-center gap-2">
+                                                        <LoadingSpinner size={16} />
+                                                        Searching for readers...
+                                                    </span>
+                                                ) : (
+                                                    '+ Connect Card Reader'
+                                                )}
+                                            </button>
+                                        )}
+                                        {terminalError && (
+                                            <p className="text-xs text-[var(--color-danger)] mt-1">{terminalError}</p>
+                                        )}
+                                    </div>
+
+                                    {/* Card Payment Status */}
+                                    {isCollectingCard && (
+                                        <div className="flex-1 flex items-center justify-center">
+                                            <div className="text-center">
+                                                <LoadingSpinner size={48} />
+                                                <p className="mt-4 text-lg font-medium">
+                                                    {terminalStatus === 'collecting' && 'Present card on reader...'}
+                                                    {terminalStatus === 'processing' && 'Processing payment...'}
+                                                </p>
+                                                <p className="text-sm text-[var(--color-muted)]">
+                                                    {formatCurrency(total)}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Complete Card Sale Button */}
+                                    <div className="mt-auto pt-4">
+                                        <Button
+                                            size="xl"
+                                            className="w-full"
+                                            onClick={handleCompleteCardSale}
+                                            disabled={cart.length === 0 || !connectedReader || isCollectingCard}
+                                            isLoading={isCollectingCard}
+                                        >
+                                            {isCollectingCard ? 'Processing...' : `Charge ${formatCurrency(total)}`}
+                                        </Button>
+                                    </div>
+                                </>
                             )}
-
-                            {/* Complete Sale Button */}
-                            <div className="mt-auto pt-4">
-                                <Button
-                                    size="xl"
-                                    className="w-full"
-                                    onClick={handleCompleteSale}
-                                    disabled={cart.length === 0 || cashAmount < total}
-                                    isLoading={isProcessing}
-                                >
-                                    Complete Sale
-                                </Button>
-                            </div>
                         </CardContent>
                     </Card>
                 </div>
             </div>
+
+            {/* Reader Selection Modal */}
+            <Modal
+                isOpen={showReaderModal}
+                onClose={() => setShowReaderModal(false)}
+                title="Connect Card Reader"
+                size="sm"
+            >
+                <div className="space-y-3">
+                    {terminalStatus === 'discovering' ? (
+                        <div className="flex items-center justify-center py-8">
+                            <LoadingSpinner size={32} />
+                            <span className="ml-3">Searching for readers...</span>
+                        </div>
+                    ) : discoveredReaders.length === 0 ? (
+                        <div className="text-center py-8">
+                            <p className="text-[var(--color-muted)]">No readers found</p>
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => discoverReaders(true)}
+                                className="mt-3"
+                            >
+                                Search Again
+                            </Button>
+                        </div>
+                    ) : (
+                        discoveredReaders.map((reader) => (
+                            <button
+                                key={reader.id}
+                                onClick={async () => {
+                                    await connectReader(reader);
+                                    setShowReaderModal(false);
+                                }}
+                                className="w-full p-3 rounded-lg border border-[var(--color-border)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 transition-colors text-left"
+                            >
+                                <p className="font-medium">{reader.label}</p>
+                                <p className="text-xs text-[var(--color-muted)]">
+                                    {reader.device_type} - {reader.status}
+                                </p>
+                            </button>
+                        ))
+                    )}
+                </div>
+            </Modal>
 
             {/* Receipt Modal */}
             <Modal
@@ -603,6 +815,25 @@ function UserPlusIcon() {
             <circle cx="8.5" cy="7" r="4" />
             <line x1="20" y1="8" x2="20" y2="14" />
             <line x1="23" y1="11" x2="17" y2="11" />
+        </svg>
+    );
+}
+
+function CashIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+            <circle cx="12" cy="12" r="3" />
+            <path d="M2 9h2M20 9h2M2 15h2M20 15h2" />
+        </svg>
+    );
+}
+
+function CardIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+            <line x1="1" y1="10" x2="23" y2="10" />
         </svg>
     );
 }

@@ -54,6 +54,8 @@ export interface Customer {
 
 export type CustomerInput = Omit<Customer, 'id' | 'created_at' | 'updated_at'>;
 
+export type PaymentMethod = 'cash' | 'card';
+
 export interface Sale {
     id: string;
     customer_id: string | null;
@@ -61,8 +63,10 @@ export interface Sale {
     subtotal: number;
     tax_amount: number;
     total: number;
+    payment_method: PaymentMethod;
     cash_tendered: number | null;
     change_given: number | null;
+    stripe_payment_intent_id: string | null;
     // Joined data
     customer?: Customer;
 }

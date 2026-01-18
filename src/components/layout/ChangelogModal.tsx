@@ -55,6 +55,13 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                         </div>
 
                         <div className="space-y-1">
+                            <h4 className="font-medium text-sm text-[var(--color-foreground)]">Payment Integration</h4>
+                            <p className="text-sm text-[var(--color-muted-foreground)]">
+                                Added a simulated Stripe Terminal card reader to the checkout process, allowing for full end-to-end testing of integrated credit card payments without requiring physical hardware.
+                            </p>
+                        </div>
+
+                        <div className="space-y-1">
                             <h4 className="font-medium text-sm text-[var(--color-foreground)]">General Improvements</h4>
                             <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
                                 <li>Added image upload capability for inventory items.</li>

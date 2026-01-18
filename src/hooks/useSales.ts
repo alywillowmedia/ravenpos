@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import type { CartItem, Sale, SaleItem } from '../types';
+import type { CartItem, Sale, SaleItem, PaymentMethod } from '../types';
 
 export function useSales() {
     const [isProcessing, setIsProcessing] = useState(false);
@@ -13,7 +13,9 @@ export function useSales() {
         total: number,
         cashTendered: number,
         changeGiven: number,
-        customerId?: string | null
+        customerId?: string | null,
+        paymentMethod: PaymentMethod = 'cash',
+        stripePaymentIntentId?: string
     ) => {
         try {
             setIsProcessing(true);
@@ -26,8 +28,10 @@ export function useSales() {
                     subtotal,
                     tax_amount: taxTotal,
                     total,
-                    cash_tendered: cashTendered,
-                    change_given: changeGiven,
+                    payment_method: paymentMethod,
+                    cash_tendered: paymentMethod === 'cash' ? cashTendered : null,
+                    change_given: paymentMethod === 'cash' ? changeGiven : null,
+                    stripe_payment_intent_id: stripePaymentIntentId || null,
                     customer_id: customerId || null,
                 })
                 .select()
