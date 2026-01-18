@@ -1,0 +1,94 @@
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { AdminLayout } from './components/layout/AdminLayout';
+import { VendorLayout } from './components/layout/VendorLayout';
+import { PublicLayout } from './components/layout/PublicLayout';
+
+// Pages
+import { Login } from './pages/Login';
+import { Dashboard } from './pages/Dashboard';
+import { Consignors } from './pages/Consignors';
+import { ConsignorDetail } from './pages/ConsignorDetail';
+import { Inventory } from './pages/Inventory';
+import { AddItems } from './pages/AddItems';
+import { ImportCSV } from './pages/ImportCSV';
+import { Labels } from './pages/Labels';
+import { POS } from './pages/POS';
+import { Sales } from './pages/Sales';
+import { Payouts } from './pages/Payouts';
+import { Customers } from './pages/Customers';
+
+// Vendor Pages
+import { VendorDashboard } from './pages/vendor/VendorDashboard';
+import { VendorInventory } from './pages/vendor/VendorInventory';
+import { VendorSales } from './pages/vendor/VendorSales';
+import { VendorPayouts } from './pages/vendor/VendorPayouts';
+import { VendorProfile } from './pages/vendor/VendorProfile';
+
+// Public Pages
+import { BrowsePage } from './pages/public/BrowsePage';
+import { ItemDetailPage } from './pages/public/ItemDetailPage';
+import { VendorPage } from './pages/public/VendorPage';
+import { CategoryPage } from './pages/public/CategoryPage';
+
+export default function App() {
+    return (
+        <AuthProvider>
+            <Routes>
+                {/* Public Storefront Routes */}
+                <Route element={<PublicLayout />}>
+                    <Route path="/" element={<BrowsePage />} />
+                    <Route path="/item/:id" element={<ItemDetailPage />} />
+                    <Route path="/vendor/:id" element={<VendorPage />} />
+                    <Route path="/category/:category" element={<CategoryPage />} />
+                </Route>
+
+                {/* Login */}
+                <Route path="/login" element={<Login />} />
+
+                {/* Admin Routes */}
+                <Route
+                    path="/admin"
+                    element={
+                        <ProtectedRoute requiredRole="admin">
+                            <AdminLayout />
+                        </ProtectedRoute>
+                    }
+                >
+                    <Route index element={<Dashboard />} />
+                    <Route path="consignors" element={<Consignors />} />
+                    <Route path="consignors/:id" element={<ConsignorDetail />} />
+                    <Route path="inventory" element={<Inventory />} />
+                    <Route path="add-items" element={<AddItems />} />
+                    <Route path="import" element={<ImportCSV />} />
+                    <Route path="labels" element={<Labels />} />
+                    <Route path="pos" element={<POS />} />
+                    <Route path="sales" element={<Sales />} />
+                    <Route path="payouts" element={<Payouts />} />
+                    <Route path="customers" element={<Customers />} />
+                </Route>
+
+                {/* Vendor Routes */}
+                <Route
+                    path="/vendor"
+                    element={
+                        <ProtectedRoute requiredRole="vendor">
+                            <VendorLayout />
+                        </ProtectedRoute>
+                    }
+                >
+                    <Route index element={<VendorDashboard />} />
+                    <Route path="inventory" element={<VendorInventory />} />
+                    <Route path="sales" element={<VendorSales />} />
+                    <Route path="payouts" element={<VendorPayouts />} />
+                    <Route path="profile" element={<VendorProfile />} />
+                </Route>
+
+                {/* Catch all - redirect to storefront */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+        </AuthProvider>
+    );
+}
+
