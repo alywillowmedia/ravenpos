@@ -192,15 +192,18 @@ export function useRefunds() {
                     // Get current item data including Shopify sync settings
                     const { data: currentItem } = await supabase
                         .from('items')
-                        .select('quantity, sync_enabled, shopify_inventory_item_id')
+                        .select('quantity, qty_unlabeled, sync_enabled, shopify_inventory_item_id')
                         .eq('id', item.item_id)
                         .single();
 
                     if (currentItem) {
-                        // Update local quantity
+                        // Update local quantity and add to unlabeled count (restocked items need new labels)
                         const { error: updateError } = await supabase
                             .from('items')
-                            .update({ quantity: currentItem.quantity + item.quantity })
+                            .update({
+                                quantity: currentItem.quantity + item.quantity,
+                                qty_unlabeled: (currentItem.qty_unlabeled || 0) + item.quantity
+                            })
                             .eq('id', item.item_id);
 
                         if (updateError) {

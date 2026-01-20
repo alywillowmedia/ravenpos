@@ -50,7 +50,7 @@ CREATE TABLE items (
   variant TEXT,
   category TEXT NOT NULL DEFAULT 'Other',
   quantity INTEGER DEFAULT 1,
-  printed_quantity INTEGER DEFAULT 0,
+  qty_unlabeled INTEGER DEFAULT 0,
   price DECIMAL(10,2) NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

@@ -31,7 +31,7 @@ export interface Item {
     variant: string | null;
     category: string;
     quantity: number;
-    printed_quantity: number;
+    qty_unlabeled: number;
     price: number;
     image_url: string | null;
     is_listed: boolean;

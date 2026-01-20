@@ -45,6 +45,7 @@ export function useInventory(consignorId?: string) {
             // Use provided SKU or auto-generate
             const sku = input.sku?.trim() || generateSKU(consignorNumber);
 
+            const itemQuantity = input.quantity ?? 1;
             const { data, error: createError } = await supabase
                 .from('items')
                 .insert({
@@ -53,7 +54,8 @@ export function useInventory(consignorId?: string) {
                     name: input.name,
                     variant: input.variant || null,
                     category: input.category || 'Other',
-                    quantity: input.quantity ?? 1,
+                    quantity: itemQuantity,
+                    qty_unlabeled: itemQuantity, // New items need labels for full quantity
                     price: input.price,
                     image_url: input.image_url || null,
                 })
@@ -77,17 +79,21 @@ export function useInventory(consignorId?: string) {
         inputs: (Partial<ItemInput> & { consignor_id: string; name: string; price: number; consignorNumber: string })[]
     ) => {
         try {
-            const itemsToInsert = inputs.map((input) => ({
-                consignor_id: input.consignor_id,
-                // Use provided SKU or auto-generate
-                sku: input.sku?.trim() || generateSKU(input.consignorNumber),
-                name: input.name,
-                variant: input.variant || null,
-                category: input.category || 'Other',
-                quantity: input.quantity ?? 1,
-                price: input.price,
-                image_url: input.image_url || null,
-            }));
+            const itemsToInsert = inputs.map((input) => {
+                const itemQuantity = input.quantity ?? 1;
+                return {
+                    consignor_id: input.consignor_id,
+                    // Use provided SKU or auto-generate
+                    sku: input.sku?.trim() || generateSKU(input.consignorNumber),
+                    name: input.name,
+                    variant: input.variant || null,
+                    category: input.category || 'Other',
+                    quantity: itemQuantity,
+                    qty_unlabeled: itemQuantity, // New items need labels for full quantity
+                    price: input.price,
+                    image_url: input.image_url || null,
+                };
+            });
 
             const { data, error: createError } = await supabase
                 .from('items')
@@ -115,9 +121,21 @@ export function useInventory(consignorId?: string) {
                 currentItem &&
                 updates.quantity !== currentItem.quantity;
 
+            // If quantity is increasing, add the difference to qty_unlabeled (new stock needs labels)
+            let finalUpdates = { ...updates };
+            if (quantityChanged && currentItem && updates.quantity !== undefined) {
+                const quantityDiff = updates.quantity - currentItem.quantity;
+                if (quantityDiff > 0) {
+                    // Quantity increased - add the difference to unlabeled count
+                    finalUpdates.qty_unlabeled = (currentItem.qty_unlabeled || 0) + quantityDiff;
+                }
+                // Note: If quantity decreases, we don't change qty_unlabeled
+                // (we assume labeled items were sold/removed, not unlabeled ones)
+            }
+
             const { data, error: updateError } = await supabase
                 .from('items')
-                .update(updates)
+                .update(finalUpdates)
                 .eq('id', id)
                 .select(`
           *,
@@ -222,22 +240,23 @@ export function useInventory(consignorId?: string) {
 
     const markAsPrinted = async (printedItems: { id: string; printedCount: number }[]) => {
         try {
-            // Update each item's printed_quantity
+            // Update each item's qty_unlabeled (decrement by the number printed)
             for (const { id, printedCount } of printedItems) {
                 const item = items.find((i) => i.id === id);
                 if (!item) continue;
 
-                const newPrintedQty = (item.printed_quantity || 0) + printedCount;
+                // Decrement qty_unlabeled, but don't go below 0
+                const newUnlabeled = Math.max(0, (item.qty_unlabeled || 0) - printedCount);
 
                 const { error: updateError } = await supabase
                     .from('items')
-                    .update({ printed_quantity: newPrintedQty })
+                    .update({ qty_unlabeled: newUnlabeled })
                     .eq('id', id);
 
                 if (updateError) throw updateError;
             }
 
-            // Refresh items to get updated printed_quantity values
+            // Refresh items to get updated qty_unlabeled values
             await fetchItems();
             return { error: null };
         } catch (err) {

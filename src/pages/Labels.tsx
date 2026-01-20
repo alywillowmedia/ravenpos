@@ -72,18 +72,18 @@ export function Labels() {
             result = result.filter((item) => item.category === filters.category);
         }
 
-        // Filter by printed status
+        // Filter by printed status (based on qty_unlabeled)
         if (filters.printedStatus !== 'all') {
             result = result.filter((item) => {
-                const printed = item.printed_quantity || 0;
+                const unlabeled = item.qty_unlabeled || 0;
                 const total = item.quantity;
                 switch (filters.printedStatus) {
                     case 'none_printed':
-                        return printed === 0;
+                        return unlabeled === total; // All need labels
                     case 'some_printed':
-                        return printed > 0 && printed < total;
+                        return unlabeled > 0 && unlabeled < total; // Some need labels
                     case 'all_printed':
-                        return printed >= total;
+                        return unlabeled === 0; // None need labels
                     default:
                         return true;
                 }
@@ -188,9 +188,9 @@ export function Labels() {
             case 'all':
                 return item.quantity;
             case 'new':
-                return Math.max(0, item.quantity - (item.printed_quantity || 0));
+                return item.qty_unlabeled || 0;
             case 'custom':
-                return customQuantities[item.id] ?? Math.max(0, item.quantity - (item.printed_quantity || 0));
+                return customQuantities[item.id] ?? (item.qty_unlabeled || 0);
             default:
                 return item.quantity;
         }
@@ -245,10 +245,10 @@ export function Labels() {
     };
 
     const handleOpenPrintOptions = () => {
-        // Initialize custom quantities with "new" values
+        // Initialize custom quantities with "new" values (unlabeled count)
         const initial: PrintQuantityOverride = {};
         selectedItems.forEach((item) => {
-            initial[item.id] = Math.max(0, item.quantity - (item.printed_quantity || 0));
+            initial[item.id] = item.qty_unlabeled || 0;
         });
         setCustomQuantities(initial);
         setShowPrintOptions(true);
@@ -322,16 +322,15 @@ export function Labels() {
             render: (item) => formatCurrency(Number(item.price)),
         },
         {
-            key: 'printed',
-            header: 'Printed',
+            key: 'unlabeled',
+            header: 'Unlabeled',
             width: '90px',
             render: (item) => {
-                const printed = item.printed_quantity || 0;
-                const total = item.quantity;
-                const allPrinted = printed >= total;
+                const unlabeled = item.qty_unlabeled || 0;
+                const allLabeled = unlabeled === 0;
                 return (
-                    <span className={allPrinted ? 'text-green-600 font-medium' : ''}>
-                        {printed}/{total}
+                    <span className={allLabeled ? 'text-green-600 font-medium' : 'text-amber-600'}>
+                        {unlabeled === 0 ? '✓' : unlabeled}
                     </span>
                 );
             },
@@ -435,7 +434,7 @@ export function Labels() {
                                         <div className="flex-1 min-w-0">
                                             <p className="font-medium truncate">{item.name}</p>
                                             <p className="text-xs text-[var(--color-muted)]">
-                                                {item.printed_quantity || 0}/{item.quantity} printed
+                                                {item.qty_unlabeled || 0} of {item.quantity} need labels
                                             </p>
                                         </div>
                                         <input
@@ -664,14 +663,14 @@ export function Labels() {
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                                // Select only items with unprinted labels
-                                const unprintedIds = filteredAndSortedItems
-                                    .filter((i) => i.quantity > (i.printed_quantity || 0))
+                                // Select only items that need labels
+                                const unlabeledIds = filteredAndSortedItems
+                                    .filter((i) => (i.qty_unlabeled || 0) > 0)
                                     .map((i) => i.id);
-                                setSelectedIds(new Set(unprintedIds));
+                                setSelectedIds(new Set(unlabeledIds));
                             }}
                         >
-                            Select Unprinted
+                            Select Unlabeled
                         </Button>
                         {selectedIds.size > 0 && (
                             <span className="text-sm text-[var(--color-muted)]">

@@ -35,6 +35,12 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                                         Reorganized sidebar items into "Inventory" and "Finances" dropdowns for better organization and cleaner UI.
                                     </p>
                                 </div>
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Improved Label Tracking Logic</h4>
+                                    <p className="text-sm text-[var(--color-muted-foreground)]">
+                                        Redesigned label tracking to use "unlabeled quantity" instead of "printed quantity". Now when you add more inventory, the system correctly tracks that new items need labels. Restocked items from refunds are also marked as needing labels.
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>
