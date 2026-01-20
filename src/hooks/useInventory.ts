@@ -109,6 +109,12 @@ export function useInventory(consignorId?: string) {
 
     const updateItem = async (id: string, updates: Partial<ItemInput>) => {
         try {
+            // Get current item to check for quantity changes
+            const currentItem = items.find((i) => i.id === id);
+            const quantityChanged = updates.quantity !== undefined &&
+                currentItem &&
+                updates.quantity !== currentItem.quantity;
+
             const { data, error: updateError } = await supabase
                 .from('items')
                 .update(updates)
@@ -122,6 +128,31 @@ export function useInventory(consignorId?: string) {
             if (updateError) throw updateError;
 
             setItems((prev) => prev.map((item) => (item.id === id ? data : item)));
+
+            // Sync to Shopify if quantity changed and sync is enabled
+            if (quantityChanged && data.sync_enabled && data.shopify_inventory_item_id) {
+                try {
+                    // Set last_sync_source before pushing to prevent webhook loop
+                    await supabase
+                        .from('items')
+                        .update({
+                            last_sync_source: 'ravenpos',
+                            last_synced_at: new Date().toISOString()
+                        })
+                        .eq('id', id);
+
+                    await supabase.functions.invoke('push-to-shopify', {
+                        body: {
+                            item_id: id,
+                            quantity: updates.quantity
+                        }
+                    });
+                } catch (syncError) {
+                    console.error('Failed to sync to Shopify:', id, syncError);
+                    // Don't fail the update if Shopify sync fails
+                }
+            }
+
             return { data, error: null };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to update item';

@@ -1,0 +1,4 @@
+# Disable JWT verification for send-receipt-email
+# This allows the function to be called without authentication
+# The function still validates input (email format, receipt data)
+verify_jwt = false

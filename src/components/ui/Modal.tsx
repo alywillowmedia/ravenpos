@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../../lib/utils';
 
 export interface ModalProps {
@@ -58,7 +59,7 @@ export function Modal({
         full: 'max-w-6xl',
     };
 
-    return (
+    return createPortal(
         <div
             ref={overlayRef}
             onClick={handleOverlayClick}
@@ -105,7 +106,8 @@ export function Modal({
                 )}
                 <div className="px-6 py-4">{children}</div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
 

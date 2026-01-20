@@ -1,0 +1,19 @@
+# Shopify sync functions - no JWT verification
+[functions.import-shopify-products]
+verify_jwt = false
+
+[functions.force-sync-from-shopify]
+verify_jwt = false
+
+[functions.push-to-shopify]
+verify_jwt = false
+
+[functions.shopify-webhook]
+verify_jwt = false
+
+[functions.get-shopify-locations]
+verify_jwt = false
+
+# Email function
+[functions.send-receipt-email]
+verify_jwt = false

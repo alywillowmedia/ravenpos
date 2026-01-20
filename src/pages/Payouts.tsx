@@ -113,21 +113,19 @@ export function Payouts() {
                 <div className="flex rounded-lg border border-[var(--color-border)] overflow-hidden">
                     <button
                         onClick={() => setViewMode('pending')}
-                        className={`px-4 py-2 text-sm font-medium transition-colors ${
-                            viewMode === 'pending'
-                                ? 'bg-[var(--color-primary)] text-white'
-                                : 'bg-white text-[var(--color-muted)] hover:bg-[var(--color-surface)]'
-                        }`}
+                        className={`px-4 py-2 text-sm font-medium transition-colors ${viewMode === 'pending'
+                            ? 'bg-[var(--color-primary)] text-white'
+                            : 'bg-white text-[var(--color-muted)] hover:bg-[var(--color-surface)]'
+                            }`}
                     >
                         Pending Payouts
                     </button>
                     <button
                         onClick={() => setViewMode('history')}
-                        className={`px-4 py-2 text-sm font-medium transition-colors ${
-                            viewMode === 'history'
-                                ? 'bg-[var(--color-primary)] text-white'
-                                : 'bg-white text-[var(--color-muted)] hover:bg-[var(--color-surface)]'
-                        }`}
+                        className={`px-4 py-2 text-sm font-medium transition-colors ${viewMode === 'history'
+                            ? 'bg-[var(--color-primary)] text-white'
+                            : 'bg-white text-[var(--color-muted)] hover:bg-[var(--color-surface)]'
+                            }`}
                     >
                         Payout History
                     </button>
@@ -189,7 +187,7 @@ export function Payouts() {
                 isOpen={!!selectedConsignor && !showPayModal}
                 onClose={() => setSelectedConsignor(null)}
                 title={`Payout Details: ${selectedConsignor?.consignor.name}`}
-                size="xl"
+                size="3xl"
             >
                 {selectedConsignor && (
                     <ConsignorPayoutDetail
@@ -385,81 +383,80 @@ function ConsignorPayoutDetail({
     const { consignor, pendingAmount, grossSales, taxCollected, storeShare, salesCount, itemsSold, salesSinceLastPayout } = summary;
 
     return (
-        <div className="space-y-6">
-            {/* Consignor Info */}
-            <div className="flex items-start justify-between">
-                <div>
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="w-12 h-12 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center text-xl font-semibold">
-                            {consignor.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                            <h3 className="text-lg font-semibold">{consignor.name}</h3>
-                            <p className="text-sm text-[var(--color-muted)]">
-                                {consignor.consignor_number}
-                            </p>
-                        </div>
+        <div className="space-y-4">
+            {/* Consignor Info - More compact header */}
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center text-lg font-semibold flex-shrink-0">
+                        {consignor.name.charAt(0).toUpperCase()}
                     </div>
-                    {consignor.email && (
-                        <p className="text-sm text-[var(--color-muted)]">{consignor.email}</p>
-                    )}
-                    {consignor.phone && (
-                        <p className="text-sm text-[var(--color-muted)]">{consignor.phone}</p>
-                    )}
-                    {consignor.address && (
-                        <p className="text-sm text-[var(--color-muted)]">{consignor.address}</p>
-                    )}
+                    <div>
+                        <h3 className="font-semibold">{consignor.name}</h3>
+                        <p className="text-xs text-[var(--color-muted)]">
+                            {consignor.consignor_number}
+                        </p>
+                    </div>
                 </div>
                 <Badge variant={pendingAmount > 0 ? 'warning' : 'success'}>
                     {pendingAmount > 0 ? 'Payment Due' : 'Paid Up'}
                 </Badge>
             </div>
 
-            {/* Financial Summary */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="bg-[var(--color-success-bg)] rounded-lg p-4 border border-[var(--color-success)]">
-                    <p className="text-sm text-[var(--color-success)]">Consignor Payout</p>
-                    <p className="text-2xl font-bold text-[var(--color-success)]">
+            {/* Contact info - inline */}
+            {(consignor.email || consignor.address) && (
+                <div className="text-xs text-[var(--color-muted)]">
+                    {consignor.email && <span>{consignor.email}</span>}
+                    {consignor.email && consignor.address && <span> • </span>}
+                    {consignor.address && <span>{consignor.address}</span>}
+                </div>
+            )}
+
+            {/* Financial Summary - More compact grid */}
+            <div className="grid grid-cols-3 gap-3">
+                <div className="bg-[var(--color-success-bg)] rounded-lg p-3 border border-[var(--color-success)]">
+                    <p className="text-xs text-[var(--color-success)]">Consignor Payout</p>
+                    <p className="text-xl font-bold text-[var(--color-success)]">
                         {formatCurrency(pendingAmount)}
                     </p>
                 </div>
-                <div className="bg-[var(--color-surface)] rounded-lg p-4">
-                    <p className="text-sm text-[var(--color-muted)]">Gross Sales</p>
-                    <p className="text-2xl font-bold">{formatCurrency(grossSales)}</p>
+                <div className="bg-[var(--color-surface)] rounded-lg p-3">
+                    <p className="text-xs text-[var(--color-muted)]">Gross Sales</p>
+                    <p className="text-xl font-bold">{formatCurrency(grossSales)}</p>
                 </div>
-                <div className="bg-[var(--color-surface)] rounded-lg p-4">
-                    <p className="text-sm text-[var(--color-muted)]">Store Revenue</p>
-                    <p className="text-2xl font-bold text-[var(--color-primary)]">
+                <div className="bg-[var(--color-surface)] rounded-lg p-3">
+                    <p className="text-xs text-[var(--color-muted)]">Store Revenue</p>
+                    <p className="text-xl font-bold text-[var(--color-primary)]">
                         {formatCurrency(storeShare)}
                     </p>
                 </div>
-                <div className="bg-[var(--color-surface)] rounded-lg p-4">
-                    <p className="text-sm text-[var(--color-muted)]">Tax Collected</p>
-                    <p className="text-2xl font-bold">{formatCurrency(taxCollected)}</p>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+                <div className="bg-[var(--color-surface)] rounded-lg p-3">
+                    <p className="text-xs text-[var(--color-muted)]">Tax Collected</p>
+                    <p className="text-xl font-bold">{formatCurrency(taxCollected)}</p>
                 </div>
-                <div className="bg-[var(--color-surface)] rounded-lg p-4">
-                    <p className="text-sm text-[var(--color-muted)]">Transactions</p>
-                    <p className="text-2xl font-bold">{salesCount}</p>
+                <div className="bg-[var(--color-surface)] rounded-lg p-3">
+                    <p className="text-xs text-[var(--color-muted)]">Transactions</p>
+                    <p className="text-xl font-bold">{salesCount}</p>
                 </div>
-                <div className="bg-[var(--color-surface)] rounded-lg p-4">
-                    <p className="text-sm text-[var(--color-muted)]">Items Sold</p>
-                    <p className="text-2xl font-bold">{itemsSold}</p>
+                <div className="bg-[var(--color-surface)] rounded-lg p-3">
+                    <p className="text-xs text-[var(--color-muted)]">Items Sold</p>
+                    <p className="text-xl font-bold">{itemsSold}</p>
                 </div>
             </div>
 
-            {/* Commission Info */}
-            <div className="bg-[var(--color-surface)] rounded-lg p-4">
-                <p className="text-sm text-[var(--color-muted)] mb-1">Commission Split</p>
-                <p className="font-semibold">
-                    {Math.round(consignor.commission_split * 100)}% to consignor,{' '}
-                    {Math.round((1 - consignor.commission_split) * 100)}% to store
+            {/* Commission Info - Compact inline */}
+            <div className="bg-[var(--color-surface)] rounded-lg px-3 py-2 flex items-center justify-between">
+                <p className="text-xs text-[var(--color-muted)]">Commission Split</p>
+                <p className="text-sm font-medium">
+                    {Math.round(consignor.commission_split * 100)}% to consignor, {Math.round((1 - consignor.commission_split) * 100)}% to store
                 </p>
             </div>
 
             {/* Sales Details Table */}
             {salesSinceLastPayout.length > 0 && (
                 <div>
-                    <h4 className="font-semibold mb-3">
+                    <h4 className="font-medium text-sm mb-2">
                         Sales Since Last Payout ({salesSinceLastPayout.length} items)
                     </h4>
                     <div className="rounded-lg border border-[var(--color-border)] overflow-hidden max-h-64 overflow-y-auto">
@@ -479,22 +476,41 @@ function ConsignorPayoutDetail({
                                 {salesSinceLastPayout.map((item, idx) => (
                                     <tr
                                         key={`${item.saleId}-${idx}`}
-                                        className="border-t border-[var(--color-border)]"
+                                        className={`border-t border-[var(--color-border)] ${item.isRefunded ? 'bg-[var(--color-danger)]/5' : ''}`}
                                     >
                                         <td className="px-3 py-2 text-[var(--color-muted)]">
                                             {new Date(item.saleDate).toLocaleDateString()}
                                         </td>
                                         <td className="px-3 py-2">
-                                            <p className="font-medium">{item.itemName}</p>
-                                            <p className="text-xs text-[var(--color-muted)] font-mono">
-                                                {item.sku}
-                                            </p>
+                                            <div className="flex items-center gap-2">
+                                                <div>
+                                                    <p className={`font-medium ${item.isRefunded ? 'line-through text-[var(--color-muted)]' : ''}`}>
+                                                        {item.itemName}
+                                                    </p>
+                                                    <p className="text-xs text-[var(--color-muted)] font-mono">
+                                                        {item.sku}
+                                                    </p>
+                                                </div>
+                                                {item.isRefunded && (
+                                                    <Badge variant="danger">Refunded</Badge>
+                                                )}
+                                                {item.refundedQuantity > 0 && !item.isRefunded && (
+                                                    <Badge variant="warning">Partial</Badge>
+                                                )}
+                                            </div>
                                         </td>
-                                        <td className="px-3 py-2 text-center">{item.quantity}</td>
-                                        <td className="px-3 py-2 text-right">
+                                        <td className={`px-3 py-2 text-center ${item.isRefunded ? 'line-through text-[var(--color-muted)]' : ''}`}>
+                                            {item.quantity}
+                                            {item.refundedQuantity > 0 && !item.isRefunded && (
+                                                <span className="text-xs text-[var(--color-danger)] block">
+                                                    (-{item.refundedQuantity})
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className={`px-3 py-2 text-right ${item.isRefunded ? 'line-through text-[var(--color-muted)]' : ''}`}>
                                             {formatCurrency(item.price)}
                                         </td>
-                                        <td className="px-3 py-2 text-right">
+                                        <td className={`px-3 py-2 text-right ${item.isRefunded ? 'line-through text-[var(--color-muted)]' : ''}`}>
                                             {formatCurrency(item.lineTotal)}
                                         </td>
                                         <td className="px-3 py-2 text-right">
@@ -502,8 +518,8 @@ function ConsignorPayoutDetail({
                                                 {Math.round(item.commissionSplit * 100)}%
                                             </Badge>
                                         </td>
-                                        <td className="px-3 py-2 text-right font-medium text-[var(--color-success)]">
-                                            {formatCurrency(item.consignorShare)}
+                                        <td className={`px-3 py-2 text-right font-medium ${item.isRefunded ? 'line-through text-[var(--color-muted)]' : 'text-[var(--color-success)]'}`}>
+                                            {formatCurrency(item.isRefunded ? 0 : item.consignorShare - (item.price * item.refundedQuantity * item.commissionSplit))}
                                         </td>
                                     </tr>
                                 ))}
@@ -516,7 +532,7 @@ function ConsignorPayoutDetail({
             {/* Payout History */}
             {payoutHistory.length > 0 && (
                 <div>
-                    <h4 className="font-semibold mb-3">Previous Payouts</h4>
+                    <h4 className="font-medium text-sm mb-2">Previous Payouts</h4>
                     <div className="space-y-2">
                         {payoutHistory.slice(0, 5).map((payout) => (
                             <div

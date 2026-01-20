@@ -8,6 +8,7 @@ const navigation = [
     { name: 'Dashboard', href: '/admin', icon: DashboardIcon },
     { name: 'Consignors', href: '/admin/consignors', icon: UsersIcon },
     { name: 'Customers', href: '/admin/customers', icon: CustomersIcon },
+    { name: 'Employees', href: '/admin/employees', icon: EmployeesIcon },
     { name: 'Inventory', href: '/admin/inventory', icon: PackageIcon },
     { name: 'Add Items', href: '/admin/add-items', icon: PlusIcon },
     { name: 'Import CSV', href: '/admin/import', icon: UploadIcon },
@@ -15,6 +16,7 @@ const navigation = [
     { name: 'Point of Sale', href: '/admin/pos', icon: RegisterIcon },
     { name: 'Sales', href: '/admin/sales', icon: ReceiptNavIcon },
     { name: 'Payouts', href: '/admin/payouts', icon: PayoutsIcon },
+    { name: 'Integrations', href: '/admin/integrations', icon: IntegrationsIcon },
 ];
 
 export function Sidebar() {
@@ -106,7 +108,7 @@ export function Sidebar() {
                         onClick={() => setIsChangelogOpen(true)}
                     >
                         <p className="text-xs text-[var(--color-muted)]">Version</p>
-                        <p className="text-sm font-medium text-[var(--color-foreground)]">0.1.1</p>
+                        <p className="text-sm font-medium text-[var(--color-foreground)]">0.1.3</p>
                     </div>
                     <button
                         onClick={handleLogout}
@@ -242,3 +244,22 @@ function CustomersIcon() {
     );
 }
 
+function EmployeesIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="8" r="5" />
+            <path d="M20 21a8 8 0 0 0-16 0" />
+        </svg>
+    );
+}
+
+function IntegrationsIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
+            <path d="M7 7h.01" />
+            <path d="M22 12v4a2 2 0 0 1-2 2h-1" />
+            <path d="M22 12h-4" />
+        </svg>
+    );
+}

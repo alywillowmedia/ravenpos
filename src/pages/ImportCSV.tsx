@@ -10,6 +10,7 @@ import { useConsignors } from '../hooks/useConsignors';
 import { useInventory } from '../hooks/useInventory';
 import { useCategories } from '../hooks/useCategories';
 import { formatCurrency } from '../lib/utils';
+import { detectShopifyCSV, preprocessShopifyCSV, type PreprocessResult } from '../lib/csvPreprocessing';
 
 interface CSVRow {
     [key: string]: string;
@@ -23,6 +24,7 @@ interface MappedItem {
     category: string;
     quantity: number;
     price: number;
+    image_url: string | null;
 }
 
 export function ImportCSV() {
@@ -40,6 +42,12 @@ export function ImportCSV() {
     const [isImporting, setIsImporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Shopify import state
+    const [hasHandleColumn, setHasHandleColumn] = useState(false);
+    const [isShopifyImport, setIsShopifyImport] = useState<boolean | null>(null);
+    const [preprocessResult, setPreprocessResult] = useState<PreprocessResult | null>(null);
+    const [shopifyStepComplete, setShopifyStepComplete] = useState(false);
+
     // Column mappings
     const [skuColumn, setSkuColumn] = useState('');
     const [nameColumn, setNameColumn] = useState('');
@@ -47,6 +55,7 @@ export function ImportCSV() {
     const [categoryColumn, setCategoryColumn] = useState('');
     const [quantityColumn, setQuantityColumn] = useState('');
     const [priceColumn, setPriceColumn] = useState('');
+    const [imageColumn, setImageColumn] = useState('');
 
     const downloadTemplate = () => {
         const link = document.createElement('a');
@@ -64,6 +73,10 @@ export function ImportCSV() {
         setError(null);
         setCsvData([]);
         setMappedItems([]);
+        setHasHandleColumn(false);
+        setIsShopifyImport(null);
+        setPreprocessResult(null);
+        setShopifyStepComplete(false);
 
         Papa.parse<CSVRow>(file, {
             header: true,
@@ -83,6 +96,14 @@ export function ImportCSV() {
                 const columnHeaders = Object.keys(data[0]);
                 setHeaders(columnHeaders);
                 setCsvData(data);
+
+                // Detect if this looks like a Shopify export
+                const isShopify = detectShopifyCSV(columnHeaders);
+                setHasHandleColumn(isShopify);
+                if (!isShopify) {
+                    // Skip Shopify step if no Handle column
+                    setShopifyStepComplete(true);
+                }
 
                 // Auto-detect column mappings based on exact matches first, then fallback to includes
                 const lowerHeaders = columnHeaders.map((h) => h.toLowerCase().trim());
@@ -107,6 +128,7 @@ export function ImportCSV() {
                 setCategoryColumn(findColumn(['category'], ['category', 'type', 'cat']));
                 setQuantityColumn(findColumn(['quantity', 'qty'], ['quantity', 'qty', 'stock', 'count']));
                 setPriceColumn(findColumn(['price'], ['price', 'cost', 'amount', 'value']));
+                setImageColumn(findColumn(['image src', 'image url'], ['image', 'photo', 'picture', 'img']));
             },
         });
     };
@@ -138,6 +160,7 @@ export function ImportCSV() {
                 category,
                 quantity,
                 price,
+                image_url: imageColumn ? row[imageColumn]?.trim() || null : null,
             };
         }).filter((item) => item.name && item.price > 0);
 
@@ -171,6 +194,7 @@ export function ImportCSV() {
             category: item.category,
             quantity: item.quantity,
             price: item.price,
+            image_url: item.image_url,
         }));
 
         const result = await createItems(itemsToCreate);
@@ -184,6 +208,52 @@ export function ImportCSV() {
         }
     };
 
+    const handleShopifyPreprocess = () => {
+        if (isShopifyImport === null) {
+            setError('Please select whether this is a Shopify import');
+            return;
+        }
+
+        if (isShopifyImport) {
+            // Run Shopify preprocessing
+            const result = preprocessShopifyCSV(csvData);
+            setCsvData(result.data);
+            setPreprocessResult(result);
+
+            // Auto-map Shopify-specific columns
+            const lowerHeaders = headers.map(h => h.toLowerCase().trim());
+
+            // Map Title -> name if not already mapped
+            const titleIdx = lowerHeaders.findIndex(h => h === 'title');
+            if (titleIdx !== -1 && !nameColumn) {
+                setNameColumn(headers[titleIdx]);
+            }
+
+            // Map Option1 Value -> variant if not already mapped
+            const variantIdx = lowerHeaders.findIndex(h =>
+                h === 'option1 value' || h === 'variant sku' || h.includes('option')
+            );
+            if (variantIdx !== -1 && !variantColumn) {
+                setVariantColumn(headers[variantIdx]);
+            }
+
+            // Map Image Src -> image_url if not already mapped
+            const imageIdx = lowerHeaders.findIndex(h =>
+                h === 'image src' || h === 'image url'
+            );
+            if (imageIdx !== -1 && !imageColumn) {
+                setImageColumn(headers[imageIdx]);
+            }
+
+            // Check for warnings
+            if (result.warnings.length > 0) {
+                setError(`Warning: ${result.warnings.join(', ')}`);
+            }
+        }
+
+        setShopifyStepComplete(true);
+    };
+
     const consignorOptions = consignors.map((c) => ({
         value: c.id,
         label: `${c.consignor_number} - ${c.name}`,
@@ -195,6 +265,24 @@ export function ImportCSV() {
     ];
 
     const previewColumns: Column<MappedItem>[] = [
+        {
+            key: 'image',
+            header: '',
+            width: '50px',
+            render: (item) => (
+                <div className="w-8 h-8 rounded overflow-hidden bg-[var(--color-surface)] flex-shrink-0 flex items-center justify-center border border-[var(--color-border)]">
+                    {item.image_url ? (
+                        <img
+                            src={item.image_url}
+                            alt={item.name}
+                            className="w-full h-full object-cover"
+                        />
+                    ) : (
+                        <ImagePlaceholderIcon />
+                    )}
+                </div>
+            ),
+        },
         { key: 'sku', header: 'SKU', width: '120px' },
         { key: 'name', header: 'Name', sortable: true },
         { key: 'variant', header: 'Variant' },
@@ -289,17 +377,87 @@ export function ImportCSV() {
                 </CardContent>
             </Card>
 
-            {/* Step 3: Map Columns */}
-            {csvData.length > 0 && (
+            {/* Step 3: Shopify Import Detection (only shows if Handle column detected) */}
+            {csvData.length > 0 && hasHandleColumn && !shopifyStepComplete && (
                 <Card variant="outlined" className="mb-6">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <StepNumber>3</StepNumber>
+                            Is this a Shopify export?
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-sm text-[var(--color-muted)] mb-4">
+                            We detected a "Handle" column which is common in Shopify exports.
+                            Shopify exports often have blank product titles for variant rows.
+                        </p>
+                        <div className="space-y-3 mb-4">
+                            <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-surface-elevated)] transition-colors">
+                                <input
+                                    type="radio"
+                                    name="shopifyImport"
+                                    checked={isShopifyImport === true}
+                                    onChange={() => setIsShopifyImport(true)}
+                                    className="w-4 h-4 text-[var(--color-primary)]"
+                                />
+                                <div>
+                                    <p className="font-medium text-[var(--color-foreground)]">Yes - Fix blank variant titles</p>
+                                    <p className="text-sm text-[var(--color-muted)]">
+                                        Copy product titles to all variants with the same Handle
+                                    </p>
+                                </div>
+                            </label>
+                            <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-surface-elevated)] transition-colors">
+                                <input
+                                    type="radio"
+                                    name="shopifyImport"
+                                    checked={isShopifyImport === false}
+                                    onChange={() => setIsShopifyImport(false)}
+                                    className="w-4 h-4 text-[var(--color-primary)]"
+                                />
+                                <div>
+                                    <p className="font-medium text-[var(--color-foreground)]">No - Import as-is</p>
+                                    <p className="text-sm text-[var(--color-muted)]">
+                                        Use the CSV data without preprocessing
+                                    </p>
+                                </div>
+                            </label>
+                        </div>
+                        <Button onClick={handleShopifyPreprocess}>
+                            Continue
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Shopify Preprocessing Summary */}
+            {preprocessResult && (
+                <div className="mb-6 p-4 rounded-lg bg-[var(--color-success)]/10 border border-[var(--color-success)]/30">
+                    <p className="font-medium text-[var(--color-success)] mb-1">
+                        ✓ Shopify CSV Preprocessed
+                    </p>
+                    <p className="text-sm text-[var(--color-foreground)]">
+                        Fixed {preprocessResult.fixedCount} blank product title{preprocessResult.fixedCount !== 1 ? 's' : ''} across {preprocessResult.productCount} product{preprocessResult.productCount !== 1 ? 's' : ''}.
+                    </p>
+                    {preprocessResult.warnings.length > 0 && (
+                        <p className="text-sm text-[var(--color-warning)] mt-1">
+                            ⚠ {preprocessResult.warnings.length} warning{preprocessResult.warnings.length !== 1 ? 's' : ''}: Some products have no title
+                        </p>
+                    )}
+                </div>
+            )}
+
+            {/* Step 4: Map Columns (was Step 3) */}
+            {csvData.length > 0 && shopifyStepComplete && (
+                <Card variant="outlined" className="mb-6">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <StepNumber>{hasHandleColumn ? 4 : 3}</StepNumber>
                             Map Columns
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-4">
                             <Select
                                 label="SKU"
                                 options={headerOptions}
@@ -336,6 +494,12 @@ export function ImportCSV() {
                                 value={priceColumn}
                                 onChange={(e) => setPriceColumn(e.target.value)}
                             />
+                            <Select
+                                label="Image URL"
+                                options={headerOptions}
+                                value={imageColumn}
+                                onChange={(e) => setImageColumn(e.target.value)}
+                            />
                         </div>
                         <Button onClick={applyMapping}>
                             Preview Mapping
@@ -344,12 +508,12 @@ export function ImportCSV() {
                 </Card>
             )}
 
-            {/* Step 4: Preview & Import */}
+            {/* Step 5: Preview & Import (or Step 4 if no Shopify step) */}
             {mappedItems.length > 0 && (
                 <Card variant="outlined">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <StepNumber>4</StepNumber>
+                            <StepNumber>{hasHandleColumn ? 5 : 4}</StepNumber>
                             Preview & Import
                         </CardTitle>
                     </CardHeader>
@@ -427,6 +591,16 @@ function DownloadIcon() {
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" x2="12" y1="15" y2="3" />
+        </svg>
+    );
+}
+
+function ImagePlaceholderIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <circle cx="9" cy="9" r="2" />
+            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
         </svg>
     );
 }

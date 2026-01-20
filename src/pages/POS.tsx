@@ -6,6 +6,8 @@ import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Receipt } from '../components/pos/Receipt';
+import { RefundModal } from '../components/pos/RefundModal';
+import { ReceiptDeliveryModal } from '../components/receipt/ReceiptDeliveryModal';
 import { useInventory } from '../hooks/useInventory';
 import { useSales } from '../hooks/useSales';
 import { useCategories } from '../hooks/useCategories';
@@ -13,13 +15,15 @@ import { useCustomers } from '../hooks/useCustomers';
 import { useStripeTerminal } from '../hooks/useStripeTerminal';
 import { createCartItem, calculateCartTotals } from '../lib/tax';
 import { formatCurrency } from '../lib/utils';
+import { createReceiptData } from '../lib/printReceipt';
 import type { CartItem, Sale, Customer, CustomerInput, PaymentMethod } from '../types';
+import type { ReceiptData } from '../types/receipt';
 
 export function POS() {
     const scannerRef = useRef<HTMLInputElement>(null);
     const { getItemBySku } = useInventory();
     const { completeSale, isProcessing } = useSales();
-    const { searchCustomers, createCustomer } = useCustomers();
+    const { searchCustomers, createCustomer, updateCustomer } = useCustomers();
 
     // Stripe Terminal
     const {
@@ -41,11 +45,15 @@ export function POS() {
     const [scanError, setScanError] = useState<string | null>(null);
     const [cashTendered, setCashTendered] = useState<string>('');
     const [completedSale, setCompletedSale] = useState<Sale | null>(null);
+    const [completedReceiptData, setCompletedReceiptData] = useState<ReceiptData | null>(null);
+    const [completedCart, setCompletedCart] = useState<CartItem[]>([]);
+    const [showReceiptDelivery, setShowReceiptDelivery] = useState(false);
 
     // Payment method state
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
     const [isCollectingCard, setIsCollectingCard] = useState(false);
     const [showReaderModal, setShowReaderModal] = useState(false);
+    const [showRefundModal, setShowRefundModal] = useState(false);
 
     // Customer state
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -178,6 +186,14 @@ export function POS() {
             return;
         }
 
+        // Store data for receipt delivery modal
+        if (sale) {
+            const receiptData = createReceiptData(sale, cart);
+            setCompletedReceiptData(receiptData);
+            setCompletedCart([...cart]);
+            setShowReceiptDelivery(true);
+        }
+
         setCompletedSale(sale);
     };
 
@@ -222,6 +238,14 @@ export function POS() {
             return;
         }
 
+        // Store data for receipt delivery modal
+        if (sale) {
+            const receiptData = createReceiptData(sale, cart);
+            setCompletedReceiptData(receiptData);
+            setCompletedCart([...cart]);
+            setShowReceiptDelivery(true);
+        }
+
         setCompletedSale(sale);
     };
 
@@ -234,12 +258,23 @@ export function POS() {
         setCart([]);
         setCashTendered('');
         setCompletedSale(null);
+        setCompletedReceiptData(null);
+        setCompletedCart([]);
+        setShowReceiptDelivery(false);
         setScanError(null);
         setSelectedCustomer(null);
         setCustomerSearch('');
         setPaymentMethod('cash');
         setIsCollectingCard(false);
         scannerRef.current?.focus();
+    };
+
+    const handleReceiptDeliveryClose = () => {
+        setShowReceiptDelivery(false);
+    };
+
+    const handleCustomerEmailUpdate = async (customerId: string, email: string) => {
+        await updateCustomer(customerId, { email });
     };
 
     const quickCashAmounts = [1, 5, 10, 20, 50, 100];
@@ -290,11 +325,20 @@ export function POS() {
             <Header
                 title="Point of Sale"
                 actions={
-                    cart.length > 0 && (
-                        <Button variant="ghost" onClick={handleNewSale}>
-                            Clear
+                    <div className="flex gap-2">
+                        <Button
+                            variant="ghost"
+                            onClick={() => setShowRefundModal(true)}
+                        >
+                            <RefundIcon />
+                            Refund
                         </Button>
-                    )
+                        {cart.length > 0 && (
+                            <Button variant="ghost" onClick={handleNewSale}>
+                                Clear
+                            </Button>
+                        )}
+                    </div>
                 }
             />
 
@@ -498,22 +542,20 @@ export function POS() {
                             <div className="flex gap-2 mb-4">
                                 <button
                                     onClick={() => setPaymentMethod('cash')}
-                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-                                        paymentMethod === 'cash'
-                                            ? 'bg-[var(--color-primary)] text-white'
-                                            : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
-                                    }`}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'cash'
+                                        ? 'bg-[var(--color-primary)] text-white'
+                                        : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
+                                        }`}
                                 >
                                     <CashIcon />
                                     Cash
                                 </button>
                                 <button
                                     onClick={() => setPaymentMethod('card')}
-                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-                                        paymentMethod === 'card'
-                                            ? 'bg-[var(--color-primary)] text-white'
-                                            : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
-                                    }`}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'card'
+                                        ? 'bg-[var(--color-primary)] text-white'
+                                        : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
+                                        }`}
                                 >
                                     <CardIcon />
                                     Card
@@ -708,9 +750,20 @@ export function POS() {
                 </div>
             </Modal>
 
-            {/* Receipt Modal */}
+            {/* Receipt Delivery Modal */}
+            {completedReceiptData && (
+                <ReceiptDeliveryModal
+                    isOpen={showReceiptDelivery}
+                    onClose={handleReceiptDeliveryClose}
+                    receipt={completedReceiptData}
+                    customer={selectedCustomer}
+                    onCustomerEmailUpdate={handleCustomerEmailUpdate}
+                />
+            )}
+
+            {/* Receipt Display Modal */}
             <Modal
-                isOpen={!!completedSale}
+                isOpen={!!completedSale && !showReceiptDelivery}
                 onClose={handleNewSale}
                 title="Sale Complete!"
                 size="md"
@@ -718,7 +771,7 @@ export function POS() {
                 {completedSale && (
                     <Receipt
                         sale={completedSale}
-                        items={cart}
+                        items={completedCart.length > 0 ? completedCart : cart}
                         onNewSale={handleNewSale}
                     />
                 )}
@@ -769,6 +822,12 @@ export function POS() {
                     </div>
                 </div>
             </Modal>
+
+            {/* Refund Modal */}
+            <RefundModal
+                isOpen={showRefundModal}
+                onClose={() => setShowRefundModal(false)}
+            />
         </div>
     );
 }
@@ -834,6 +893,16 @@ function CardIcon() {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
             <line x1="1" y1="10" x2="23" y2="10" />
+        </svg>
+    );
+}
+
+function RefundIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+            <path d="M12 7v5l4 2" />
         </svg>
     );
 }

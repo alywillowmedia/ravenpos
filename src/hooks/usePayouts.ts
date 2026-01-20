@@ -63,6 +63,23 @@ export function usePayouts() {
 
             if (saleItemsError) throw saleItemsError;
 
+            // Fetch all refunds to check for refunded items
+            const { data: refunds, error: refundsError } = await supabase
+                .from('refunds')
+                .select('*');
+
+            if (refundsError) throw refundsError;
+
+            // Build a map of refunded sale_item_ids to refunded quantities
+            const refundedItemsMap = new Map<string, number>();
+            for (const refund of refunds || []) {
+                const items = refund.items as Array<{ sale_item_id: string; quantity: number }>;
+                for (const item of items || []) {
+                    const current = refundedItemsMap.get(item.sale_item_id) || 0;
+                    refundedItemsMap.set(item.sale_item_id, current + item.quantity);
+                }
+            }
+
             // Calculate summaries for each consignor
             const summaries: ConsignorPayoutSummary[] = [];
 
@@ -98,14 +115,25 @@ export function usePayouts() {
                     const saleTax = item.sale.tax_amount || 0;
                     const itemTaxPortion = saleSubtotal > 0 ? (lineTotal / saleSubtotal) * saleTax : 0;
 
-                    pendingAmount += consignorShare;
-                    grossSales += lineTotal;
-                    storeShare += itemStoreShare;
-                    itemsSold += item.quantity;
+                    // Check if this item has been refunded
+                    const refundedQty = refundedItemsMap.get(item.id) || 0;
+                    const isRefunded = refundedQty >= item.quantity;
+
+                    // Only count non-refunded items toward pending payout
+                    const effectiveQuantity = Math.max(0, item.quantity - refundedQty);
+                    const effectiveLineTotal = Number(item.price) * effectiveQuantity;
+                    const effectiveConsignorShare = effectiveLineTotal * item.commission_split;
+                    const effectiveStoreShare = effectiveLineTotal - effectiveConsignorShare;
+
+                    pendingAmount += effectiveConsignorShare;
+                    grossSales += effectiveLineTotal;
+                    storeShare += effectiveStoreShare;
+                    itemsSold += effectiveQuantity;
                     salesSet.add(item.sale_id);
 
                     salesDetails.push({
                         saleId: item.sale_id,
+                        saleItemId: item.id,
                         saleDate: item.sale.completed_at,
                         itemName: item.name,
                         sku: item.sku,
@@ -116,6 +144,8 @@ export function usePayouts() {
                         consignorShare,
                         storeShare: itemStoreShare,
                         taxAmount: itemTaxPortion,
+                        isRefunded,
+                        refundedQuantity: refundedQty,
                     });
                 }
 

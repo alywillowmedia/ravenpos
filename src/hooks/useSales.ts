@@ -57,17 +57,43 @@ export function useSales() {
 
             if (itemsError) throw itemsError;
 
-            // Decrement inventory quantities
+            // Decrement inventory quantities and sync to Shopify
             for (const cartItem of cartItems) {
+                const newQuantity = cartItem.item.quantity - cartItem.quantity;
+
                 const { error: updateError } = await supabase
                     .from('items')
                     .update({
-                        quantity: cartItem.item.quantity - cartItem.quantity,
+                        quantity: newQuantity,
                     })
                     .eq('id', cartItem.item.id);
 
                 if (updateError) {
                     console.error('Failed to update quantity for item:', cartItem.item.id);
+                }
+
+                // Push to Shopify if sync is enabled
+                if (cartItem.item.sync_enabled && cartItem.item.shopify_inventory_item_id) {
+                    try {
+                        // Set last_sync_source before pushing to prevent webhook loop
+                        await supabase
+                            .from('items')
+                            .update({
+                                last_sync_source: 'ravenpos',
+                                last_synced_at: new Date().toISOString()
+                            })
+                            .eq('id', cartItem.item.id);
+
+                        await supabase.functions.invoke('push-to-shopify', {
+                            body: {
+                                item_id: cartItem.item.id,
+                                adjustment: -cartItem.quantity
+                            }
+                        });
+                    } catch (syncError) {
+                        console.error('Failed to sync to Shopify:', cartItem.item.id, syncError);
+                        // Don't fail the sale if Shopify sync fails
+                    }
                 }
             }
 

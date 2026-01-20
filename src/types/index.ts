@@ -37,6 +37,13 @@ export interface Item {
     is_listed: boolean;
     created_at: string;
     updated_at: string;
+    // Shopify sync fields
+    shopify_product_id: string | null;
+    shopify_variant_id: string | null;
+    shopify_inventory_item_id: string | null;
+    sync_enabled: boolean;
+    last_sync_source: string | null;
+    last_synced_at: string | null;
     // Joined data
     consignor?: Consignor;
 }
@@ -67,6 +74,7 @@ export interface Sale {
     cash_tendered: number | null;
     change_given: number | null;
     stripe_payment_intent_id: string | null;
+    refund_status: 'partial' | 'full' | null;
     // Joined data
     customer?: Customer;
 }
@@ -81,6 +89,28 @@ export interface SaleItem {
     price: number;
     quantity: number;
     commission_split: number;
+}
+
+// Refund types
+export interface RefundItem {
+    item_id: string;
+    sale_item_id: string;
+    name: string;
+    quantity: number;
+    max_quantity: number;
+    price: number;
+    restocked: boolean;
+}
+
+export interface Refund {
+    id: string;
+    sale_id: string;
+    customer_id: string | null;
+    refund_amount: number;
+    payment_method: PaymentMethod;
+    stripe_refund_id: string | null;
+    items: RefundItem[];
+    created_at: string;
 }
 
 // Form/input types
@@ -163,6 +193,7 @@ export interface ConsignorPayoutSummary {
 // Detailed sale item for payout breakdown
 export interface SaleItemDetail {
     saleId: string;
+    saleItemId: string;
     saleDate: string;
     itemName: string;
     sku: string;
@@ -173,4 +204,6 @@ export interface SaleItemDetail {
     consignorShare: number;
     storeShare: number;
     taxAmount: number;
+    isRefunded: boolean;
+    refundedQuantity: number;
 }
