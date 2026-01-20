@@ -7,7 +7,7 @@ import { useRefunds } from '../../hooks/useRefunds';
 import { formatCurrency, formatDateTime } from '../../lib/utils';
 import { printRefundReceipt } from '../../lib/printReceipt';
 import { sendRefundReceiptEmail } from '../../lib/emailReceipt';
-import type { Sale, RefundItem, PaymentMethod, Customer } from '../../types';
+import type { Sale, RefundItem, PaymentMethod } from '../../types';
 import type { RefundReceiptData } from '../../types/receipt';
 
 interface RefundModalProps {
