@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
@@ -9,24 +9,55 @@ const navigation = [
     { name: 'Consignors', href: '/admin/consignors', icon: UsersIcon },
     { name: 'Customers', href: '/admin/customers', icon: CustomersIcon },
     { name: 'Employees', href: '/admin/employees', icon: EmployeesIcon },
-    { name: 'Inventory', href: '/admin/inventory', icon: PackageIcon },
-    { name: 'Add Items', href: '/admin/add-items', icon: PlusIcon },
-    { name: 'Import CSV', href: '/admin/import', icon: UploadIcon },
-    { name: 'Labels', href: '/admin/labels', icon: TagIcon },
+    {
+        name: 'Inventory',
+        icon: PackageIcon,
+        children: [
+            { name: 'Items', href: '/admin/inventory', icon: PackageIcon },
+            { name: 'Add Items', href: '/admin/add-items', icon: PlusIcon },
+            { name: 'Import CSV', href: '/admin/import', icon: UploadIcon },
+            { name: 'Integrations', href: '/admin/integrations', icon: IntegrationsIcon },
+            { name: 'Labels', href: '/admin/labels', icon: TagIcon },
+        ]
+    },
     { name: 'Point of Sale', href: '/admin/pos', icon: RegisterIcon },
-    { name: 'Sales', href: '/admin/sales', icon: ReceiptNavIcon },
-    { name: 'Payouts', href: '/admin/payouts', icon: PayoutsIcon },
-    { name: 'Integrations', href: '/admin/integrations', icon: IntegrationsIcon },
+    {
+        name: 'Finances',
+        icon: PayoutsIcon,
+        children: [
+            { name: 'Sales', href: '/admin/sales', icon: ReceiptNavIcon },
+            { name: 'Payouts', href: '/admin/payouts', icon: PayoutsIcon },
+        ]
+    },
 ];
 
 export function Sidebar() {
     const [isMobileOpen, setIsMobileOpen] = useState(false);
     const [isChangelogOpen, setIsChangelogOpen] = useState(false);
+    const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
     const location = useLocation();
     const { userRecord, signOut } = useAuth();
 
+    useEffect(() => {
+        // Auto-expand groups if a child is active
+        const activeGroup = navigation.find(group =>
+            group.children?.some(child => child.href === location.pathname)
+        );
+        if (activeGroup && !expandedGroups.includes(activeGroup.name)) {
+            setExpandedGroups(prev => [...prev, activeGroup.name]);
+        }
+    }, [location.pathname]);
+
     const handleLogout = async () => {
         await signOut();
+    };
+
+    const toggleGroup = (name: string) => {
+        setExpandedGroups(prev =>
+            prev.includes(name)
+                ? prev.filter(g => g !== name)
+                : [...prev, name]
+        );
     };
 
     return (
@@ -80,6 +111,58 @@ export function Sidebar() {
                 {/* Navigation */}
                 <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
                     {navigation.map((item) => {
+                        if (item.children) {
+                            const isExpanded = expandedGroups.includes(item.name);
+                            const hasActiveChild = item.children.some(child => child.href === location.pathname);
+
+                            return (
+                                <div key={item.name} className="space-y-1">
+                                    <button
+                                        onClick={() => toggleGroup(item.name)}
+                                        className={cn(
+                                            'w-full flex items-center justify-between px-3 py-2.5 rounded-lg',
+                                            'text-sm font-medium transition-all duration-150',
+                                            hasActiveChild || isExpanded
+                                                ? 'text-[var(--color-foreground)] bg-[var(--color-surface)]'
+                                                : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
+                                        )}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <item.icon />
+                                            {item.name}
+                                        </div>
+                                        {isExpanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
+                                    </button>
+
+                                    {isExpanded && (
+                                        <div className="pl-4 space-y-1">
+                                            {item.children.map((child) => {
+                                                const isActive = location.pathname === child.href;
+                                                return (
+                                                    <NavLink
+                                                        key={child.name}
+                                                        to={child.href}
+                                                        onClick={() => setIsMobileOpen(false)}
+                                                        className={cn(
+                                                            'flex items-center gap-3 px-3 py-2 rounded-lg',
+                                                            'text-sm font-medium transition-all duration-150',
+                                                            'border-l-2',
+                                                            isActive
+                                                                ? 'border-[var(--color-primary)] bg-[var(--color-surface)] text-[var(--color-primary)]'
+                                                                : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
+                                                        )}
+                                                    >
+                                                        {/* <child.icon />  Optional: hide child icons for cleaner look in dropdown, or keep them? User didn't specify. Keeping generic structure but maybe icons are busy inside. Let's keep them as per requested struct. */}
+                                                        {child.name}
+                                                    </NavLink>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        }
+
                         const isActive = location.pathname === item.href;
                         return (
                             <NavLink
@@ -108,7 +191,7 @@ export function Sidebar() {
                         onClick={() => setIsChangelogOpen(true)}
                     >
                         <p className="text-xs text-[var(--color-muted)]">Version</p>
-                        <p className="text-sm font-medium text-[var(--color-foreground)]">0.1.3</p>
+                        <p className="text-sm font-medium text-[var(--color-foreground)]">0.1.4.1</p>
                     </div>
                     <button
                         onClick={handleLogout}
@@ -253,6 +336,7 @@ function EmployeesIcon() {
     );
 }
 
+
 function IntegrationsIcon() {
     return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -263,3 +347,20 @@ function IntegrationsIcon() {
         </svg>
     );
 }
+
+function ChevronDownIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m6 9 6 6 6-6" />
+        </svg>
+    );
+}
+
+function ChevronRightIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m9 18 6-6-6-6" />
+        </svg>
+    );
+}
+
