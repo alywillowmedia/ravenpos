@@ -265,6 +265,94 @@ export function useInventory(consignorId?: string) {
         }
     };
 
+    // Batch update multiple items at once (for bulk edit)
+    const updateItems = async (
+        updates: Array<{ id: string; changes: Partial<ItemInput> }>
+    ): Promise<{ success: boolean; errors: string[] }> => {
+        const errors: string[] = [];
+        const originalItems = [...items];
+
+        try {
+            // Optimistic update - apply all changes locally first
+            setItems((prev) =>
+                prev.map((item) => {
+                    const update = updates.find((u) => u.id === item.id);
+                    if (update) {
+                        return { ...item, ...update.changes };
+                    }
+                    return item;
+                })
+            );
+
+            // Process updates in parallel batches
+            const updatePromises = updates.map(async ({ id, changes }) => {
+                try {
+                    const currentItem = originalItems.find((i) => i.id === id);
+                    let finalChanges = { ...changes };
+
+                    // Handle qty_unlabeled for quantity increases
+                    if (
+                        changes.quantity !== undefined &&
+                        currentItem &&
+                        changes.quantity > currentItem.quantity
+                    ) {
+                        const quantityDiff = changes.quantity - currentItem.quantity;
+                        finalChanges.qty_unlabeled = (currentItem.qty_unlabeled || 0) + quantityDiff;
+                    }
+
+                    const { error: updateError } = await supabase
+                        .from('items')
+                        .update(finalChanges)
+                        .eq('id', id);
+
+                    if (updateError) {
+                        throw updateError;
+                    }
+
+                    // Sync to Shopify if quantity changed and sync is enabled
+                    if (
+                        changes.quantity !== undefined &&
+                        currentItem?.sync_enabled &&
+                        currentItem?.shopify_inventory_item_id
+                    ) {
+                        try {
+                            await supabase
+                                .from('items')
+                                .update({
+                                    last_sync_source: 'ravenpos',
+                                    last_synced_at: new Date().toISOString(),
+                                })
+                                .eq('id', id);
+
+                            await supabase.functions.invoke('push-to-shopify', {
+                                body: { item_id: id, quantity: changes.quantity },
+                            });
+                        } catch (syncError) {
+                            console.error('Failed to sync to Shopify:', id, syncError);
+                        }
+                    }
+                } catch (err) {
+                    const itemName = originalItems.find((i) => i.id === id)?.name || id;
+                    errors.push(`${itemName}: ${err instanceof Error ? err.message : 'Update failed'}`);
+                }
+            });
+
+            await Promise.all(updatePromises);
+
+            // Refresh to get latest data with joined consignor info
+            await fetchItems();
+
+            return { success: errors.length === 0, errors };
+        } catch (err) {
+            // Rollback on catastrophic failure
+            setItems(originalItems);
+            return {
+                success: false,
+                errors: [err instanceof Error ? err.message : 'Bulk update failed'],
+            };
+        }
+    };
+
     return {
         items,
         isLoading,
@@ -273,6 +361,7 @@ export function useInventory(consignorId?: string) {
         createItem,
         createItems,
         updateItem,
+        updateItems,
         deleteItem,
         getItemBySku,
         decrementQuantity,

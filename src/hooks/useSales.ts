@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import type { CartItem, Sale, SaleItem, PaymentMethod } from '../types';
+import type { CartItem, Sale, SaleItem, PaymentMethod, Discount } from '../types';
 
 export function useSales() {
     const [isProcessing, setIsProcessing] = useState(false);
@@ -15,13 +15,23 @@ export function useSales() {
         changeGiven: number,
         customerId?: string | null,
         paymentMethod: PaymentMethod = 'cash',
-        stripePaymentIntentId?: string
+        stripePaymentIntentId?: string,
+        orderDiscounts: Discount[] = []
     ) => {
         try {
             setIsProcessing(true);
             setError(null);
 
-            // Create sale record
+            // Calculate total discounts
+            const itemDiscountTotal = cartItems.reduce(
+                (sum, item) => sum + (item.discount?.calculatedAmount ?? 0), 0
+            );
+            const orderDiscountTotal = orderDiscounts.reduce(
+                (sum, d) => sum + d.calculatedAmount, 0
+            );
+            const discountTotal = itemDiscountTotal + orderDiscountTotal;
+
+            // Create sale record with discounts
             const { data: sale, error: saleError } = await supabase
                 .from('sales')
                 .insert({
@@ -33,13 +43,20 @@ export function useSales() {
                     change_given: paymentMethod === 'cash' ? changeGiven : null,
                     stripe_payment_intent_id: stripePaymentIntentId || null,
                     customer_id: customerId || null,
+                    discounts: orderDiscounts.map(d => ({
+                        type: d.type,
+                        value: d.value,
+                        reason: d.reason,
+                        calculatedAmount: d.calculatedAmount
+                    })),
+                    discount_total: discountTotal,
                 })
                 .select()
                 .single();
 
             if (saleError) throw saleError;
 
-            // Create sale items
+            // Create sale items with discount data
             const saleItems: Omit<SaleItem, 'id'>[] = cartItems.map((cartItem) => ({
                 sale_id: sale.id,
                 item_id: cartItem.item.id,
@@ -49,6 +66,11 @@ export function useSales() {
                 price: cartItem.item.price,
                 quantity: cartItem.quantity,
                 commission_split: (cartItem.item.consignor as { commission_split: number })?.commission_split ?? 0.6,
+                // Discount data
+                discount_type: cartItem.discount?.type,
+                discount_value: cartItem.discount?.value,
+                discount_amount: cartItem.discount?.calculatedAmount ?? 0,
+                discount_reason: cartItem.discount?.reason,
             }));
 
             const { error: itemsError } = await supabase

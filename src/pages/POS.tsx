@@ -7,6 +7,7 @@ import { Modal } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Receipt } from '../components/pos/Receipt';
 import { RefundModal } from '../components/pos/RefundModal';
+import { DiscountModal } from '../components/pos/DiscountModal';
 import { ReceiptDeliveryModal } from '../components/receipt/ReceiptDeliveryModal';
 import { useInventory } from '../hooks/useInventory';
 import { useSales } from '../hooks/useSales';
@@ -14,9 +15,10 @@ import { useCategories } from '../hooks/useCategories';
 import { useCustomers } from '../hooks/useCustomers';
 import { useStripeTerminal } from '../hooks/useStripeTerminal';
 import { createCartItem, calculateCartTotals } from '../lib/tax';
+import { createDiscount, formatDiscountLabel } from '../lib/discounts';
 import { formatCurrency } from '../lib/utils';
 import { createReceiptData } from '../lib/printReceipt';
-import type { CartItem, Sale, Customer, CustomerInput, PaymentMethod } from '../types';
+import type { CartItem, Sale, Customer, CustomerInput, PaymentMethod, Discount, DiscountType } from '../types';
 import type { ReceiptData } from '../types/receipt';
 
 export function POS() {
@@ -55,6 +57,14 @@ export function POS() {
     const [showReaderModal, setShowReaderModal] = useState(false);
     const [showRefundModal, setShowRefundModal] = useState(false);
 
+    // Discount state
+    const [orderDiscounts, setOrderDiscounts] = useState<Discount[]>([]);
+    const [showDiscountModal, setShowDiscountModal] = useState(false);
+    const [discountTarget, setDiscountTarget] = useState<{
+        scope: 'order' | 'item';
+        itemIndex?: number;
+    } | null>(null);
+
     // Customer state
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [customerSearch, setCustomerSearch] = useState('');
@@ -69,7 +79,7 @@ export function POS() {
         notes: null,
     });
 
-    const { subtotal, taxTotal, total } = calculateCartTotals(cart);
+    const { subtotal, taxTotal, total, itemDiscountTotal, discountTotal } = calculateCartTotals(cart, orderDiscounts);
     const cashAmount = parseFloat(cashTendered) || 0;
     const change = cashAmount - total;
 
@@ -118,7 +128,7 @@ export function POS() {
                 setScanInput('');
                 return;
             }
-            const updated = createCartItem(existing.item, existing.quantity + 1);
+            const updated = createCartItem(existing.item, existing.quantity + 1, existing.discount);
             setCart((prev) => prev.map((ci, i) => (i === existingIndex ? updated : ci)));
             setScanInput('');
             return;
@@ -155,7 +165,8 @@ export function POS() {
             return;
         }
 
-        const updated = createCartItem(item.item, newQty);
+        // Preserve existing discount (recalculate amount for new quantity)
+        const updated = createCartItem(item.item, newQty, item.discount);
         setCart((prev) => prev.map((ci, i) => (i === index ? updated : ci)));
     };
 
@@ -178,7 +189,9 @@ export function POS() {
             cashAmount,
             change,
             selectedCustomer?.id,
-            'cash'
+            'cash',
+            undefined,
+            orderDiscounts
         );
 
         if (error) {
@@ -228,7 +241,8 @@ export function POS() {
             0,
             selectedCustomer?.id,
             'card',
-            paymentIntentId
+            paymentIntentId,
+            orderDiscounts
         );
 
         setIsCollectingCard(false);
@@ -266,6 +280,8 @@ export function POS() {
         setCustomerSearch('');
         setPaymentMethod('cash');
         setIsCollectingCard(false);
+        setOrderDiscounts([]);
+        setDiscountTarget(null);
         scannerRef.current?.focus();
     };
 
@@ -275,6 +291,50 @@ export function POS() {
 
     const handleCustomerEmailUpdate = async (customerId: string, email: string) => {
         await updateCustomer(customerId, { email });
+    };
+
+    // Discount handlers
+    const handleOpenOrderDiscount = () => {
+        setDiscountTarget({ scope: 'order' });
+        setShowDiscountModal(true);
+    };
+
+    const handleOpenItemDiscount = (itemIndex: number) => {
+        setDiscountTarget({ scope: 'item', itemIndex });
+        setShowDiscountModal(true);
+    };
+
+    const handleApplyDiscount = (type: DiscountType, value: number, reason?: string) => {
+        if (!discountTarget) return;
+
+        if (discountTarget.scope === 'order') {
+            // Calculate discount amount based on current subtotal after item discounts
+            const subtotalAfterItemDiscounts = cart.reduce(
+                (sum, item) => sum + item.discountedLineTotal, 0
+            );
+            const discount = createDiscount(type, value, 'order', undefined, reason, subtotalAfterItemDiscounts);
+            setOrderDiscounts(prev => [...prev, discount]);
+        } else if (discountTarget.itemIndex !== undefined) {
+            // Item-level discount
+            const itemIndex = discountTarget.itemIndex;
+            const item = cart[itemIndex];
+            const discount = createDiscount(type, value, 'item', itemIndex, reason, item.lineTotal);
+
+            // Update the cart item with the discount
+            const updatedItem = createCartItem(item.item, item.quantity, discount);
+            setCart(prev => prev.map((ci, i) => (i === itemIndex ? updatedItem : ci)));
+        }
+        setDiscountTarget(null);
+    };
+
+    const handleRemoveOrderDiscount = (discountId: string) => {
+        setOrderDiscounts(prev => prev.filter(d => d.id !== discountId));
+    };
+
+    const handleRemoveItemDiscount = (itemIndex: number) => {
+        const item = cart[itemIndex];
+        const updatedItem = createCartItem(item.item, item.quantity);
+        setCart(prev => prev.map((ci, i) => (i === itemIndex ? updatedItem : ci)));
     };
 
     const quickCashAmounts = [1, 5, 10, 20, 50, 100];
@@ -394,6 +454,12 @@ export function POS() {
                                                 <p className="text-xs font-mono text-[var(--color-muted)]">
                                                     {item.item.sku}
                                                 </p>
+                                                {item.discount && (
+                                                    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 text-xs font-medium bg-[var(--color-success-bg)] text-[var(--color-success)] rounded-full">
+                                                        <DiscountIcon />
+                                                        {formatDiscountLabel(item.discount)}
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 <button
@@ -412,14 +478,38 @@ export function POS() {
                                                     +
                                                 </button>
                                             </div>
-                                            <div className="w-24 text-right">
-                                                <p className="font-medium">
-                                                    {formatCurrency(item.lineTotal)}
-                                                </p>
-                                                <p className="text-xs text-[var(--color-muted)]">
-                                                    @ {formatCurrency(Number(item.item.price))}
-                                                </p>
+                                            <div className="w-28 text-right">
+                                                {item.discount ? (
+                                                    <>
+                                                        <p className="font-medium text-[var(--color-success)]">
+                                                            {formatCurrency(item.discountedLineTotal)}
+                                                        </p>
+                                                        <p className="text-xs text-[var(--color-muted)] line-through">
+                                                            {formatCurrency(item.lineTotal)}
+                                                        </p>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <p className="font-medium">
+                                                            {formatCurrency(item.lineTotal)}
+                                                        </p>
+                                                        <p className="text-xs text-[var(--color-muted)]">
+                                                            @ {formatCurrency(Number(item.item.price))}
+                                                        </p>
+                                                    </>
+                                                )}
                                             </div>
+                                            {/* Item Discount Button */}
+                                            <button
+                                                onClick={() => item.discount ? handleRemoveItemDiscount(index) : handleOpenItemDiscount(index)}
+                                                className={`p-2 transition-colors rounded-lg ${item.discount
+                                                    ? 'text-[var(--color-success)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]'
+                                                    : 'text-[var(--color-muted)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10'
+                                                    }`}
+                                                title={item.discount ? 'Remove discount' : 'Add discount'}
+                                            >
+                                                <DiscountIcon />
+                                            </button>
                                             <button
                                                 onClick={() => removeItem(index)}
                                                 className="p-2 text-[var(--color-muted)] hover:text-[var(--color-danger)] transition-colors"
@@ -522,6 +612,60 @@ export function POS() {
                                 <span className="text-[var(--color-muted)]">Subtotal</span>
                                 <span>{formatCurrency(subtotal)}</span>
                             </div>
+
+                            {/* Item-level discounts summary */}
+                            {itemDiscountTotal > 0 && (
+                                <div className="flex justify-between text-sm text-[var(--color-success)]">
+                                    <span>Item Discounts</span>
+                                    <span>-{formatCurrency(itemDiscountTotal)}</span>
+                                </div>
+                            )}
+
+                            {/* Order-level discounts */}
+                            {orderDiscounts.map((discount) => (
+                                <div
+                                    key={discount.id}
+                                    className="flex justify-between items-center text-sm text-[var(--color-success)] bg-[var(--color-success-bg)] rounded-lg px-2 py-1"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <DiscountIcon />
+                                        <span>
+                                            {discount.type === 'percentage' ? `${discount.value}%` : formatCurrency(discount.value)} off
+                                            {discount.reason && <span className="text-xs opacity-75"> ({discount.reason})</span>}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span>-{formatCurrency(discount.calculatedAmount)}</span>
+                                        <button
+                                            onClick={() => handleRemoveOrderDiscount(discount.id)}
+                                            className="p-1 hover:bg-[var(--color-danger-bg)] rounded text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+                                            title="Remove discount"
+                                        >
+                                            <XIcon />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {/* Add Discount Button */}
+                            {cart.length > 0 && (
+                                <button
+                                    onClick={handleOpenOrderDiscount}
+                                    className="w-full py-2 px-3 rounded-lg border-2 border-dashed border-[var(--color-border)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 transition-colors text-sm text-[var(--color-muted)] hover:text-[var(--color-primary)] flex items-center justify-center gap-2"
+                                >
+                                    <DiscountIcon />
+                                    Add Order Discount
+                                </button>
+                            )}
+
+                            {/* Total Discount */}
+                            {discountTotal > 0 && (
+                                <div className="flex justify-between text-sm font-medium text-[var(--color-success)] pt-2 border-t border-dashed border-[var(--color-border)]">
+                                    <span>Total Savings</span>
+                                    <span>-{formatCurrency(discountTotal)}</span>
+                                </div>
+                            )}
+
                             <div className="flex justify-between text-sm">
                                 <span className="text-[var(--color-muted)]">Tax</span>
                                 <span>{formatCurrency(taxTotal)}</span>
@@ -828,6 +972,39 @@ export function POS() {
                 isOpen={showRefundModal}
                 onClose={() => setShowRefundModal(false)}
             />
+
+            {/* Discount Modal */}
+            <DiscountModal
+                isOpen={showDiscountModal}
+                onClose={() => {
+                    setShowDiscountModal(false);
+                    setDiscountTarget(null);
+                }}
+                onApply={handleApplyDiscount}
+                onRemove={
+                    discountTarget?.scope === 'item' &&
+                        discountTarget.itemIndex !== undefined &&
+                        cart[discountTarget.itemIndex]?.discount
+                        ? () => handleRemoveItemDiscount(discountTarget.itemIndex!)
+                        : undefined
+                }
+                scope={discountTarget?.scope || 'order'}
+                itemName={
+                    discountTarget?.scope === 'item' && discountTarget.itemIndex !== undefined
+                        ? cart[discountTarget.itemIndex]?.item.name
+                        : undefined
+                }
+                maxAmount={
+                    discountTarget?.scope === 'item' && discountTarget.itemIndex !== undefined
+                        ? cart[discountTarget.itemIndex]?.lineTotal || 0
+                        : cart.reduce((sum, item) => sum + item.discountedLineTotal, 0)
+                }
+                existingDiscount={
+                    discountTarget?.scope === 'item' && discountTarget.itemIndex !== undefined
+                        ? cart[discountTarget.itemIndex]?.discount
+                        : undefined
+                }
+            />
         </div>
     );
 }
@@ -906,3 +1083,12 @@ function RefundIcon() {
         </svg>
     );
 }
+
+function DiscountIcon() {
+    return (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 5L5 19M9 7a2 2 0 100-4 2 2 0 000 4zM15 21a2 2 0 100-4 2 2 0 000 4z" />
+        </svg>
+    );
+}
+

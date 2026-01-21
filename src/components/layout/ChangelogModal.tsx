@@ -18,36 +18,8 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
         >
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
 
-                {/* Version 0.1.4.1 */}
-                <ChangelogSection version="0.1.4.1" date="Current" defaultOpen={true}>
-                    <div className="space-y-6">
-                        <div className="space-y-3">
-                            <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                                    <SparklesIcon className="w-4 h-4" />
-                                </span>
-                                Improvements
-                            </h3>
-                            <div className="space-y-4 pl-2">
-                                <div className="space-y-1">
-                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Sidebar Navigation Update</h4>
-                                    <p className="text-sm text-[var(--color-muted-foreground)]">
-                                        Reorganized sidebar items into "Inventory" and "Finances" dropdowns for better organization and cleaner UI.
-                                    </p>
-                                </div>
-                                <div className="space-y-1">
-                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Improved Label Tracking Logic</h4>
-                                    <p className="text-sm text-[var(--color-muted-foreground)]">
-                                        Redesigned label tracking to use "unlabeled quantity" instead of "printed quantity". Now when you add more inventory, the system correctly tracks that new items need labels. Restocked items from refunds are also marked as needing labels.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </ChangelogSection>
-
                 {/* Version 0.1.4 */}
-                <ChangelogSection version="0.1.4" date="Previous">
+                <ChangelogSection version="0.1.4" date="Current" defaultOpen={true}>
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
@@ -65,6 +37,47 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                                         <li><span className="font-medium">Multi-Method:</span> Supports both Card and Cash refund processing.</li>
                                         <li><span className="font-medium">Digital Receipts:</span> Optional email and print capabilities for refund receipts.</li>
                                     </ul>
+                                </div>
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Checkout Discounts</h4>
+                                    <p className="text-sm text-[var(--color-muted-foreground)]">
+                                        Added the ability to apply discounts during checkout, supporting item-level, cart-total, or combined discounts.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
+                                <span className="p-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                    <SparklesIcon className="w-4 h-4" />
+                                </span>
+                                Improvements
+                            </h3>
+                            <div className="space-y-4 pl-2">
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Sidebar Navigation</h4>
+                                    <p className="text-sm text-[var(--color-muted-foreground)]">
+                                        Reorganized sidebar items into "Inventory" and "Finances" dropdowns for better organization and cleaner UI.
+                                    </p>
+                                </div>
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Label Tracking</h4>
+                                    <p className="text-sm text-[var(--color-muted-foreground)]">
+                                        Redesigned label tracking to use "unlabeled quantity", ensuring new and refunded inventory is correctly marked for labeling.
+                                    </p>
+                                </div>
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Inventory Management</h4>
+                                    <p className="text-sm text-[var(--color-muted-foreground)]">
+                                        Added capability to bulk edit items for more efficient inventory updates.
+                                    </p>
+                                </div>
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Label Printing</h4>
+                                    <p className="text-sm text-[var(--color-muted-foreground)]">
+                                        Added functionality to apply a single custom quantity to all selected labels at once.
+                                    </p>
                                 </div>
                             </div>
                         </div>

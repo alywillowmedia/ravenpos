@@ -428,6 +428,37 @@ export function Labels() {
                     {printMode === 'custom' && (
                         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-6 mb-6">
                             <h3 className="font-medium mb-4">Custom Quantities</h3>
+
+                            {/* Apply to All */}
+                            <div className="flex items-center gap-3 mb-4 pb-4 border-b border-[var(--color-border)]">
+                                <label className="text-sm text-[var(--color-muted)]">Apply to all:</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    placeholder="Qty"
+                                    id="applyToAllInput"
+                                    className="w-20 px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                />
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => {
+                                        const input = document.getElementById('applyToAllInput') as HTMLInputElement;
+                                        const value = Math.max(0, parseInt(input.value) || 0);
+                                        if (value >= 0) {
+                                            const newQuantities: PrintQuantityOverride = {};
+                                            selectedItems.forEach((item) => {
+                                                newQuantities[item.id] = value;
+                                            });
+                                            setCustomQuantities(newQuantities);
+                                            input.value = '';
+                                        }
+                                    }}
+                                >
+                                    Apply
+                                </Button>
+                            </div>
+
                             <div className="space-y-3 max-h-64 overflow-y-auto">
                                 {selectedItems.map((item) => (
                                     <div key={item.id} className="flex items-center justify-between gap-4">

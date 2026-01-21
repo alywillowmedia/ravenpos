@@ -63,6 +63,20 @@ export type CustomerInput = Omit<Customer, 'id' | 'created_at' | 'updated_at'>;
 
 export type PaymentMethod = 'cash' | 'card';
 
+// Discount types for POS
+export type DiscountType = 'percentage' | 'fixed';
+export type DiscountScope = 'order' | 'item';
+
+export interface Discount {
+    id: string;
+    type: DiscountType;
+    value: number;           // Percentage (0-100) or dollar amount
+    scope: DiscountScope;
+    itemIndex?: number;      // Only for item-level discounts (cart index)
+    reason?: string;         // Optional note
+    calculatedAmount: number; // Actual dollar amount off
+}
+
 export interface Sale {
     id: string;
     customer_id: string | null;
@@ -75,6 +89,14 @@ export interface Sale {
     change_given: number | null;
     stripe_payment_intent_id: string | null;
     refund_status: 'partial' | 'full' | null;
+    // Discount data
+    discounts?: Array<{
+        type: DiscountType;
+        value: number;
+        reason?: string;
+        calculatedAmount: number;
+    }>;
+    discount_total?: number;
     // Joined data
     customer?: Customer;
 }
@@ -89,6 +111,11 @@ export interface SaleItem {
     price: number;
     quantity: number;
     commission_split: number;
+    // Discount data
+    discount_type?: DiscountType;
+    discount_value?: number;
+    discount_amount?: number;
+    discount_reason?: string;
 }
 
 // Refund types
@@ -123,6 +150,10 @@ export interface CartItem {
     quantity: number;
     lineTotal: number;
     taxAmount: number;
+    // Discount data (item-level)
+    discount?: Discount;
+    discountedLineTotal: number;
+    discountedTaxAmount: number;
 }
 
 export interface Cart {
@@ -130,6 +161,11 @@ export interface Cart {
     subtotal: number;
     taxTotal: number;
     total: number;
+    // Discount data (order-level)
+    discounts: Discount[];
+    itemDiscountTotal: number;
+    orderDiscountTotal: number;
+    discountTotal: number;
 }
 
 // Stats for dashboard
