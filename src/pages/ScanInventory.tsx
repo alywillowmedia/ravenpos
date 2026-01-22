@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { useInventory } from '../hooks/useInventory';
-import { formatCurrency } from '../lib/utils';
 import type { Item } from '../types';
 
 interface ScannedItem {
@@ -11,7 +10,7 @@ interface ScannedItem {
 }
 
 export function ScanInventory() {
-    const { getItemBySku, updateItem, items, loading: inventoryLoading } = useInventory();
+    const { getItemBySku, updateItem } = useInventory();
     const [mode, setMode] = useState<'add' | 'remove'>('add');
     const [scanInput, setScanInput] = useState('');
     const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
