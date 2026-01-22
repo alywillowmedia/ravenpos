@@ -18,8 +18,63 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
         >
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
 
+                {/* Version 0.1.5 */}
+                <ChangelogSection version="0.1.5" date="Current" defaultOpen={true}>
+                    <div className="space-y-6">
+                        <div className="space-y-3">
+                            <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
+                                <span className="p-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                    <PlusIcon className="w-4 h-4" />
+                                </span>
+                                New Features
+                            </h3>
+                            <div className="space-y-4 pl-2">
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Inventory & Scanning</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                        <li><span className="font-medium">Scan Actions:</span> Added ability to scan items in and out of inventory.</li>
+                                        <li><span className="font-medium">Vendor Uploads:</span> Vendors can now upload CSV files directly.</li>
+                                        <li><span className="font-medium">Label Printing:</span> Integrated label printing functionality.</li>
+                                    </ul>
+                                </div>
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Employee Management</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                        <li><span className="font-medium">Employment Details:</span> Added "Employment From" (Alywillow/Ravenlia) and "Employee Type" (Production/Sales).</li>
+                                        <li><span className="font-medium">Time Tracking:</span> Auto-deduct 30-minute lunch break for shifts over 6 hours.</li>
+                                    </ul>
+                                </div>
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">System & Payouts</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                        <li><span className="font-medium">Customer Display:</span> New customer-facing display view.</li>
+                                        <li><span className="font-medium">Custom Payouts:</span> Support for custom payout amounts.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
+                                <span className="p-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                    <SparklesIcon className="w-4 h-4" />
+                                </span>
+                                Improvements
+                            </h3>
+                            <div className="space-y-4 pl-2">
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">UX Enhancements</h4>
+                                    <p className="text-sm text-[var(--color-muted-foreground)]">
+                                        Minor visual adjustments for ease of use and clarity.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </ChangelogSection>
+
                 {/* Version 0.1.4 */}
-                <ChangelogSection version="0.1.4" date="Current" defaultOpen={true}>
+                <ChangelogSection version="0.1.4" date="Previous">
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
