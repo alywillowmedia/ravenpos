@@ -24,10 +24,13 @@ import { Employees } from './pages/Employees';
 import { Integrations } from './pages/Integrations';
 import { ShopifySetup } from './pages/ShopifySetup';
 import { ScanInventory } from './pages/ScanInventory';
+import { Display } from './pages/Display';
 
 // Vendor Pages
 import { VendorDashboard } from './pages/vendor/VendorDashboard';
 import { VendorInventory } from './pages/vendor/VendorInventory';
+import { VendorImportCSV } from './pages/vendor/VendorImportCSV';
+import { VendorLabels } from './pages/vendor/VendorLabels';
 import { VendorSales } from './pages/vendor/VendorSales';
 import { VendorPayouts } from './pages/vendor/VendorPayouts';
 import { VendorProfile } from './pages/vendor/VendorProfile';
@@ -58,6 +61,9 @@ export default function App() {
                     {/* Login Routes */}
                     <Route path="/login" element={<Login />} />
                     <Route path="/employee/login" element={<EmployeeLogin />} />
+
+                    {/* Customer Display - Standalone Route */}
+                    <Route path="/display" element={<Display />} />
 
                     {/* Employee Action Selection - Full screen, no sidebar */}
                     <Route path="/employee/action-selection" element={<EmployeeActionSelection />} />
@@ -107,6 +113,8 @@ export default function App() {
                     >
                         <Route index element={<VendorDashboard />} />
                         <Route path="inventory" element={<VendorInventory />} />
+                        <Route path="import" element={<VendorImportCSV />} />
+                        <Route path="labels" element={<VendorLabels />} />
                         <Route path="sales" element={<VendorSales />} />
                         <Route path="payouts" element={<VendorPayouts />} />
                         <Route path="profile" element={<VendorProfile />} />

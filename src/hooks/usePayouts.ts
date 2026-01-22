@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import type { Payout, PayoutInput, ConsignorPayoutSummary, SaleItemDetail, Consignor } from '../types';
+import type { Payout, PayoutInput, ConsignorPayoutSummary, SaleItemDetail, Consignor, BalanceDisposition } from '../types';
 
 interface SaleItemWithJoins {
     id: string;
@@ -216,7 +216,10 @@ export function usePayouts() {
     const markAsPaid = useCallback(async (
         consignorId: string,
         summary: ConsignorPayoutSummary,
-        notes?: string
+        notes?: string,
+        customAmount?: number,
+        partialReason?: string,
+        balanceDisposition?: BalanceDisposition
     ): Promise<{ success: boolean; error?: string }> => {
         try {
             // Determine period dates
@@ -227,9 +230,13 @@ export function usePayouts() {
                     : new Date().toISOString();
             const periodEnd = new Date().toISOString();
 
+            // Determine if this is a partial payout
+            const isPartial = customAmount !== undefined && customAmount < summary.pendingAmount;
+            const payoutAmount = customAmount !== undefined ? customAmount : summary.pendingAmount;
+
             const payoutData: PayoutInput = {
                 consignor_id: consignorId,
-                amount: summary.pendingAmount,
+                amount: payoutAmount,
                 period_start: periodStart,
                 period_end: periodEnd,
                 sales_count: summary.salesCount,
@@ -240,6 +247,10 @@ export function usePayouts() {
                 credit_card_fees: summary.creditCardFees,
                 notes: notes || null,
                 paid_at: new Date().toISOString(),
+                original_amount_due: isPartial ? summary.pendingAmount : null,
+                is_partial: isPartial,
+                partial_reason: isPartial ? (partialReason || null) : null,
+                balance_disposition: isPartial ? (balanceDisposition || null) : null,
             };
 
             const { error: insertError } = await supabase

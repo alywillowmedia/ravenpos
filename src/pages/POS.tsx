@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Monitor as MonitorIcon } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
@@ -42,7 +43,10 @@ export function POS() {
     // Fetch categories to ensure tax rates are synced from database
     useCategories();
 
-    const [cart, setCart] = useState<CartItem[]>([]);
+    const [cart, setCart] = useState<CartItem[]>(() => {
+        const saved = sessionStorage.getItem('ravenpos-cart');
+        return saved ? JSON.parse(saved) : [];
+    });
     const [scanInput, setScanInput] = useState('');
     const [scanError, setScanError] = useState<string | null>(null);
     const [cashTendered, setCashTendered] = useState<string>('');
@@ -58,7 +62,10 @@ export function POS() {
     const [showRefundModal, setShowRefundModal] = useState(false);
 
     // Discount state
-    const [orderDiscounts, setOrderDiscounts] = useState<Discount[]>([]);
+    const [orderDiscounts, setOrderDiscounts] = useState<Discount[]>(() => {
+        const saved = sessionStorage.getItem('ravenpos-order-discounts');
+        return saved ? JSON.parse(saved) : [];
+    });
     const [showDiscountModal, setShowDiscountModal] = useState(false);
     const [discountTarget, setDiscountTarget] = useState<{
         scope: 'order' | 'item';
@@ -88,6 +95,16 @@ export function POS() {
         scannerRef.current?.focus();
     }, []);
 
+    // Persist cart to sessionStorage
+    useEffect(() => {
+        sessionStorage.setItem('ravenpos-cart', JSON.stringify(cart));
+    }, [cart]);
+
+    // Persist order discounts to sessionStorage
+    useEffect(() => {
+        sessionStorage.setItem('ravenpos-order-discounts', JSON.stringify(orderDiscounts));
+    }, [orderDiscounts]);
+
     // Refocus on click anywhere, unless clicking an interactive element
     useEffect(() => {
         const handleClick = (e: MouseEvent) => {
@@ -110,6 +127,26 @@ export function POS() {
         document.addEventListener('click', handleClick);
         return () => document.removeEventListener('click', handleClick);
     }, [completedSale]);
+
+    // Broadcast cart updates to customer display
+    useEffect(() => {
+        const channel = new BroadcastChannel('ravenpos-cart');
+        channel.postMessage({
+            cart,
+            subtotal,
+            taxTotal,
+            discountTotal,
+            total,
+            orderDiscounts,
+            completedSale
+        });
+
+        return () => channel.close();
+    }, [cart, subtotal, taxTotal, discountTotal, total, orderDiscounts, completedSale]);
+
+    const openCustomerDisplay = () => {
+        window.open('/display', 'CustomerDisplay', 'width=1000,height=800,menubar=no,toolbar=no');
+    };
 
     const handleScan = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -398,6 +435,13 @@ export function POS() {
                                 Clear
                             </Button>
                         )}
+                        <Button
+                            variant="ghost"
+                            onClick={openCustomerDisplay}
+                            title="Open Customer Display"
+                        >
+                            <MonitorIcon />
+                        </Button>
                     </div>
                 }
             />

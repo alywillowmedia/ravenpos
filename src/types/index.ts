@@ -179,6 +179,8 @@ export interface DashboardStats {
 }
 
 // Payout types for admin financial management
+export type BalanceDisposition = 'deferred' | 'forgiven';
+
 export interface Payout {
     id: string;
     consignor_id: string;
@@ -194,6 +196,11 @@ export interface Payout {
     notes: string | null;
     paid_at: string;
     created_at: string;
+    // Partial payout fields
+    original_amount_due: number | null;
+    is_partial: boolean;
+    partial_reason: string | null;
+    balance_disposition: BalanceDisposition | null;
     // Joined data
     consignor?: Consignor;
 }

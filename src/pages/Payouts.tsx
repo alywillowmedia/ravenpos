@@ -7,7 +7,7 @@ import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
 import { usePayouts } from '../hooks/usePayouts';
 import { formatCurrency } from '../lib/utils';
-import type { ConsignorPayoutSummary, Payout } from '../types';
+import type { ConsignorPayoutSummary, Payout, BalanceDisposition } from '../types';
 
 type ViewMode = 'pending' | 'history';
 
@@ -28,6 +28,12 @@ export function Payouts() {
     const [payoutNotes, setPayoutNotes] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+
+    // Custom amount payout state
+    const [useCustomAmount, setUseCustomAmount] = useState(false);
+    const [customAmount, setCustomAmount] = useState('');
+    const [partialReason, setPartialReason] = useState('');
+    const [balanceDisposition, setBalanceDisposition] = useState<BalanceDisposition>('deferred');
 
     const totals = getTotals();
 
@@ -52,16 +58,28 @@ export function Payouts() {
         if (!selectedConsignor) return;
 
         setIsProcessing(true);
+
+        const amountToPay = useCustomAmount && customAmount
+            ? parseFloat(customAmount)
+            : undefined;
+
         const result = await markAsPaid(
             selectedConsignor.consignor.id,
             selectedConsignor,
-            payoutNotes || undefined
+            payoutNotes || undefined,
+            amountToPay,
+            useCustomAmount ? partialReason : undefined,
+            useCustomAmount ? balanceDisposition : undefined
         );
 
         if (result.success) {
             setShowPayModal(false);
             setSelectedConsignor(null);
             setPayoutNotes('');
+            setUseCustomAmount(false);
+            setCustomAmount('');
+            setPartialReason('');
+            setBalanceDisposition('deferred');
         }
         setIsProcessing(false);
     };
@@ -331,6 +349,10 @@ export function Payouts() {
                 onClose={() => {
                     setShowPayModal(false);
                     setPayoutNotes('');
+                    setUseCustomAmount(false);
+                    setCustomAmount('');
+                    setPartialReason('');
+                    setBalanceDisposition('deferred');
                 }}
                 title="Confirm Payout"
                 size="md"
@@ -350,11 +372,11 @@ export function Payouts() {
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-[var(--color-success-bg)] rounded-lg p-4 border border-[var(--color-success)]">
-                                <p className="text-sm text-[var(--color-success)] mb-1">
+                            <div className={`rounded-lg p-4 border ${useCustomAmount ? 'bg-[var(--color-surface)] border-[var(--color-border)]' : 'bg-[var(--color-success-bg)] border-[var(--color-success)]'}`}>
+                                <p className={`text-sm mb-1 ${useCustomAmount ? 'text-[var(--color-muted)]' : 'text-[var(--color-success)]'}`}>
                                     Amount Due
                                 </p>
-                                <p className="text-2xl font-bold text-[var(--color-success)]">
+                                <p className={`text-2xl font-bold ${useCustomAmount ? 'text-[var(--color-muted)] line-through' : 'text-[var(--color-success)]'}`}>
                                     {formatCurrency(selectedConsignor.pendingAmount)}
                                 </p>
                             </div>
@@ -368,6 +390,109 @@ export function Payouts() {
                             </div>
                         </div>
 
+                        {/* Custom Amount Toggle */}
+                        <div className="flex items-center gap-3">
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={useCustomAmount}
+                                    onChange={(e) => {
+                                        setUseCustomAmount(e.target.checked);
+                                        if (!e.target.checked) {
+                                            setCustomAmount('');
+                                            setPartialReason('');
+                                            setBalanceDisposition('deferred');
+                                        }
+                                    }}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[var(--color-primary)]/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-primary)]"></div>
+                            </label>
+                            <span className="text-sm font-medium">Pay a custom amount</span>
+                        </div>
+
+                        {/* Custom Amount Fields */}
+                        {useCustomAmount && (
+                            <div className="space-y-4 p-4 bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)]">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">
+                                        Custom Payout Amount
+                                    </label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]">$</span>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            max={selectedConsignor.pendingAmount}
+                                            value={customAmount}
+                                            onChange={(e) => setCustomAmount(e.target.value)}
+                                            placeholder={selectedConsignor.pendingAmount.toFixed(2)}
+                                            className="w-full pl-7 pr-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)]"
+                                        />
+                                    </div>
+                                    {customAmount && parseFloat(customAmount) < selectedConsignor.pendingAmount && (
+                                        <p className="text-xs text-[var(--color-muted)] mt-1">
+                                            Remaining balance: {formatCurrency(selectedConsignor.pendingAmount - parseFloat(customAmount))}
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">
+                                        Reason for Partial Payment
+                                    </label>
+                                    <textarea
+                                        value={partialReason}
+                                        onChange={(e) => setPartialReason(e.target.value)}
+                                        placeholder="Explain why only this amount is being paid..."
+                                        rows={2}
+                                        className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)] resize-none"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-2">
+                                        What happens to the remaining balance?
+                                    </label>
+                                    <div className="space-y-2">
+                                        <label className="flex items-start gap-3 p-3 rounded-lg border border-[var(--color-border)] cursor-pointer hover:bg-white transition-colors">
+                                            <input
+                                                type="radio"
+                                                name="balanceDisposition"
+                                                value="deferred"
+                                                checked={balanceDisposition === 'deferred'}
+                                                onChange={() => setBalanceDisposition('deferred')}
+                                                className="mt-0.5"
+                                            />
+                                            <div>
+                                                <p className="font-medium text-sm">Deferred to future payout</p>
+                                                <p className="text-xs text-[var(--color-muted)]">
+                                                    The remaining balance will still be owed and included in the next payout
+                                                </p>
+                                            </div>
+                                        </label>
+                                        <label className="flex items-start gap-3 p-3 rounded-lg border border-[var(--color-border)] cursor-pointer hover:bg-white transition-colors">
+                                            <input
+                                                type="radio"
+                                                name="balanceDisposition"
+                                                value="forgiven"
+                                                checked={balanceDisposition === 'forgiven'}
+                                                onChange={() => setBalanceDisposition('forgiven')}
+                                                className="mt-0.5"
+                                            />
+                                            <div>
+                                                <p className="font-medium text-sm">Forgiven / Removed</p>
+                                                <p className="text-xs text-[var(--color-muted)]">
+                                                    The remaining balance is written off and won't be owed
+                                                </p>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         <div>
                             <Input
                                 label="Notes (optional)"
@@ -379,8 +504,11 @@ export function Payouts() {
 
                         <div className="bg-[var(--color-warning-bg)] rounded-lg p-4 border border-[var(--color-warning)]">
                             <p className="text-sm text-[var(--color-warning)] font-medium">
-                                This will record the payout and reset this consignor's pending balance.
-                                Make sure you have issued payment before confirming.
+                                {useCustomAmount && balanceDisposition === 'forgiven'
+                                    ? 'This will record a partial payout and forgive the remaining balance. The forgiven amount will not be owed to the consignor.'
+                                    : useCustomAmount && balanceDisposition === 'deferred'
+                                    ? 'This will record a partial payout. The remaining balance will still be owed and appear in the next payout period.'
+                                    : 'This will record the payout and reset this consignor\'s pending balance. Make sure you have issued payment before confirming.'}
                             </p>
                         </div>
                     </div>
@@ -391,6 +519,10 @@ export function Payouts() {
                         onClick={() => {
                             setShowPayModal(false);
                             setPayoutNotes('');
+                            setUseCustomAmount(false);
+                            setCustomAmount('');
+                            setPartialReason('');
+                            setBalanceDisposition('deferred');
                         }}
                         disabled={isProcessing}
                     >
@@ -399,9 +531,9 @@ export function Payouts() {
                     <Button
                         variant="success"
                         onClick={handleMarkAsPaid}
-                        disabled={isProcessing}
+                        disabled={isProcessing || (useCustomAmount && (!customAmount || parseFloat(customAmount) <= 0))}
                     >
-                        {isProcessing ? 'Processing...' : 'Confirm Payout'}
+                        {isProcessing ? 'Processing...' : `Confirm Payout${useCustomAmount && customAmount ? ` (${formatCurrency(parseFloat(customAmount))})` : ''}`}
                     </Button>
                 </ModalFooter>
             </Modal>
@@ -662,23 +794,42 @@ function ConsignorPayoutDetail({
                         {payoutHistory.slice(0, 5).map((payout) => (
                             <div
                                 key={payout.id}
-                                className="flex items-center justify-between p-3 bg-[var(--color-surface)] rounded-lg"
+                                className="p-3 bg-[var(--color-surface)] rounded-lg"
                             >
-                                <div>
-                                    <p className="font-medium">
-                                        {formatCurrency(payout.amount)}
-                                    </p>
-                                    <p className="text-xs text-[var(--color-muted)]">
-                                        {new Date(payout.paid_at).toLocaleDateString()} -{' '}
-                                        {payout.items_sold} items, {payout.sales_count} sales
-                                    </p>
-                                    {payout.notes && (
-                                        <p className="text-xs text-[var(--color-muted)] mt-1">
-                                            Note: {payout.notes}
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="font-medium">
+                                            {formatCurrency(payout.amount)}
+                                            {payout.is_partial && payout.original_amount_due && (
+                                                <span className="text-xs text-[var(--color-muted)] ml-2 line-through">
+                                                    {formatCurrency(payout.original_amount_due)}
+                                                </span>
+                                            )}
                                         </p>
-                                    )}
+                                        <p className="text-xs text-[var(--color-muted)]">
+                                            {new Date(payout.paid_at).toLocaleDateString()} -{' '}
+                                            {payout.items_sold} items, {payout.sales_count} sales
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {payout.is_partial && (
+                                            <Badge variant={payout.balance_disposition === 'forgiven' ? 'danger' : 'warning'}>
+                                                {payout.balance_disposition === 'forgiven' ? 'Partial (Forgiven)' : 'Partial'}
+                                            </Badge>
+                                        )}
+                                        <Badge variant="success">Paid</Badge>
+                                    </div>
                                 </div>
-                                <Badge variant="success">Paid</Badge>
+                                {payout.is_partial && payout.partial_reason && (
+                                    <p className="text-xs text-[var(--color-muted)] mt-1">
+                                        Reason: {payout.partial_reason}
+                                    </p>
+                                )}
+                                {payout.notes && (
+                                    <p className="text-xs text-[var(--color-muted)] mt-1">
+                                        Note: {payout.notes}
+                                    </p>
+                                )}
                             </div>
                         ))}
                     </div>
@@ -771,6 +922,34 @@ function PayoutHistoryList({
                             </div>
                         </div>
                     </div>
+                    {payout.is_partial && (
+                        <div className="mt-2 pl-14 space-y-1">
+                            <div className="flex items-center gap-2">
+                                <Badge variant="warning">Partial Payout</Badge>
+                                {payout.balance_disposition === 'forgiven' && (
+                                    <Badge variant="danger">Balance Forgiven</Badge>
+                                )}
+                                {payout.balance_disposition === 'deferred' && (
+                                    <Badge variant="default">Balance Deferred</Badge>
+                                )}
+                            </div>
+                            {payout.original_amount_due && (
+                                <p className="text-xs text-[var(--color-muted)]">
+                                    Original amount due: {formatCurrency(payout.original_amount_due)}
+                                    {payout.balance_disposition === 'forgiven' && (
+                                        <span className="text-[var(--color-danger)]">
+                                            {' '}({formatCurrency(payout.original_amount_due - payout.amount)} forgiven)
+                                        </span>
+                                    )}
+                                </p>
+                            )}
+                            {payout.partial_reason && (
+                                <p className="text-xs text-[var(--color-muted)]">
+                                    Reason: {payout.partial_reason}
+                                </p>
+                            )}
+                        </div>
+                    )}
                     {payout.notes && (
                         <p className="mt-2 text-sm text-[var(--color-muted)] pl-14">
                             Note: {payout.notes}
