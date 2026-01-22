@@ -190,6 +190,7 @@ export interface Payout {
     gross_sales: number;
     tax_collected: number;
     store_share: number;
+    credit_card_fees: number;
     notes: string | null;
     paid_at: string;
     created_at: string;
@@ -220,6 +221,7 @@ export interface ConsignorPayoutSummary {
     grossSales: number;
     taxCollected: number;
     storeShare: number;
+    creditCardFees: number;
     salesCount: number;
     itemsSold: number;
     lastPayout: Payout | null;
@@ -240,6 +242,8 @@ export interface SaleItemDetail {
     consignorShare: number;
     storeShare: number;
     taxAmount: number;
+    creditCardFee: number;
     isRefunded: boolean;
     refundedQuantity: number;
 }
+

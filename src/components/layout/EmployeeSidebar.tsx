@@ -169,22 +169,14 @@ export function EmployeeSidebar() {
                 </div>
             </aside>
 
-            {/* Logout Confirmation Modal */}
             <Modal
                 isOpen={showLogoutConfirm}
                 onClose={() => setShowLogoutConfirm(false)}
-                title="Logout"
+                title="Sign Out"
             >
                 <div className="p-4">
-                    {clockStatus.isClockedIn && (
-                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg mb-4">
-                            <p className="text-sm text-amber-700">
-                                ⚠️ You are currently clocked in. Logging out will automatically clock you out.
-                            </p>
-                        </div>
-                    )}
                     <p className="text-[var(--color-muted)] mb-6">
-                        Are you sure you want to logout?
+                        Are you sure you want to sign out?{clockStatus.isClockedIn ? ' You will remain clocked in.' : ''}
                     </p>
                     <div className="flex gap-3 justify-end">
                         <Button variant="secondary" onClick={() => setShowLogoutConfirm(false)}>

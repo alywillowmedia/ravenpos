@@ -126,13 +126,7 @@ export function EmployeeProvider({ children }: EmployeeProviderProps) {
         setEmployee(verifiedEmployee);
         setSession(newSession);
 
-        // Auto clock-in
-        const clockInResult = await clockInInternal(verifiedEmployee.id);
-        if (!clockInResult.success) {
-            console.warn('Auto clock-in failed:', clockInResult.error);
-        }
-
-        // Fetch current clock status
+        // Fetch current clock status (don't auto clock-in, let employee choose)
         await fetchClockStatus(verifiedEmployee.id);
 
         return { success: true, error: null };
@@ -239,17 +233,13 @@ export function EmployeeProvider({ children }: EmployeeProviderProps) {
         }
     };
 
-    // Logout
+    // Logout (does NOT clock out - clock status persists independently)
     const logout = async () => {
-        // Clock out if currently clocked in
-        if (clockStatus.isClockedIn) {
-            await clockOut();
-        }
-
-        // Clear session
+        // Clear session only, don't clock out
         clearEmployeeSession();
         setEmployee(null);
         setSession(null);
+        // Reset local clock status display (actual DB status persists)
         setClockStatus(defaultClockStatus);
     };
 

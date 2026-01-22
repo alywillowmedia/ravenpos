@@ -6,6 +6,8 @@ export interface Employee {
     name: string;
     hourly_rate: number;
     is_active: boolean;
+    employer?: 'Ravenlia' | 'Alywillow' | null;
+    employment_type?: 'Production' | 'Sales' | 'Shipping Dept.' | null;
     created_at: string;
     updated_at: string;
 }
@@ -22,7 +24,10 @@ export interface TimeEntry {
     clock_in: string;
     clock_out: string | null;
     total_hours: number | null;
+    lunch_break_minutes?: number | null;
     notes: string | null;
+    edited_by_admin_id?: string | null;
+    edited_at?: string | null;
     created_at: string;
 }
 
@@ -40,6 +45,8 @@ export interface EmployeeInput {
     pin: string;
     hourly_rate: number;
     is_active: boolean;
+    employer?: 'Ravenlia' | 'Alywillow' | null;
+    employment_type?: 'Production' | 'Sales' | 'Shipping Dept.' | null;
 }
 
 export interface TimeEntryInput {

@@ -54,7 +54,7 @@ export function VendorLayout() {
                 {/* Logo */}
                 <div className="flex items-center justify-center h-20 px-4 py-4 border-b border-[var(--color-border)]">
                     <img
-                        src="/ravenpos_logo.svg"
+                        src="./ravenpos_logo.svg"
                         alt="RavenPOS"
                         className="w-35 h-auto max-h-18"
                     />

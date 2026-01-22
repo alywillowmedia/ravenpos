@@ -19,6 +19,8 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee }: AddEmp
     const [pin, setPin] = useState('');
     const [confirmPin, setConfirmPin] = useState('');
     const [isActive, setIsActive] = useState(true);
+    const [employer, setEmployer] = useState<'Ravenlia' | 'Alywillow' | ''>('');
+    const [employmentType, setEmploymentType] = useState<'Production' | 'Sales' | 'Shipping Dept.' | ''>('');
     const [error, setError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -30,6 +32,8 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee }: AddEmp
             setName(employee.name);
             setHourlyRate(employee.hourly_rate.toString());
             setIsActive(employee.is_active);
+            setEmployer(employee.employer || '');
+            setEmploymentType(employee.employment_type || '');
             setPin('');
             setConfirmPin('');
         } else if (isOpen) {
@@ -38,6 +42,8 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee }: AddEmp
             setPin('');
             setConfirmPin('');
             setIsActive(true);
+            setEmployer('');
+            setEmploymentType('');
         }
         setError(null);
     }, [isOpen, employee]);
@@ -78,6 +84,8 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee }: AddEmp
                 pin: pin || '',
                 hourly_rate: rate,
                 is_active: isActive,
+                employer: employer || null,
+                employment_type: employmentType || null,
             },
             isEditing && pin ? pin : undefined
         );
@@ -96,7 +104,7 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee }: AddEmp
             isOpen={isOpen}
             onClose={onClose}
             title={isEditing ? 'Edit Employee' : 'Add Employee'}
-            size="md"
+            size="lg"
         >
             <form onSubmit={handleSubmit} className="space-y-4">
                 <Input
@@ -117,6 +125,34 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee }: AddEmp
                     placeholder="0.00"
                     leftIcon={<span className="text-[var(--color-muted)]">$</span>}
                 />
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium mb-1.5">Employer</label>
+                        <select
+                            value={employer}
+                            onChange={(e) => setEmployer(e.target.value as typeof employer)}
+                            className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                        >
+                            <option value="">Select...</option>
+                            <option value="Ravenlia">Ravenlia</option>
+                            <option value="Alywillow">Alywillow</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium mb-1.5">Employment Type</label>
+                        <select
+                            value={employmentType}
+                            onChange={(e) => setEmploymentType(e.target.value as typeof employmentType)}
+                            className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                        >
+                            <option value="">Select...</option>
+                            <option value="Production">Production</option>
+                            <option value="Sales">Sales</option>
+                            <option value="Shipping Dept.">Shipping Dept.</option>
+                        </select>
+                    </div>
+                </div>
 
                 <div className="grid grid-cols-2 gap-4">
                     <Input

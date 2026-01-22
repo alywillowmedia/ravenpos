@@ -8,13 +8,17 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { AddEmployeeModal } from '../components/employees/AddEmployeeModal';
+import { AuthorizeDeviceModal } from '../components/employees/AuthorizeDeviceModal';
 import { TimeEntriesTable } from '../components/employees/TimeEntriesTable';
+import { EditTimeEntryModal, type TimeEntryUpdate } from '../components/employees/EditTimeEntryModal';
 import { useEmployees } from '../hooks/useEmployees';
+import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../lib/utils';
 import { formatDuration } from '../lib/timeCalculations';
 import type { Employee, EmployeeWithStats, TimeEntry, EmployeeInput } from '../types/employee';
 
 export function Employees() {
+    const { user } = useAuth();
     const {
         employees,
         isLoading,
@@ -24,14 +28,17 @@ export function Employees() {
         getTimeEntries,
         manualClockOut,
         getEmployeeSales,
+        updateTimeEntry,
     } = useEmployees();
 
     const [showAddModal, setShowAddModal] = useState(false);
+    const [showAuthModal, setShowAuthModal] = useState(false);
     const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
     const [viewingEmployee, setViewingEmployee] = useState<EmployeeWithStats | null>(null);
     const [viewingEntries, setViewingEntries] = useState<TimeEntry[]>([]);
     const [isLoadingEntries, setIsLoadingEntries] = useState(false);
     const [salesCount, setSalesCount] = useState(0);
+    const [editingTimeEntry, setEditingTimeEntry] = useState<TimeEntry | null>(null);
 
     const handleAddEmployee = async (input: EmployeeInput): Promise<{ error: string | null }> => {
         const { error } = await createEmployee(input);
@@ -47,6 +54,8 @@ export function Employees() {
                 name: input.name,
                 hourly_rate: input.hourly_rate,
                 is_active: input.is_active,
+                employer: input.employer,
+                employment_type: input.employment_type,
             },
             newPin
         );
@@ -87,15 +96,39 @@ export function Employees() {
         await manualClockOut(emp.currentEntryId);
     };
 
+    const handleEditTimeEntry = async (updates: TimeEntryUpdate): Promise<{ error: string | null }> => {
+        if (!user?.id) return { error: 'Not authenticated' };
+
+        const result = await updateTimeEntry(updates.id, user.id, {
+            clock_in: updates.clock_in,
+            clock_out: updates.clock_out,
+            lunch_break_minutes: updates.lunch_break_minutes,
+            notes: updates.notes,
+        });
+
+        if (!result.error && viewingEmployee) {
+            // Refresh entries after update
+            const { data } = await getTimeEntries(viewingEmployee.id);
+            setViewingEntries(data);
+        }
+
+        return result;
+    };
+
     return (
         <div className="animate-fadeIn">
             <Header
                 title="Employees"
                 description="Manage employee accounts and view time clock data"
                 actions={
-                    <Button onClick={() => setShowAddModal(true)}>
-                        + Add Employee
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button variant="secondary" onClick={() => setShowAuthModal(true)}>
+                            🔒 Authorize Device
+                        </Button>
+                        <Button onClick={() => setShowAddModal(true)}>
+                            + Add Employee
+                        </Button>
+                    </div>
                 }
             />
 
@@ -221,7 +254,7 @@ export function Employees() {
                 isOpen={!!viewingEmployee}
                 onClose={() => setViewingEmployee(null)}
                 title={viewingEmployee?.name || 'Employee Details'}
-                size="lg"
+                size="3xl"
             >
                 {viewingEmployee && (
                     <div className="space-y-6">
@@ -263,11 +296,26 @@ export function Employees() {
                                 entries={viewingEntries}
                                 isLoading={isLoadingEntries}
                                 onDateRangeChange={handleDateRangeChange}
+                                onEditEntry={setEditingTimeEntry}
                             />
                         </div>
                     </div>
                 )}
             </Modal>
+
+            {/* Edit Time Entry Modal */}
+            <EditTimeEntryModal
+                isOpen={!!editingTimeEntry}
+                onClose={() => setEditingTimeEntry(null)}
+                onSubmit={handleEditTimeEntry}
+                entry={editingTimeEntry}
+            />
+
+            {/* Authorize Device Modal */}
+            <AuthorizeDeviceModal
+                isOpen={showAuthModal}
+                onClose={() => setShowAuthModal(false)}
+            />
         </div>
     );
 }

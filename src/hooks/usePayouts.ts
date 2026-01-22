@@ -17,9 +17,14 @@ interface SaleItemWithJoins {
         completed_at: string;
         tax_amount: number;
         subtotal: number;
+        payment_method: 'cash' | 'card';
     };
     consignor: Consignor;
 }
+
+// Stripe Terminal fee constants (2.7% + $0.05 per transaction)
+const STRIPE_FEE_PERCENT = 0.027;
+const STRIPE_FEE_FIXED = 0.05;
 
 export function usePayouts() {
     const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -53,12 +58,12 @@ export function usePayouts() {
 
             if (payoutError) throw payoutError;
 
-            // Fetch all sale items with sale data
+            // Fetch all sale items with sale data (including payment_method for fee calc)
             const { data: saleItems, error: saleItemsError } = await supabase
                 .from('sale_items')
                 .select(`
                     *,
-                    sale:sales(id, completed_at, tax_amount, subtotal)
+                    sale:sales(id, completed_at, tax_amount, subtotal, payment_method)
                 `);
 
             if (saleItemsError) throw saleItemsError;
@@ -101,14 +106,36 @@ export function usePayouts() {
                 let pendingAmount = 0;
                 let grossSales = 0;
                 let storeShare = 0;
+                let creditCardFees = 0;
                 let itemsSold = 0;
                 const salesSet = new Set<string>();
                 const salesDetails: SaleItemDetail[] = [];
 
+                // Group items by sale_id to calculate per-sale fees
+                const itemsBySale = new Map<string, SaleItemWithJoins[]>();
+                for (const item of consignorSaleItems as SaleItemWithJoins[]) {
+                    const existing = itemsBySale.get(item.sale_id) || [];
+                    existing.push(item);
+                    itemsBySale.set(item.sale_id, existing);
+                }
+
                 for (const item of consignorSaleItems as SaleItemWithJoins[]) {
                     const lineTotal = Number(item.price) * item.quantity;
-                    const consignorShare = lineTotal * item.commission_split;
-                    const itemStoreShare = lineTotal - consignorShare;
+
+                    // Calculate proportional credit card fee for this item
+                    let itemCreditCardFee = 0;
+                    if (item.sale.payment_method === 'card') {
+                        const saleSubtotal = item.sale.subtotal || lineTotal;
+                        // Total fee for the entire sale
+                        const totalSaleFee = (saleSubtotal * STRIPE_FEE_PERCENT) + STRIPE_FEE_FIXED;
+                        // This item's proportional share of the fee
+                        itemCreditCardFee = saleSubtotal > 0 ? totalSaleFee * (lineTotal / saleSubtotal) : 0;
+                    }
+
+                    // Consignor share is reduced by the credit card fee
+                    const consignorShareBeforeFee = lineTotal * item.commission_split;
+                    const consignorShare = consignorShareBeforeFee - itemCreditCardFee;
+                    const itemStoreShare = lineTotal - consignorShareBeforeFee; // Store share unaffected by fee
 
                     // Calculate proportional tax for this item
                     const saleSubtotal = item.sale.subtotal || lineTotal;
@@ -121,13 +148,16 @@ export function usePayouts() {
 
                     // Only count non-refunded items toward pending payout
                     const effectiveQuantity = Math.max(0, item.quantity - refundedQty);
+                    const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
                     const effectiveLineTotal = Number(item.price) * effectiveQuantity;
-                    const effectiveConsignorShare = effectiveLineTotal * item.commission_split;
-                    const effectiveStoreShare = effectiveLineTotal - effectiveConsignorShare;
+                    const effectiveCreditCardFee = itemCreditCardFee * effectiveRatio;
+                    const effectiveConsignorShare = (effectiveLineTotal * item.commission_split) - effectiveCreditCardFee;
+                    const effectiveStoreShare = effectiveLineTotal - (effectiveLineTotal * item.commission_split);
 
                     pendingAmount += effectiveConsignorShare;
                     grossSales += effectiveLineTotal;
                     storeShare += effectiveStoreShare;
+                    creditCardFees += effectiveCreditCardFee;
                     itemsSold += effectiveQuantity;
                     salesSet.add(item.sale_id);
 
@@ -144,6 +174,7 @@ export function usePayouts() {
                         consignorShare,
                         storeShare: itemStoreShare,
                         taxAmount: itemTaxPortion,
+                        creditCardFee: itemCreditCardFee,
                         isRefunded,
                         refundedQuantity: refundedQty,
                     });
@@ -158,6 +189,7 @@ export function usePayouts() {
                     grossSales,
                     taxCollected,
                     storeShare,
+                    creditCardFees,
                     salesCount: salesSet.size,
                     itemsSold,
                     lastPayout,
@@ -205,6 +237,7 @@ export function usePayouts() {
                 gross_sales: summary.grossSales,
                 tax_collected: summary.taxCollected,
                 store_share: summary.storeShare,
+                credit_card_fees: summary.creditCardFees,
                 notes: notes || null,
                 paid_at: new Date().toISOString(),
             };

@@ -52,7 +52,7 @@ export function Login() {
                 {/* Logo */}
                 <div className="text-center mb-8">
                     <img
-                        src="/ravenpos_logo.svg"
+                        src="./ravenpos_logo.svg"
                         alt="RavenPOS"
                         className="h-16 mx-auto mb-4"
                     />

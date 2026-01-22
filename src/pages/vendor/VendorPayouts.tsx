@@ -20,7 +20,13 @@ interface SaleItemForPayout {
     quantity: number;
     commission_split: number;
     completed_at: string;
+    payment_method: 'cash' | 'card';
+    sale_subtotal: number;
 }
+
+// Stripe Terminal fee constants (2.7% + $0.05 per transaction)
+const STRIPE_FEE_PERCENT = 0.027;
+const STRIPE_FEE_FIXED = 0.05;
 
 export function VendorPayouts() {
     const { userRecord } = useAuth();
@@ -56,10 +62,10 @@ export function VendorPayouts() {
             const lastPayout = payoutData?.[0];
             const lastPayoutDate = lastPayout ? new Date(lastPayout.paid_at) : new Date(0);
 
-            // Fetch sales since last payout
+            // Fetch sales since last payout (including payment_method for fee calc)
             const { data: saleItems } = await supabase
                 .from('sale_items')
-                .select('id, sale_id, name, sku, price, quantity, commission_split, sales!inner(completed_at)')
+                .select('id, sale_id, name, sku, price, quantity, commission_split, sales!inner(completed_at, payment_method, subtotal)')
                 .eq('consignor_id', userRecord.consignor_id);
 
             // Filter to items since last payout
@@ -67,10 +73,18 @@ export function VendorPayouts() {
                 .map((item) => {
                     const salesData = item.sales as unknown;
                     let completedAt = '';
+                    let paymentMethod: 'cash' | 'card' = 'cash';
+                    let saleSubtotal = Number(item.price) * item.quantity;
                     if (Array.isArray(salesData) && salesData.length > 0) {
-                        completedAt = (salesData[0] as { completed_at: string }).completed_at;
+                        const sale = salesData[0] as { completed_at: string; payment_method: string; subtotal: number };
+                        completedAt = sale.completed_at;
+                        paymentMethod = sale.payment_method as 'cash' | 'card';
+                        saleSubtotal = sale.subtotal || saleSubtotal;
                     } else if (salesData && typeof salesData === 'object' && 'completed_at' in salesData) {
-                        completedAt = (salesData as { completed_at: string }).completed_at;
+                        const sale = salesData as { completed_at: string; payment_method: string; subtotal: number };
+                        completedAt = sale.completed_at;
+                        paymentMethod = sale.payment_method as 'cash' | 'card';
+                        saleSubtotal = sale.subtotal || saleSubtotal;
                     }
                     return {
                         id: item.id,
@@ -81,6 +95,8 @@ export function VendorPayouts() {
                         quantity: item.quantity,
                         commission_split: Number(item.commission_split),
                         completed_at: completedAt,
+                        payment_method: paymentMethod,
+                        sale_subtotal: saleSubtotal,
                     };
                 })
                 .filter((item) => new Date(item.completed_at) > lastPayoutDate)
@@ -93,9 +109,31 @@ export function VendorPayouts() {
         fetchData();
     }, [userRecord?.consignor_id]);
 
-    // Calculate pending balance
+    // Calculate pending balance with credit card fee deductions
+    const calculateItemEarnings = (item: SaleItemForPayout) => {
+        const lineTotal = item.price * item.quantity;
+        let fee = 0;
+        if (item.payment_method === 'card') {
+            const totalSaleFee = (item.sale_subtotal * STRIPE_FEE_PERCENT) + STRIPE_FEE_FIXED;
+            fee = item.sale_subtotal > 0 ? totalSaleFee * (lineTotal / item.sale_subtotal) : 0;
+        }
+        return (lineTotal * item.commission_split) - fee;
+    };
+
     const pendingBalance = pendingSales.reduce(
-        (sum, item) => sum + item.price * item.quantity * item.commission_split,
+        (sum, item) => sum + calculateItemEarnings(item),
+        0
+    );
+
+    const pendingCreditCardFees = pendingSales.reduce(
+        (sum, item) => {
+            if (item.payment_method === 'card') {
+                const lineTotal = item.price * item.quantity;
+                const totalSaleFee = (item.sale_subtotal * STRIPE_FEE_PERCENT) + STRIPE_FEE_FIXED;
+                return sum + (item.sale_subtotal > 0 ? totalSaleFee * (lineTotal / item.sale_subtotal) : 0);
+            }
+            return sum;
+        },
         0
     );
 
@@ -148,7 +186,7 @@ export function VendorPayouts() {
             </Card>
 
             {/* Stats Row */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                 <Card variant="outlined">
                     <CardContent className="p-4 text-center">
                         <p className="text-xs text-[var(--color-muted)] uppercase">Pending Gross</p>
@@ -161,6 +199,14 @@ export function VendorPayouts() {
                         <p className="text-xl font-bold">{pendingItemCount}</p>
                     </CardContent>
                 </Card>
+                {pendingCreditCardFees > 0 && (
+                    <Card variant="outlined" className="border-[var(--color-warning)]">
+                        <CardContent className="p-4 text-center">
+                            <p className="text-xs text-[var(--color-warning)] uppercase">Card Fees</p>
+                            <p className="text-xl font-bold text-[var(--color-warning)]">-{formatCurrency(pendingCreditCardFees)}</p>
+                        </CardContent>
+                    </Card>
+                )}
                 <Card variant="outlined">
                     <CardContent className="p-4 text-center">
                         <p className="text-xs text-[var(--color-muted)] uppercase">Total Payouts</p>

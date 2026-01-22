@@ -23,6 +23,7 @@ import { Customers } from './pages/Customers';
 import { Employees } from './pages/Employees';
 import { Integrations } from './pages/Integrations';
 import { ShopifySetup } from './pages/ShopifySetup';
+import { ScanInventory } from './pages/ScanInventory';
 
 // Vendor Pages
 import { VendorDashboard } from './pages/vendor/VendorDashboard';
@@ -33,6 +34,7 @@ import { VendorProfile } from './pages/vendor/VendorProfile';
 
 // Employee Pages
 import { EmployeeLogin } from './pages/employee/EmployeeLogin';
+import { EmployeeActionSelection } from './pages/employee/EmployeeActionSelection';
 
 // Public Pages
 import { BrowsePage } from './pages/public/BrowsePage';
@@ -57,9 +59,12 @@ export default function App() {
                     <Route path="/login" element={<Login />} />
                     <Route path="/employee/login" element={<EmployeeLogin />} />
 
+                    {/* Employee Action Selection - Full screen, no sidebar */}
+                    <Route path="/employee/action-selection" element={<EmployeeActionSelection />} />
+
                     {/* Employee Routes - PIN-based auth, separate from admin/vendor */}
                     <Route path="/employee" element={<EmployeeLayout />}>
-                        <Route index element={<Navigate to="/employee/pos" replace />} />
+                        <Route index element={<Navigate to="/employee/action-selection" replace />} />
                         <Route path="pos" element={<POS />} />
                         <Route path="customers" element={<Customers />} />
                         <Route path="labels" element={<Labels />} />
@@ -79,6 +84,7 @@ export default function App() {
                         <Route path="consignors/:id" element={<ConsignorDetail />} />
                         <Route path="inventory" element={<Inventory />} />
                         <Route path="add-items" element={<AddItems />} />
+                        <Route path="scan" element={<ScanInventory />} />
                         <Route path="import" element={<ImportCSV />} />
                         <Route path="labels" element={<Labels />} />
                         <Route path="pos" element={<POS />} />

@@ -1,8 +1,16 @@
 import type { ReceiptData, ReceiptItem, RefundReceiptData } from '../types/receipt';
 import type { CartItem, Sale } from '../types';
+import '../types/electron.d.ts';
 
 /**
- * DEV_MODE toggle:
+ * Detect if running inside Electron desktop app
+ */
+const isElectron = (): boolean => {
+    return typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
+};
+
+/**
+ * DEV_MODE toggle (only used when NOT in Electron):
  * - true: Opens receipt as HTML in new window with print dialog (for testing)
  * - false: Sends to localhost:3000/print bridge server (for actual thermal printing)
  */
@@ -194,11 +202,17 @@ function generateReceiptHTML(receipt: ReceiptData): string {
 
 /**
  * Print a receipt
+ * - Electron: Uses native ESC/POS thermal printing
  * - DEV_MODE: Opens HTML preview in new window
  * - Production: Sends to localhost bridge server
  */
 export async function printReceipt(receipt: ReceiptData): Promise<{ success: boolean; error?: string }> {
     try {
+        // Electron desktop app: use native printing
+        if (isElectron() && window.electronAPI) {
+            return await window.electronAPI.printReceipt(receipt);
+        }
+
         if (DEV_MODE) {
             // Open receipt in new window for preview/print
             const html = generateReceiptHTML(receipt);
@@ -393,9 +407,17 @@ function generateRefundReceiptHTML(receipt: RefundReceiptData): string {
 
 /**
  * Print a refund receipt
+ * - Electron: Uses native ESC/POS thermal printing
+ * - DEV_MODE: Opens HTML preview in new window
+ * - Production: Sends to localhost bridge server
  */
 export async function printRefundReceipt(receipt: RefundReceiptData): Promise<{ success: boolean; error?: string }> {
     try {
+        // Electron desktop app: use native printing
+        if (isElectron() && window.electronAPI) {
+            return await window.electronAPI.printRefundReceipt(receipt);
+        }
+
         if (DEV_MODE) {
             // Open receipt in new window for preview/print
             const html = generateRefundReceiptHTML(receipt);

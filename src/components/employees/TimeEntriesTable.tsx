@@ -1,7 +1,9 @@
 // Time Entries Table - Shows employee time clock history
+// Includes edit button for admin time management
 
 import { useState, useEffect } from 'react';
 import { Badge } from '../ui/Badge';
+import { Button } from '../ui/Button';
 import { formatTime, formatShortDate, formatDuration, getWeekDateRange } from '../../lib/timeCalculations';
 import type { TimeEntry } from '../../types/employee';
 
@@ -9,11 +11,12 @@ interface TimeEntriesTableProps {
     entries: TimeEntry[];
     isLoading?: boolean;
     onDateRangeChange?: (start: Date, end: Date) => void;
+    onEditEntry?: (entry: TimeEntry) => void;
 }
 
 type DateFilter = 'this_week' | 'last_week' | 'this_month' | 'all';
 
-export function TimeEntriesTable({ entries, isLoading, onDateRangeChange }: TimeEntriesTableProps) {
+export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEditEntry }: TimeEntriesTableProps) {
     const [filter, setFilter] = useState<DateFilter>('this_week');
 
     useEffect(() => {
@@ -90,19 +93,23 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange }: Time
                             <th className="text-left px-4 py-3 text-sm font-medium text-[var(--color-muted)]">Clock In</th>
                             <th className="text-left px-4 py-3 text-sm font-medium text-[var(--color-muted)]">Clock Out</th>
                             <th className="text-right px-4 py-3 text-sm font-medium text-[var(--color-muted)]">Hours</th>
+                            <th className="text-center px-4 py-3 text-sm font-medium text-[var(--color-muted)]">Lunch</th>
                             <th className="text-left px-4 py-3 text-sm font-medium text-[var(--color-muted)]">Notes</th>
+                            {onEditEntry && (
+                                <th className="text-right px-4 py-3 text-sm font-medium text-[var(--color-muted)]">Actions</th>
+                            )}
                         </tr>
                     </thead>
                     <tbody>
                         {isLoading ? (
                             <tr>
-                                <td colSpan={5} className="px-4 py-8 text-center text-[var(--color-muted)]">
+                                <td colSpan={onEditEntry ? 7 : 6} className="px-4 py-8 text-center text-[var(--color-muted)]">
                                     Loading...
                                 </td>
                             </tr>
                         ) : entries.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="px-4 py-8 text-center text-[var(--color-muted)]">
+                                <td colSpan={onEditEntry ? 7 : 6} className="px-4 py-8 text-center text-[var(--color-muted)]">
                                     No time entries found
                                 </td>
                             </tr>
@@ -111,6 +118,9 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange }: Time
                                 <tr key={entry.id} className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]">
                                     <td className="px-4 py-3 text-sm">
                                         {formatShortDate(entry.clock_in)}
+                                        {entry.edited_at && (
+                                            <span title="Edited by admin" className="ml-1 text-xs text-[var(--color-warning)]">✏️</span>
+                                        )}
                                     </td>
                                     <td className="px-4 py-3 text-sm font-mono">
                                         {formatTime(entry.clock_in)}
@@ -125,9 +135,23 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange }: Time
                                     <td className="px-4 py-3 text-sm font-medium text-right">
                                         {entry.total_hours ? formatDuration(entry.total_hours) : '-'}
                                     </td>
+                                    <td className="px-4 py-3 text-sm text-center text-[var(--color-muted)]">
+                                        {entry.lunch_break_minutes ? `${entry.lunch_break_minutes}m` : '-'}
+                                    </td>
                                     <td className="px-4 py-3 text-sm text-[var(--color-muted)]">
                                         {entry.notes || '-'}
                                     </td>
+                                    {onEditEntry && (
+                                        <td className="px-4 py-3 text-right">
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => onEditEntry(entry)}
+                                            >
+                                                Edit
+                                            </Button>
+                                        </td>
+                                    )}
                                 </tr>
                             ))
                         )}

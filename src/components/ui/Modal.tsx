@@ -80,12 +80,13 @@ export function Modal({
                     'w-full rounded-xl',
                     'bg-white shadow-xl',
                     'animate-fadeInUp',
+                    'flex flex-col max-h-[85vh]',
                     sizes[size],
                     className
                 )}
             >
                 {(title || description) && (
-                    <div className="px-6 py-4 border-b border-[var(--color-border)]">
+                    <div className="px-6 py-4 border-b border-[var(--color-border)] shrink-0">
                         {title && (
                             <h2
                                 id="modal-title"
@@ -104,7 +105,7 @@ export function Modal({
                         )}
                     </div>
                 )}
-                <div className="px-6 py-4">{children}</div>
+                <div className="px-6 py-4 overflow-y-auto">{children}</div>
             </div>
         </div>,
         document.body

@@ -71,6 +71,117 @@ export function Payouts() {
         setShowPayModal(true);
     };
 
+    const printPayoutReport = (summary: ConsignorPayoutSummary) => {
+        const { consignor, pendingAmount, grossSales, storeShare, creditCardFees, salesSinceLastPayout, lastPayout } = summary;
+        const periodStart = lastPayout ? new Date(lastPayout.paid_at).toLocaleDateString() : 'Start';
+        const periodEnd = new Date().toLocaleDateString();
+
+        const html = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Payout Report - ${consignor.name}</title>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body { font-family: 'Courier New', monospace; font-size: 10px; padding: 20px; }
+                    .header { margin-bottom: 15px; }
+                    .header h1 { font-size: 12px; font-weight: bold; margin-bottom: 5px; }
+                    .header p { font-size: 10px; }
+                    .store-info { margin-bottom: 10px; }
+                    table { width: 100%; border-collapse: collapse; font-size: 9px; }
+                    th, td { padding: 3px 5px; text-align: left; border-bottom: 1px solid #ddd; }
+                    th { background: #f5f5f5; font-weight: bold; }
+                    .text-right { text-align: right; }
+                    .text-center { text-align: center; }
+                    .summary { margin-top: 15px; border-top: 2px solid #000; padding-top: 10px; }
+                    .summary-row { display: flex; justify-content: space-between; padding: 2px 0; }
+                    .summary-row.total { font-weight: bold; border-top: 1px solid #000; margin-top: 5px; padding-top: 5px; }
+                    .summary-row.deduction { color: #666; }
+                    .footer { margin-top: 20px; font-size: 8px; color: #666; }
+                    @media print {
+                        body { padding: 10px; }
+                        @page { margin: 0.5in; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h1>Sales Summary for Consignor ${consignor.consignor_number} for Period ${periodStart} - ${periodEnd}</h1>
+                </div>
+                <div class="store-info">
+                    <strong>${consignor.name}</strong><br>
+                    ${consignor.email || ''}<br>
+                    ${consignor.address || ''}<br>
+                    Commission: ${Math.round(consignor.commission_split * 100)}%
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>SKU</th>
+                            <th>Item Description</th>
+                            <th class="text-right">Unit Price</th>
+                            <th class="text-center">Qty</th>
+                            <th class="text-right">Extnd Price</th>
+                            <th class="text-center">Com%</th>
+                            <th class="text-right">Consignor</th>
+                            ${creditCardFees > 0 ? '<th class="text-right">CC Fee</th>' : ''}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${salesSinceLastPayout.filter(i => !i.isRefunded).map(item => `
+                            <tr>
+                                <td>${new Date(item.saleDate).toLocaleDateString()}</td>
+                                <td>${item.sku}</td>
+                                <td>${item.itemName}</td>
+                                <td class="text-right">$${item.price.toFixed(2)}</td>
+                                <td class="text-center">${item.quantity}</td>
+                                <td class="text-right">$${item.lineTotal.toFixed(2)}</td>
+                                <td class="text-center">${Math.round(item.commissionSplit * 100)}%</td>
+                                <td class="text-right">$${(item.consignorShare - item.creditCardFee).toFixed(2)}</td>
+                                ${creditCardFees > 0 ? `<td class="text-right">${item.creditCardFee > 0 ? '-$' + item.creditCardFee.toFixed(2) : '-'}</td>` : ''}
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                <div class="summary">
+                    <div class="summary-row">
+                        <span>Gross Sales:</span>
+                        <span>$${grossSales.toFixed(2)}</span>
+                    </div>
+                    <div class="summary-row deduction">
+                        <span>Store Share (${Math.round((1 - consignor.commission_split) * 100)}%):</span>
+                        <span>-$${storeShare.toFixed(2)}</span>
+                    </div>
+                    ${creditCardFees > 0 ? `
+                    <div class="summary-row deduction">
+                        <span>Credit Card Fees:</span>
+                        <span>-$${creditCardFees.toFixed(2)}</span>
+                    </div>
+                    ` : ''}
+                    <div class="summary-row total">
+                        <span>Amount Due to Consignor:</span>
+                        <span>$${pendingAmount.toFixed(2)}</span>
+                    </div>
+                </div>
+                <div class="footer">
+                    <p>Generated: ${new Date().toLocaleString()}</p>
+                    <p>Items: ${salesSinceLastPayout.filter(i => !i.isRefunded).length} | Total Qty: ${salesSinceLastPayout.filter(i => !i.isRefunded).reduce((s, i) => s + i.quantity, 0)}</p>
+                </div>
+            </body>
+            </html>
+        `;
+
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            printWindow.document.write(html);
+            printWindow.document.close();
+            printWindow.onload = () => {
+                printWindow.print();
+            };
+        }
+    };
+
     return (
         <div className="animate-fadeIn">
             <Header
@@ -199,6 +310,12 @@ export function Payouts() {
                     <Button variant="secondary" onClick={() => setSelectedConsignor(null)}>
                         Close
                     </Button>
+                    {selectedConsignor && (
+                        <Button variant="secondary" onClick={() => printPayoutReport(selectedConsignor)}>
+                            <PrintIcon />
+                            Print Report
+                        </Button>
+                    )}
                     {selectedConsignor && selectedConsignor.pendingAmount > 0 && (
                         <Button variant="success" onClick={() => setShowPayModal(true)}>
                             <DollarIcon />
@@ -380,7 +497,7 @@ function ConsignorPayoutDetail({
     summary: ConsignorPayoutSummary;
     payoutHistory: Payout[];
 }) {
-    const { consignor, pendingAmount, grossSales, taxCollected, storeShare, salesCount, itemsSold, salesSinceLastPayout } = summary;
+    const { consignor, pendingAmount, grossSales, taxCollected, storeShare, creditCardFees, salesCount, itemsSold, salesSinceLastPayout } = summary;
 
     return (
         <div className="space-y-4">
@@ -430,7 +547,7 @@ function ConsignorPayoutDetail({
                     </p>
                 </div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
                 <div className="bg-[var(--color-surface)] rounded-lg p-3">
                     <p className="text-xs text-[var(--color-muted)]">Tax Collected</p>
                     <p className="text-xl font-bold">{formatCurrency(taxCollected)}</p>
@@ -443,6 +560,14 @@ function ConsignorPayoutDetail({
                     <p className="text-xs text-[var(--color-muted)]">Items Sold</p>
                     <p className="text-xl font-bold">{itemsSold}</p>
                 </div>
+                {creditCardFees > 0 && (
+                    <div className="bg-[var(--color-warning-bg)] rounded-lg p-3 border border-[var(--color-warning)]">
+                        <p className="text-xs text-[var(--color-warning)]">Card Fees</p>
+                        <p className="text-xl font-bold text-[var(--color-warning)]">
+                            -{formatCurrency(creditCardFees)}
+                        </p>
+                    </div>
+                )}
             </div>
 
             {/* Commission Info - Compact inline */}
@@ -794,3 +919,23 @@ function HistoryIcon() {
         </svg>
     );
 }
+
+function PrintIcon() {
+    return (
+        <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <polyline points="6 9 6 2 18 2 18 9" />
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+            <rect width="12" height="8" x="6" y="14" />
+        </svg>
+    );
+}
+

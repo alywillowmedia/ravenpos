@@ -300,7 +300,15 @@ export function useStripeTerminal() {
 
         // Also check after a delay in case SDK loads late
         const timer = setTimeout(checkAndInit, 1000);
-        return () => clearTimeout(timer);
+
+        // Cleanup on unmount - critical for HMR/hot reloads in development
+        // This prevents stale connection tokens from being reused
+        return () => {
+            clearTimeout(timer);
+            // Clear the terminal reference so a fresh instance is created on remount
+            // This ensures a new connection token is fetched
+            terminalRef.current = null;
+        };
     }, [initializeTerminal]);
 
     return {

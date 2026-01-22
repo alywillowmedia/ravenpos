@@ -90,6 +90,8 @@ export function useEmployees() {
                     pin_salt: salt,
                     hourly_rate: input.hourly_rate,
                     is_active: input.is_active,
+                    employer: input.employer,
+                    employment_type: input.employment_type,
                 })
                 .select()
                 .single();
@@ -109,7 +111,7 @@ export function useEmployees() {
     // Update employee
     const updateEmployee = async (
         id: string,
-        updates: Partial<Pick<Employee, 'name' | 'hourly_rate' | 'is_active'>>,
+        updates: Partial<Pick<Employee, 'name' | 'hourly_rate' | 'is_active' | 'employer' | 'employment_type'>>,
         newPin?: string
     ): Promise<{ error: string | null }> => {
         try {
@@ -254,6 +256,54 @@ export function useEmployees() {
         return { data: data || [], error: null };
     };
 
+    // Update time entry (admin function with audit trail)
+    const updateTimeEntry = async (
+        entryId: string,
+        adminId: string,
+        updates: {
+            clock_in: string;
+            clock_out: string | null;
+            lunch_break_minutes: number;
+            notes: string | null;
+        }
+    ): Promise<{ error: string | null }> => {
+        try {
+            // Calculate total hours if both clock in and out are provided
+            let totalHours: number | null = null;
+            if (updates.clock_out) {
+                const clockIn = new Date(updates.clock_in);
+                const clockOut = new Date(updates.clock_out);
+                const diffMs = clockOut.getTime() - clockIn.getTime();
+                // Subtract lunch break from total
+                const lunchMs = (updates.lunch_break_minutes || 0) * 60 * 1000;
+                totalHours = Math.round(((diffMs - lunchMs) / (1000 * 60 * 60)) * 100) / 100;
+            }
+
+            const { error } = await supabase
+                .from('time_entries')
+                .update({
+                    clock_in: updates.clock_in,
+                    clock_out: updates.clock_out,
+                    total_hours: totalHours,
+                    lunch_break_minutes: updates.lunch_break_minutes,
+                    notes: updates.notes,
+                    edited_by_admin_id: adminId,
+                    edited_at: new Date().toISOString(),
+                })
+                .eq('id', entryId);
+
+            if (error) {
+                return { error: error.message };
+            }
+
+            await fetchEmployees();
+            return { error: null };
+        } catch (err) {
+            console.error(err);
+            return { error: 'Failed to update time entry' };
+        }
+    };
+
     return {
         employees,
         isLoading,
@@ -265,5 +315,6 @@ export function useEmployees() {
         getTimeEntries,
         manualClockOut,
         getEmployeeSales,
+        updateTimeEntry,
     };
 }
