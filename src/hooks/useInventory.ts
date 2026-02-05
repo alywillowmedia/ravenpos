@@ -88,7 +88,9 @@ export function useInventory(consignorId?: string) {
                     // Use provided SKU or auto-generate
                     sku: input.sku?.trim() || generateSKU(input.consignorNumber),
                     name: input.name,
-                    variant: input.variant || null,
+                    variant_summary: input.variant_summary || null,
+                    other_details_1: input.other_details_1 || null,
+                    other_details_2: input.other_details_2 || null,
                     category: input.category || 'Other',
                     quantity: itemQuantity,
                     qty_unlabeled: itemQuantity, // New items need labels for full quantity

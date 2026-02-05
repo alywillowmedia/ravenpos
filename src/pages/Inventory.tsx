@@ -203,8 +203,8 @@ export function Inventory() {
                         </div>
                         <div>
                             <p className="font-medium text-[var(--color-foreground)]">{item.name}</p>
-                            {item.variant && (
-                                <p className="text-xs text-[var(--color-muted)]">{item.variant}</p>
+                            {item.variant_summary && (
+                                <p className="text-xs text-[var(--color-muted)]">{item.variant_summary}</p>
                             )}
                         </div>
                     </div>
