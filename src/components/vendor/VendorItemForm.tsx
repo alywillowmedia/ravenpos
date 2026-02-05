@@ -115,17 +115,17 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
                     <Input
                         label="Other Details 1 (optional)"
                         value={formData.other_details_1}
-                        onChange={(e) => updateField('other_details_1', e.target.value.slice(0, 25))}
+                        onChange={(e) => updateField('other_details_1', e.target.value.slice(0, 40))}
                         placeholder="Additional info"
-                        maxLength={25}
+                        maxLength={40}
                     />
 
                     <Input
                         label="Other Details 2 (optional)"
                         value={formData.other_details_2}
-                        onChange={(e) => updateField('other_details_2', e.target.value.slice(0, 25))}
+                        onChange={(e) => updateField('other_details_2', e.target.value.slice(0, 40))}
                         placeholder="More details"
-                        maxLength={25}
+                        maxLength={40}
                     />
 
                     <div className="grid grid-cols-2 gap-3">

@@ -201,7 +201,7 @@ function drawLabel(
             // Wrap text if needed
             const detail1Lines = pdf.splitTextToSize(item.other_details_1, maxDetailWidth - 5);
             pdf.text(detail1Lines, rightX + 5, detailsY);
-            detailsY += detail1Lines.length * 7;
+            detailsY += (detail1Lines.length * 7) + 3; // Added +3 for more spacing
             pdf.setTextColor(0);
         }
 
