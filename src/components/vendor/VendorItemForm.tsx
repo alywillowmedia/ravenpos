@@ -21,7 +21,9 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
     const [formData, setFormData] = useState({
         sku: item?.sku || '',
         name: item?.name || '',
-        variant: item?.variant || '',
+        variant_summary: item?.variant_summary || '',
+        other_details_1: item?.other_details_1 || '',
+        other_details_2: item?.other_details_2 || '',
         category: item?.category || 'Other',
         quantity: item?.quantity ?? 1,
         price: item?.price ?? 0,
@@ -74,8 +76,9 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
                     <Input
                         label="Item Name"
                         value={formData.name}
-                        onChange={(e) => updateField('name', e.target.value)}
+                        onChange={(e) => updateField('name', e.target.value.slice(0, 20))}
                         placeholder="Vintage Denim Jacket"
+                        maxLength={20}
                         required
                     />
 
@@ -101,11 +104,28 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
                     </div>
 
                     <Input
-                        label="Variant (optional)"
-                        value={formData.variant}
-                        onChange={(e) => updateField('variant', e.target.value)}
+                        label="Variant/Summary (optional)"
+                        value={formData.variant_summary}
+                        onChange={(e) => updateField('variant_summary', e.target.value.slice(0, 25))}
                         placeholder="Size M, Blue"
+                        maxLength={25}
                         hint="Size, color, or other distinguishing info"
+                    />
+
+                    <Input
+                        label="Other Details 1 (optional)"
+                        value={formData.other_details_1}
+                        onChange={(e) => updateField('other_details_1', e.target.value.slice(0, 25))}
+                        placeholder="Additional info"
+                        maxLength={25}
+                    />
+
+                    <Input
+                        label="Other Details 2 (optional)"
+                        value={formData.other_details_2}
+                        onChange={(e) => updateField('other_details_2', e.target.value.slice(0, 25))}
+                        placeholder="More details"
+                        maxLength={25}
                     />
 
                     <div className="grid grid-cols-2 gap-3">

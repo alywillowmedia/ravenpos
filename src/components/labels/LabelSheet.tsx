@@ -138,7 +138,7 @@ function BarcodeLabel({ item }: BarcodeLabelProps) {
                 >
                     {item.name}
                 </div>
-                {item.variant && (
+                {item.variant_summary && (
                     <div
                         style={{
                             fontSize: '8px',
@@ -148,7 +148,7 @@ function BarcodeLabel({ item }: BarcodeLabelProps) {
                             whiteSpace: 'nowrap',
                         }}
                     >
-                        {item.variant}
+                        {item.variant_summary}
                     </div>
                 )}
             </div>
