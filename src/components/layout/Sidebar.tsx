@@ -192,7 +192,7 @@ export function Sidebar() {
                         onClick={() => setIsChangelogOpen(true)}
                     >
                         <p className="text-xs text-[var(--color-muted)]">Version</p>
-                        <p className="text-sm font-medium text-[var(--color-foreground)]">0.1.4.1</p>
+                        <p className="text-sm font-medium text-[var(--color-foreground)]">0.1.5</p>
                     </div>
                     <button
                         onClick={handleLogout}

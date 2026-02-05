@@ -32,6 +32,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
       disabled:opacity-50 disabled:cursor-not-allowed
       active:scale-[0.98]
+      touch-manipulation tap-highlight-none select-none
     `;
 
         const variants = {
@@ -67,10 +68,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         };
 
         const sizes = {
-            sm: 'h-8 px-3 text-sm',
-            md: 'h-10 px-4 text-sm',
-            lg: 'h-11 px-5 text-base',
-            xl: 'h-14 px-8 text-lg',
+            sm: 'h-9 min-h-[36px] px-3 text-sm',
+            md: 'h-11 min-h-[44px] px-4 text-sm',
+            lg: 'h-12 min-h-[48px] px-5 text-base',
+            xl: 'h-14 min-h-[56px] px-8 text-lg',
         };
 
         return (

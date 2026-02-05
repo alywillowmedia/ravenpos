@@ -107,6 +107,19 @@ export function Login() {
                 <p className="text-center text-xs text-[var(--color-muted)] mt-6">
                     Contact your administrator if you need access
                 </p>
+
+                {/* Employee Login Link */}
+                <div className="mt-8 pt-6 border-t border-[var(--color-border)]">
+                    <p className="text-center text-sm text-[var(--color-muted)] mb-3">
+                        Are you an employee?
+                    </p>
+                    <button
+                        onClick={() => navigate('/employee/login')}
+                        className="w-full py-2.5 px-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors text-sm font-medium"
+                    >
+                        Employee Login
+                    </button>
+                </div>
             </div>
         </div>
     );

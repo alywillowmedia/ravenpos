@@ -1,9 +1,13 @@
 import { Outlet, Navigate } from 'react-router-dom';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { EmployeeSidebar } from './EmployeeSidebar';
+import { MobileBottomNav } from './MobileBottomNav';
+import { useMobile } from '../../hooks/useMobile';
+import { cn } from '../../lib/utils';
 
 export function EmployeeLayout() {
     const { employee, isLoading } = useEmployee();
+    const { isMobile } = useMobile();
 
     // Show loading while checking session
     if (isLoading) {
@@ -21,12 +25,22 @@ export function EmployeeLayout() {
 
     return (
         <div className="min-h-screen bg-[var(--color-surface)]">
-            <EmployeeSidebar />
-            <main className="lg:pl-64">
-                <div className="px-4 py-6 sm:px-6 lg:px-8">
+            {/* Desktop Sidebar - hidden on mobile */}
+            {!isMobile && <EmployeeSidebar />}
+
+            <main className={cn(
+                isMobile ? 'mobile-content-padding' : 'lg:pl-64'
+            )}>
+                <div className={cn(
+                    'px-4 py-6 sm:px-6',
+                    !isMobile && 'lg:px-8'
+                )}>
                     <Outlet />
                 </div>
             </main>
+
+            {/* Mobile Bottom Nav - hidden on desktop */}
+            {isMobile && <MobileBottomNav variant="employee" />}
         </div>
     );
 }

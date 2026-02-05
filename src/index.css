@@ -56,6 +56,11 @@
   --transition-fast: 100ms ease;
   --transition-base: 150ms ease;
   --transition-slow: 300ms ease;
+
+  /* Mobile-specific tokens */
+  --mobile-bottom-nav-height: 83px;
+  /* 49px nav + 34px safe area */
+  --mobile-touch-target: 44px;
 }
 
 /* ========================================
@@ -349,4 +354,226 @@ body {
 
 .print-only {
   display: none;
+}
+
+/* ========================================
+   Mobile & Touch Styles
+   ======================================== */
+
+/* iOS Safe Area Utilities */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-area-left {
+  padding-left: env(safe-area-inset-left);
+}
+
+.safe-area-right {
+  padding-right: env(safe-area-inset-right);
+}
+
+.safe-area-horizontal {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.safe-area-all {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Touch Optimization */
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+.tap-highlight-none {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-target {
+  min-height: var(--mobile-touch-target);
+  min-width: var(--mobile-touch-target);
+}
+
+/* Prevent text selection on interactive elements */
+.select-none-touch {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Mobile Bottom Nav Styles */
+.mobile-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--color-border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Mobile content padding when bottom nav is present */
+.mobile-content-padding {
+  padding-bottom: var(--mobile-bottom-nav-height);
+}
+
+/* Mobile Animations */
+@keyframes slideInFromBottom {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideOutToBottom {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-slideInFromBottom {
+  animation: slideInFromBottom 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.animate-slideOutToBottom {
+  animation: slideOutToBottom 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.animate-slideInFromRight {
+  animation: slideInFromRight 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.2s ease-out;
+}
+
+/* Pull to Refresh */
+@keyframes pullToRefreshSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pull-to-refresh-spinner {
+  animation: pullToRefreshSpin 0.8s linear infinite;
+}
+
+/* Mobile Sheet Overlay */
+.mobile-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 60;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.mobile-sheet-overlay.active {
+  opacity: 1;
+}
+
+/* Mobile Sheet */
+.mobile-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 70;
+  background: var(--color-background);
+  border-radius: 1rem 1rem 0 0;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding-bottom: env(safe-area-inset-bottom);
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.mobile-sheet.open {
+  transform: translateY(0);
+}
+
+/* Sheet handle/grabber */
+.mobile-sheet-handle {
+  width: 36px;
+  height: 5px;
+  background: var(--color-border);
+  border-radius: 3px;
+  margin: 8px auto 16px;
+}
+
+/* Active press state for mobile buttons */
+@media (hover: none) and (pointer: coarse) {
+  .active\:scale-98:active {
+    transform: scale(0.98);
+  }
+
+  .active\:bg-surface:active {
+    background-color: var(--color-surface);
+  }
+}
+
+/* Ensure proper scrolling on iOS */
+.mobile-scroll {
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+}
+
+/* Hide desktop elements on mobile */
+@media (max-width: 1023px) {
+  .desktop-only {
+    display: none !important;
+  }
+}
+
+/* Hide mobile elements on desktop */
+@media (min-width: 1024px) {
+  .mobile-only {
+    display: none !important;
+  }
 }

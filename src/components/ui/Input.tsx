@@ -29,9 +29,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
 
         const sizes = {
-            sm: 'h-8 text-sm px-3',
-            md: 'h-10 text-sm px-3',
-            lg: 'h-12 text-base px-4',
+            sm: 'h-9 min-h-[36px] text-sm px-3',
+            md: 'h-11 min-h-[44px] text-sm px-3',
+            lg: 'h-12 min-h-[48px] text-base px-4',
         };
 
         const inputStyles = `
@@ -43,6 +43,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       transition-all duration-150
       focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent
       disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[var(--color-surface)]
+      touch-manipulation tap-highlight-none
+      text-[16px] md:text-sm
       ${error ? 'border-[var(--color-danger)] focus:ring-[var(--color-danger)]' : ''}
     `;
 

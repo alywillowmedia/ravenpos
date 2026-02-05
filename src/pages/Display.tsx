@@ -35,7 +35,7 @@ export function Display() {
         return (
             <div className="h-screen w-screen flex flex-col items-center justify-center bg-[var(--color-background)] text-[var(--color-foreground)] p-8">
                 <Store size={64} className="text-[var(--color-primary)] mb-4" />
-                <h1 className="text-4xl font-bold mb-2">Welcome to RavenPOS</h1>
+                <h1 className="text-4xl font-bold mb-2">Welcome to Ravenlia</h1>
                 <p className="text-xl text-[var(--color-muted)]">Register is ready for next customer</p>
             </div>
         );
