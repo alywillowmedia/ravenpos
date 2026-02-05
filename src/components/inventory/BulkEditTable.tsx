@@ -126,9 +126,9 @@ export function BulkEditTable({
                                                 <p className="text-sm font-medium text-[var(--color-foreground)] truncate">
                                                     {item.name}
                                                 </p>
-                                                {item.variant && (
+                                                {item.variant_summary && (
                                                     <p className="text-xs text-[var(--color-muted)] truncate">
-                                                        {item.variant}
+                                                        {item.variant_summary}
                                                     </p>
                                                 )}
                                             </div>

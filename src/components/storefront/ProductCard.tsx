@@ -57,9 +57,9 @@ export function ProductCard({ item }: ProductCardProps) {
                 </h3>
 
                 {/* Variant if exists */}
-                {item.variant && (
+                {item.variant_summary && (
                     <p className="text-sm text-[var(--color-muted)] mt-0.5 line-clamp-1">
-                        {item.variant}
+                        {item.variant_summary}
                     </p>
                 )}
 

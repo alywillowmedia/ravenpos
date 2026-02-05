@@ -292,8 +292,8 @@ export function Labels() {
             render: (item) => (
                 <div>
                     <p className="font-medium">{item.name}</p>
-                    {item.variant && (
-                        <p className="text-xs text-[var(--color-muted)]">{item.variant}</p>
+                    {item.variant_summary && (
+                        <p className="text-xs text-[var(--color-muted)]">{item.variant_summary}</p>
                     )}
                 </div>
             ),
@@ -719,7 +719,7 @@ export function Labels() {
                         keyExtractor={(item) => item.id}
                         searchable
                         searchPlaceholder="Search items..."
-                        searchKeys={['name', 'sku', 'variant']}
+                        searchKeys={['name', 'sku', 'variant_summary']}
                         onRowClick={(item) => toggleSelect(item.id)}
                         isLoading={isLoading}
                     />

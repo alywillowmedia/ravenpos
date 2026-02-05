@@ -153,9 +153,9 @@ export function ItemDetailPage() {
                     </h1>
 
                     {/* Variant */}
-                    {item.variant && (
+                    {item.variant_summary && (
                         <p className="text-lg text-[var(--color-muted)] mt-2">
-                            {item.variant}
+                            {item.variant_summary}
                         </p>
                     )}
 

@@ -24,7 +24,7 @@ export function createReceiptData(
     cartItems: CartItem[]
 ): ReceiptData {
     const items: ReceiptItem[] = cartItems.map((cartItem) => ({
-        name: cartItem.item.name + (cartItem.item.variant ? ` - ${cartItem.item.variant}` : ''),
+        name: cartItem.item.name + (cartItem.item.variant_summary ? ` - ${cartItem.item.variant_summary}` : ''),
         quantity: cartItem.quantity,
         price: Number(cartItem.item.price),
         lineTotal: cartItem.lineTotal,

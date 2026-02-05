@@ -302,8 +302,8 @@ export function EmployeePOS() {
                                         >
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-medium truncate">{item.item.name}</p>
-                                                {item.item.variant && (
-                                                    <p className="text-xs text-[var(--color-muted)]">{item.item.variant}</p>
+                                                {item.item.variant_summary && (
+                                                    <p className="text-xs text-[var(--color-muted)]">{item.item.variant_summary}</p>
                                                 )}
                                                 <p className="text-xs font-mono text-[var(--color-muted)]">{item.item.sku}</p>
                                             </div>

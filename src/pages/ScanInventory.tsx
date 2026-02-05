@@ -262,8 +262,8 @@ export function ScanInventory() {
                                                         )}
                                                         <div>
                                                             <p className="font-medium text-[var(--color-foreground)]">{si.item.name}</p>
-                                                            {si.item.variant && (
-                                                                <p className="text-xs text-[var(--color-muted)]">{si.item.variant}</p>
+                                                            {si.item.variant_summary && (
+                                                                <p className="text-xs text-[var(--color-muted)]">{si.item.variant_summary}</p>
                                                             )}
                                                         </div>
                                                     </div>

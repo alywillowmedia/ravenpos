@@ -118,10 +118,10 @@ export function Display() {
                                                 <span className="text-sm font-medium">{item.item.consignor.name}</span>
                                             </div>
                                         )}
-                                        {item.item.variant && (
+                                        {item.item.variant_summary && (
                                             <div className="flex items-center gap-1.5 text-[var(--color-muted)]">
                                                 <TagIcon size={14} />
-                                                <span className="text-sm font-medium">{item.item.variant}</span>
+                                                <span className="text-sm font-medium">{item.item.variant_summary}</span>
                                             </div>
                                         )}
                                     </div>

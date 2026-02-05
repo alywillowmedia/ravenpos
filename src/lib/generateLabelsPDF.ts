@@ -122,7 +122,7 @@ function drawLabel(
     const innerX = x + padding;
     const innerY = y + padding;
     const innerWidth = width - padding * 2;
-    const centerX = x + width / 2;
+    const halfWidth = width / 2;
 
     // Set default font
     pdf.setFont('helvetica');
@@ -134,7 +134,7 @@ function drawLabel(
         pdf.setFontSize(6);
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(120);
-        const vendor = truncateText(pdf, vendorText, innerWidth * 0.6);
+        const vendor = truncateText(pdf, vendorText, halfWidth - padding);
         pdf.text(vendor, innerX, innerY + 6);
         pdf.setTextColor(0);
     }
@@ -146,30 +146,30 @@ function drawLabel(
     const priceWidth = pdf.getTextWidth(price);
     pdf.text(price, x + width - padding - priceWidth, innerY + 7);
 
-    // Row 2: Item name (bold, larger)
+    // Row 2: Item name (bold, larger) - LEFT SIDE
     pdf.setFontSize(9);
     pdf.setFont('helvetica', 'bold');
     const name = truncateText(pdf, item.name, innerWidth);
     pdf.text(name, innerX, innerY + 17);
 
-    // Row 2.5: Variant (if exists, smaller, gray)
+    // Row 2.5: Variant/Summary (if exists, smaller, gray) - LEFT SIDE with top padding
     let variantOffset = 0;
-    if (item.variant) {
+    if (item.variant_summary) {
         pdf.setFontSize(7);
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(100);
-        const variant = truncateText(pdf, item.variant, innerWidth);
-        pdf.text(variant, innerX, innerY + 24);
+        const variant = truncateText(pdf, item.variant_summary, halfWidth - padding);
+        pdf.text(variant, innerX, innerY + 26); // Increased from 24 to 26 for top padding
         pdf.setTextColor(0);
-        variantOffset = 6;
+        variantOffset = 8; // Increased from 6 to 8
     }
 
-    // Row 3: Barcode (centered, shorter height)
+    // Row 3: Barcode (LEFT ALIGNED, same as item title)
     const barcodeDataUrl = generateBarcodeDataUrl(item.sku);
     if (barcodeDataUrl) {
         const barcodeWidth = 90;
-        const barcodeHeight = 18; // Shorter barcode
-        const barcodeX = centerX - barcodeWidth / 2;
+        const barcodeHeight = 15; // Reduced from 18 to 15
+        const barcodeX = innerX; // Left aligned with item name
         const barcodeY = innerY + 26 + variantOffset;
         try {
             pdf.addImage(barcodeDataUrl, 'PNG', barcodeX, barcodeY, barcodeWidth, barcodeHeight);
@@ -177,19 +177,53 @@ function drawLabel(
             // Silently fail if image can't be added
         }
 
-        // Row 4: SKU (centered below barcode, monospace, small)
+        // Row 4: SKU (left aligned below barcode, monospace, small)
         pdf.setFontSize(7);
         pdf.setFont('courier', 'normal');
         pdf.setTextColor(80);
-        const skuWidth = pdf.getTextWidth(item.sku);
-        pdf.text(item.sku, centerX - skuWidth / 2, barcodeY + barcodeHeight + 8);
+        pdf.text(item.sku, barcodeX, barcodeY + barcodeHeight + 8);
         pdf.setTextColor(0);
+
+        // RIGHT SIDE: Other Details underneath price
+        const rightX = x + halfWidth + padding;
+        let detailsY = innerY + 16;
+        const maxDetailWidth = halfWidth - padding * 2;
+
+        // Other Details 1 (right side) with bullet and wrapping
+        if (item.other_details_1) {
+            pdf.setFontSize(7);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setTextColor(80);
+            
+            // Add bullet point
+            pdf.text('•', rightX, detailsY);
+            
+            // Wrap text if needed
+            const detail1Lines = pdf.splitTextToSize(item.other_details_1, maxDetailWidth - 5);
+            pdf.text(detail1Lines, rightX + 5, detailsY);
+            detailsY += detail1Lines.length * 7;
+            pdf.setTextColor(0);
+        }
+
+        // Other Details 2 (right side) with bullet and wrapping
+        if (item.other_details_2) {
+            pdf.setFontSize(7);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setTextColor(80);
+            
+            // Add bullet point
+            pdf.text('•', rightX, detailsY);
+            
+            // Wrap text if needed
+            const detail2Lines = pdf.splitTextToSize(item.other_details_2, maxDetailWidth - 5);
+            pdf.text(detail2Lines, rightX + 5, detailsY);
+            pdf.setTextColor(0);
+        }
     } else {
-        // No barcode - just show SKU centered
+        // No barcode - just show SKU left aligned
         pdf.setFontSize(8);
         pdf.setFont('courier', 'normal');
-        const skuWidth = pdf.getTextWidth(item.sku);
-        pdf.text(item.sku, centerX - skuWidth / 2, y + height - 10);
+        pdf.text(item.sku, innerX, y + height - 10);
     }
 }
 

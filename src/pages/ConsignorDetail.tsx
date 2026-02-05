@@ -157,8 +157,8 @@ export function ConsignorDetail() {
             render: (item) => (
                 <div>
                     <p className="font-medium">{item.name}</p>
-                    {item.variant && (
-                        <p className="text-xs text-[var(--color-muted)]">{item.variant}</p>
+                    {item.variant_summary && (
+                        <p className="text-xs text-[var(--color-muted)]">{item.variant_summary}</p>
                     )}
                 </div>
             ),

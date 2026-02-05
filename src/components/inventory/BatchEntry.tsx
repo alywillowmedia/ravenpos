@@ -15,7 +15,9 @@ interface BatchRow {
     id: string;
     sku: string;
     name: string;
-    variant: string;
+    variant_summary: string;
+    other_details_1: string;
+    other_details_2: string;
     category: string;
     quantity: number;
     price: number;
@@ -26,7 +28,9 @@ const createEmptyRow = (): BatchRow => ({
     id: Math.random().toString(36).substring(7),
     sku: '',
     name: '',
-    variant: '',
+    variant_summary: '',
+    other_details_1: '',
+    other_details_2: '',
     category: 'Other',
     quantity: 1,
     price: 0,
@@ -127,8 +131,10 @@ export function BatchEntry({ categories, consignorId, onSubmit }: BatchEntryProp
                     <div className="col-span-1">Image</div>
                     <div className="col-span-2">SKU</div>
                     <div className="col-span-2">Name *</div>
-                    <div className="col-span-2">Variant</div>
-                    <div className="col-span-2">Category</div>
+                    <div className="col-span-1">Variant</div>
+                    <div className="col-span-1">Detail 1</div>
+                    <div className="col-span-1">Detail 2</div>
+                    <div className="col-span-1">Category</div>
                     <div className="col-span-1">Qty</div>
                     <div className="col-span-1">Price *</div>
                     <div className="col-span-1"></div>
@@ -172,21 +178,43 @@ export function BatchEntry({ categories, consignorId, onSubmit }: BatchEntryProp
                                 data-field="name"
                                 placeholder="Item name"
                                 value={row.name}
-                                onChange={(e) => updateRow(row.id, 'name', e.target.value)}
+                                onChange={(e) => updateRow(row.id, 'name', e.target.value.slice(0, 20))}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'name')}
                                 inputSize="sm"
+                                maxLength={20}
                             />
                         </div>
-                        <div className="col-span-6 sm:col-span-2">
+                        <div className="col-span-4 sm:col-span-1">
                             <Input
-                                placeholder="Size, color..."
-                                value={row.variant}
-                                onChange={(e) => updateRow(row.id, 'variant', e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, row.id, 'variant')}
+                                placeholder="Size..."
+                                value={row.variant_summary}
+                                onChange={(e) => updateRow(row.id, 'variant_summary', e.target.value.slice(0, 25))}
+                                onKeyDown={(e) => handleKeyDown(e, row.id, 'variant_summary')}
                                 inputSize="sm"
+                                maxLength={25}
                             />
                         </div>
-                        <div className="col-span-6 sm:col-span-2">
+                        <div className="col-span-4 sm:col-span-1">
+                            <Input
+                                placeholder="Detail 1"
+                                value={row.other_details_1}
+                                onChange={(e) => updateRow(row.id, 'other_details_1', e.target.value.slice(0, 25))}
+                                onKeyDown={(e) => handleKeyDown(e, row.id, 'other_details_1')}
+                                inputSize="sm"
+                                maxLength={25}
+                            />
+                        </div>
+                        <div className="col-span-4 sm:col-span-1">
+                            <Input
+                                placeholder="Detail 2"
+                                value={row.other_details_2}
+                                onChange={(e) => updateRow(row.id, 'other_details_2', e.target.value.slice(0, 25))}
+                                onKeyDown={(e) => handleKeyDown(e, row.id, 'other_details_2')}
+                                inputSize="sm"
+                                maxLength={25}
+                            />
+                        </div>
+                        <div className="col-span-6 sm:col-span-1">
                             <Select
                                 options={categoryOptions}
                                 value={row.category}

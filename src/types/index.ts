@@ -28,7 +28,9 @@ export interface Item {
     consignor_id: string;
     sku: string;
     name: string;
-    variant: string | null;
+    variant_summary: string | null;
+    other_details_1: string | null;
+    other_details_2: string | null;
     category: string;
     quantity: number;
     qty_unlabeled: number;

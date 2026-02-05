@@ -62,7 +62,7 @@ export function useSales() {
                 item_id: cartItem.item.id,
                 consignor_id: cartItem.item.consignor_id,
                 sku: cartItem.item.sku,
-                name: cartItem.item.name + (cartItem.item.variant ? ` - ${cartItem.item.variant}` : ''),
+                name: cartItem.item.name + (cartItem.item.variant_summary ? ` - ${cartItem.item.variant_summary}` : ''),
                 price: cartItem.item.price,
                 quantity: cartItem.quantity,
                 commission_split: (cartItem.item.consignor as { commission_split: number })?.commission_split ?? 0.6,

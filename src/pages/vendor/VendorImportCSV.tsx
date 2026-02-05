@@ -191,7 +191,7 @@ export function VendorImportCSV() {
             consignorNumber: consignorData.consignor_number,
             sku: item.sku || undefined,
             name: item.name,
-            variant: item.variant,
+            variant_summary: item.variant,
             category: item.category,
             quantity: item.quantity,
             price: item.price,

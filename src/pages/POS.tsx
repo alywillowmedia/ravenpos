@@ -490,9 +490,9 @@ export function POS() {
                                                 <p className="font-medium text-[var(--color-foreground)] truncate">
                                                     {item.item.name}
                                                 </p>
-                                                {item.item.variant && (
+                                                {item.item.variant_summary && (
                                                     <p className="text-xs text-[var(--color-muted)]">
-                                                        {item.item.variant}
+                                                        {item.item.variant_summary}
                                                     </p>
                                                 )}
                                                 <p className="text-xs font-mono text-[var(--color-muted)]">
