@@ -119,16 +119,16 @@ export function ItemForm({
                     <Input
                         label="Other Details 1"
                         value={formData.other_details_1}
-                        onChange={(e) => updateField('other_details_1', e.target.value.slice(0, 40))}
+                        onChange={(e) => updateField('other_details_1', e.target.value.slice(0, 50))}
                         placeholder="Additional info"
-                        maxLength={40}
+                        maxLength={50}
                     />
                     <Input
                         label="Other Details 2"
                         value={formData.other_details_2}
-                        onChange={(e) => updateField('other_details_2', e.target.value.slice(0, 40))}
+                        onChange={(e) => updateField('other_details_2', e.target.value.slice(0, 50))}
                         placeholder="More details"
-                        maxLength={40}
+                        maxLength={50}
                     />
                 </div>
 

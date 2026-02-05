@@ -185,9 +185,9 @@ function drawLabel(
         pdf.setTextColor(0);
 
         // RIGHT SIDE: Other Details underneath price
-        const rightX = x + halfWidth + padding;
+        const rightX = x + halfWidth + padding + 8; // Moved further right
         let detailsY = innerY + 16;
-        const maxDetailWidth = halfWidth - padding * 2;
+        const maxDetailWidth = halfWidth - padding * 2 - 8; // Adjusted for rightX shift
 
         // Other Details 1 (right side) with bullet and wrapping
         if (item.other_details_1) {
@@ -201,7 +201,7 @@ function drawLabel(
             // Wrap text if needed
             const detail1Lines = pdf.splitTextToSize(item.other_details_1, maxDetailWidth - 5);
             pdf.text(detail1Lines, rightX + 5, detailsY);
-            detailsY += (detail1Lines.length * 7) + 3; // Added +3 for more spacing
+            detailsY += (detail1Lines.length * 7) + 5; // Increased spacing from +3 to +5
             pdf.setTextColor(0);
         }
 

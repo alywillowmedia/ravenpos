@@ -198,20 +198,20 @@ export function BatchEntry({ categories, consignorId, onSubmit }: BatchEntryProp
                             <Input
                                 placeholder="Detail 1"
                                 value={row.other_details_1}
-                                onChange={(e) => updateRow(row.id, 'other_details_1', e.target.value.slice(0, 40))}
+                                onChange={(e) => updateRow(row.id, 'other_details_1', e.target.value.slice(0, 50))}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'other_details_1')}
                                 inputSize="sm"
-                                maxLength={40}
+                                maxLength={50}
                             />
                         </div>
                         <div className="col-span-4 sm:col-span-1">
                             <Input
                                 placeholder="Detail 2"
                                 value={row.other_details_2}
-                                onChange={(e) => updateRow(row.id, 'other_details_2', e.target.value.slice(0, 40))}
+                                onChange={(e) => updateRow(row.id, 'other_details_2', e.target.value.slice(0, 50))}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'other_details_2')}
                                 inputSize="sm"
-                                maxLength={40}
+                                maxLength={50}
                             />
                         </div>
                         <div className="col-span-6 sm:col-span-1">

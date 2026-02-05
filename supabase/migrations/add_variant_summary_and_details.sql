@@ -4,8 +4,8 @@
 -- Step 1: Add new columns
 ALTER TABLE items 
   ADD COLUMN variant_summary VARCHAR(25),
-  ADD COLUMN other_details_1 VARCHAR(40),
-  ADD COLUMN other_details_2 VARCHAR(40);
+  ADD COLUMN other_details_1 VARCHAR(50),
+  ADD COLUMN other_details_2 VARCHAR(50);
 
 -- Step 2: Copy data from variant to variant_summary (truncate to 25 chars if needed)
 UPDATE items 
