@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
@@ -15,11 +15,23 @@ const navigation = [
 
 export function VendorLayout() {
     const [isMobileOpen, setIsMobileOpen] = useState(false);
+    const [isCollapsed, setIsCollapsed] = useState(() => {
+        const saved = localStorage.getItem('sidebar-collapsed-vendor');
+        return saved === 'true';
+    });
     const location = useLocation();
     const { userRecord, signOut } = useAuth();
 
+    useEffect(() => {
+        localStorage.setItem('sidebar-collapsed-vendor', isCollapsed.toString());
+    }, [isCollapsed]);
+
     const handleLogout = async () => {
         await signOut();
+    };
+
+    const toggleCollapse = () => {
+        setIsCollapsed(prev => !prev);
     };
 
     return (
@@ -46,7 +58,8 @@ export function VendorLayout() {
             {/* Sidebar */}
             <aside
                 className={cn(
-                    'fixed inset-y-0 left-0 z-40 w-64',
+                    'fixed inset-y-0 left-0 z-40 transition-all duration-300 ease-in-out',
+                    isCollapsed ? 'w-16' : 'w-64',
                     'bg-white border-r border-[var(--color-border)]',
                     'transform transition-transform duration-200 ease-out',
                     'lg:translate-x-0 flex flex-col',
@@ -55,20 +68,39 @@ export function VendorLayout() {
             >
                 {/* Logo */}
                 <div className="flex items-center justify-center h-20 px-4 py-4 border-b border-[var(--color-border)]">
-                    <img
-                        src="./ravenpos_logo.svg"
-                        alt="RavenPOS"
-                        className="w-35 h-auto max-h-18"
-                    />
+                    {!isCollapsed ? (
+                        <img
+                            src="./ravenpos_logo.svg"
+                            alt="RavenPOS"
+                            className="w-35 h-auto max-h-18"
+                        />
+                    ) : (
+                        <div className="w-8 h-8 bg-[var(--color-primary)] rounded-lg flex items-center justify-center text-white font-bold text-sm">
+                            R
+                        </div>
+                    )}
+                </div>
+
+                {/* Collapse Toggle Button - Desktop Only */}
+                <div className="hidden lg:flex items-center justify-center py-2 border-b border-[var(--color-border)]">
+                    <button
+                        onClick={toggleCollapse}
+                        className="p-2 rounded-lg hover:bg-[var(--color-surface-hover)] transition-colors text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+                        title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    >
+                        {isCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+                    </button>
                 </div>
 
                 {/* User Info */}
-                <div className="px-4 py-4 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Vendor Portal</p>
-                    <p className="font-medium text-[var(--color-foreground)] truncate">
-                        {userRecord?.email}
-                    </p>
-                </div>
+                {!isCollapsed && (
+                    <div className="px-4 py-4 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+                        <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Vendor Portal</p>
+                        <p className="font-medium text-[var(--color-foreground)] truncate">
+                            {userRecord?.email}
+                        </p>
+                    </div>
+                )}
 
                 {/* Navigation */}
                 <nav className="flex-1 px-3 py-4 space-y-1">
@@ -80,34 +112,46 @@ export function VendorLayout() {
                                 to={item.href}
                                 onClick={() => setIsMobileOpen(false)}
                                 className={cn(
-                                    'flex items-center gap-3 px-3 py-2.5 rounded-lg',
+                                    'flex items-center rounded-lg',
                                     'text-sm font-medium transition-all duration-150',
+                                    isCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5',
                                     isActive
                                         ? 'bg-[var(--color-primary)] text-white shadow-sm'
                                         : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
                                 )}
+                                title={isCollapsed ? item.name : undefined}
                             >
                                 <item.icon />
-                                {item.name}
+                                {!isCollapsed && item.name}
                             </NavLink>
                         );
                     })}
                 </nav>
 
                 {/* Bottom section */}
-                <div className="p-4 border-t border-[var(--color-border)]">
+                <div className={cn(
+                    'border-t border-[var(--color-border)]',
+                    isCollapsed ? 'p-2' : 'p-4'
+                )}>
                     <button
                         onClick={handleLogout}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors"
+                        className={cn(
+                            'w-full flex items-center rounded-lg text-sm font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors',
+                            isCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'
+                        )}
+                        title={isCollapsed ? 'Sign Out' : undefined}
                     >
                         <LogoutIcon />
-                        Sign Out
+                        {!isCollapsed && 'Sign Out'}
                     </button>
                 </div>
             </aside>
 
             {/* Main content */}
-            <main className="lg:pl-64">
+            <main className={cn(
+                isCollapsed ? 'lg:pl-16' : 'lg:pl-64',
+                'transition-all duration-300 ease-in-out'
+            )}>
                 <div className="px-4 py-6 sm:px-6 lg:px-8">
                     <Outlet />
                 </div>
@@ -199,6 +243,22 @@ function TagIcon() {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
             <path d="M7 7h.01" />
+        </svg>
+    );
+}
+
+function ChevronRightIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m9 18 6-6-6-6" />
+        </svg>
+    );
+}
+
+function ChevronLeftIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6" />
         </svg>
     );
 }

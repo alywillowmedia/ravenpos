@@ -4,10 +4,26 @@ import { EmployeeSidebar } from './EmployeeSidebar';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useMobile } from '../../hooks/useMobile';
 import { cn } from '../../lib/utils';
+import { useState, useEffect } from 'react';
 
 export function EmployeeLayout() {
     const { employee, isLoading } = useEmployee();
     const { isMobile } = useMobile();
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+        const saved = localStorage.getItem('sidebar-collapsed-employee');
+        return saved === 'true';
+    });
+
+    useEffect(() => {
+        const handleSidebarToggle = (event: CustomEvent) => {
+            setIsSidebarCollapsed(event.detail.isCollapsed);
+        };
+
+        window.addEventListener('sidebar-toggle', handleSidebarToggle as EventListener);
+        return () => {
+            window.removeEventListener('sidebar-toggle', handleSidebarToggle as EventListener);
+        };
+    }, []);
 
     // Show loading while checking session
     if (isLoading) {
@@ -29,7 +45,8 @@ export function EmployeeLayout() {
             {!isMobile && <EmployeeSidebar />}
 
             <main className={cn(
-                isMobile ? 'mobile-content-padding' : 'lg:pl-64'
+                isMobile ? 'mobile-content-padding' : (isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'),
+                'transition-all duration-300 ease-in-out'
             )}>
                 <div className={cn(
                     'px-4 py-6 sm:px-6',
