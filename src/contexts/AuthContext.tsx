@@ -39,9 +39,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Track if we're currently fetching to prevent duplicate requests
     const fetchingRef = useRef(false);
     const lastUserIdRef = useRef<string | null>(null);
+    const currentUserIdRef = useRef<string | null>(null);
 
     // Fetch user record - doesn't block, just updates state when ready
     const fetchUserRecord = useCallback(async (userId: string) => {
+        // Ignore stale fetch requests for a user that is no longer active
+        if (currentUserIdRef.current !== userId) {
+            return;
+        }
+
         // Skip if already fetching for this user
         if (fetchingRef.current && lastUserIdRef.current === userId) {
             return;
@@ -59,13 +65,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
             if (error) {
                 console.error('Error fetching user record:', error);
-                setUserRecord(null);
+                if (currentUserIdRef.current === userId) {
+                    setUserRecord(null);
+                }
             } else {
-                setUserRecord(data as UserRecord);
+                if (currentUserIdRef.current === userId) {
+                    setUserRecord(data as UserRecord);
+                }
             }
         } catch (err) {
             console.error('Exception fetching user record:', err);
-            setUserRecord(null);
+            if (currentUserIdRef.current === userId) {
+                setUserRecord(null);
+            }
         } finally {
             fetchingRef.current = false;
         }
@@ -79,6 +91,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         supabase.auth.getSession().then(({ data: { session } }) => {
             if (!mounted) return;
 
+            currentUserIdRef.current = session?.user?.id ?? null;
             setSession(session);
             setUser(session?.user ?? null);
             setIsLoading(false); // Set loading false IMMEDIATELY
@@ -94,6 +107,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             (_event, session) => {
                 if (!mounted) return;
 
+                currentUserIdRef.current = session?.user?.id ?? null;
                 setSession(session);
                 setUser(session?.user ?? null);
 
@@ -102,6 +116,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
                     fetchUserRecord(session.user.id);
                 } else {
                     setUserRecord(null);
+                    lastUserIdRef.current = null;
+                    fetchingRef.current = false;
                 }
             }
         );
@@ -126,11 +142,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
 
     const signOut = async () => {
+        // Full sign out clears local session and invalidates refresh token
         await supabase.auth.signOut();
+        currentUserIdRef.current = null;
         setUser(null);
         setSession(null);
         setUserRecord(null);
         lastUserIdRef.current = null;
+        fetchingRef.current = false;
+
+        // Force full page reload to /login to ensure complete state reset
+        window.location.replace('/login');
     };
 
     // Expose a way to manually refresh user record if needed
