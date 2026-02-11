@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { type ReactNode, useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { MobileBottomNav } from './MobileBottomNav';
@@ -11,6 +11,21 @@ interface AdminLayoutProps {
 
 export function AdminLayout({ children }: AdminLayoutProps) {
     const { isMobile } = useMobile();
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+        const saved = localStorage.getItem('sidebar-collapsed');
+        return saved === 'true';
+    });
+
+    useEffect(() => {
+        const handleSidebarToggle = (event: CustomEvent) => {
+            setIsSidebarCollapsed(event.detail.isCollapsed);
+        };
+
+        window.addEventListener('sidebar-toggle', handleSidebarToggle as EventListener);
+        return () => {
+            window.removeEventListener('sidebar-toggle', handleSidebarToggle as EventListener);
+        };
+    }, []);
 
     return (
         <div className="min-h-screen bg-[var(--color-surface)]">
@@ -18,7 +33,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             {!isMobile && <Sidebar />}
 
             <main className={cn(
-                isMobile ? 'mobile-content-padding' : 'lg:pl-64'
+                isMobile ? 'mobile-content-padding' : (isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'),
+                'transition-all duration-300 ease-in-out'
             )}>
                 <div className={cn(
                     'px-4 py-6 sm:px-6',

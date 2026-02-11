@@ -36,6 +36,10 @@ export function Sidebar() {
     const [isMobileOpen, setIsMobileOpen] = useState(false);
     const [isChangelogOpen, setIsChangelogOpen] = useState(false);
     const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+    const [isCollapsed, setIsCollapsed] = useState(() => {
+        const saved = localStorage.getItem('sidebar-collapsed');
+        return saved === 'true';
+    });
     const location = useLocation();
     const { userRecord, signOut } = useAuth();
 
@@ -49,6 +53,12 @@ export function Sidebar() {
         }
     }, [location.pathname]);
 
+    useEffect(() => {
+        localStorage.setItem('sidebar-collapsed', isCollapsed.toString());
+        // Dispatch custom event to notify layout of width change
+        window.dispatchEvent(new CustomEvent('sidebar-toggle', { detail: { isCollapsed } }));
+    }, [isCollapsed]);
+
     const handleLogout = async () => {
         await signOut();
     };
@@ -59,6 +69,10 @@ export function Sidebar() {
                 ? prev.filter(g => g !== name)
                 : [...prev, name]
         );
+    };
+
+    const toggleCollapse = () => {
+        setIsCollapsed(prev => !prev);
     };
 
     return (
@@ -85,7 +99,8 @@ export function Sidebar() {
             {/* Sidebar */}
             <aside
                 className={cn(
-                    'fixed inset-y-0 left-0 z-40 w-64',
+                    'fixed inset-y-0 left-0 z-40 transition-all duration-300 ease-in-out',
+                    isCollapsed ? 'w-16' : 'w-64',
                     'bg-white border-r border-[var(--color-border)]',
                     'transform transition-transform duration-200 ease-out',
                     'lg:translate-x-0 flex flex-col',
@@ -94,20 +109,39 @@ export function Sidebar() {
             >
                 {/* Logo */}
                 <div className="flex items-center justify-center h-20 px-4 py-4 border-b border-[var(--color-border)]">
-                    <img
-                        src="./ravenpos_logo.svg"
-                        alt="RavenPOS"
-                        className="w-35 h-auto max-h-18"
-                    />
+                    {!isCollapsed ? (
+                        <img
+                            src="./ravenpos_logo.svg"
+                            alt="RavenPOS"
+                            className="w-35 h-auto max-h-18"
+                        />
+                    ) : (
+                        <div className="w-8 h-8 bg-[var(--color-primary)] rounded-lg flex items-center justify-center text-white font-bold text-sm">
+                            R
+                        </div>
+                    )}
+                </div>
+
+                {/* Collapse Toggle Button - Desktop Only */}
+                <div className="hidden lg:flex items-center justify-center py-2 border-b border-[var(--color-border)]">
+                    <button
+                        onClick={toggleCollapse}
+                        className="p-2 rounded-lg hover:bg-[var(--color-surface-hover)] transition-colors text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+                        title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    >
+                        {isCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+                    </button>
                 </div>
 
                 {/* User Info */}
-                <div className="px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Admin</p>
-                    <p className="text-sm font-medium text-[var(--color-foreground)] truncate">
-                        {userRecord?.email}
-                    </p>
-                </div>
+                {!isCollapsed && (
+                    <div className="px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+                        <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Admin</p>
+                        <p className="text-sm font-medium text-[var(--color-foreground)] truncate">
+                            {userRecord?.email}
+                        </p>
+                    </div>
+                )}
 
                 {/* Navigation */}
                 <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
@@ -115,6 +149,28 @@ export function Sidebar() {
                         if (item.children) {
                             const isExpanded = expandedGroups.includes(item.name);
                             const hasActiveChild = item.children.some(child => child.href === location.pathname);
+
+                            if (isCollapsed) {
+                                // Show only parent icon when collapsed, clicking goes to first child
+                                const firstChild = item.children[0];
+                                return (
+                                    <NavLink
+                                        key={item.name}
+                                        to={firstChild.href}
+                                        onClick={() => setIsMobileOpen(false)}
+                                        className={cn(
+                                            'flex items-center justify-center p-3 rounded-lg',
+                                            'text-sm font-medium transition-all duration-150',
+                                            hasActiveChild
+                                                ? 'bg-[var(--color-primary)] text-white shadow-sm'
+                                                : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
+                                        )}
+                                        title={item.name}
+                                    >
+                                        <item.icon />
+                                    </NavLink>
+                                );
+                            }
 
                             return (
                                 <div key={item.name} className="space-y-1">
@@ -171,35 +227,46 @@ export function Sidebar() {
                                 to={item.href}
                                 onClick={() => setIsMobileOpen(false)}
                                 className={cn(
-                                    'flex items-center gap-3 px-3 py-2.5 rounded-lg',
+                                    'flex items-center rounded-lg',
                                     'text-sm font-medium transition-all duration-150',
+                                    isCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5',
                                     isActive
                                         ? 'bg-[var(--color-primary)] text-white shadow-sm'
                                         : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
                                 )}
+                                title={isCollapsed ? item.name : undefined}
                             >
                                 <item.icon />
-                                {item.name}
+                                {!isCollapsed && item.name}
                             </NavLink>
                         );
                     })}
                 </nav>
 
                 {/* Bottom section */}
-                <div className="p-4 border-t border-[var(--color-border)] space-y-3">
-                    <div
-                        className="px-3 py-2 rounded-lg bg-[var(--color-surface)] cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors"
-                        onClick={() => setIsChangelogOpen(true)}
-                    >
-                        <p className="text-xs text-[var(--color-muted)]">Version</p>
-                        <p className="text-sm font-medium text-[var(--color-foreground)]">0.1.5</p>
-                    </div>
+                <div className={cn(
+                    'border-t border-[var(--color-border)] space-y-3',
+                    isCollapsed ? 'p-2' : 'p-4'
+                )}>
+                    {!isCollapsed && (
+                        <div
+                            className="px-3 py-2 rounded-lg bg-[var(--color-surface)] cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors"
+                            onClick={() => setIsChangelogOpen(true)}
+                        >
+                            <p className="text-xs text-[var(--color-muted)]">Version</p>
+                            <p className="text-sm font-medium text-[var(--color-foreground)]">0.1.5</p>
+                        </div>
+                    )}
                     <button
                         onClick={handleLogout}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors"
+                        className={cn(
+                            'w-full flex items-center rounded-lg text-sm font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors',
+                            isCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'
+                        )}
+                        title={isCollapsed ? 'Sign Out' : undefined}
                     >
                         <LogoutIcon />
-                        Sign Out
+                        {!isCollapsed && 'Sign Out'}
                     </button>
                 </div>
             </aside>
@@ -361,6 +428,14 @@ function ChevronRightIcon() {
     return (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m9 18 6-6-6-6" />
+        </svg>
+    );
+}
+
+function ChevronLeftIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6" />
         </svg>
     );
 }
