@@ -97,7 +97,7 @@ export function useSales() {
             // Create sale items with discount data
             const saleItems: Omit<SaleItem, 'id'>[] = cartItems.map((cartItem) => ({
                 sale_id: sale.id,
-                item_id: cartItem.item.id,
+                item_id: cartItem.item.is_custom_sale_item ? null : cartItem.item.id,
                 consignor_id: cartItem.item.consignor_id,
                 sku: cartItem.item.sku,
                 name: cartItem.item.name + (cartItem.item.variant_summary ? ` - ${cartItem.item.variant_summary}` : ''),
@@ -120,6 +120,10 @@ export function useSales() {
 
             // Decrement inventory quantities and sync to Shopify
             for (const cartItem of cartItems) {
+                if (cartItem.item.is_custom_sale_item) {
+                    continue;
+                }
+
                 const newQuantity = cartItem.item.quantity - cartItem.quantity;
 
                 const { error: updateError } = await supabase

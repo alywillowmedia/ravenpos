@@ -59,6 +59,7 @@ export interface Item {
     sync_enabled: boolean;
     last_sync_source: string | null;
     last_synced_at: string | null;
+    is_custom_sale_item?: boolean;
     // Joined data
     consignor?: Consignor;
 }
@@ -145,7 +146,7 @@ export interface GiftCard {
 export interface SaleItem {
     id: string;
     sale_id: string;
-    item_id: string;
+    item_id: string | null;
     consignor_id: string;
     sku: string;
     name: string;
@@ -162,7 +163,7 @@ export interface SaleItem {
 
 // Refund types
 export interface RefundItem {
-    item_id: string;
+    item_id: string | null;
     sale_item_id: string;
     name: string;
     quantity: number;

@@ -12,6 +12,7 @@ import { DiscountModal } from '../components/pos/DiscountModal';
 import { GiftCardSaleModal } from '../components/pos/GiftCardSaleModal';
 import { ReceiptDeliveryModal } from '../components/receipt/ReceiptDeliveryModal';
 import { useInventory } from '../hooks/useInventory';
+import { useConsignors } from '../hooks/useConsignors';
 import { useSales } from '../hooks/useSales';
 import { useCategories } from '../hooks/useCategories';
 import { useCustomers } from '../hooks/useCustomers';
@@ -21,7 +22,7 @@ import { createDiscount, formatDiscountLabel } from '../lib/discounts';
 import { formatCurrency } from '../lib/utils';
 import { createReceiptData } from '../lib/printReceipt';
 import { supabase } from '../lib/supabase';
-import type { CartItem, Sale, Customer, CustomerInput, PaymentMethod, Discount, DiscountType } from '../types';
+import type { CartItem, Item, Sale, Customer, CustomerInput, PaymentMethod, Discount, DiscountType } from '../types';
 import type { ReceiptData } from '../types/receipt';
 
 const STRIPE_FEE_PERCENT = 0.027;
@@ -30,6 +31,7 @@ const STRIPE_FEE_FIXED = 0.05;
 export function POS() {
     const scannerRef = useRef<HTMLInputElement>(null);
     const { getItemBySku } = useInventory();
+    const { consignors } = useConsignors();
     const { completeSale, isProcessing } = useSales();
     const { searchCustomers, createCustomer, updateCustomer } = useCustomers();
 
@@ -67,6 +69,14 @@ export function POS() {
     const [showReaderModal, setShowReaderModal] = useState(false);
     const [showRefundModal, setShowRefundModal] = useState(false);
     const [showGiftCardSaleModal, setShowGiftCardSaleModal] = useState(false);
+    const [showCustomItemModal, setShowCustomItemModal] = useState(false);
+    const [customItemForm, setCustomItemForm] = useState({
+        name: '',
+        price: '',
+        quantity: '1',
+        category: 'Other',
+        consignorId: '',
+    });
 
     // Discount state
     const [orderDiscounts, setOrderDiscounts] = useState<Discount[]>(() => {
@@ -136,6 +146,11 @@ export function POS() {
     useEffect(() => {
         sessionStorage.setItem('ravenpos-order-discounts', JSON.stringify(orderDiscounts));
     }, [orderDiscounts]);
+
+    useEffect(() => {
+        if (customItemForm.consignorId || consignors.length === 0) return;
+        setCustomItemForm((prev) => ({ ...prev, consignorId: consignors[0].id }));
+    }, [customItemForm.consignorId, consignors]);
 
     // Refocus on click anywhere, unless clicking an interactive element
     useEffect(() => {
@@ -252,6 +267,77 @@ export function POS() {
         setScanInput('');
     };
 
+    const isCustomSaleItem = (item: Item) => item.is_custom_sale_item === true;
+
+    const openCustomItemModal = () => {
+        setScanError(null);
+        setCustomItemForm((prev) => ({
+            ...prev,
+            name: '',
+            price: '',
+            quantity: '1',
+            category: prev.category || 'Other',
+            consignorId: prev.consignorId || consignors[0]?.id || '',
+        }));
+        setShowCustomItemModal(true);
+    };
+
+    const handleAddCustomItem = () => {
+        const name = customItemForm.name.trim();
+        const price = Number(customItemForm.price);
+        const quantity = Number(customItemForm.quantity);
+        const consignor = consignors.find((c) => c.id === customItemForm.consignorId);
+
+        if (!name) {
+            setScanError('Custom item name is required');
+            return;
+        }
+        if (!Number.isFinite(price) || price <= 0) {
+            setScanError('Custom item price must be greater than 0');
+            return;
+        }
+        if (!Number.isFinite(quantity) || quantity < 1) {
+            setScanError('Custom item quantity must be at least 1');
+            return;
+        }
+        if (!consignor) {
+            setScanError('Select a consignor for this custom item');
+            return;
+        }
+
+        const nowIso = new Date().toISOString();
+        const customId = `custom-sale-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+        const customItem: Item = {
+            id: customId,
+            consignor_id: consignor.id,
+            sku: `CUSTOM-${Date.now().toString().slice(-6)}`,
+            name,
+            variant_summary: null,
+            other_details_1: null,
+            other_details_2: null,
+            category: customItemForm.category || 'Other',
+            quantity: 99999,
+            qty_unlabeled: 0,
+            price,
+            image_url: null,
+            is_listed: false,
+            created_at: nowIso,
+            updated_at: nowIso,
+            shopify_product_id: null,
+            shopify_variant_id: null,
+            shopify_inventory_item_id: null,
+            sync_enabled: false,
+            last_sync_source: null,
+            last_synced_at: null,
+            is_custom_sale_item: true,
+            consignor,
+        };
+
+        const cartItem = createCartItem(customItem, quantity);
+        setCart((prev) => [...prev, cartItem]);
+        setShowCustomItemModal(false);
+    };
+
     const updateQuantity = (index: number, newQty: number) => {
         if (newQty <= 0) {
             removeItem(index);
@@ -259,7 +345,7 @@ export function POS() {
         }
 
         const item = cart[index];
-        if (newQty > item.item.quantity) {
+        if (!isCustomSaleItem(item.item) && newQty > item.item.quantity) {
             setScanError(`Only ${item.item.quantity} in stock`);
             return;
         }
@@ -477,6 +563,7 @@ export function POS() {
         setIsCollectingCard(false);
         setOrderDiscounts([]);
         setDiscountTarget(null);
+        setShowCustomItemModal(false);
         scannerRef.current?.focus();
     };
 
@@ -780,6 +867,16 @@ export function POS() {
                                     autoComplete="off"
                                 />
                             </form>
+                            <div className="mt-3 flex justify-end">
+                                <Button
+                                    variant="secondary"
+                                    onClick={openCustomItemModal}
+                                    disabled={consignors.length === 0}
+                                    title={consignors.length === 0 ? 'Add a consignor first' : 'Add a one-off custom item'}
+                                >
+                                    + Custom Item
+                                </Button>
+                            </div>
                         </CardContent>
                     </Card>
 
@@ -812,7 +909,7 @@ export function POS() {
                                                     </p>
                                                 )}
                                                 <p className="text-xs font-mono text-[var(--color-muted)]">
-                                                    {item.item.sku}
+                                                    {item.item.is_custom_sale_item ? 'Custom sale item' : item.item.sku}
                                                 </p>
                                                 {item.discount && (
                                                     <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 text-xs font-medium bg-[var(--color-success-bg)] text-[var(--color-success)] rounded-full">
@@ -1285,6 +1382,86 @@ export function POS() {
                             </button>
                         ))
                     )}
+                </div>
+            </Modal>
+
+            {/* Custom Item Modal */}
+            <Modal
+                isOpen={showCustomItemModal}
+                onClose={() => setShowCustomItemModal(false)}
+                title="Add Custom Sale Item"
+                size="md"
+            >
+                <div className="space-y-4">
+                    <Input
+                        label="Item Name"
+                        value={customItemForm.name}
+                        onChange={(e) => setCustomItemForm((prev) => ({ ...prev, name: e.target.value }))}
+                        placeholder="Custom service or one-off item"
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                        <Input
+                            label="Price"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={customItemForm.price}
+                            onChange={(e) => setCustomItemForm((prev) => ({ ...prev, price: e.target.value }))}
+                            placeholder="0.00"
+                        />
+                        <Input
+                            label="Quantity"
+                            type="number"
+                            step="1"
+                            min="1"
+                            value={customItemForm.quantity}
+                            onChange={(e) => setCustomItemForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                        />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <label className="text-sm">
+                            <span className="block text-[var(--color-muted)] mb-1">Category</span>
+                            <select
+                                value={customItemForm.category}
+                                onChange={(e) => setCustomItemForm((prev) => ({ ...prev, category: e.target.value }))}
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white"
+                            >
+                                {['Clothing', 'Accessories', 'Collectibles', 'Books', 'Furniture', 'Electronics', 'Art', 'Jewelry', 'Vintage', 'Other'].map((category) => (
+                                    <option key={category} value={category}>{category}</option>
+                                ))}
+                            </select>
+                        </label>
+                        <label className="text-sm">
+                            <span className="block text-[var(--color-muted)] mb-1">Consignor</span>
+                            <select
+                                value={customItemForm.consignorId}
+                                onChange={(e) => setCustomItemForm((prev) => ({ ...prev, consignorId: e.target.value }))}
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white"
+                            >
+                                <option value="" disabled>Select consignor</option>
+                                {consignors.map((consignor) => (
+                                    <option key={consignor.id} value={consignor.id}>
+                                        {consignor.consignor_number} - {consignor.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    </div>
+                    <div className="flex gap-3 pt-2">
+                        <Button
+                            variant="ghost"
+                            onClick={() => setShowCustomItemModal(false)}
+                            className="flex-1"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleAddCustomItem}
+                            className="flex-1"
+                        >
+                            Add to Cart
+                        </Button>
+                    </div>
                 </div>
             </Modal>
 

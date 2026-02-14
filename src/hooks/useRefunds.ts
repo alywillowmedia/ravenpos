@@ -188,7 +188,7 @@ export function useRefunds() {
 
             // Restock items if requested
             for (const item of items) {
-                if (item.restocked && item.quantity > 0) {
+                if (item.restocked && item.quantity > 0 && item.item_id) {
                     // Get current item data including Shopify sync settings
                     const { data: currentItem } = await supabase
                         .from('items')

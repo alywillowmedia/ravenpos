@@ -84,6 +84,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
         const formItems: RefundFormItem[] = data.items.map((item) => {
             const alreadyRefunded = refundedQty[item.id] || 0;
             const remaining = item.quantity - alreadyRefunded;
+            const canRestock = !!item.item_id;
             return {
                 item_id: item.item_id,
                 sale_item_id: item.id,
@@ -91,7 +92,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
                 quantity: remaining > 0 ? remaining : 0,
                 max_quantity: remaining > 0 ? remaining : 0,
                 price: Number(item.price),
-                restocked: true,
+                restocked: canRestock,
                 selected: remaining > 0,
             };
         }).filter(item => item.max_quantity > 0);
@@ -330,10 +331,11 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
                                         <input
                                             type="checkbox"
                                             checked={item.restocked}
+                                            disabled={!item.item_id}
                                             onChange={() => toggleItemRestock(index)}
                                             className="w-3 h-3 rounded"
                                         />
-                                        Restock
+                                        {item.item_id ? 'Restock' : 'Custom'}
                                     </label>
                                 </div>
                             )}
