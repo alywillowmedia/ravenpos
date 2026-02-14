@@ -1,7 +1,6 @@
 // Admin Employees Page - Manage employees and view time clock data
 
 import { useState, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
@@ -16,11 +15,10 @@ import { useEmployees } from '../hooks/useEmployees';
 import { useEmployeeRoles } from '../hooks/useEmployeeRoles';
 import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../lib/utils';
-import { formatDuration } from '../lib/timeCalculations';
+import { formatDecimalHours } from '../lib/timeCalculations';
 import type { Employee, EmployeeWithStats, TimeEntry, EmployeeInput } from '../types/employee';
 
 export function Employees() {
-    const navigate = useNavigate();
     const { user } = useAuth();
     const {
         employees,
@@ -122,13 +120,10 @@ export function Employees() {
     return (
         <div className="animate-fadeIn">
             <Header
-                title="Employees"
-                description="Manage employee accounts and view time clock data"
+                title="Timecards"
+                description="Manage employee accounts and review time clock activity"
                 actions={
                     <div className="flex gap-2">
-                        <Button variant="secondary" onClick={() => navigate('/admin/employees/roles')}>
-                            Manage Roles
-                        </Button>
                         <Button variant="secondary" onClick={() => setShowAuthModal(true)}>
                             🔒 Authorize Device
                         </Button>
@@ -197,7 +192,7 @@ export function Employees() {
                                             {formatCurrency(emp.hourly_rate)}/hr
                                         </td>
                                         <td className="px-4 py-3 text-right">
-                                            {formatDuration(emp.weeklyHours)}
+                                            {formatDecimalHours(emp.weeklyHours)}
                                         </td>
                                         <td className="px-4 py-3">
                                             {emp.is_active ? (
@@ -276,7 +271,7 @@ export function Employees() {
                             <div className="p-4 rounded-lg bg-[var(--color-surface)]">
                                 <p className="text-sm text-[var(--color-muted)]">This Week</p>
                                 <p className="text-xl font-bold text-[var(--color-primary)]">
-                                    {formatDuration(viewingEmployee.weeklyHours)}
+                                    {formatDecimalHours(viewingEmployee.weeklyHours)}
                                 </p>
                             </div>
                             <div className="p-4 rounded-lg bg-[var(--color-surface)]">

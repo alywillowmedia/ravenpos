@@ -2,11 +2,46 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Consignor, ConsignorInput } from '../types';
 import { generateConsignorNumber } from '../lib/utils';
+import {
+    applyEffectiveConsignorTerms,
+    getLocalDateString,
+    type ConsignorRateSchedule,
+} from '../lib/consignorRateSchedules';
 
 export function useConsignors() {
     const [consignors, setConsignors] = useState<Consignor[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const syncScheduledRateChange = useCallback(async (
+        consignorId: string,
+        scheduledRateChange: ConsignorInput['scheduled_rate_change'] | undefined
+    ) => {
+        if (scheduledRateChange === undefined) return;
+
+        const today = getLocalDateString();
+
+        const { error: clearError } = await supabase
+            .from('consignor_rate_schedules')
+            .delete()
+            .eq('consignor_id', consignorId)
+            .gte('effective_date', today);
+
+        if (clearError) return;
+
+        if (!scheduledRateChange) return;
+
+        const { error: insertError } = await supabase
+            .from('consignor_rate_schedules')
+            .insert({
+                consignor_id: consignorId,
+                effective_date: scheduledRateChange.effective_date,
+                commission_split: scheduledRateChange.commission_split,
+                monthly_booth_rent: scheduledRateChange.monthly_booth_rent,
+            });
+
+        if (insertError) return;
+    }, []);
 
     const fetchConsignors = useCallback(async () => {
         try {
@@ -19,7 +54,43 @@ export function useConsignors() {
                 .order('consignor_number', { ascending: true });
 
             if (fetchError) throw fetchError;
-            setConsignors(data || []);
+
+            const consignorRows = (data || []) as Consignor[];
+            if (consignorRows.length === 0) {
+                setConsignors([]);
+                return;
+            }
+
+            const today = getLocalDateString();
+            const consignorIds = consignorRows.map((consignor) => consignor.id);
+
+            const { data: scheduleData, error: scheduleError } = await supabase
+                .from('consignor_rate_schedules')
+                .select('id, consignor_id, effective_date, commission_split, monthly_booth_rent, created_at, updated_at')
+                .in('consignor_id', consignorIds)
+                .lte('effective_date', today);
+
+            if (scheduleError) {
+                setConsignors(consignorRows);
+                return;
+            }
+
+            const schedulesByConsignor = new Map<string, ConsignorRateSchedule[]>();
+            for (const schedule of ((scheduleData || []) as ConsignorRateSchedule[])) {
+                const existing = schedulesByConsignor.get(schedule.consignor_id) || [];
+                existing.push(schedule);
+                schedulesByConsignor.set(schedule.consignor_id, existing);
+            }
+
+            setConsignors(
+                consignorRows.map((consignor) =>
+                    applyEffectiveConsignorTerms(
+                        consignor,
+                        schedulesByConsignor.get(consignor.id) || [],
+                        today
+                    )
+                )
+            );
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to fetch consignors');
         } finally {
@@ -31,7 +102,7 @@ export function useConsignors() {
         fetchConsignors();
     }, [fetchConsignors]);
 
-    const createConsignor = async (input: Partial<ConsignorInput>) => {
+    const createConsignor = useCallback(async (input: Partial<ConsignorInput>) => {
         try {
             // Generate consignor number if not provided
             const consignorNumber =
@@ -63,36 +134,62 @@ export function useConsignors() {
 
             if (createError) throw createError;
 
-            setConsignors((prev) => [...prev, data]);
-            return { data, error: null };
+            await syncScheduledRateChange(data.id, input.scheduled_rate_change);
+
+            const today = getLocalDateString();
+            let nextConsignor = data as Consignor;
+            if (input.scheduled_rate_change && input.scheduled_rate_change.effective_date <= today) {
+                nextConsignor = {
+                    ...nextConsignor,
+                    commission_split: Number(input.scheduled_rate_change.commission_split),
+                    monthly_booth_rent: Number(input.scheduled_rate_change.monthly_booth_rent),
+                };
+            }
+
+            setConsignors((prev) => [...prev, nextConsignor]);
+            return { data: nextConsignor, error: null };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to create consignor';
             return { data: null, error: message };
         }
-    };
+    }, [consignors, syncScheduledRateChange]);
 
-    const updateConsignor = async (id: string, updates: Partial<ConsignorInput>) => {
+    const updateConsignor = useCallback(async (id: string, updates: Partial<ConsignorInput>) => {
         try {
+            const { scheduled_rate_change, ...baseUpdates } = updates;
+
             const { data, error: updateError } = await supabase
                 .from('consignors')
-                .update(updates)
+                .update(baseUpdates)
                 .eq('id', id)
                 .select()
                 .single();
 
             if (updateError) throw updateError;
 
+            await syncScheduledRateChange(id, scheduled_rate_change);
+
+            const today = getLocalDateString();
+            let nextConsignor = data as Consignor;
+            if (scheduled_rate_change && scheduled_rate_change.effective_date <= today) {
+                nextConsignor = {
+                    ...nextConsignor,
+                    commission_split: Number(scheduled_rate_change.commission_split),
+                    monthly_booth_rent: Number(scheduled_rate_change.monthly_booth_rent),
+                };
+            }
+
             setConsignors((prev) =>
-                prev.map((c) => (c.id === id ? data : c))
+                prev.map((c) => (c.id === id ? nextConsignor : c))
             );
-            return { data, error: null };
+            return { data: nextConsignor, error: null };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to update consignor';
             return { data: null, error: message };
         }
-    };
+    }, [syncScheduledRateChange]);
 
-    const deleteConsignor = async (id: string) => {
+    const deleteConsignor = useCallback(async (id: string) => {
         try {
             const { error: deleteError } = await supabase
                 .from('consignors')
@@ -107,9 +204,9 @@ export function useConsignors() {
             const message = err instanceof Error ? err.message : 'Failed to delete consignor';
             return { error: message };
         }
-    };
+    }, []);
 
-    const getConsignorById = async (id: string) => {
+    const getConsignorById = useCallback(async (id: string) => {
         try {
             const { data, error: fetchError } = await supabase
                 .from('consignors')
@@ -118,12 +215,30 @@ export function useConsignors() {
                 .single();
 
             if (fetchError) throw fetchError;
-            return { data, error: null };
+
+            const today = getLocalDateString();
+            const { data: scheduleData, error: scheduleError } = await supabase
+                .from('consignor_rate_schedules')
+                .select('id, consignor_id, effective_date, commission_split, monthly_booth_rent, created_at, updated_at')
+                .eq('consignor_id', id)
+                .lte('effective_date', today);
+
+            if (scheduleError) {
+                return { data: data as Consignor, error: null };
+            }
+
+            const effectiveConsignor = applyEffectiveConsignorTerms(
+                data as Consignor,
+                (scheduleData || []) as ConsignorRateSchedule[],
+                today
+            );
+
+            return { data: effectiveConsignor, error: null };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to fetch consignor';
             return { data: null, error: message };
         }
-    };
+    }, []);
 
     return {
         consignors,

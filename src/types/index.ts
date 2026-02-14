@@ -29,6 +29,12 @@ export interface Consignor {
     updated_at: string;
 }
 
+export interface ScheduledConsignorRateChangeInput {
+    effective_date: string;
+    commission_split: number;
+    monthly_booth_rent: number;
+}
+
 export interface Item {
     id: string;
     consignor_id: string;
@@ -176,7 +182,9 @@ export interface Refund {
 }
 
 // Form/input types
-export type ConsignorInput = Omit<Consignor, 'id' | 'created_at' | 'updated_at'>;
+export type ConsignorInput = Omit<Consignor, 'id' | 'created_at' | 'updated_at'> & {
+    scheduled_rate_change?: ScheduledConsignorRateChangeInput | null;
+};
 export type ItemInput = Omit<Item, 'id' | 'created_at' | 'updated_at' | 'consignor'>;
 
 // Cart types for POS

@@ -144,8 +144,8 @@ export function EmployeeRoleSettings() {
     return (
         <div className="animate-fadeIn">
             <Header
-                title="Employee Role Settings"
-                description="Add and manage employee types used in employee records."
+                title="Roles"
+                description="Add and manage employee role types used in employee records."
             />
 
             {notice && (

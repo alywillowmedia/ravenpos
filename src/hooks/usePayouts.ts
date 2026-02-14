@@ -1,6 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Payout, PayoutInput, ConsignorPayoutSummary, SaleItemDetail, Consignor, BalanceDisposition, PaymentMethod } from '../types';
+import {
+    applyEffectiveConsignorTerms,
+    getLocalDateString,
+    type ConsignorRateSchedule,
+} from '../lib/consignorRateSchedules';
+
+function isMissingRateScheduleTable(error: unknown): boolean {
+    const err = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+    const text = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`.toLowerCase();
+    return err?.code === '42P01' || text.includes('consignor_rate_schedules');
+}
 
 interface SaleItemWithJoins {
     id: string;
@@ -84,6 +95,36 @@ export function usePayouts() {
 
             if (consignorError) throw consignorError;
 
+            const activeConsignors = (consignors || []) as Consignor[];
+            const today = getLocalDateString();
+            const consignorIds = activeConsignors.map((consignor) => consignor.id);
+
+            let effectiveConsignors = activeConsignors;
+            if (consignorIds.length > 0) {
+                const { data: scheduleData, error: scheduleError } = await supabase
+                    .from('consignor_rate_schedules')
+                    .select('id, consignor_id, effective_date, commission_split, monthly_booth_rent, created_at, updated_at')
+                    .in('consignor_id', consignorIds)
+                    .lte('effective_date', today);
+
+                if (scheduleError && !isMissingRateScheduleTable(scheduleError)) throw scheduleError;
+
+                const schedulesByConsignor = new Map<string, ConsignorRateSchedule[]>();
+                for (const schedule of (scheduleData || []) as ConsignorRateSchedule[]) {
+                    const existing = schedulesByConsignor.get(schedule.consignor_id) || [];
+                    existing.push(schedule);
+                    schedulesByConsignor.set(schedule.consignor_id, existing);
+                }
+
+                effectiveConsignors = activeConsignors.map((consignor) =>
+                    applyEffectiveConsignorTerms(
+                        consignor,
+                        schedulesByConsignor.get(consignor.id) || [],
+                        today
+                    )
+                );
+            }
+
             // Fetch all payouts to get last payout dates
             const { data: allPayouts, error: payoutError } = await supabase
                 .from('payouts')
@@ -137,7 +178,7 @@ export function usePayouts() {
             // Calculate summaries for each consignor
             const summaries: ConsignorPayoutSummary[] = [];
 
-            for (const consignor of consignors || []) {
+            for (const consignor of effectiveConsignors) {
                 // Get last payout for this consignor
                 const lastPayout = (allPayouts || []).find(p => p.consignor_id === consignor.id) || null;
                 const lastPayoutDate = lastPayout ? new Date(lastPayout.paid_at) : new Date(0);

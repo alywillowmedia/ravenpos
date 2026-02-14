@@ -8,16 +8,16 @@ import { Badge } from '../components/ui/Badge';
 import { EmptyState, UsersIcon } from '../components/ui/EmptyState';
 import { ConsignorForm } from '../components/consignors/ConsignorForm';
 import { useConsignors } from '../hooks/useConsignors';
-import type { Consignor } from '../types';
+import type { Consignor, ConsignorInput } from '../types';
 
 export function Consignors() {
     const navigate = useNavigate();
-    const { consignors, isLoading, createConsignor, deleteConsignor } = useConsignors();
+    const { consignors, isLoading, error, createConsignor, deleteConsignor } = useConsignors();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Consignor | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
 
-    const handleAddConsignor = async (data: Partial<Consignor>) => {
+    const handleAddConsignor = async (data: Partial<ConsignorInput>) => {
         const { error } = await createConsignor(data);
         if (!error) {
             setIsAddModalOpen(false);
@@ -127,6 +127,12 @@ export function Consignors() {
                     </Button>
                 }
             />
+
+            {error && (
+                <div className="mb-4 p-3 rounded-lg bg-[var(--color-danger-bg)] text-[var(--color-danger)] text-sm">
+                    {error}
+                </div>
+            )}
 
             {consignors.length === 0 && !isLoading ? (
                 <EmptyState

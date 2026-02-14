@@ -20,8 +20,9 @@ interface MoreNavItem {
 const adminMoreItems: MoreNavItem[] = [
     { name: 'Dashboard', href: '/admin', icon: DashboardIcon },
     { name: 'Consignors', href: '/admin/consignors', icon: ConsignorsIcon },
-    { name: 'Employees', href: '/admin/employees', icon: EmployeesIcon },
-    { name: 'Employee Roles', href: '/admin/employees/roles', icon: EmployeesIcon },
+    { name: 'Timecards', href: '/admin/employees', icon: TimecardIcon },
+    { name: 'Roles', href: '/admin/employees/roles', icon: EmployeesIcon },
+    { name: 'Schedule', href: '/admin/employees/schedule', icon: ScheduleIcon },
     { name: 'Add Items', href: '/admin/add-items', icon: PlusIcon },
     { name: 'Scan In/Out', href: '/admin/scan', icon: BarcodeIcon },
     { name: 'Import CSV', href: '/admin/import', icon: UploadIcon },
@@ -36,6 +37,7 @@ const adminMoreItems: MoreNavItem[] = [
 ];
 
 const employeeMoreItems: MoreNavItem[] = [
+    { name: 'Labels', href: '/employee/labels', icon: TagIcon },
     { name: 'Messages', href: '/employee/messages', icon: MessageIcon },
 ];
 
@@ -189,6 +191,24 @@ function EmployeesIcon() {
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="8" r="5" />
             <path d="M20 21a8 8 0 0 0-16 0" />
+        </svg>
+    );
+}
+
+function TimecardIcon() {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 3" />
+        </svg>
+    );
+}
+
+function ScheduleIcon() {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" />
+            <path d="M16 2v4M8 2v4M3 10h18" />
         </svg>
     );
 }

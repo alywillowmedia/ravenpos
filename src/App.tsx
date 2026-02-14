@@ -22,6 +22,7 @@ import { Payouts } from './pages/Payouts';
 import { Customers } from './pages/Customers';
 import { Employees } from './pages/Employees';
 import { EmployeeRoleSettings } from './pages/EmployeeRoleSettings';
+import { EmployeeSchedule } from './pages/EmployeeSchedule';
 import { Integrations } from './pages/Integrations';
 import { ShopifySetup } from './pages/ShopifySetup';
 import { ScanInventory } from './pages/ScanInventory';
@@ -44,6 +45,7 @@ import { VendorProfile } from './pages/vendor/VendorProfile';
 // Employee Pages
 import { EmployeeLogin } from './pages/employee/EmployeeLogin';
 import { EmployeeActionSelection } from './pages/employee/EmployeeActionSelection';
+import { EmployeeSchedule as EmployeeSelfSchedule } from './pages/employee/EmployeeSchedule';
 
 // Public Pages
 import { BrowsePage } from './pages/public/BrowsePage';
@@ -78,6 +80,7 @@ export default function App() {
                     <Route path="/employee" element={<EmployeeLayout />}>
                         <Route index element={<Navigate to="/employee/action-selection" replace />} />
                         <Route path="pos" element={<POS />} />
+                        <Route path="schedule" element={<EmployeeSelfSchedule />} />
                         <Route path="customers" element={<Customers />} />
                         <Route path="labels" element={<Labels />} />
                         <Route path="messages" element={<Messages />} />
@@ -108,6 +111,7 @@ export default function App() {
                         <Route path="customers" element={<Customers />} />
                         <Route path="employees" element={<Employees />} />
                         <Route path="employees/roles" element={<EmployeeRoleSettings />} />
+                        <Route path="employees/schedule" element={<EmployeeSchedule />} />
                         <Route path="integrations" element={<Integrations />} />
                         <Route path="shopify-setup" element={<ShopifySetup />} />
                         <Route path="messages" element={<Messages />} />

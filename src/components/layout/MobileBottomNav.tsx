@@ -19,8 +19,8 @@ const adminNavItems = [
 // Employee navigation items for bottom nav
 const employeeNavItems = [
     { name: 'POS', href: '/employee/pos', icon: RegisterIcon },
+    { name: 'Schedule', href: '/employee/schedule', icon: ScheduleIcon },
     { name: 'Customers', href: '/employee/customers', icon: UsersIcon },
-    { name: 'Labels', href: '/employee/labels', icon: TagIcon },
     { name: 'More', href: null, icon: MenuIcon, isMenu: true },
 ];
 
@@ -197,7 +197,7 @@ function MenuIcon() {
     );
 }
 
-function TagIcon({ isActive }: IconProps) {
+function ScheduleIcon({ isActive }: IconProps) {
     return (
         <svg
             width="24"
@@ -209,8 +209,8 @@ function TagIcon({ isActive }: IconProps) {
             strokeLinecap="round"
             strokeLinejoin="round"
         >
-            <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
-            <path d="M7 7h.01" />
+            <rect x="3" y="4" width="18" height="18" rx="2" />
+            <path d="M16 2v4M8 2v4M3 10h18" />
         </svg>
     );
 }

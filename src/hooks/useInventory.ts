@@ -2,6 +2,17 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Item, ItemInput } from '../types';
 import { generateSKU } from '../lib/utils';
+import {
+    applyEffectiveConsignorTerms,
+    getLocalDateString,
+    type ConsignorRateSchedule,
+} from '../lib/consignorRateSchedules';
+
+function isMissingRateScheduleTable(error: unknown): boolean {
+    const err = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+    const text = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`.toLowerCase();
+    return err?.code === '42P01' || text.includes('consignor_rate_schedules');
+}
 
 export function useInventory(consignorId?: string) {
     const [items, setItems] = useState<Item[]>([]);
@@ -211,7 +222,31 @@ export function useInventory(consignorId?: string) {
                 .single();
 
             if (fetchError) throw fetchError;
-            return { data, error: null };
+
+            const consignor = data?.consignor as Item['consignor'];
+            if (!consignor?.id) {
+                return { data, error: null };
+            }
+
+            const today = getLocalDateString();
+            const { data: scheduleData, error: scheduleError } = await supabase
+                .from('consignor_rate_schedules')
+                .select('id, consignor_id, effective_date, commission_split, monthly_booth_rent, created_at, updated_at')
+                .eq('consignor_id', consignor.id)
+                .lte('effective_date', today);
+
+            if (scheduleError && !isMissingRateScheduleTable(scheduleError)) throw scheduleError;
+
+            const nextData: Item = {
+                ...(data as Item),
+                consignor: applyEffectiveConsignorTerms(
+                    consignor,
+                    (scheduleData || []) as ConsignorRateSchedule[],
+                    today
+                ),
+            };
+
+            return { data: nextData, error: null };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Item not found';
             return { data: null, error: message };

@@ -15,7 +15,9 @@ import { useConsignors } from '../hooks/useConsignors';
 import { useInventory } from '../hooks/useInventory';
 import { useBoothRentPayments } from '../hooks/useBoothRentPayments';
 import { formatCurrency, formatDate } from '../lib/utils';
-import type { Consignor, Item, BoothRentPayment } from '../types';
+import { supabase } from '../lib/supabase';
+import { getLocalDateString } from '../lib/consignorRateSchedules';
+import type { Consignor, Item, BoothRentPayment, ConsignorInput } from '../types';
 
 const MONTH_NAMES = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -38,6 +40,11 @@ export function ConsignorDetail() {
 
     const [consignor, setConsignor] = useState<Consignor | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [upcomingRateChange, setUpcomingRateChange] = useState<{
+        effective_date: string;
+        commission_split: number;
+        monthly_booth_rent: number;
+    } | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [paymentFormData, setPaymentFormData] = useState({
@@ -55,8 +62,25 @@ export function ConsignorDetail() {
     useEffect(() => {
         const fetchConsignor = async () => {
             if (!id) return;
-            const { data } = await getConsignorById(id);
-            setConsignor(data);
+            const [{ data: consignorData }, { data: scheduleData }] = await Promise.all([
+                getConsignorById(id),
+                supabase
+                    .from('consignor_rate_schedules')
+                    .select('effective_date, commission_split, monthly_booth_rent')
+                    .eq('consignor_id', id)
+                    .gt('effective_date', getLocalDateString())
+                    .order('effective_date', { ascending: true })
+                    .limit(1)
+                    .maybeSingle(),
+            ]);
+            setConsignor(consignorData);
+            setUpcomingRateChange(scheduleData
+                ? {
+                    effective_date: scheduleData.effective_date,
+                    commission_split: Number(scheduleData.commission_split),
+                    monthly_booth_rent: Number(scheduleData.monthly_booth_rent),
+                }
+                : null);
             setIsLoading(false);
         };
         fetchConsignor();
@@ -72,11 +96,16 @@ export function ConsignorDetail() {
         }
     }, [consignor]);
 
-    const handleUpdate = async (data: Partial<Consignor>) => {
+    const handleUpdate = async (data: Partial<ConsignorInput>) => {
         if (!id) return { error: 'No ID' };
         const result = await updateConsignor(id, data);
         if (!result.error) {
             setConsignor(result.data);
+            if (data.scheduled_rate_change === null) {
+                setUpcomingRateChange(null);
+            } else if (data.scheduled_rate_change) {
+                setUpcomingRateChange(data.scheduled_rate_change);
+            }
             setIsEditModalOpen(false);
         }
         return result;
@@ -306,6 +335,12 @@ export function ConsignorDetail() {
                         <p>
                             <strong>Card Fee Policy:</strong> {consignor.consignor_pays_card_fee ? 'Consignor Pays' : 'Customer Pays'}
                         </p>
+                        {upcomingRateChange && (
+                            <p>
+                                <strong>Scheduled Change ({formatDate(upcomingRateChange.effective_date)}):</strong>{' '}
+                                {Math.round(upcomingRateChange.commission_split * 100)}% commission, {formatCurrency(upcomingRateChange.monthly_booth_rent)} rent
+                            </p>
+                        )}
                         <p>
                             <strong>Member Since:</strong> {formatDate(consignor.created_at)}
                         </p>

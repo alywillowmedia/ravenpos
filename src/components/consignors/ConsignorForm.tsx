@@ -1,18 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FormEvent } from 'react';
 import { Input, Textarea } from '../ui/Input';
 import { Button } from '../ui/Button';
-import type { Consignor } from '../../types';
+import { supabase } from '../../lib/supabase';
+import { getLocalDateString } from '../../lib/consignorRateSchedules';
+import type { Consignor, ConsignorInput } from '../../types';
 
 interface ConsignorFormProps {
     consignor?: Consignor;
-    onSubmit: (data: Partial<Consignor>) => Promise<{ error: string | null }>;
+    onSubmit: (data: Partial<ConsignorInput>) => Promise<{ error: string | null }>;
     onCancel: () => void;
 }
 
 export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isLoadingScheduledChange, setIsLoadingScheduledChange] = useState(false);
+    const [hasScheduledChange, setHasScheduledChange] = useState(false);
+    const [scheduledChange, setScheduledChange] = useState({
+        effective_date: '',
+        commission_split: consignor?.commission_split ?? 0.6,
+        monthly_booth_rent: consignor?.monthly_booth_rent ?? 0,
+    });
 
     const [formData, setFormData] = useState({
         name: consignor?.name || '',
@@ -33,6 +42,37 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
         is_active: consignor?.is_active ?? true,
     });
 
+    useEffect(() => {
+        const fetchUpcomingScheduledChange = async () => {
+            if (!consignor?.id) return;
+
+            setIsLoadingScheduledChange(true);
+            const today = getLocalDateString();
+
+            const { data, error: fetchError } = await supabase
+                .from('consignor_rate_schedules')
+                .select('effective_date, commission_split, monthly_booth_rent')
+                .eq('consignor_id', consignor.id)
+                .gt('effective_date', today)
+                .order('effective_date', { ascending: true })
+                .limit(1)
+                .maybeSingle();
+
+            setIsLoadingScheduledChange(false);
+
+            if (fetchError || !data) return;
+
+            setHasScheduledChange(true);
+            setScheduledChange({
+                effective_date: data.effective_date,
+                commission_split: Number(data.commission_split),
+                monthly_booth_rent: Number(data.monthly_booth_rent),
+            });
+        };
+
+        void fetchUpcomingScheduledChange();
+    }, [consignor?.id]);
+
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
         setError(null);
@@ -42,8 +82,27 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
             return;
         }
 
+        if (hasScheduledChange && !scheduledChange.effective_date) {
+            setError('Scheduled change date is required');
+            return;
+        }
+
         setIsSubmitting(true);
-        const result = await onSubmit(formData);
+        const scheduledRateChange =
+            consignor?.id && isLoadingScheduledChange
+                ? undefined
+                : (hasScheduledChange
+                    ? {
+                        effective_date: scheduledChange.effective_date,
+                        commission_split: scheduledChange.commission_split,
+                        monthly_booth_rent: scheduledChange.monthly_booth_rent,
+                    }
+                    : (consignor?.id ? null : undefined));
+
+        const result = await onSubmit({
+            ...formData,
+            scheduled_rate_change: scheduledRateChange,
+        });
         setIsSubmitting(false);
 
         if (result.error) {
@@ -165,6 +224,62 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                     onChange={(e) => updateField('monthly_booth_rent', Number(e.target.value))}
                     hint="$0 if none"
                 />
+            </div>
+
+            <div className="rounded-lg border border-[var(--color-border)] p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                    <div>
+                        <p className="text-sm font-medium">Schedule Future Terms Change</p>
+                        <p className="text-xs text-[var(--color-muted)]">
+                            Keep current rates now and apply new ones on a future date.
+                        </p>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={hasScheduledChange}
+                            disabled={isLoadingScheduledChange}
+                            onChange={(e) => setHasScheduledChange(e.target.checked)}
+                            className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
+                        />
+                        <span className="text-sm font-medium">Enable</span>
+                    </label>
+                </div>
+
+                {hasScheduledChange && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <Input
+                            label="Effective Date"
+                            type="date"
+                            min={getLocalDateString()}
+                            value={scheduledChange.effective_date}
+                            onChange={(e) => setScheduledChange((prev) => ({ ...prev, effective_date: e.target.value }))}
+                        />
+                        <Input
+                            label="Future Commission (%)"
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            value={Number((scheduledChange.commission_split * 100).toFixed(2))}
+                            onChange={(e) => setScheduledChange((prev) => ({
+                                ...prev,
+                                commission_split: Number(e.target.value) / 100
+                            }))}
+                        />
+                        <Input
+                            label="Future Monthly Booth Rent"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={scheduledChange.monthly_booth_rent}
+                            onChange={(e) => setScheduledChange((prev) => ({
+                                ...prev,
+                                monthly_booth_rent: Number(e.target.value)
+                            }))}
+                        />
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">

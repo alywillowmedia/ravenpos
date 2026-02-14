@@ -7,7 +7,7 @@ import { Button } from '../ui/Button';
 import {
     formatTime,
     formatShortDate,
-    formatDuration,
+    formatDecimalHours,
     getSundaySaturdayWeekDateRange,
     getLastTwoFullWeeksDateRange,
 } from '../../lib/timeCalculations';
@@ -122,7 +122,7 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
                     ))}
                 </div>
                 <div className="text-sm">
-                    Total: <span className="font-bold text-[var(--color-primary)]">{formatDuration(totalHours)}</span>
+                    Total: <span className="font-bold text-[var(--color-primary)]">{formatDecimalHours(totalHours)}</span>
                 </div>
             </div>
 
@@ -200,7 +200,7 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
                                         )}
                                     </td>
                                     <td className="px-4 py-3 text-sm font-medium text-right">
-                                        {entry.total_hours ? formatDuration(entry.total_hours) : '-'}
+                                        {entry.total_hours ? formatDecimalHours(entry.total_hours) : '-'}
                                     </td>
                                     <td className="px-4 py-3 text-sm text-center text-[var(--color-muted)]">
                                         {entry.lunch_break_minutes ? `${entry.lunch_break_minutes}m` : '-'}
