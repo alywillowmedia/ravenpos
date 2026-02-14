@@ -1,6 +1,7 @@
 // Admin Employees Page - Manage employees and view time clock data
 
 import { useState, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
@@ -12,12 +13,14 @@ import { AuthorizeDeviceModal } from '../components/employees/AuthorizeDeviceMod
 import { TimeEntriesTable } from '../components/employees/TimeEntriesTable';
 import { EditTimeEntryModal, type TimeEntryUpdate } from '../components/employees/EditTimeEntryModal';
 import { useEmployees } from '../hooks/useEmployees';
+import { useEmployeeRoles } from '../hooks/useEmployeeRoles';
 import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../lib/utils';
 import { formatDuration } from '../lib/timeCalculations';
 import type { Employee, EmployeeWithStats, TimeEntry, EmployeeInput } from '../types/employee';
 
 export function Employees() {
+    const navigate = useNavigate();
     const { user } = useAuth();
     const {
         employees,
@@ -30,6 +33,7 @@ export function Employees() {
         getEmployeeSales,
         updateTimeEntry,
     } = useEmployees();
+    const { roles: employeeRoles } = useEmployeeRoles();
 
     const [showAddModal, setShowAddModal] = useState(false);
     const [showAuthModal, setShowAuthModal] = useState(false);
@@ -122,6 +126,9 @@ export function Employees() {
                 description="Manage employee accounts and view time clock data"
                 actions={
                     <div className="flex gap-2">
+                        <Button variant="secondary" onClick={() => navigate('/admin/employees/roles')}>
+                            Manage Roles
+                        </Button>
                         <Button variant="secondary" onClick={() => setShowAuthModal(true)}>
                             🔒 Authorize Device
                         </Button>
@@ -239,6 +246,7 @@ export function Employees() {
                 isOpen={showAddModal}
                 onClose={() => setShowAddModal(false)}
                 onSubmit={handleAddEmployee}
+                roleOptions={employeeRoles}
             />
 
             {/* Edit Employee Modal */}
@@ -247,6 +255,7 @@ export function Employees() {
                 onClose={() => setEditingEmployee(null)}
                 onSubmit={handleEditEmployee}
                 employee={editingEmployee}
+                roleOptions={employeeRoles}
             />
 
             {/* View Employee Detail Modal */}

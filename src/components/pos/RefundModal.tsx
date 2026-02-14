@@ -376,7 +376,9 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
                 <p className="text-sm mt-1">
                     {sale?.payment_method === 'card'
                         ? 'This will process a refund through Stripe. The customer will receive the refund in 5-10 business days.'
-                        : 'Please give the customer cash for this refund.'}
+                        : sale?.payment_method === 'check'
+                            ? 'Please issue the customer a check (or cash) for this refund.'
+                            : 'Please give the customer cash for this refund.'}
                 </p>
             </div>
 

@@ -25,11 +25,17 @@ interface CancelPaymentIntentRequest {
     paymentIntentId: string
 }
 
+interface GetPaymentIntentRequest {
+    action: 'get_payment_intent'
+    paymentIntentId: string
+}
+
 type RequestBody =
     | ConnectionTokenRequest
     | CreatePaymentIntentRequest
     | CapturePaymentIntentRequest
     | CancelPaymentIntentRequest
+    | GetPaymentIntentRequest
 
 // Helper to make Stripe API requests
 async function stripeRequest(
@@ -180,6 +186,36 @@ Deno.serve(async (req) => {
                 JSON.stringify({
                     id: paymentIntent.id,
                     status: paymentIntent.status,
+                }),
+                { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+
+        } else if (body.action === 'get_payment_intent') {
+            const { paymentIntentId } = body as GetPaymentIntentRequest
+
+            if (!paymentIntentId) {
+                return new Response(
+                    JSON.stringify({ error: 'Missing paymentIntentId' }),
+                    { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            const paymentIntent = await stripeRequest(
+                `/payment_intents/${paymentIntentId}?expand[]=latest_charge`,
+                'GET',
+                stripeSecretKey
+            )
+
+            const cardLast4 =
+                paymentIntent?.latest_charge?.payment_method_details?.card_present?.last4 ??
+                paymentIntent?.charges?.data?.[0]?.payment_method_details?.card_present?.last4 ??
+                null
+
+            return new Response(
+                JSON.stringify({
+                    id: paymentIntent.id,
+                    status: paymentIntent.status,
+                    card_last4: cardLast4,
                 }),
                 { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             )

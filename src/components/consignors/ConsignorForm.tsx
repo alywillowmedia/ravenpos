@@ -21,8 +21,14 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
         email: consignor?.email || '',
         phone: consignor?.phone || '',
         address: consignor?.address || '',
+        address_line_2: consignor?.address_line_2 || '',
+        city: consignor?.city || '',
+        state: consignor?.state || '',
+        postal_code: consignor?.postal_code || '',
+        country: consignor?.country || '',
         notes: consignor?.notes || '',
         commission_split: consignor?.commission_split ?? 0.6,
+        consignor_pays_card_fee: consignor?.consignor_pays_card_fee ?? false,
         monthly_booth_rent: consignor?.monthly_booth_rent ?? 0,
         is_active: consignor?.is_active ?? true,
     });
@@ -99,13 +105,48 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
             </div>
 
             <Input
-                label="Address"
+                label="Street Address"
                 value={formData.address}
                 onChange={(e) => updateField('address', e.target.value)}
-                placeholder="123 Main St, City, State 12345"
+                placeholder="123 Main St"
+            />
+
+            <Input
+                label="Address Line 2"
+                value={formData.address_line_2}
+                onChange={(e) => updateField('address_line_2', e.target.value)}
+                placeholder="Suite, Apt, Unit (optional)"
             />
 
             <div className="grid grid-cols-3 gap-4">
+                <Input
+                    label="City"
+                    value={formData.city}
+                    onChange={(e) => updateField('city', e.target.value)}
+                    placeholder="Nashville"
+                />
+                <Input
+                    label="State"
+                    value={formData.state}
+                    onChange={(e) => updateField('state', e.target.value)}
+                    placeholder="TN"
+                />
+                <Input
+                    label="ZIP"
+                    value={formData.postal_code}
+                    onChange={(e) => updateField('postal_code', e.target.value)}
+                    placeholder="37201"
+                />
+            </div>
+
+            <Input
+                label="Country"
+                value={formData.country}
+                onChange={(e) => updateField('country', e.target.value)}
+                placeholder="USA"
+            />
+
+            <div className="grid grid-cols-2 gap-4">
                 <Input
                     label="Commission Split (%)"
                     type="number"
@@ -124,6 +165,20 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                     onChange={(e) => updateField('monthly_booth_rent', Number(e.target.value))}
                     hint="$0 if none"
                 />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-end pb-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={formData.consignor_pays_card_fee}
+                            onChange={(e) => updateField('consignor_pays_card_fee', e.target.checked)}
+                            className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
+                        />
+                        <span className="text-sm font-medium">Consignor Pays Card Fee</span>
+                    </label>
+                </div>
                 <div className="flex items-end pb-1">
                     <label className="flex items-center gap-2 cursor-pointer">
                         <input

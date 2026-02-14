@@ -4,15 +4,37 @@ import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Tabs } from '../components/ui/Tabs';
 import { useSalesHistory, type SaleWithItems } from '../hooks/useSalesHistory';
 import { useRefundHistory, type RefundWithDetails } from '../hooks/useRefundHistory';
 import { useConsignors } from '../hooks/useConsignors';
 import { formatCurrency } from '../lib/utils';
+import { supabase } from '../lib/supabase';
+
+type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
+
+function toLocalDateInput(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function parseLocalDateInput(value: string, endOfDay = false): Date {
+    const [year, month, day] = value.split('-').map(Number);
+    const parsed = new Date(year, month - 1, day);
+    if (endOfDay) {
+        parsed.setHours(23, 59, 59, 999);
+    } else {
+        parsed.setHours(0, 0, 0, 0);
+    }
+    return parsed;
+}
 
 export function Sales() {
-    const { sales, isLoading, calculateSalesSummary } = useSalesHistory();
+    const { sales, isLoading, calculateSalesSummary, refetch } = useSalesHistory();
     const { refunds, isLoading: isLoadingRefunds } = useRefundHistory();
     const { consignors } = useConsignors();
 
@@ -20,7 +42,72 @@ export function Sales() {
     const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
     const [selectedSale, setSelectedSale] = useState<SaleWithItems | null>(null);
     const [filterConsignor, setFilterConsignor] = useState('');
-    const [filterDateRange, setFilterDateRange] = useState<'all' | 'today' | 'week' | 'month'>('all');
+    const [filterDatePreset, setFilterDatePreset] = useState<DatePreset>('all');
+    const [customDateFrom, setCustomDateFrom] = useState(() => toLocalDateInput(new Date()));
+    const [customDateTo, setCustomDateTo] = useState(() => toLocalDateInput(new Date()));
+    const [checkNumberInput, setCheckNumberInput] = useState('');
+    const [isSavingCheckNumber, setIsSavingCheckNumber] = useState(false);
+
+    const dateRange = useMemo(() => {
+        const now = new Date();
+
+        switch (filterDatePreset) {
+            case 'today': {
+                const start = new Date(now);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+                return { start, end };
+            }
+            case 'last7': {
+                const end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+                const start = new Date(end);
+                start.setDate(end.getDate() - 6);
+                start.setHours(0, 0, 0, 0);
+                return { start, end };
+            }
+            case 'last30': {
+                const end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+                const start = new Date(end);
+                start.setDate(end.getDate() - 29);
+                start.setHours(0, 0, 0, 0);
+                return { start, end };
+            }
+            case 'thisMonth': {
+                const start = new Date(now.getFullYear(), now.getMonth(), 1);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                end.setHours(23, 59, 59, 999);
+                return { start, end };
+            }
+            case 'lastMonth': {
+                const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(now.getFullYear(), now.getMonth(), 0);
+                end.setHours(23, 59, 59, 999);
+                return { start, end };
+            }
+            case 'custom': {
+                if (!customDateFrom || !customDateTo) return { start: null, end: null };
+                const start = parseLocalDateInput(customDateFrom);
+                const end = parseLocalDateInput(customDateTo, true);
+                if (start > end) return { start: null, end: null };
+                return { start, end };
+            }
+            case 'all':
+            default:
+                return { start: null, end: null };
+        }
+    }, [filterDatePreset, customDateFrom, customDateTo]);
+
+    const matchesDateRange = (dateValue: string) => {
+        const targetDate = new Date(dateValue);
+        if (dateRange.start && targetDate < dateRange.start) return false;
+        if (dateRange.end && targetDate > dateRange.end) return false;
+        return true;
+    };
 
     // Filter sales
     const filteredSales = useMemo(() => {
@@ -33,37 +120,22 @@ export function Sales() {
             );
         }
 
-        // Filter by date range
-        if (filterDateRange !== 'all') {
-            const now = new Date();
-            let startDate: Date;
-
-            switch (filterDateRange) {
-                case 'today':
-                    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                    break;
-                case 'week':
-                    startDate = new Date(now);
-                    startDate.setDate(now.getDate() - 7);
-                    break;
-                case 'month':
-                    startDate = new Date(now);
-                    startDate.setMonth(now.getMonth() - 1);
-                    break;
-                default:
-                    startDate = new Date(0);
-            }
-
-            result = result.filter((sale) => new Date(sale.completed_at) >= startDate);
+        if (dateRange.start || dateRange.end) {
+            result = result.filter((sale) => matchesDateRange(sale.completed_at));
         }
 
         return result;
-    }, [sales, filterConsignor, filterDateRange]);
+    }, [sales, filterConsignor, dateRange.start, dateRange.end]);
+
+    const filteredRefunds = useMemo(
+        () => refunds.filter((refund) => matchesDateRange(refund.created_at)),
+        [refunds, dateRange.start, dateRange.end]
+    );
 
     // Calculate totals (subtracting refunds)
     const totals = useMemo(() => {
         // Sum up all refunds
-        const totalRefunded = refunds.reduce((sum, refund) => sum + Number(refund.refund_amount), 0);
+        const totalRefunded = filteredRefunds.reduce((sum, refund) => sum + Number(refund.refund_amount), 0);
 
         // Calculate raw sales totals
         const rawTotals = filteredSales.reduce(
@@ -94,7 +166,7 @@ export function Sales() {
             storeShare: rawTotals.storeShare - refundedStoreShare,
             totalRefunded,
         };
-    }, [filteredSales, refunds, calculateSalesSummary]);
+    }, [filteredSales, filteredRefunds, calculateSalesSummary]);
 
     const consignorOptions = [
         { value: '', label: 'All Consignors' },
@@ -104,19 +176,46 @@ export function Sales() {
     const dateRangeOptions = [
         { value: 'all', label: 'All Time' },
         { value: 'today', label: 'Today' },
-        { value: 'week', label: 'Last 7 Days' },
-        { value: 'month', label: 'Last 30 Days' },
+        { value: 'last7', label: 'Last 7 Days' },
+        { value: 'last30', label: 'Last 30 Days' },
+        { value: 'thisMonth', label: 'This Month' },
+        { value: 'lastMonth', label: 'Last Month' },
+        { value: 'custom', label: 'Custom Range' },
     ];
 
     const toggleExpand = (saleId: string) => {
         setExpandedSaleId(expandedSaleId === saleId ? null : saleId);
     };
 
+    const formatPaymentMethod = (method: string) => {
+        if (method === 'cash') return 'Cash';
+        if (method === 'check') return 'Check';
+        return 'Card';
+    };
+
+    const handleSaveCheckNumber = async () => {
+        if (!selectedSale) return;
+        setIsSavingCheckNumber(true);
+        const { error } = await supabase
+            .from('sales')
+            .update({ check_number: checkNumberInput.trim() || null })
+            .eq('id', selectedSale.id);
+        setIsSavingCheckNumber(false);
+
+        if (!error) {
+            setSelectedSale({
+                ...selectedSale,
+                check_number: checkNumberInput.trim() || null,
+            });
+            await refetch();
+        }
+    };
+
     return (
         <div className="animate-fadeIn">
             <Header
                 title="Sales History"
-                description={`${filteredSales.length} transaction${filteredSales.length !== 1 ? 's' : ''}${activeTab === 'refunds' ? ` | ${refunds.length} refund${refunds.length !== 1 ? 's' : ''}` : ''}`}
+                description={`${filteredSales.length} transaction${filteredSales.length !== 1 ? 's' : ''}${activeTab === 'refunds' ? ` | ${filteredRefunds.length} refund${filteredRefunds.length !== 1 ? 's' : ''}` : ''}`}
             />
 
             {/* Tabs */}
@@ -144,17 +243,39 @@ export function Sales() {
                 </div>
             )}
 
-            {/* Filters - Only for sales tab */}
-            {activeTab === 'sales' && (
-                <div className="flex flex-wrap gap-4 mb-6">
-                    <div className="w-48">
-                        <Select
-                            options={dateRangeOptions}
-                            value={filterDateRange}
-                            onChange={(e) => setFilterDateRange(e.target.value as typeof filterDateRange)}
-                            selectSize="sm"
-                        />
-                    </div>
+            {/* Filters */}
+            <div className="flex flex-wrap gap-4 mb-6">
+                <div className="w-48">
+                    <Select
+                        options={dateRangeOptions}
+                        value={filterDatePreset}
+                        onChange={(e) => setFilterDatePreset(e.target.value as DatePreset)}
+                        selectSize="sm"
+                    />
+                </div>
+                {filterDatePreset === 'custom' && (
+                    <>
+                        <div className="w-44">
+                            <input
+                                type="date"
+                                value={customDateFrom}
+                                onChange={(e) => setCustomDateFrom(e.target.value)}
+                                max={customDateTo || undefined}
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white text-sm"
+                            />
+                        </div>
+                        <div className="w-44">
+                            <input
+                                type="date"
+                                value={customDateTo}
+                                onChange={(e) => setCustomDateTo(e.target.value)}
+                                min={customDateFrom || undefined}
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white text-sm"
+                            />
+                        </div>
+                    </>
+                )}
+                {activeTab === 'sales' && (
                     <div className="w-48">
                         <Select
                             options={consignorOptions}
@@ -163,20 +284,23 @@ export function Sales() {
                             selectSize="sm"
                         />
                     </div>
-                    {(filterConsignor || filterDateRange !== 'all') && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                                setFilterConsignor('');
-                                setFilterDateRange('all');
-                            }}
-                        >
-                            Clear Filters
-                        </Button>
-                    )}
-                </div>
-            )}
+                )}
+                {(filterConsignor || filterDatePreset !== 'all') && (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                            setFilterConsignor('');
+                            setFilterDatePreset('all');
+                            const today = toLocalDateInput(new Date());
+                            setCustomDateFrom(today);
+                            setCustomDateTo(today);
+                        }}
+                    >
+                        Clear Filters
+                    </Button>
+                )}
+            </div>
 
             {/* Sales Tab Content */}
             {activeTab === 'sales' && (
@@ -222,7 +346,10 @@ export function Sales() {
                                         sale={sale}
                                         isExpanded={expandedSaleId === sale.id}
                                         onToggle={() => toggleExpand(sale.id)}
-                                        onViewReceipt={() => setSelectedSale(sale)}
+                                        onViewReceipt={() => {
+                                            setSelectedSale(sale);
+                                            setCheckNumberInput(sale.check_number || '');
+                                        }}
                                         calculateSalesSummary={calculateSalesSummary}
                                     />
                                 ))}
@@ -235,11 +362,11 @@ export function Sales() {
             {/* Refunds Tab Content */}
             {activeTab === 'refunds' && (
                 <>
-                    {refunds.length === 0 && !isLoadingRefunds ? (
+                    {filteredRefunds.length === 0 && !isLoadingRefunds ? (
                         <EmptyState
                             icon={<RefundTabIcon />}
                             title="No refunds yet"
-                            description="Refunds processed from the POS will appear here."
+                            description={filterDatePreset === 'all' ? 'Refunds processed from the POS will appear here.' : 'No refunds match your date filter.'}
                         />
                     ) : isLoadingRefunds ? (
                         <div className="flex justify-center py-12">
@@ -247,7 +374,7 @@ export function Sales() {
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {refunds.map((refund) => (
+                            {filteredRefunds.map((refund) => (
                                 <RefundRow key={refund.id} refund={refund} />
                             ))}
                         </div>
@@ -258,7 +385,10 @@ export function Sales() {
             {/* Receipt Preview Modal */}
             <Modal
                 isOpen={!!selectedSale}
-                onClose={() => setSelectedSale(null)}
+                onClose={() => {
+                    setSelectedSale(null);
+                    setCheckNumberInput('');
+                }}
                 title="Receipt Preview"
                 size="3xl"
             >
@@ -475,18 +605,42 @@ export function Sales() {
                                 </div>
                             </div>
 
-                            {/* Payment Info */}
-                            {selectedSale.cash_tendered !== null && (
-                                <div className="text-sm text-[var(--color-muted)] flex gap-4">
-                                    <span>Cash Tendered: {formatCurrency(selectedSale.cash_tendered)}</span>
-                                    <span>Change Given: {formatCurrency(selectedSale.change_given || 0)}</span>
+                            <div className="text-sm text-[var(--color-muted)] space-y-2">
+                                <div>
+                                    Payment Method: <span className="font-medium text-[var(--color-foreground)]">{formatPaymentMethod(selectedSale.payment_method)}</span>
                                 </div>
-                            )}
+                                {selectedSale.cash_tendered !== null && (
+                                    <div className="flex gap-4">
+                                        <span>Cash Tendered: {formatCurrency(selectedSale.cash_tendered)}</span>
+                                        <span>Change Given: {formatCurrency(selectedSale.change_given || 0)}</span>
+                                    </div>
+                                )}
+                                {selectedSale.payment_method === 'check' && (
+                                    <div className="flex items-end gap-2 max-w-sm">
+                                        <Input
+                                            label="Check Number"
+                                            value={checkNumberInput}
+                                            onChange={(e) => setCheckNumberInput(e.target.value)}
+                                            placeholder="Enter check #"
+                                        />
+                                        <Button
+                                            size="sm"
+                                            onClick={handleSaveCheckNumber}
+                                            isLoading={isSavingCheckNumber}
+                                        >
+                                            Save
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     );
                 })()}
                 <ModalFooter>
-                    <Button variant="secondary" onClick={() => setSelectedSale(null)}>
+                    <Button variant="secondary" onClick={() => {
+                        setSelectedSale(null);
+                        setCheckNumberInput('');
+                    }}>
                         Close
                     </Button>
                 </ModalFooter>
@@ -654,12 +808,20 @@ function SaleRow({
                         </table>
 
                         {/* Payment Info */}
-                        {sale.cash_tendered !== null && (
-                            <div className="mt-3 pt-3 border-t border-[var(--color-border)] text-sm text-[var(--color-muted)] flex gap-4">
-                                <span>Cash Tendered: {formatCurrency(sale.cash_tendered)}</span>
-                                <span>Change Given: {formatCurrency(sale.change_given || 0)}</span>
+                        <div className="mt-3 pt-3 border-t border-[var(--color-border)] text-sm text-[var(--color-muted)] space-y-1">
+                            <div>
+                                Payment: {sale.payment_method === 'cash' ? 'Cash' : sale.payment_method === 'check' ? 'Check' : 'Card'}
                             </div>
-                        )}
+                            {sale.cash_tendered !== null && (
+                                <div className="flex gap-4">
+                                    <span>Cash Tendered: {formatCurrency(sale.cash_tendered)}</span>
+                                    <span>Change Given: {formatCurrency(sale.change_given || 0)}</span>
+                                </div>
+                            )}
+                            {sale.payment_method === 'check' && (
+                                <div>Check #: {sale.check_number || 'N/A'}</div>
+                            )}
+                        </div>
 
                         {/* View Receipt Button */}
                         <div className="mt-4 pt-3 border-t border-[var(--color-border)] flex justify-end">

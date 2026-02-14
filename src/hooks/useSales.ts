@@ -16,8 +16,16 @@ export function useSales() {
         customerId?: string | null,
         paymentMethod: PaymentMethod = 'cash',
         stripePaymentIntentId?: string,
-        orderDiscounts: Discount[] = []
+        orderDiscounts: Discount[] = [],
+        storeCreditUsed = 0,
+        cardFeeAmount = 0,
+        giftCardCode?: string,
+        giftCardUsed = 0,
+        checkNumber?: string
     ) => {
+        let creditDeducted = false;
+        let giftCardDeducted = false;
+
         try {
             setIsProcessing(true);
             setError(null);
@@ -30,6 +38,32 @@ export function useSales() {
                 (sum, d) => sum + d.calculatedAmount, 0
             );
             const discountTotal = itemDiscountTotal + orderDiscountTotal;
+            const roundedStoreCreditUsed = Math.max(0, Math.round(storeCreditUsed * 100) / 100);
+            const roundedCardFeeAmount = Math.max(0, Math.round(cardFeeAmount * 100) / 100);
+            const roundedGiftCardUsed = Math.max(0, Math.round(giftCardUsed * 100) / 100);
+            const normalizedGiftCardCode = giftCardCode?.trim().toUpperCase();
+
+            // Deduct gift card first; if later steps fail, we'll attempt to restore it.
+            if (normalizedGiftCardCode && roundedGiftCardUsed > 0) {
+                const { error: giftCardError } = await supabase.rpc('redeem_gift_card', {
+                    p_code: normalizedGiftCardCode,
+                    p_amount: roundedGiftCardUsed,
+                });
+
+                if (giftCardError) throw giftCardError;
+                giftCardDeducted = true;
+            }
+
+            // Deduct store credit first; if later steps fail, we'll attempt to restore it.
+            if (customerId && roundedStoreCreditUsed > 0) {
+                const { error: creditError } = await supabase.rpc('adjust_customer_store_credit', {
+                    p_customer_id: customerId,
+                    p_amount_change: -roundedStoreCreditUsed,
+                });
+
+                if (creditError) throw creditError;
+                creditDeducted = true;
+            }
 
             // Create sale record with discounts
             const { data: sale, error: saleError } = await supabase
@@ -39,6 +73,7 @@ export function useSales() {
                     tax_amount: taxTotal,
                     total,
                     payment_method: paymentMethod,
+                    check_number: paymentMethod === 'check' ? (checkNumber?.trim() || null) : null,
                     cash_tendered: paymentMethod === 'cash' ? cashTendered : null,
                     change_given: paymentMethod === 'cash' ? changeGiven : null,
                     stripe_payment_intent_id: stripePaymentIntentId || null,
@@ -50,6 +85,9 @@ export function useSales() {
                         calculatedAmount: d.calculatedAmount
                     })),
                     discount_total: discountTotal,
+                    store_credit_used: roundedStoreCreditUsed,
+                    gift_card_used: roundedGiftCardUsed,
+                    card_fee_amount: roundedCardFeeAmount,
                 })
                 .select()
                 .single();
@@ -66,6 +104,7 @@ export function useSales() {
                 price: cartItem.item.price,
                 quantity: cartItem.quantity,
                 commission_split: (cartItem.item.consignor as { commission_split: number })?.commission_split ?? 0.6,
+                consignor_pays_card_fee: (cartItem.item.consignor as { consignor_pays_card_fee?: boolean })?.consignor_pays_card_fee ?? false,
                 // Discount data
                 discount_type: cartItem.discount?.type,
                 discount_value: cartItem.discount?.value,
@@ -121,6 +160,21 @@ export function useSales() {
 
             return { data: sale as Sale, error: null };
         } catch (err) {
+            // Best-effort rollback if we deducted store credit but sale failed
+            if (creditDeducted && customerId && storeCreditUsed > 0) {
+                await supabase.rpc('adjust_customer_store_credit', {
+                    p_customer_id: customerId,
+                    p_amount_change: Math.round(storeCreditUsed * 100) / 100,
+                });
+            }
+            // Best-effort rollback if we deducted gift card but sale failed
+            if (giftCardDeducted && giftCardCode && giftCardUsed > 0) {
+                await supabase.rpc('restore_gift_card_balance', {
+                    p_code: giftCardCode.trim().toUpperCase(),
+                    p_amount: Math.round(giftCardUsed * 100) / 100,
+                });
+            }
+
             const message = err instanceof Error ? err.message : 'Failed to complete sale';
             setError(message);
             return { data: null, error: message };

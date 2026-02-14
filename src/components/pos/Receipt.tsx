@@ -12,6 +12,9 @@ interface ReceiptProps {
 
 export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
     const [isPrinting, setIsPrinting] = useState(false);
+    const maskedCardLast4 = sale.card_last4
+        ? `•••• ${String(sale.card_last4).replace(/\D/g, '').slice(-4)}`
+        : null;
 
     const handlePrintReceipt = async () => {
         setIsPrinting(true);
@@ -66,6 +69,24 @@ export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
                         <span>Tax</span>
                         <span>{formatCurrency(Number(sale.tax_amount))}</span>
                     </div>
+                    {(sale.store_credit_used || 0) > 0 && (
+                        <div className="flex justify-between text-[var(--color-muted)]">
+                            <span>Store Credit</span>
+                            <span>-{formatCurrency(Number(sale.store_credit_used || 0))}</span>
+                        </div>
+                    )}
+                    {(sale.gift_card_used || 0) > 0 && (
+                        <div className="flex justify-between text-[var(--color-muted)]">
+                            <span>Gift Card</span>
+                            <span>-{formatCurrency(Number(sale.gift_card_used || 0))}</span>
+                        </div>
+                    )}
+                    {(sale.card_fee_amount || 0) > 0 && (
+                        <div className="flex justify-between text-[var(--color-muted)]">
+                            <span>Card Fee</span>
+                            <span>{formatCurrency(Number(sale.card_fee_amount || 0))}</span>
+                        </div>
+                    )}
                     <div className="flex justify-between font-bold text-base pt-1">
                         <span>Total</span>
                         <span>{formatCurrency(Number(sale.total))}</span>
@@ -83,16 +104,40 @@ export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
                         </>
                     )}
                     {sale.payment_method === 'card' && (
-                        <div className="flex justify-between pt-2 border-t border-dashed border-[var(--color-border)] mt-2">
-                            <span>Paid by</span>
-                            <span>Card</span>
-                        </div>
+                        <>
+                            <div className="flex justify-between pt-2 border-t border-dashed border-[var(--color-border)] mt-2">
+                                <span>Paid by</span>
+                                <span>Card</span>
+                            </div>
+                            {maskedCardLast4 && (
+                                <div className="flex justify-between text-[var(--color-muted)]">
+                                    <span>Card</span>
+                                    <span>{maskedCardLast4}</span>
+                                </div>
+                            )}
+                        </>
+                    )}
+                    {sale.payment_method === 'check' && (
+                        <>
+                            <div className="flex justify-between pt-2 border-t border-dashed border-[var(--color-border)] mt-2">
+                                <span>Paid by</span>
+                                <span>Check</span>
+                            </div>
+                            <div className="flex justify-between text-[var(--color-muted)]">
+                                <span>Check #</span>
+                                <span>{sale.check_number ? sale.check_number : 'N/A'}</span>
+                            </div>
+                        </>
                     )}
                 </div>
 
                 {/* Footer */}
                 <div className="text-center text-xs text-[var(--color-muted)] mt-4 pt-3 border-t border-dashed border-[var(--color-border)]">
                     <p>Thank you for shopping at Ravenlia!</p>
+                    <p>Ravenlia — from the hands of artisans to the heart of community.</p>
+                    <p><i>Thanks for keeping it alive!</i></p>
+                    <p>-----</p>
+                    <p>Ravenlia.com</p>
                     <p className="font-mono mt-1">
                         #{sale.id.slice(0, 8).toUpperCase()}
                     </p>

@@ -5,7 +5,10 @@ import App from './App';
 import './index.css';
 
 // Use HashRouter for Electron (file:// protocol), BrowserRouter for web
-const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
+const isElectron = typeof window !== 'undefined' && (
+    window.electronAPI?.isElectron === true ||
+    window.location.protocol === 'file:'
+);
 const Router = isElectron ? HashRouter : BrowserRouter;
 
 createRoot(document.getElementById('root')!).render(

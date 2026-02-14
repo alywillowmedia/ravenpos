@@ -47,6 +47,37 @@ export function getWeekDateRange(date: Date = new Date()): { start: Date; end: D
 }
 
 /**
+ * Get Sunday-Saturday date range for a given date's week
+ */
+export function getSundaySaturdayWeekDateRange(date: Date = new Date()): { start: Date; end: Date } {
+    const start = new Date(date);
+    start.setDate(start.getDate() - start.getDay());
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+
+    return { start, end };
+}
+
+/**
+ * Get the previous two full Sunday-Saturday weeks (14 full days)
+ */
+export function getLastTwoFullWeeksDateRange(referenceDate: Date = new Date()): { start: Date; end: Date } {
+    const currentWeek = getSundaySaturdayWeekDateRange(referenceDate);
+
+    const end = new Date(currentWeek.start);
+    end.setMilliseconds(-1);
+
+    const start = new Date(currentWeek.start);
+    start.setDate(start.getDate() - 14);
+    start.setHours(0, 0, 0, 0);
+
+    return { start, end };
+}
+
+/**
  * Get start of today
  */
 export function getStartOfDay(date: Date = new Date()): Date {

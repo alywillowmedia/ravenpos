@@ -15,8 +15,14 @@ export interface Consignor {
     email: string | null;
     phone: string | null;
     address: string | null;
+    address_line_2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postal_code?: string | null;
+    country?: string | null;
     notes: string | null;
     commission_split: number;
+    consignor_pays_card_fee?: boolean;
     monthly_booth_rent: number;
     is_active: boolean;
     created_at: string;
@@ -57,13 +63,14 @@ export interface Customer {
     email: string | null;
     phone: string | null;
     notes: string | null;
+    store_credit?: number;
     created_at: string;
     updated_at: string;
 }
 
 export type CustomerInput = Omit<Customer, 'id' | 'created_at' | 'updated_at'>;
 
-export type PaymentMethod = 'cash' | 'card';
+export type PaymentMethod = 'cash' | 'card' | 'check';
 
 // Discount types for POS
 export type DiscountType = 'percentage' | 'fixed';
@@ -86,10 +93,15 @@ export interface Sale {
     subtotal: number;
     tax_amount: number;
     total: number;
+    store_credit_used?: number;
+    gift_card_used?: number;
+    card_fee_amount?: number;
     payment_method: PaymentMethod;
+    check_number?: string | null;
     cash_tendered: number | null;
     change_given: number | null;
     stripe_payment_intent_id: string | null;
+    card_last4?: string | null;
     refund_status: 'partial' | 'full' | null;
     // Discount data
     discounts?: Array<{
@@ -103,6 +115,26 @@ export interface Sale {
     customer?: Customer;
 }
 
+export interface GiftCard {
+    id: string;
+    code: string;
+    original_amount: number;
+    current_balance: number;
+    recipient_name: string | null;
+    recipient_email: string | null;
+    from_name: string | null;
+    purchaser_customer_id: string | null;
+    purchase_payment_method: PaymentMethod | null;
+    purchase_payment_intent_id: string | null;
+    message: string | null;
+    issued_at: string;
+    expires_at: string | null;
+    last_redeemed_at: string | null;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
 export interface SaleItem {
     id: string;
     sale_id: string;
@@ -113,6 +145,7 @@ export interface SaleItem {
     price: number;
     quantity: number;
     commission_split: number;
+    consignor_pays_card_fee?: boolean;
     // Discount data
     discount_type?: DiscountType;
     discount_value?: number;
@@ -195,6 +228,8 @@ export interface Payout {
     tax_collected: number;
     store_share: number;
     credit_card_fees: number;
+    booth_rent_deduction?: number;
+    marketing_fee_deduction?: number;
     notes: string | null;
     paid_at: string;
     created_at: string;
@@ -226,15 +261,40 @@ export type BoothRentPaymentInput = Omit<BoothRentPayment, 'id' | 'created_at'>;
 // Calculated payout data for a consignor (before payment)
 export interface ConsignorPayoutSummary {
     consignor: Consignor;
+    pendingFromSales: number;
     pendingAmount: number;
     grossSales: number;
     taxCollected: number;
     storeShare: number;
     creditCardFees: number;
+    boothRentDeduction: number;
+    marketingFeeDeduction: number;
     salesCount: number;
     itemsSold: number;
     lastPayout: Payout | null;
     salesSinceLastPayout: SaleItemDetail[];
+    boothRentMonthsToDeduct: Array<{ period_month: number; period_year: number }>;
+    marketingAllocationIdsToDeduct: string[];
+}
+
+export interface MarketingFee {
+    id: string;
+    title: string;
+    description: string | null;
+    amount: number;
+    consignor_count: number;
+    created_by: string | null;
+    created_at: string;
+}
+
+export interface MarketingFeeAllocation {
+    id: string;
+    marketing_fee_id: string;
+    consignor_id: string;
+    amount: number;
+    deducted_payout_id: string | null;
+    deducted_at: string | null;
+    created_at: string;
 }
 
 // Detailed sale item for payout breakdown
@@ -255,4 +315,3 @@ export interface SaleItemDetail {
     isRefunded: boolean;
     refundedQuantity: number;
 }
-

@@ -7,6 +7,7 @@ export type UserRole = 'admin' | 'vendor';
 export interface UserRecord {
     id: string;
     email: string;
+    full_name: string | null;
     role: UserRole;
     consignor_id: string | null;
     created_at: string;

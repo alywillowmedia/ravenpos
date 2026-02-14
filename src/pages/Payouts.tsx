@@ -10,6 +10,25 @@ import { formatCurrency } from '../lib/utils';
 import type { ConsignorPayoutSummary, Payout, BalanceDisposition } from '../types';
 
 type ViewMode = 'pending' | 'history';
+type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
+
+function toLocalDateInput(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function parseLocalDateInput(value: string, endOfDay = false): Date {
+    const [year, month, day] = value.split('-').map(Number);
+    const parsed = new Date(year, month - 1, day);
+    if (endOfDay) {
+        parsed.setHours(23, 59, 59, 999);
+    } else {
+        parsed.setHours(0, 0, 0, 0);
+    }
+    return parsed;
+}
 
 export function Payouts() {
     const {
@@ -28,6 +47,9 @@ export function Payouts() {
     const [payoutNotes, setPayoutNotes] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [datePreset, setDatePreset] = useState<DatePreset>('all');
+    const [customDateFrom, setCustomDateFrom] = useState(() => toLocalDateInput(new Date()));
+    const [customDateTo, setCustomDateTo] = useState(() => toLocalDateInput(new Date()));
 
     // Custom amount payout state
     const [useCustomAmount, setUseCustomAmount] = useState(false);
@@ -36,6 +58,65 @@ export function Payouts() {
     const [balanceDisposition, setBalanceDisposition] = useState<BalanceDisposition>('deferred');
 
     const totals = getTotals();
+    const dateRange = useMemo(() => {
+        const now = new Date();
+        switch (datePreset) {
+            case 'today': {
+                const start = new Date(now);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+                return { start, end };
+            }
+            case 'last7': {
+                const end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+                const start = new Date(end);
+                start.setDate(end.getDate() - 6);
+                start.setHours(0, 0, 0, 0);
+                return { start, end };
+            }
+            case 'last30': {
+                const end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+                const start = new Date(end);
+                start.setDate(end.getDate() - 29);
+                start.setHours(0, 0, 0, 0);
+                return { start, end };
+            }
+            case 'thisMonth': {
+                const start = new Date(now.getFullYear(), now.getMonth(), 1);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                end.setHours(23, 59, 59, 999);
+                return { start, end };
+            }
+            case 'lastMonth': {
+                const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(now.getFullYear(), now.getMonth(), 0);
+                end.setHours(23, 59, 59, 999);
+                return { start, end };
+            }
+            case 'custom': {
+                if (!customDateFrom || !customDateTo) return { start: null, end: null };
+                const start = parseLocalDateInput(customDateFrom);
+                const end = parseLocalDateInput(customDateTo, true);
+                if (start > end) return { start: null, end: null };
+                return { start, end };
+            }
+            case 'all':
+            default:
+                return { start: null, end: null };
+        }
+    }, [datePreset, customDateFrom, customDateTo]);
+
+    const matchesDateRange = (dateValue: string) => {
+        const targetDate = new Date(dateValue);
+        if (dateRange.start && targetDate < dateRange.start) return false;
+        if (dateRange.end && targetDate > dateRange.end) return false;
+        return true;
+    };
 
     // Filter consignors by search
     const filteredSummaries = useMemo(() => {
@@ -52,6 +133,18 @@ export function Payouts() {
     const pendingSummaries = useMemo(
         () => filteredSummaries.filter((s) => s.pendingAmount > 0),
         [filteredSummaries]
+    );
+
+    const pendingSummariesInRange = useMemo(() => {
+        if (!dateRange.start && !dateRange.end) return pendingSummaries;
+        return pendingSummaries.filter((summary) =>
+            summary.salesSinceLastPayout.some((sale) => matchesDateRange(sale.saleDate))
+        );
+    }, [pendingSummaries, dateRange.start, dateRange.end]);
+
+    const filteredPayoutHistory = useMemo(
+        () => payouts.filter((payout) => matchesDateRange(payout.paid_at)),
+        [payouts, dateRange.start, dateRange.end]
     );
 
     const handleMarkAsPaid = async () => {
@@ -90,9 +183,15 @@ export function Payouts() {
     };
 
     const printPayoutReport = (summary: ConsignorPayoutSummary) => {
-        const { consignor, pendingAmount, grossSales, storeShare, creditCardFees, salesSinceLastPayout, lastPayout } = summary;
+        const { consignor, pendingAmount, pendingFromSales, grossSales, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, salesSinceLastPayout, lastPayout } = summary;
         const periodStart = lastPayout ? new Date(lastPayout.paid_at).toLocaleDateString() : 'Start';
         const periodEnd = new Date().toLocaleDateString();
+        const consignorAddress = [
+            consignor.address,
+            consignor.address_line_2,
+            [consignor.city, consignor.state, consignor.postal_code].filter(Boolean).join(' '),
+            consignor.country,
+        ].filter(Boolean).join(', ');
 
         const html = `
             <!DOCTYPE html>
@@ -129,7 +228,7 @@ export function Payouts() {
                 <div class="store-info">
                     <strong>${consignor.name}</strong><br>
                     ${consignor.email || ''}<br>
-                    ${consignor.address || ''}<br>
+                    ${consignorAddress || ''}<br>
                     Commission: ${Math.round(consignor.commission_split * 100)}%
                 </div>
                 <table>
@@ -147,19 +246,28 @@ export function Payouts() {
                         </tr>
                     </thead>
                     <tbody>
-                        ${salesSinceLastPayout.filter(i => !i.isRefunded).map(item => `
-                            <tr>
-                                <td>${new Date(item.saleDate).toLocaleDateString()}</td>
-                                <td>${item.sku}</td>
-                                <td>${item.itemName}</td>
-                                <td class="text-right">$${item.price.toFixed(2)}</td>
-                                <td class="text-center">${item.quantity}</td>
-                                <td class="text-right">$${item.lineTotal.toFixed(2)}</td>
-                                <td class="text-center">${Math.round(item.commissionSplit * 100)}%</td>
-                                <td class="text-right">$${(item.consignorShare - item.creditCardFee).toFixed(2)}</td>
-                                ${creditCardFees > 0 ? `<td class="text-right">${item.creditCardFee > 0 ? '-$' + item.creditCardFee.toFixed(2) : '-'}</td>` : ''}
-                            </tr>
-                        `).join('')}
+                        ${salesSinceLastPayout.map(item => {
+                            const effectiveQuantity = Math.max(0, item.quantity - item.refundedQuantity);
+                            if (effectiveQuantity <= 0) return '';
+                            const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
+                            const effectiveLineTotal = item.lineTotal * effectiveRatio;
+                            const effectiveConsignorShare = item.consignorShare * effectiveRatio;
+                            const effectiveCreditCardFee = item.creditCardFee * effectiveRatio;
+
+                            return `
+                                <tr>
+                                    <td>${new Date(item.saleDate).toLocaleDateString()}</td>
+                                    <td>${item.sku}</td>
+                                    <td>${item.itemName}</td>
+                                    <td class="text-right">$${item.price.toFixed(2)}</td>
+                                    <td class="text-center">${effectiveQuantity}</td>
+                                    <td class="text-right">$${effectiveLineTotal.toFixed(2)}</td>
+                                    <td class="text-center">${Math.round(item.commissionSplit * 100)}%</td>
+                                    <td class="text-right">$${effectiveConsignorShare.toFixed(2)}</td>
+                                    ${creditCardFees > 0 ? `<td class="text-right">${effectiveCreditCardFee > 0 ? '-$' + effectiveCreditCardFee.toFixed(2) : '-'}</td>` : ''}
+                                </tr>
+                            `;
+                        }).join('')}
                     </tbody>
                 </table>
                 <div class="summary">
@@ -177,14 +285,26 @@ export function Payouts() {
                         <span>-$${creditCardFees.toFixed(2)}</span>
                     </div>
                     ` : ''}
+                    ${boothRentDeduction > 0 ? `
+                    <div class="summary-row deduction">
+                        <span>Booth Rent:</span>
+                        <span>-$${boothRentDeduction.toFixed(2)}</span>
+                    </div>
+                    ` : ''}
+                    ${marketingFeeDeduction > 0 ? `
+                    <div class="summary-row deduction">
+                        <span>Marketing Fees:</span>
+                        <span>-$${marketingFeeDeduction.toFixed(2)}</span>
+                    </div>
+                    ` : ''}
                     <div class="summary-row total">
-                        <span>Amount Due to Consignor:</span>
+                        <span>Amount Due to Consignor (${pendingFromSales.toFixed(2)} - deductions):</span>
                         <span>$${pendingAmount.toFixed(2)}</span>
                     </div>
                 </div>
                 <div class="footer">
                     <p>Generated: ${new Date().toLocaleString()}</p>
-                    <p>Items: ${salesSinceLastPayout.filter(i => !i.isRefunded).length} | Total Qty: ${salesSinceLastPayout.filter(i => !i.isRefunded).reduce((s, i) => s + i.quantity, 0)}</p>
+                    <p>Items: ${salesSinceLastPayout.filter(i => (i.quantity - i.refundedQuantity) > 0).length} | Total Qty: ${salesSinceLastPayout.reduce((s, i) => s + Math.max(0, i.quantity - i.refundedQuantity), 0)}</p>
                 </div>
             </body>
             </html>
@@ -270,6 +390,54 @@ export function Payouts() {
                     />
                 </div>
 
+                <select
+                    value={datePreset}
+                    onChange={(e) => setDatePreset(e.target.value as DatePreset)}
+                    className="h-9 min-w-[170px] rounded-lg border border-[var(--color-border)] bg-white px-3 text-sm"
+                >
+                    <option value="all">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="last7">Last 7 Days</option>
+                    <option value="last30">Last 30 Days</option>
+                    <option value="thisMonth">This Month</option>
+                    <option value="lastMonth">Last Month</option>
+                    <option value="custom">Custom Range</option>
+                </select>
+
+                {datePreset === 'custom' && (
+                    <>
+                        <input
+                            type="date"
+                            value={customDateFrom}
+                            onChange={(e) => setCustomDateFrom(e.target.value)}
+                            max={customDateTo || undefined}
+                            className="h-9 rounded-lg border border-[var(--color-border)] bg-white px-3 text-sm"
+                        />
+                        <input
+                            type="date"
+                            value={customDateTo}
+                            onChange={(e) => setCustomDateTo(e.target.value)}
+                            min={customDateFrom || undefined}
+                            className="h-9 rounded-lg border border-[var(--color-border)] bg-white px-3 text-sm"
+                        />
+                    </>
+                )}
+
+                {datePreset !== 'all' && (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                            setDatePreset('all');
+                            const today = toLocalDateInput(new Date());
+                            setCustomDateFrom(today);
+                            setCustomDateTo(today);
+                        }}
+                    >
+                        Clear Dates
+                    </Button>
+                )}
+
                 <Button variant="secondary" size="sm" onClick={() => refetch()}>
                     <RefreshIcon />
                     Refresh
@@ -282,19 +450,21 @@ export function Payouts() {
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
                 </div>
             ) : viewMode === 'pending' ? (
-                pendingSummaries.length === 0 ? (
+                pendingSummariesInRange.length === 0 ? (
                     <EmptyState
                         icon={<CheckCircleIcon />}
                         title="All caught up!"
                         description={
                             searchQuery
                                 ? 'No consignors match your search.'
-                                : 'No pending payouts at this time.'
+                                : datePreset !== 'all'
+                                    ? 'No pending consignors had sales activity in this date range.'
+                                    : 'No pending payouts at this time.'
                         }
                     />
                 ) : (
                     <div className="space-y-3">
-                        {pendingSummaries.map((summary) => (
+                        {pendingSummariesInRange.map((summary) => (
                             <ConsignorPayoutRow
                                 key={summary.consignor.id}
                                 summary={summary}
@@ -306,7 +476,7 @@ export function Payouts() {
                 )
             ) : (
                 <PayoutHistoryList
-                    payouts={payouts}
+                    payouts={filteredPayoutHistory}
                     searchQuery={searchQuery}
                 />
             )}
@@ -389,6 +559,26 @@ export function Payouts() {
                                 </p>
                             </div>
                         </div>
+                        {(selectedConsignor.boothRentDeduction > 0 || selectedConsignor.marketingFeeDeduction > 0) && (
+                            <div className="rounded-lg p-3 bg-[var(--color-surface)] border border-[var(--color-border)] text-sm space-y-1">
+                                <div className="flex justify-between">
+                                    <span className="text-[var(--color-muted)]">Before Deductions</span>
+                                    <span>{formatCurrency(selectedConsignor.pendingFromSales)}</span>
+                                </div>
+                                {selectedConsignor.boothRentDeduction > 0 && (
+                                    <div className="flex justify-between text-[var(--color-warning)]">
+                                        <span>Booth Rent</span>
+                                        <span>-{formatCurrency(selectedConsignor.boothRentDeduction)}</span>
+                                    </div>
+                                )}
+                                {selectedConsignor.marketingFeeDeduction > 0 && (
+                                    <div className="flex justify-between text-[var(--color-warning)]">
+                                        <span>Marketing Fees</span>
+                                        <span>-{formatCurrency(selectedConsignor.marketingFeeDeduction)}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* Custom Amount Toggle */}
                         <div className="flex items-center gap-3">
@@ -629,7 +819,13 @@ function ConsignorPayoutDetail({
     summary: ConsignorPayoutSummary;
     payoutHistory: Payout[];
 }) {
-    const { consignor, pendingAmount, grossSales, taxCollected, storeShare, creditCardFees, salesCount, itemsSold, salesSinceLastPayout } = summary;
+    const { consignor, pendingAmount, pendingFromSales, grossSales, taxCollected, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, salesCount, itemsSold, salesSinceLastPayout } = summary;
+    const consignorAddress = [
+        consignor.address,
+        consignor.address_line_2,
+        [consignor.city, consignor.state, consignor.postal_code].filter(Boolean).join(' '),
+        consignor.country,
+    ].filter(Boolean).join(', ');
 
     return (
         <div className="space-y-4">
@@ -652,11 +848,11 @@ function ConsignorPayoutDetail({
             </div>
 
             {/* Contact info - inline */}
-            {(consignor.email || consignor.address) && (
+            {(consignor.email || consignorAddress) && (
                 <div className="text-xs text-[var(--color-muted)]">
                     {consignor.email && <span>{consignor.email}</span>}
-                    {consignor.email && consignor.address && <span> • </span>}
-                    {consignor.address && <span>{consignor.address}</span>}
+                    {consignor.email && consignorAddress && <span> • </span>}
+                    {consignorAddress && <span>{consignorAddress}</span>}
                 </div>
             )}
 
@@ -679,6 +875,26 @@ function ConsignorPayoutDetail({
                     </p>
                 </div>
             </div>
+            {(boothRentDeduction > 0 || marketingFeeDeduction > 0) && (
+                <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-[var(--color-surface)] rounded-lg p-3">
+                        <p className="text-xs text-[var(--color-muted)]">Before Deductions</p>
+                        <p className="text-xl font-bold">{formatCurrency(pendingFromSales)}</p>
+                    </div>
+                    <div className="bg-[var(--color-warning-bg)] rounded-lg p-3 border border-[var(--color-warning)]">
+                        <p className="text-xs text-[var(--color-warning)]">Booth Rent Deducted</p>
+                        <p className="text-xl font-bold text-[var(--color-warning)]">
+                            -{formatCurrency(boothRentDeduction)}
+                        </p>
+                    </div>
+                    <div className="bg-[var(--color-warning-bg)] rounded-lg p-3 border border-[var(--color-warning)]">
+                        <p className="text-xs text-[var(--color-warning)]">Marketing Deducted</p>
+                        <p className="text-xl font-bold text-[var(--color-warning)]">
+                            -{formatCurrency(marketingFeeDeduction)}
+                        </p>
+                    </div>
+                </div>
+            )}
             <div className="grid grid-cols-4 gap-3">
                 <div className="bg-[var(--color-surface)] rounded-lg p-3">
                     <p className="text-xs text-[var(--color-muted)]">Tax Collected</p>
@@ -730,11 +946,16 @@ function ConsignorPayoutDetail({
                                 </tr>
                             </thead>
                             <tbody>
-                                {salesSinceLastPayout.map((item, idx) => (
-                                    <tr
-                                        key={`${item.saleId}-${idx}`}
-                                        className={`border-t border-[var(--color-border)] ${item.isRefunded ? 'bg-[var(--color-danger)]/5' : ''}`}
-                                    >
+                                {salesSinceLastPayout.map((item, idx) => {
+                                    const effectiveQuantity = Math.max(0, item.quantity - item.refundedQuantity);
+                                    const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
+                                    const effectivePayout = item.consignorShare * effectiveRatio;
+
+                                    return (
+                                        <tr
+                                            key={`${item.saleId}-${idx}`}
+                                            className={`border-t border-[var(--color-border)] ${item.isRefunded ? 'bg-[var(--color-danger)]/5' : ''}`}
+                                        >
                                         <td className="px-3 py-2 text-[var(--color-muted)]">
                                             {new Date(item.saleDate).toLocaleDateString()}
                                         </td>
@@ -776,10 +997,11 @@ function ConsignorPayoutDetail({
                                             </Badge>
                                         </td>
                                         <td className={`px-3 py-2 text-right font-medium ${item.isRefunded ? 'line-through text-[var(--color-muted)]' : 'text-[var(--color-success)]'}`}>
-                                            {formatCurrency(item.isRefunded ? 0 : item.consignorShare - (item.price * item.refundedQuantity * item.commissionSplit))}
+                                            {formatCurrency(effectivePayout)}
                                         </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -829,6 +1051,16 @@ function ConsignorPayoutDetail({
                                     <p className="text-xs text-[var(--color-muted)] mt-1">
                                         Note: {payout.notes}
                                     </p>
+                                )}
+                                {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0) && (
+                                    <div className="text-xs text-[var(--color-muted)] mt-1 space-y-1">
+                                        {(payout.booth_rent_deduction || 0) > 0 && (
+                                            <p>Booth rent deducted: -{formatCurrency(Number(payout.booth_rent_deduction || 0))}</p>
+                                        )}
+                                        {(payout.marketing_fee_deduction || 0) > 0 && (
+                                            <p>Marketing deducted: -{formatCurrency(Number(payout.marketing_fee_deduction || 0))}</p>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         ))}
@@ -954,6 +1186,16 @@ function PayoutHistoryList({
                         <p className="mt-2 text-sm text-[var(--color-muted)] pl-14">
                             Note: {payout.notes}
                         </p>
+                    )}
+                    {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0) && (
+                        <div className="mt-2 pl-14 text-xs text-[var(--color-muted)] space-y-1">
+                            {(payout.booth_rent_deduction || 0) > 0 && (
+                                <p>Booth rent deducted: -{formatCurrency(Number(payout.booth_rent_deduction || 0))}</p>
+                            )}
+                            {(payout.marketing_fee_deduction || 0) > 0 && (
+                                <p>Marketing fees deducted: -{formatCurrency(Number(payout.marketing_fee_deduction || 0))}</p>
+                            )}
+                        </div>
                     )}
                 </div>
             ))}
@@ -1117,4 +1359,3 @@ function PrintIcon() {
         </svg>
     );
 }
-

@@ -39,8 +39,13 @@ export function createReceiptData(
         items,
         subtotal: Number(sale.subtotal),
         tax: Number(sale.tax_amount),
+        storeCreditUsed: sale.store_credit_used ? Number(sale.store_credit_used) : 0,
+        giftCardUsed: sale.gift_card_used ? Number(sale.gift_card_used) : 0,
         total: Number(sale.total),
+        cardFeeAmount: sale.card_fee_amount ? Number(sale.card_fee_amount) : 0,
+        cardLast4: sale.card_last4 || undefined,
         paymentMethod: sale.payment_method,
+        checkNumber: sale.check_number || undefined,
         cashTendered: sale.cash_tendered ? Number(sale.cash_tendered) : undefined,
         changeGiven: sale.change_given ? Number(sale.change_given) : undefined,
     };
@@ -63,12 +68,19 @@ function generateReceiptHTML(receipt: ReceiptData): string {
     };
 
     const formatCurrency = (amount: number) => '$' + amount.toFixed(2);
+    const formatCardLast4 = (last4?: string) => {
+        if (!last4) return null;
+        const digits = last4.replace(/\D/g, '').slice(-4);
+        if (digits.length !== 4) return null;
+        return `•••• ${digits}`;
+    };
+    const maskedCard = formatCardLast4(receipt.cardLast4);
 
-    const itemsHTML = receipt.items.map(item => `
-        <div style="margin-bottom: 8px;">
+    const itemsHTML = receipt.items.map((item, index) => `
+        <div style="margin-bottom: 8px; ${index > 0 ? 'border-top: 1px dotted #999; padding-top: 6px;' : ''}">
             <div style="display: flex; justify-content: space-between;">
                 <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px;">
-                    ${item.quantity > 1 ? `${item.quantity}x ` : ''}${item.name}
+                    &bull; ${item.quantity > 1 ? `${item.quantity}x ` : ''}${item.name}
                 </span>
                 <span style="white-space: nowrap;">${formatCurrency(item.lineTotal)}</span>
             </div>
@@ -90,7 +102,14 @@ function generateReceiptHTML(receipt: ReceiptData): string {
                 <span>${formatCurrency(receipt.changeGiven ?? 0)}</span>
             </div>
         `
-        : '';
+        : receipt.paymentMethod === 'check'
+            ? `
+            <div style="display: flex; justify-content: space-between;">
+                <span>Check</span>
+                <span>${receipt.checkNumber ? `#${receipt.checkNumber}` : 'N/A'}</span>
+            </div>
+        `
+            : '';
 
     return `
 <!DOCTYPE html>
@@ -166,6 +185,24 @@ function generateReceiptHTML(receipt: ReceiptData): string {
                     <span>${formatCurrency(receipt.tax)}</span>
                 </div>
             ` : ''}
+            ${receipt.storeCreditUsed && receipt.storeCreditUsed > 0 ? `
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Store Credit</span>
+                    <span>-${formatCurrency(receipt.storeCreditUsed)}</span>
+                </div>
+            ` : ''}
+            ${receipt.giftCardUsed && receipt.giftCardUsed > 0 ? `
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Gift Card</span>
+                    <span>-${formatCurrency(receipt.giftCardUsed)}</span>
+                </div>
+            ` : ''}
+            ${receipt.cardFeeAmount && receipt.cardFeeAmount > 0 ? `
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Card Fee</span>
+                    <span>${formatCurrency(receipt.cardFeeAmount)}</span>
+                </div>
+            ` : ''}
             <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; margin-top: 4px; padding-top: 4px; border-top: 1px solid #000;">
                 <span>TOTAL</span>
                 <span>${formatCurrency(receipt.total)}</span>
@@ -180,6 +217,12 @@ function generateReceiptHTML(receipt: ReceiptData): string {
                 <span>Payment</span>
                 <span>${receipt.paymentMethod.toUpperCase()}</span>
             </div>
+            ${receipt.paymentMethod === 'card' && maskedCard ? `
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Card</span>
+                    <span>${maskedCard}</span>
+                </div>
+            ` : ''}
             ${paymentHTML}
         </div>
 
@@ -191,7 +234,16 @@ function generateReceiptHTML(receipt: ReceiptData): string {
                 Thank you for shopping at Ravenlia!
             </div>
             <div style="font-size: 10px; color: #666;">
-                Keep receipt for returns
+                Ravenlia — from the hands of artisans to the heart of community.
+            </div>
+            <div style="font-size: 10px; color: #666;">
+                <i>Thanks for keeping it alive!</i>
+            </div>
+            <div style="margin: 6px 0; font-size: 10px; color: #666;">
+                -----
+            </div>
+            <div style="font-size: 10px; color: #666;">
+                Ravenlia.com
             </div>
         </div>
     </div>
@@ -465,4 +517,3 @@ export async function printRefundReceipt(receipt: RefundReceiptData): Promise<{ 
         return { success: false, error: message };
     }
 }
-

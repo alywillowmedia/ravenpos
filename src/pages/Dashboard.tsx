@@ -14,6 +14,26 @@ import { useAnalytics, type SalesTrendData, type SalesByCategoryData, type Custo
 import { formatCurrency } from '../lib/utils';
 import type { DashboardStats } from '../types';
 
+type AnalyticsRangePreset = '24h' | '7' | '14' | '30' | '60' | '90' | 'custom';
+
+function toLocalDateInput(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function parseLocalDateInput(value: string, endOfDay = false): Date {
+    const [year, month, day] = value.split('-').map(Number);
+    const parsed = new Date(year, month - 1, day);
+    if (endOfDay) {
+        parsed.setHours(23, 59, 59, 999);
+    } else {
+        parsed.setHours(0, 0, 0, 0);
+    }
+    return parsed;
+}
+
 export function Dashboard() {
     const { consignors, isLoading: consignorsLoading } = useConsignors();
     const { items, isLoading: itemsLoading } = useInventory();
@@ -26,7 +46,9 @@ export function Dashboard() {
     const [customerGrowth, setCustomerGrowth] = useState<CustomerGrowthData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [analyticsExpanded, setAnalyticsExpanded] = useState(false);
-    const [dateRange, setDateRange] = useState<string>('30');
+    const [dateRange, setDateRange] = useState<AnalyticsRangePreset>('30');
+    const [customDateFrom, setCustomDateFrom] = useState(() => toLocalDateInput(new Date()));
+    const [customDateTo, setCustomDateTo] = useState(() => toLocalDateInput(new Date()));
 
     // Fetch dashboard stats when consignors/items finish loading
     useEffect(() => {
@@ -55,13 +77,20 @@ export function Dashboard() {
 
         let isMounted = true;
         const isHourly = dateRange === '24h';
+        const isCustom = dateRange === 'custom';
         const days = isHourly ? 1 : Number(dateRange);
 
+        const customStart = isCustom && customDateFrom ? parseLocalDateInput(customDateFrom) : undefined;
+        const customEnd = isCustom && customDateTo ? parseLocalDateInput(customDateTo, true) : undefined;
+        const isCustomRangeValid = !isCustom || (customStart && customEnd && customStart <= customEnd);
+        if (!isCustomRangeValid) return;
+
         const fetchAnalytics = async () => {
+            const rangeOptions = isCustom ? { startDate: customStart, endDate: customEnd } : undefined;
             const [trendRes, categoryRes, growthRes] = await Promise.all([
-                getSalesTrend(days, isHourly),
-                getSalesByCategory(),
-                getCustomerGrowth(days, isHourly)
+                getSalesTrend(days, isHourly, rangeOptions),
+                getSalesByCategory(rangeOptions),
+                getCustomerGrowth(days, isHourly, rangeOptions)
             ]);
 
             if (isMounted) {
@@ -76,7 +105,7 @@ export function Dashboard() {
         return () => {
             isMounted = false;
         };
-    }, [analyticsExpanded, dateRange, getSalesTrend, getSalesByCategory, getCustomerGrowth]);
+    }, [analyticsExpanded, dateRange, customDateFrom, customDateTo, getSalesTrend, getSalesByCategory, getCustomerGrowth]);
 
     const quickLinks = [
         { href: '/admin/pos', label: 'Open Register', icon: RegisterIcon, color: 'bg-[var(--color-primary)]' },
@@ -143,7 +172,7 @@ export function Dashboard() {
                         <div className="flex justify-end mb-4">
                             <select
                                 value={dateRange}
-                                onChange={(e) => setDateRange(e.target.value)}
+                                onChange={(e) => setDateRange(e.target.value as AnalyticsRangePreset)}
                                 className="px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg bg-[var(--color-background)] text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                             >
                                 <option value="24h">Last 24 hours</option>
@@ -152,10 +181,29 @@ export function Dashboard() {
                                 <option value="30">Last 30 days</option>
                                 <option value="60">Last 60 days</option>
                                 <option value="90">Last 90 days</option>
+                                <option value="custom">Custom range</option>
                             </select>
                         </div>
+                        {dateRange === 'custom' && (
+                            <div className="flex justify-end mb-4 gap-2">
+                                <input
+                                    type="date"
+                                    value={customDateFrom}
+                                    onChange={(e) => setCustomDateFrom(e.target.value)}
+                                    max={customDateTo || undefined}
+                                    className="px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg bg-[var(--color-background)] text-[var(--color-foreground)]"
+                                />
+                                <input
+                                    type="date"
+                                    value={customDateTo}
+                                    onChange={(e) => setCustomDateTo(e.target.value)}
+                                    min={customDateFrom || undefined}
+                                    className="px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg bg-[var(--color-background)] text-[var(--color-foreground)]"
+                                />
+                            </div>
+                        )}
                         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-                            <AnalyticsCard title={`Sales Trend (${dateRange === '24h' ? 'Last 24 Hours' : `Last ${dateRange} Days`})`} className="col-span-1 lg:col-span-2">
+                            <AnalyticsCard title={`Sales Trend (${dateRange === '24h' ? 'Last 24 Hours' : dateRange === 'custom' ? 'Custom Range' : `Last ${dateRange} Days`})`} className="col-span-1 lg:col-span-2">
                                 {analyticsLoading ? (
                                     <div className="flex items-center justify-center h-full">
                                         <LoadingSpinner />

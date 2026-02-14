@@ -14,7 +14,7 @@ import { useEmployee } from '../../contexts/EmployeeContext';
 import { createCartItem, calculateCartTotals } from '../../lib/tax';
 import { formatCurrency } from '../../lib/utils';
 import { supabase } from '../../lib/supabase';
-import type { CartItem, Customer, CustomerInput } from '../../types';
+import type { CartItem, Customer, CustomerInput, PaymentMethod } from '../../types';
 
 export function EmployeePOS() {
     const scannerRef = useRef<HTMLInputElement>(null);
@@ -29,6 +29,8 @@ export function EmployeePOS() {
     const [scanInput, setScanInput] = useState('');
     const [scanError, setScanError] = useState<string | null>(null);
     const [cashTendered, setCashTendered] = useState<string>('');
+    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+    const [checkNumber, setCheckNumber] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [completedSale, setCompletedSale] = useState<{ total: number; change: number } | null>(null);
 
@@ -48,7 +50,8 @@ export function EmployeePOS() {
 
     const { subtotal, taxTotal, total } = calculateCartTotals(cart);
     const cashAmount = parseFloat(cashTendered) || 0;
-    const change = cashAmount - total;
+    const amountDue = total;
+    const change = cashAmount - amountDue;
 
     // Auto-focus scanner input
     useEffect(() => {
@@ -137,7 +140,7 @@ export function EmployeePOS() {
 
     const handleCompleteSale = async () => {
         if (cart.length === 0) return;
-        if (cashAmount < total) {
+        if (paymentMethod === 'cash' && cashAmount < amountDue) {
             setScanError('Insufficient cash');
             return;
         }
@@ -154,9 +157,10 @@ export function EmployeePOS() {
                     subtotal,
                     tax_amount: taxTotal,
                     total,
-                    payment_method: 'cash',
-                    cash_tendered: cashAmount,
-                    change_given: change,
+                    payment_method: paymentMethod,
+                    check_number: paymentMethod === 'check' ? (checkNumber.trim() || null) : null,
+                    cash_tendered: paymentMethod === 'cash' ? cashAmount : null,
+                    change_given: paymentMethod === 'cash' ? change : null,
                     processed_by_employee: employee?.id, // Track which employee processed
                 })
                 .select()
@@ -196,7 +200,7 @@ export function EmployeePOS() {
                     .eq('id', ci.item.id);
             }
 
-            setCompletedSale({ total, change });
+            setCompletedSale({ total, change: paymentMethod === 'cash' ? change : 0 });
         } catch (err) {
             console.error('Sale error:', err);
             setScanError('Failed to complete sale');
@@ -208,6 +212,8 @@ export function EmployeePOS() {
     const handleNewSale = () => {
         setCart([]);
         setCashTendered('');
+        setPaymentMethod('cash');
+        setCheckNumber('');
         setCompletedSale(null);
         setScanError(null);
         setSelectedCustomer(null);
@@ -414,52 +420,85 @@ export function EmployeePOS() {
                         </CardContent>
                     </Card>
 
-                    {/* Cash Payment */}
+                    {/* Payment */}
                     <Card variant="outlined" className="flex-1">
                         <CardContent className="h-full flex flex-col">
-                            <p className="text-sm font-medium mb-2">Cash Tendered</p>
-                            <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={cashTendered}
-                                onChange={(e) => setCashTendered(e.target.value)}
-                                inputSize="lg"
-                                leftIcon={<span className="text-[var(--color-muted)]">$</span>}
-                                placeholder="0.00"
-                            />
-
-                            {/* Quick amounts */}
-                            <div className="grid grid-cols-3 gap-2 mt-3">
-                                {quickCashAmounts.map((amount) => (
-                                    <button
-                                        key={amount}
-                                        onClick={() => setCashTendered(amount.toString())}
-                                        className="py-2 px-3 rounded-lg bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-sm font-medium transition-colors"
-                                    >
-                                        ${amount}
-                                    </button>
-                                ))}
-                                {total > 0 && (
-                                    <button
-                                        onClick={() => setCashTendered(Math.ceil(total).toString())}
-                                        className="col-span-3 py-2 px-3 rounded-lg bg-[var(--color-primary)]/10 hover:bg-[var(--color-primary)]/20 text-[var(--color-primary)] text-sm font-medium transition-colors"
-                                    >
-                                        Exact: {formatCurrency(Math.ceil(total))}
-                                    </button>
-                                )}
+                            <div className="flex gap-2 mb-4">
+                                <button
+                                    onClick={() => setPaymentMethod('cash')}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${paymentMethod === 'cash'
+                                        ? 'bg-[var(--color-primary)] text-white'
+                                        : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
+                                        }`}
+                                >
+                                    Cash
+                                </button>
+                                <button
+                                    onClick={() => setPaymentMethod('check')}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${paymentMethod === 'check'
+                                        ? 'bg-[var(--color-primary)] text-white'
+                                        : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
+                                        }`}
+                                >
+                                    Check
+                                </button>
                             </div>
 
-                            {/* Change Display */}
-                            {cashAmount > 0 && (
-                                <div className={`mt-4 p-4 rounded-xl text-center ${change >= 0 ? 'bg-[var(--color-success-bg)]' : 'bg-[var(--color-danger-bg)]'}`}>
-                                    <p className="text-sm text-[var(--color-muted)]">
-                                        {change >= 0 ? 'Change Due' : 'Amount Short'}
-                                    </p>
-                                    <p className={`text-3xl font-bold ${change >= 0 ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}`}>
-                                        {formatCurrency(Math.abs(change))}
-                                    </p>
-                                </div>
+                            {paymentMethod === 'cash' ? (
+                                <>
+                                    <p className="text-sm font-medium mb-2">Cash Tendered</p>
+                                    <Input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={cashTendered}
+                                        onChange={(e) => setCashTendered(e.target.value)}
+                                        inputSize="lg"
+                                        leftIcon={<span className="text-[var(--color-muted)]">$</span>}
+                                        placeholder="0.00"
+                                    />
+
+                                    <div className="grid grid-cols-3 gap-2 mt-3">
+                                        {quickCashAmounts.map((amount) => (
+                                            <button
+                                                key={amount}
+                                                onClick={() => setCashTendered(amount.toString())}
+                                                className="py-2 px-3 rounded-lg bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-sm font-medium transition-colors"
+                                            >
+                                                ${amount}
+                                            </button>
+                                        ))}
+                                        {amountDue > 0 && (
+                                            <button
+                                                onClick={() => setCashTendered(Math.ceil(amountDue).toString())}
+                                                className="col-span-3 py-2 px-3 rounded-lg bg-[var(--color-primary)]/10 hover:bg-[var(--color-primary)]/20 text-[var(--color-primary)] text-sm font-medium transition-colors"
+                                            >
+                                                Exact: {formatCurrency(Math.ceil(amountDue))}
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {cashAmount > 0 && (
+                                        <div className={`mt-4 p-4 rounded-xl text-center ${change >= 0 ? 'bg-[var(--color-success-bg)]' : 'bg-[var(--color-danger-bg)]'}`}>
+                                            <p className="text-sm text-[var(--color-muted)]">
+                                                {change >= 0 ? 'Change Due' : 'Amount Short'}
+                                            </p>
+                                            <p className={`text-3xl font-bold ${change >= 0 ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}`}>
+                                                {formatCurrency(Math.abs(change))}
+                                            </p>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <p className="text-sm font-medium mb-2">Check Number (Optional)</p>
+                                    <Input
+                                        value={checkNumber}
+                                        onChange={(e) => setCheckNumber(e.target.value)}
+                                        inputSize="lg"
+                                        placeholder="Enter check #"
+                                    />
+                                </>
                             )}
 
                             {/* Complete Sale Button */}
@@ -468,10 +507,10 @@ export function EmployeePOS() {
                                     size="xl"
                                     className="w-full"
                                     onClick={handleCompleteSale}
-                                    disabled={cart.length === 0 || cashAmount < total}
+                                    disabled={cart.length === 0 || (paymentMethod === 'cash' && cashAmount < amountDue)}
                                     isLoading={isProcessing}
                                 >
-                                    Complete Sale
+                                    {paymentMethod === 'check' ? 'Complete Check Sale' : 'Complete Sale'}
                                 </Button>
                             </div>
                         </CardContent>

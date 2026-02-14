@@ -9,7 +9,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency } from '../../lib/utils';
-import type { Payout, Consignor } from '../../types';
+import type { Payout, Consignor, PaymentMethod } from '../../types';
 
 interface SaleItemForPayout {
     id: string;
@@ -20,8 +20,9 @@ interface SaleItemForPayout {
     quantity: number;
     commission_split: number;
     completed_at: string;
-    payment_method: 'cash' | 'card';
+    payment_method: PaymentMethod;
     sale_subtotal: number;
+    consignor_pays_card_fee: boolean;
 }
 
 // Stripe Terminal fee constants (2.7% + $0.05 per transaction)
@@ -65,7 +66,7 @@ export function VendorPayouts() {
             // Fetch sales since last payout (including payment_method for fee calc)
             const { data: saleItems } = await supabase
                 .from('sale_items')
-                .select('id, sale_id, name, sku, price, quantity, commission_split, sales!inner(completed_at, payment_method, subtotal)')
+                .select('id, sale_id, name, sku, price, quantity, commission_split, consignor_pays_card_fee, sales!inner(completed_at, payment_method, subtotal)')
                 .eq('consignor_id', userRecord.consignor_id);
 
             // Filter to items since last payout
@@ -73,17 +74,17 @@ export function VendorPayouts() {
                 .map((item) => {
                     const salesData = item.sales as unknown;
                     let completedAt = '';
-                    let paymentMethod: 'cash' | 'card' = 'cash';
+                    let paymentMethod: PaymentMethod = 'cash';
                     let saleSubtotal = Number(item.price) * item.quantity;
                     if (Array.isArray(salesData) && salesData.length > 0) {
                         const sale = salesData[0] as { completed_at: string; payment_method: string; subtotal: number };
                         completedAt = sale.completed_at;
-                        paymentMethod = sale.payment_method as 'cash' | 'card';
+                        paymentMethod = sale.payment_method as PaymentMethod;
                         saleSubtotal = sale.subtotal || saleSubtotal;
                     } else if (salesData && typeof salesData === 'object' && 'completed_at' in salesData) {
                         const sale = salesData as { completed_at: string; payment_method: string; subtotal: number };
                         completedAt = sale.completed_at;
-                        paymentMethod = sale.payment_method as 'cash' | 'card';
+                        paymentMethod = sale.payment_method as PaymentMethod;
                         saleSubtotal = sale.subtotal || saleSubtotal;
                     }
                     return {
@@ -97,6 +98,7 @@ export function VendorPayouts() {
                         completed_at: completedAt,
                         payment_method: paymentMethod,
                         sale_subtotal: saleSubtotal,
+                        consignor_pays_card_fee: Boolean(item.consignor_pays_card_fee),
                     };
                 })
                 .filter((item) => new Date(item.completed_at) > lastPayoutDate)
@@ -113,7 +115,7 @@ export function VendorPayouts() {
     const calculateItemEarnings = (item: SaleItemForPayout) => {
         const lineTotal = item.price * item.quantity;
         let fee = 0;
-        if (item.payment_method === 'card') {
+        if (item.payment_method === 'card' && item.consignor_pays_card_fee) {
             const totalSaleFee = (item.sale_subtotal * STRIPE_FEE_PERCENT) + STRIPE_FEE_FIXED;
             fee = item.sale_subtotal > 0 ? totalSaleFee * (lineTotal / item.sale_subtotal) : 0;
         }
@@ -127,7 +129,7 @@ export function VendorPayouts() {
 
     const pendingCreditCardFees = pendingSales.reduce(
         (sum, item) => {
-            if (item.payment_method === 'card') {
+            if (item.payment_method === 'card' && item.consignor_pays_card_fee) {
                 const lineTotal = item.price * item.quantity;
                 const totalSaleFee = (item.sale_subtotal * STRIPE_FEE_PERCENT) + STRIPE_FEE_FIXED;
                 return sum + (item.sale_subtotal > 0 ? totalSaleFee * (lineTotal / item.sale_subtotal) : 0);
@@ -258,7 +260,7 @@ export function VendorPayouts() {
                                                 {formatCurrency(item.price)}
                                             </td>
                                             <td className="px-3 py-2 text-right font-medium text-[var(--color-success)]">
-                                                {formatCurrency(item.price * item.quantity * item.commission_split)}
+                                                {formatCurrency(calculateItemEarnings(item))}
                                             </td>
                                         </tr>
                                     ))}
@@ -384,6 +386,30 @@ export function VendorPayouts() {
                                     -{formatCurrency(selectedPayout.store_share)}
                                 </span>
                             </div>
+                            {(selectedPayout.credit_card_fees || 0) > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--color-muted)]">Card Fees</span>
+                                    <span className="text-[var(--color-muted)]">
+                                        -{formatCurrency(selectedPayout.credit_card_fees || 0)}
+                                    </span>
+                                </div>
+                            )}
+                            {(selectedPayout.booth_rent_deduction || 0) > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--color-muted)]">Booth Rent</span>
+                                    <span className="text-[var(--color-muted)]">
+                                        -{formatCurrency(selectedPayout.booth_rent_deduction || 0)}
+                                    </span>
+                                </div>
+                            )}
+                            {(selectedPayout.marketing_fee_deduction || 0) > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--color-muted)]">Marketing Fees</span>
+                                    <span className="text-[var(--color-muted)]">
+                                        -{formatCurrency(selectedPayout.marketing_fee_deduction || 0)}
+                                    </span>
+                                </div>
+                            )}
                             <div className="flex justify-between font-semibold pt-2 border-t border-[var(--color-border)]">
                                 <span>Your Payout</span>
                                 <span className="text-[var(--color-success)]">

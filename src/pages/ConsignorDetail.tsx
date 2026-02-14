@@ -273,7 +273,12 @@ export function ConsignorDetail() {
                             <strong>Phone:</strong> {consignor.phone || '—'}
                         </p>
                         <p>
-                            <strong>Address:</strong> {consignor.address || '—'}
+                            <strong>Address:</strong> {[
+                                consignor.address,
+                                consignor.address_line_2,
+                                [consignor.city, consignor.state, consignor.postal_code].filter(Boolean).join(' '),
+                                consignor.country,
+                            ].filter(Boolean).join(', ') || '—'}
                         </p>
                         <p>
                             <strong>Booth:</strong> {consignor.booth_location || '—'}
@@ -297,6 +302,9 @@ export function ConsignorDetail() {
                         </p>
                         <p>
                             <strong>Monthly Rent:</strong> {monthlyRent > 0 ? formatCurrency(monthlyRent) : 'None'}
+                        </p>
+                        <p>
+                            <strong>Card Fee Policy:</strong> {consignor.consignor_pays_card_fee ? 'Consignor Pays' : 'Customer Pays'}
                         </p>
                         <p>
                             <strong>Member Since:</strong> {formatDate(consignor.created_at)}

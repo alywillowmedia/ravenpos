@@ -252,7 +252,7 @@ export function VendorInventory() {
                 isOpen={!!editingItem}
                 onClose={() => setEditingItem(null)}
                 title="Edit Item"
-                size="md"
+                size="3xl"
             >
                 {editingItem && (
                     <VendorItemForm

@@ -39,6 +39,7 @@ export function useCustomers() {
                     email: input.email || null,
                     phone: input.phone || null,
                     notes: input.notes || null,
+                    store_credit: input.store_credit ?? 0,
                 })
                 .select()
                 .single();
@@ -134,12 +135,19 @@ export function useCustomers() {
                     subtotal,
                     tax_amount,
                     total,
+                    payment_method,
+                    check_number,
+                    cash_tendered,
+                    change_given,
+                    refund_status,
+                    discount_total,
                     sale_items (
                         id,
                         name,
                         sku,
                         price,
-                        quantity
+                        quantity,
+                        discount_amount
                     )
                 `)
                 .eq('customer_id', customerId)
@@ -150,6 +158,31 @@ export function useCustomers() {
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to fetch order history';
             return { data: [], error: message };
+        }
+    }, []);
+
+    const addStoreCredit = useCallback(async (customerId: string, amount: number) => {
+        try {
+            const roundedAmount = Math.round(amount * 100) / 100;
+            if (roundedAmount <= 0) {
+                return { balance: null, error: 'Amount must be greater than 0' };
+            }
+
+            const { data, error: rpcError } = await supabase.rpc('adjust_customer_store_credit', {
+                p_customer_id: customerId,
+                p_amount_change: roundedAmount,
+            });
+
+            if (rpcError) throw rpcError;
+
+            const balance = Number(data || 0);
+            setCustomers((prev) =>
+                prev.map((c) => (c.id === customerId ? { ...c, store_credit: balance } : c))
+            );
+            return { balance, error: null };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to add store credit';
+            return { balance: null, error: message };
         }
     }, []);
 
@@ -164,5 +197,6 @@ export function useCustomers() {
         getCustomerById,
         searchCustomers,
         getCustomerOrderHistory,
+        addStoreCredit,
     };
 }

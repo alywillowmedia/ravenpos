@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const { printReceipt, printRefundReceipt, getPrinters, getSelectedPrinter, setSelectedPrinter } = require('./printing.cjs');
 
@@ -8,17 +9,22 @@ let mainWindow;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 function createWindow() {
+    const iconPath = path.join(__dirname, '../public/icon.png');
+    const hasIcon = fs.existsSync(iconPath);
+
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
         minWidth: 1024,
         minHeight: 768,
+        autoHideMenuBar: true,
+        menuBarVisible: false,
         webPreferences: {
             preload: path.join(__dirname, 'preload.cjs'),
             contextIsolation: true,
             nodeIntegration: false,
         },
-        icon: path.join(__dirname, '../public/icon.png'),
+        ...(hasIcon ? { icon: iconPath } : {}),
         titleBarStyle: 'default',
         show: false, // Don't show until ready
     });

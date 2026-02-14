@@ -4,27 +4,33 @@ import { useState, useEffect } from 'react';
 import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
-import type { Employee, EmployeeInput } from '../../types/employee';
+import type { Employee, EmployeeInput, EmployeeRole } from '../../types/employee';
 
 interface AddEmployeeModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSubmit: (data: EmployeeInput, newPin?: string) => Promise<{ error: string | null }>;
     employee?: Employee | null; // If provided, we're editing
+    roleOptions: EmployeeRole[];
 }
 
-export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee }: AddEmployeeModalProps) {
+export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee, roleOptions }: AddEmployeeModalProps) {
     const [name, setName] = useState('');
     const [hourlyRate, setHourlyRate] = useState('');
     const [pin, setPin] = useState('');
     const [confirmPin, setConfirmPin] = useState('');
     const [isActive, setIsActive] = useState(true);
     const [employer, setEmployer] = useState<'Ravenlia' | 'Alywillow' | ''>('');
-    const [employmentType, setEmploymentType] = useState<'Production' | 'Sales' | 'Shipping Dept.' | ''>('');
+    const [employmentType, setEmploymentType] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const isEditing = !!employee;
+    const activeRoleOptions = roleOptions.filter((role) => role.is_active);
+    const shouldShowCurrentRole = Boolean(
+        employee?.employment_type &&
+        !activeRoleOptions.some((role) => role.name === employee.employment_type)
+    );
 
     // Reset form when opening/closing or when employee changes
     useEffect(() => {
@@ -143,13 +149,20 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee }: AddEmp
                         <label className="block text-sm font-medium mb-1.5">Employment Type</label>
                         <select
                             value={employmentType}
-                            onChange={(e) => setEmploymentType(e.target.value as typeof employmentType)}
+                            onChange={(e) => setEmploymentType(e.target.value)}
                             className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                         >
                             <option value="">Select...</option>
-                            <option value="Production">Production</option>
-                            <option value="Sales">Sales</option>
-                            <option value="Shipping Dept.">Shipping Dept.</option>
+                            {activeRoleOptions.map((role) => (
+                                <option key={role.id} value={role.name}>
+                                    {role.name}
+                                </option>
+                            ))}
+                            {shouldShowCurrentRole && (
+                                <option value={employee?.employment_type ?? ''}>
+                                    {employee?.employment_type} (inactive)
+                                </option>
+                            )}
                         </select>
                     </div>
                 </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import type { Payout, PayoutInput, ConsignorPayoutSummary, SaleItemDetail, Consignor, BalanceDisposition } from '../types';
+import type { Payout, PayoutInput, ConsignorPayoutSummary, SaleItemDetail, Consignor, BalanceDisposition, PaymentMethod } from '../types';
 
 interface SaleItemWithJoins {
     id: string;
@@ -12,19 +12,56 @@ interface SaleItemWithJoins {
     price: number;
     quantity: number;
     commission_split: number;
+    consignor_pays_card_fee?: boolean;
     sale: {
         id: string;
         completed_at: string;
         tax_amount: number;
         subtotal: number;
-        payment_method: 'cash' | 'card';
+        payment_method: PaymentMethod;
     };
     consignor: Consignor;
+}
+
+interface BoothRentPaymentRecord {
+    id: string;
+    consignor_id: string;
+    period_month: number;
+    period_year: number;
+}
+
+interface MarketingAllocationRecord {
+    id: string;
+    consignor_id: string;
+    amount: number;
+    deducted_payout_id: string | null;
 }
 
 // Stripe Terminal fee constants (2.7% + $0.05 per transaction)
 const STRIPE_FEE_PERCENT = 0.027;
 const STRIPE_FEE_FIXED = 0.05;
+
+function getDueBoothRentMonths(lastPayout: Payout | null): Array<{ period_month: number; period_year: number }> {
+    const now = new Date();
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const start = lastPayout
+        ? new Date(new Date(lastPayout.paid_at).getFullYear(), new Date(lastPayout.paid_at).getMonth() + 1, 1)
+        : currentMonthStart;
+
+    const months: Array<{ period_month: number; period_year: number }> = [];
+    const cursor = new Date(start);
+    cursor.setHours(0, 0, 0, 0);
+
+    while (cursor <= currentMonthStart) {
+        months.push({
+            period_month: cursor.getMonth() + 1,
+            period_year: cursor.getFullYear(),
+        });
+        cursor.setMonth(cursor.getMonth() + 1, 1);
+    }
+
+    return months;
+}
 
 export function usePayouts() {
     const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -75,6 +112,18 @@ export function usePayouts() {
 
             if (refundsError) throw refundsError;
 
+            const { data: boothRentPayments, error: boothRentError } = await supabase
+                .from('booth_rent_payments')
+                .select('id, consignor_id, period_month, period_year');
+
+            if (boothRentError) throw boothRentError;
+
+            const { data: marketingAllocations, error: marketingAllocationsError } = await supabase
+                .from('marketing_fee_allocations')
+                .select('id, consignor_id, amount, deducted_payout_id');
+
+            if (marketingAllocationsError) throw marketingAllocationsError;
+
             // Build a map of refunded sale_item_ids to refunded quantities
             const refundedItemsMap = new Map<string, number>();
             for (const refund of refunds || []) {
@@ -110,6 +159,8 @@ export function usePayouts() {
                 let itemsSold = 0;
                 const salesSet = new Set<string>();
                 const salesDetails: SaleItemDetail[] = [];
+                const boothRentMonthsToDeduct: Array<{ period_month: number; period_year: number }> = [];
+                const marketingAllocationIdsToDeduct: string[] = [];
 
                 // Group items by sale_id to calculate per-sale fees
                 const itemsBySale = new Map<string, SaleItemWithJoins[]>();
@@ -124,7 +175,7 @@ export function usePayouts() {
 
                     // Calculate proportional credit card fee for this item
                     let itemCreditCardFee = 0;
-                    if (item.sale.payment_method === 'card') {
+                    if (item.sale.payment_method === 'card' && item.consignor_pays_card_fee) {
                         const saleSubtotal = item.sale.subtotal || lineTotal;
                         // Total fee for the entire sale
                         const totalSaleFee = (saleSubtotal * STRIPE_FEE_PERCENT) + STRIPE_FEE_FIXED;
@@ -180,22 +231,75 @@ export function usePayouts() {
                     });
                 }
 
-                // Calculate total tax collected for this consignor's items
-                const taxCollected = salesDetails.reduce((sum, s) => sum + s.taxAmount, 0);
+                // Refunds reverse tax, so only include non-refunded quantity portions
+                const taxCollected = salesDetails.reduce((sum, s) => {
+                    const effectiveQuantity = Math.max(0, s.quantity - s.refundedQuantity);
+                    const effectiveRatio = s.quantity > 0 ? effectiveQuantity / s.quantity : 0;
+                    return sum + (s.taxAmount * effectiveRatio);
+                }, 0);
+
+                let pendingFromSales = pendingAmount;
+
+                // Booth rent deduction: charge due unpaid months, limited by available sales earnings.
+                let boothRentDeduction = 0;
+                const monthlyBoothRent = Number(consignor.monthly_booth_rent || 0);
+                if (monthlyBoothRent > 0) {
+                    const paidPeriods = new Set(
+                        (boothRentPayments || [])
+                            .filter((payment: BoothRentPaymentRecord) => payment.consignor_id === consignor.id)
+                            .map((payment: BoothRentPaymentRecord) => `${payment.period_year}-${String(payment.period_month).padStart(2, '0')}`)
+                    );
+
+                    const dueMonths = getDueBoothRentMonths(lastPayout).filter((period) => {
+                        const key = `${period.period_year}-${String(period.period_month).padStart(2, '0')}`;
+                        return !paidPeriods.has(key);
+                    });
+
+                    const maxAffordableMonths = Math.floor(Math.max(0, pendingFromSales) / monthlyBoothRent);
+                    const monthsToCharge = dueMonths.slice(0, maxAffordableMonths);
+                    boothRentDeduction = monthsToCharge.length * monthlyBoothRent;
+                    boothRentMonthsToDeduct.push(...monthsToCharge);
+                }
+
+                pendingFromSales = Math.max(0, pendingFromSales - boothRentDeduction);
+
+                // Marketing fee deduction: deduct unpaid allocations, limited by remaining available amount.
+                const pendingMarketingAllocations = (marketingAllocations || [])
+                    .filter((allocation: MarketingAllocationRecord) =>
+                        allocation.consignor_id === consignor.id && !allocation.deducted_payout_id
+                    )
+                    .sort((a: MarketingAllocationRecord, b: MarketingAllocationRecord) => a.id.localeCompare(b.id));
+
+                let marketingFeeDeduction = 0;
+                for (const allocation of pendingMarketingAllocations) {
+                    const allocationAmount = Number(allocation.amount);
+                    if ((marketingFeeDeduction + allocationAmount) > pendingFromSales) {
+                        break;
+                    }
+                    marketingFeeDeduction += allocationAmount;
+                    marketingAllocationIdsToDeduct.push(allocation.id);
+                }
+
+                const finalPendingAmount = Math.max(0, pendingFromSales - marketingFeeDeduction);
 
                 summaries.push({
                     consignor,
-                    pendingAmount,
+                    pendingFromSales: pendingAmount,
+                    pendingAmount: finalPendingAmount,
                     grossSales,
                     taxCollected,
                     storeShare,
                     creditCardFees,
+                    boothRentDeduction,
+                    marketingFeeDeduction,
                     salesCount: salesSet.size,
                     itemsSold,
                     lastPayout,
                     salesSinceLastPayout: salesDetails.sort(
                         (a, b) => new Date(b.saleDate).getTime() - new Date(a.saleDate).getTime()
                     ),
+                    boothRentMonthsToDeduct,
+                    marketingAllocationIdsToDeduct,
                 });
             }
 
@@ -245,6 +349,8 @@ export function usePayouts() {
                 tax_collected: summary.taxCollected,
                 store_share: summary.storeShare,
                 credit_card_fees: summary.creditCardFees,
+                booth_rent_deduction: summary.boothRentDeduction,
+                marketing_fee_deduction: summary.marketingFeeDeduction,
                 notes: notes || null,
                 paid_at: new Date().toISOString(),
                 original_amount_due: isPartial ? summary.pendingAmount : null,
@@ -253,11 +359,46 @@ export function usePayouts() {
                 balance_disposition: isPartial ? (balanceDisposition || null) : null,
             };
 
-            const { error: insertError } = await supabase
+            const { data: insertedPayout, error: insertError } = await supabase
                 .from('payouts')
-                .insert(payoutData);
+                .insert(payoutData)
+                .select('id')
+                .single();
 
             if (insertError) throw insertError;
+
+            if (summary.boothRentMonthsToDeduct.length > 0) {
+                const monthlyBoothRent = Number(summary.consignor.monthly_booth_rent || 0);
+                if (monthlyBoothRent > 0) {
+                    const boothRentRows = summary.boothRentMonthsToDeduct.map((period) => ({
+                        consignor_id: consignorId,
+                        amount: monthlyBoothRent,
+                        period_month: period.period_month,
+                        period_year: period.period_year,
+                        notes: `Deducted from payout ${insertedPayout.id.slice(0, 8)}`,
+                        paid_at: new Date().toISOString(),
+                    }));
+
+                    const { error: boothInsertError } = await supabase
+                        .from('booth_rent_payments')
+                        .upsert(boothRentRows, { onConflict: 'consignor_id,period_month,period_year', ignoreDuplicates: true });
+
+                    if (boothInsertError) throw boothInsertError;
+                }
+            }
+
+            if (summary.marketingAllocationIdsToDeduct.length > 0) {
+                const { error: marketingUpdateError } = await supabase
+                    .from('marketing_fee_allocations')
+                    .update({
+                        deducted_payout_id: insertedPayout.id,
+                        deducted_at: new Date().toISOString(),
+                    })
+                    .in('id', summary.marketingAllocationIdsToDeduct)
+                    .is('deducted_payout_id', null);
+
+                if (marketingUpdateError) throw marketingUpdateError;
+            }
 
             // Refresh data
             await calculateConsignorSummaries();

@@ -432,7 +432,7 @@ export function Inventory() {
                 isOpen={!!editItem}
                 onClose={() => setEditItem(null)}
                 title="Edit Item"
-                size="lg"
+                size="4xl"
             >
                 {editItem && (
                     <ItemForm

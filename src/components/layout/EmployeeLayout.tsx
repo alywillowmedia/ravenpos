@@ -5,10 +5,13 @@ import { MobileBottomNav } from './MobileBottomNav';
 import { useMobile } from '../../hooks/useMobile';
 import { cn } from '../../lib/utils';
 import { useState, useEffect } from 'react';
+import { PortalTopBar } from './PortalTopBar';
+import { useMessaging } from '../../hooks/useMessaging';
 
 export function EmployeeLayout() {
     const { employee, isLoading } = useEmployee();
     const { isMobile } = useMobile();
+    const messaging = useMessaging({ portalBasePath: '/employee' });
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
         const saved = localStorage.getItem('sidebar-collapsed-employee');
         return saved === 'true';
@@ -48,11 +51,12 @@ export function EmployeeLayout() {
                 isMobile ? 'mobile-content-padding' : (isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'),
                 'transition-all duration-300 ease-in-out'
             )}>
+                <PortalTopBar messaging={messaging} portalBasePath="/employee" />
                 <div className={cn(
                     'px-4 py-6 sm:px-6',
                     !isMobile && 'lg:px-8'
                 )}>
-                    <Outlet />
+                    <Outlet context={{ messaging }} />
                 </div>
             </main>
 

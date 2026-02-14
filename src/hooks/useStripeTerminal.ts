@@ -222,7 +222,7 @@ export function useStripeTerminal() {
     }, []);
 
     // Collect card payment
-    const collectCardPayment = useCallback(async (amountInCents: number): Promise<{ paymentIntentId: string; error: string | null }> => {
+    const collectCardPayment = useCallback(async (amountInCents: number): Promise<{ paymentIntentId: string; cardLast4?: string; error: string | null }> => {
         if (!terminalRef.current || !connectedReader) {
             return { paymentIntentId: '', error: 'No reader connected' };
         }
@@ -259,7 +259,23 @@ export function useStripeTerminal() {
             }
 
             setStatus('connected');
-            return { paymentIntentId: processResult.paymentIntent!.id, error: null };
+            const paymentIntentId = processResult.paymentIntent!.id;
+            let cardLast4: string | undefined;
+
+            try {
+                const { data, error: detailsError } = await supabase.functions.invoke('stripe-terminal', {
+                    body: { action: 'get_payment_intent', paymentIntentId },
+                });
+
+                if (!detailsError && data?.card_last4) {
+                    cardLast4 = String(data.card_last4);
+                }
+            } catch (detailsErr) {
+                const detailsMessage = await extractFunctionError(detailsErr);
+                console.warn('Unable to fetch card last4 for receipt:', detailsMessage);
+            }
+
+            return { paymentIntentId, cardLast4, error: null };
 
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Payment failed';

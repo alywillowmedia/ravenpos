@@ -19,6 +19,13 @@ export function generateEmailHTML(receipt: ReceiptData): string {
     };
 
     const formatCurrency = (amount: number) => '$' + amount.toFixed(2);
+    const formatCardLast4 = (last4?: string) => {
+        if (!last4) return null;
+        const digits = last4.replace(/\D/g, '').slice(-4);
+        if (digits.length !== 4) return null;
+        return `•••• ${digits}`;
+    };
+    const maskedCard = formatCardLast4(receipt.cardLast4);
 
     const itemsHTML = receipt.items.map(item => {
         const imageCell = item.imageUrl ? `
@@ -56,10 +63,21 @@ export function generateEmailHTML(receipt: ReceiptData): string {
                 <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; font-weight: bold;">${formatCurrency(receipt.changeGiven ?? 0)}</td>
             </tr>
         `
+        : receipt.paymentMethod === 'check'
+            ? `
+            <tr>
+                <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Paid by</td>
+                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Check</td>
+            </tr>
+            <tr>
+                <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Check #</td>
+                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">${receipt.checkNumber ? receipt.checkNumber : 'N/A'}</td>
+            </tr>
+        `
         : `
             <tr>
                 <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Paid by</td>
-                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Card</td>
+                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">${maskedCard ? `Card (${maskedCard})` : 'Card'}</td>
             </tr>
         `;
 
@@ -117,6 +135,24 @@ export function generateEmailHTML(receipt: ReceiptData): string {
                                     <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">${formatCurrency(receipt.tax)}</td>
                                 </tr>
                                 ` : ''}
+                                ${receipt.storeCreditUsed && receipt.storeCreditUsed > 0 ? `
+                                <tr>
+                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Store Credit</td>
+                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">-${formatCurrency(receipt.storeCreditUsed)}</td>
+                                </tr>
+                                ` : ''}
+                                ${receipt.giftCardUsed && receipt.giftCardUsed > 0 ? `
+                                <tr>
+                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Gift Card</td>
+                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">-${formatCurrency(receipt.giftCardUsed)}</td>
+                                </tr>
+                                ` : ''}
+                                ${receipt.cardFeeAmount && receipt.cardFeeAmount > 0 ? `
+                                <tr>
+                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Card Fee</td>
+                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">${formatCurrency(receipt.cardFeeAmount)}</td>
+                                </tr>
+                                ` : ''}
                                 <tr>
                                     <td style="padding: 12px 0 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 18px; font-weight: bold; border-top: 2px solid #1a1a1a;">TOTAL</td>
                                     <td style="padding: 12px 0 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 18px; font-weight: bold; border-top: 2px solid #1a1a1a;">${formatCurrency(receipt.total)}</td>
@@ -142,7 +178,16 @@ export function generateEmailHTML(receipt: ReceiptData): string {
                                 Thank you for shopping at Ravenlia!
                             </p>
                             <p style="margin: 8px 0 0 0; font-size: 12px; color: #999;">
-                                Keep this email as your receipt for returns
+                                Ravenlia — from the hands of artisans to the heart of community.
+                            </p>
+                            <p style="margin: 8px 0 0 0; font-size: 12px; color: #999;">
+                                <i>Thanks for keeping it alive!</i>
+                            </p>
+                            <p style="margin: 8px 0 0 0; font-size: 12px; color: #999;">
+                                -----
+                            </p>
+                            <p style="margin: 8px 0 0 0; font-size: 12px; color: #999;">
+                                Ravenlia.com
                             </p>
                         </td>
                     </tr>

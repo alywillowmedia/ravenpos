@@ -9,6 +9,7 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Receipt } from '../components/pos/Receipt';
 import { RefundModal } from '../components/pos/RefundModal';
 import { DiscountModal } from '../components/pos/DiscountModal';
+import { GiftCardSaleModal } from '../components/pos/GiftCardSaleModal';
 import { ReceiptDeliveryModal } from '../components/receipt/ReceiptDeliveryModal';
 import { useInventory } from '../hooks/useInventory';
 import { useSales } from '../hooks/useSales';
@@ -19,8 +20,12 @@ import { createCartItem, calculateCartTotals } from '../lib/tax';
 import { createDiscount, formatDiscountLabel } from '../lib/discounts';
 import { formatCurrency } from '../lib/utils';
 import { createReceiptData } from '../lib/printReceipt';
+import { supabase } from '../lib/supabase';
 import type { CartItem, Sale, Customer, CustomerInput, PaymentMethod, Discount, DiscountType } from '../types';
 import type { ReceiptData } from '../types/receipt';
+
+const STRIPE_FEE_PERCENT = 0.027;
+const STRIPE_FEE_FIXED = 0.05;
 
 export function POS() {
     const scannerRef = useRef<HTMLInputElement>(null);
@@ -57,9 +62,11 @@ export function POS() {
 
     // Payment method state
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+    const [checkNumber, setCheckNumber] = useState('');
     const [isCollectingCard, setIsCollectingCard] = useState(false);
     const [showReaderModal, setShowReaderModal] = useState(false);
     const [showRefundModal, setShowRefundModal] = useState(false);
+    const [showGiftCardSaleModal, setShowGiftCardSaleModal] = useState(false);
 
     // Discount state
     const [orderDiscounts, setOrderDiscounts] = useState<Discount[]>(() => {
@@ -79,6 +86,11 @@ export function POS() {
     const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
     const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
     const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
+    const [useStoreCredit, setUseStoreCredit] = useState(true);
+    const [giftCardInput, setGiftCardInput] = useState('');
+    const [giftCardError, setGiftCardError] = useState<string | null>(null);
+    const [isApplyingGiftCard, setIsApplyingGiftCard] = useState(false);
+    const [appliedGiftCard, setAppliedGiftCard] = useState<{ code: string; balance: number } | null>(null);
     const [newCustomerData, setNewCustomerData] = useState<CustomerInput>({
         name: '',
         email: null,
@@ -87,8 +99,28 @@ export function POS() {
     });
 
     const { subtotal, taxTotal, total, itemDiscountTotal, discountTotal } = calculateCartTotals(cart, orderDiscounts);
+    const cardFeeEligibleSubtotal = cart.reduce((sum, cartItem) => {
+        const consignorPays = (cartItem.item.consignor as { consignor_pays_card_fee?: boolean } | undefined)?.consignor_pays_card_fee ?? false;
+        return consignorPays ? sum : sum + cartItem.lineTotal;
+    }, 0);
+    const cardFeeRatio = subtotal > 0 ? cardFeeEligibleSubtotal / subtotal : 0;
+    const appliedGiftCardAmount = appliedGiftCard
+        ? Math.min(Math.max(0, appliedGiftCard.balance), total)
+        : 0;
+    const remainingAfterGiftCard = Math.max(0, total - appliedGiftCardAmount);
+    const availableStoreCredit = Number(selectedCustomer?.store_credit || 0);
+    const appliedStoreCredit = selectedCustomer && useStoreCredit
+        ? Math.min(availableStoreCredit, remainingAfterGiftCard)
+        : 0;
+    const cashPrice = Math.max(0, Math.round((total - appliedGiftCardAmount - appliedStoreCredit) * 100) / 100);
+    const cardFeeAmount = cashPrice > 0
+        ? Math.round((((subtotal * STRIPE_FEE_PERCENT) + STRIPE_FEE_FIXED) * cardFeeRatio) * 100) / 100
+        : 0;
+    const cardPrice = Math.max(0, Math.round((cashPrice + cardFeeAmount) * 100) / 100);
+    const amountDue = paymentMethod === 'card' ? cardPrice : cashPrice;
+    const cardFeeDifference = Math.max(0, Math.round((cardPrice - cashPrice) * 100) / 100);
     const cashAmount = parseFloat(cashTendered) || 0;
-    const change = cashAmount - total;
+    const change = cashAmount - amountDue;
 
     // Auto-focus scanner input
     useEffect(() => {
@@ -137,15 +169,45 @@ export function POS() {
             taxTotal,
             discountTotal,
             total,
+            cashPrice,
+            cardFeeAmount,
+            cardPrice,
+            amountDue,
+            paymentMethod,
+            appliedStoreCredit,
+            appliedGiftCard: appliedGiftCardAmount,
             orderDiscounts,
             completedSale
         });
 
         return () => channel.close();
-    }, [cart, subtotal, taxTotal, discountTotal, total, orderDiscounts, completedSale]);
+    }, [
+        cart,
+        subtotal,
+        taxTotal,
+        discountTotal,
+        total,
+        cashPrice,
+        cardFeeAmount,
+        cardPrice,
+        amountDue,
+        paymentMethod,
+        appliedStoreCredit,
+        appliedGiftCardAmount,
+        orderDiscounts,
+        completedSale,
+    ]);
 
     const openCustomerDisplay = () => {
-        window.open('/display', 'CustomerDisplay', 'width=1000,height=800,menubar=no,toolbar=no');
+        const isElectron = typeof window !== 'undefined' && (
+            window.electronAPI?.isElectron === true || window.location.protocol === 'file:'
+        );
+        const displayUrl = !isElectron
+            ? '/display'
+            : window.location.protocol.startsWith('http')
+                ? `${window.location.origin}/#/display`
+                : `${window.location.href.split('#')[0]}#/display`;
+        window.open(displayUrl, 'CustomerDisplay', 'width=1000,height=800,menubar=no,toolbar=no');
     };
 
     const handleScan = async (e: React.FormEvent) => {
@@ -213,7 +275,7 @@ export function POS() {
 
     const handleCompleteCashSale = async () => {
         if (cart.length === 0) return;
-        if (cashAmount < total) {
+        if (cashAmount < amountDue) {
             setScanError('Insufficient cash');
             return;
         }
@@ -222,13 +284,18 @@ export function POS() {
             cart,
             subtotal,
             taxTotal,
-            total,
+            cashPrice,
             cashAmount,
             change,
             selectedCustomer?.id,
             'cash',
             undefined,
-            orderDiscounts
+            orderDiscounts,
+            appliedStoreCredit,
+            0,
+            appliedGiftCard?.code,
+            appliedGiftCardAmount,
+            undefined
         );
 
         if (error) {
@@ -242,6 +309,16 @@ export function POS() {
             setCompletedReceiptData(receiptData);
             setCompletedCart([...cart]);
             setShowReceiptDelivery(true);
+            if (selectedCustomer && appliedStoreCredit > 0) {
+                setSelectedCustomer({
+                    ...selectedCustomer,
+                    store_credit: Math.max(0, availableStoreCredit - appliedStoreCredit),
+                });
+            }
+            if (appliedGiftCard && appliedGiftCardAmount > 0) {
+                const remaining = Math.max(0, appliedGiftCard.balance - appliedGiftCardAmount);
+                setAppliedGiftCard(remaining > 0 ? { ...appliedGiftCard, balance: remaining } : null);
+            }
         }
 
         setCompletedSale(sale);
@@ -249,40 +326,51 @@ export function POS() {
 
     const handleCompleteCardSale = async () => {
         if (cart.length === 0) return;
-        if (!connectedReader) {
+        if (amountDue > 0 && !connectedReader) {
             setScanError('No card reader connected');
             return;
         }
 
-        setIsCollectingCard(true);
         setScanError(null);
 
-        // Convert total to cents for Stripe
-        const amountInCents = Math.round(total * 100);
+        let paymentIntentId: string | undefined;
+        let cardLast4: string | undefined;
 
-        const { paymentIntentId, error: cardError } = await collectCardPayment(amountInCents);
-
-        if (cardError) {
-            setScanError(cardError);
-            setIsCollectingCard(false);
-            return;
+        if (amountDue > 0) {
+            setIsCollectingCard(true);
+            // Convert total due to cents for Stripe
+            const amountInCents = Math.round(amountDue * 100);
+            const cardResult = await collectCardPayment(amountInCents);
+            if (cardResult.error) {
+                setScanError(cardResult.error);
+                setIsCollectingCard(false);
+                return;
+            }
+            paymentIntentId = cardResult.paymentIntentId || undefined;
+            cardLast4 = cardResult.cardLast4;
         }
 
-        // Complete the sale in our database
         const { data: sale, error } = await completeSale(
             cart,
             subtotal,
             taxTotal,
-            total,
+            amountDue,
             0,
             0,
             selectedCustomer?.id,
             'card',
             paymentIntentId,
-            orderDiscounts
+            orderDiscounts,
+            appliedStoreCredit,
+            cardFeeAmount,
+            appliedGiftCard?.code,
+            appliedGiftCardAmount,
+            undefined
         );
 
-        setIsCollectingCard(false);
+        if (amountDue > 0) {
+            setIsCollectingCard(false);
+        }
 
         if (error) {
             setScanError(error);
@@ -291,18 +379,82 @@ export function POS() {
 
         // Store data for receipt delivery modal
         if (sale) {
-            const receiptData = createReceiptData(sale, cart);
+            const saleWithCardLast4: Sale = {
+                ...sale,
+                card_last4: cardLast4 || null,
+            };
+            const receiptData = createReceiptData(saleWithCardLast4, cart);
             setCompletedReceiptData(receiptData);
             setCompletedCart([...cart]);
             setShowReceiptDelivery(true);
+            if (selectedCustomer && appliedStoreCredit > 0) {
+                setSelectedCustomer({
+                    ...selectedCustomer,
+                    store_credit: Math.max(0, availableStoreCredit - appliedStoreCredit),
+                });
+            }
+            if (appliedGiftCard && appliedGiftCardAmount > 0) {
+                const remaining = Math.max(0, appliedGiftCard.balance - appliedGiftCardAmount);
+                setAppliedGiftCard(remaining > 0 ? { ...appliedGiftCard, balance: remaining } : null);
+            }
         }
 
-        setCompletedSale(sale);
+        setCompletedSale(sale ? { ...sale, card_last4: cardLast4 || null } : null);
     };
 
     const handleDiscoverReaders = async () => {
         setShowReaderModal(true);
         await discoverReaders(true); // Use simulated readers for sandbox
+    };
+
+    const handleCompleteCheckSale = async () => {
+        if (cart.length === 0) return;
+
+        const { data: sale, error } = await completeSale(
+            cart,
+            subtotal,
+            taxTotal,
+            cashPrice,
+            0,
+            0,
+            selectedCustomer?.id,
+            'check',
+            undefined,
+            orderDiscounts,
+            appliedStoreCredit,
+            0,
+            appliedGiftCard?.code,
+            appliedGiftCardAmount,
+            checkNumber.trim() || undefined
+        );
+
+        if (error) {
+            setScanError(error);
+            return;
+        }
+
+        if (sale) {
+            const saleWithCheckNumber: Sale = {
+                ...sale,
+                check_number: checkNumber.trim() || null,
+            };
+            const receiptData = createReceiptData(saleWithCheckNumber, cart);
+            setCompletedReceiptData(receiptData);
+            setCompletedCart([...cart]);
+            setShowReceiptDelivery(true);
+            if (selectedCustomer && appliedStoreCredit > 0) {
+                setSelectedCustomer({
+                    ...selectedCustomer,
+                    store_credit: Math.max(0, availableStoreCredit - appliedStoreCredit),
+                });
+            }
+            if (appliedGiftCard && appliedGiftCardAmount > 0) {
+                const remaining = Math.max(0, appliedGiftCard.balance - appliedGiftCardAmount);
+                setAppliedGiftCard(remaining > 0 ? { ...appliedGiftCard, balance: remaining } : null);
+            }
+        }
+
+        setCompletedSale(sale ? { ...sale, check_number: checkNumber.trim() || null } : null);
     };
 
     const handleNewSale = () => {
@@ -315,7 +467,13 @@ export function POS() {
         setScanError(null);
         setSelectedCustomer(null);
         setCustomerSearch('');
+        setUseStoreCredit(true);
+        setGiftCardInput('');
+        setGiftCardError(null);
+        setIsApplyingGiftCard(false);
+        setAppliedGiftCard(null);
         setPaymentMethod('cash');
+        setCheckNumber('');
         setIsCollectingCard(false);
         setOrderDiscounts([]);
         setDiscountTarget(null);
@@ -397,13 +555,61 @@ export function POS() {
 
     const handleSelectCustomer = (customer: Customer) => {
         setSelectedCustomer(customer);
+        setUseStoreCredit(true);
         setCustomerSearch('');
         setShowCustomerDropdown(false);
     };
 
     const handleClearCustomer = () => {
         setSelectedCustomer(null);
+        setUseStoreCredit(true);
         setCustomerSearch('');
+    };
+
+    const handleApplyGiftCard = async () => {
+        const normalizedCode = giftCardInput.trim().toUpperCase();
+        if (!normalizedCode) {
+            setGiftCardError('Enter a gift card code');
+            return;
+        }
+
+        setGiftCardError(null);
+        setIsApplyingGiftCard(true);
+
+        const { data, error } = await supabase.rpc('get_gift_card_by_code', {
+            p_code: normalizedCode,
+        });
+
+        setIsApplyingGiftCard(false);
+
+        if (error) {
+            setGiftCardError(error.message || 'Unable to verify gift card');
+            return;
+        }
+
+        const giftCard = Array.isArray(data) ? data[0] : null;
+        if (!giftCard) {
+            setGiftCardError('Gift card not found');
+            return;
+        }
+
+        const balance = Number(giftCard.current_balance || 0);
+        if (!giftCard.is_active || balance <= 0) {
+            setGiftCardError('Gift card has no available balance');
+            return;
+        }
+
+        setAppliedGiftCard({
+            code: String(giftCard.code),
+            balance,
+        });
+        setGiftCardInput(String(giftCard.code));
+    };
+
+    const handleRemoveGiftCard = () => {
+        setAppliedGiftCard(null);
+        setGiftCardInput('');
+        setGiftCardError(null);
     };
 
     const handleCreateCustomer = async () => {
@@ -418,7 +624,7 @@ export function POS() {
     };
 
     return (
-        <div className="animate-fadeIn h-[calc(100vh-7rem)]">
+        <div className="animate-fadeIn h-[calc(100vh-7rem)] flex flex-col">
             <Header
                 title="Point of Sale"
                 actions={
@@ -429,6 +635,13 @@ export function POS() {
                         >
                             <RefundIcon />
                             Refund
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            onClick={() => setShowGiftCardSaleModal(true)}
+                        >
+                            <GiftCardIcon />
+                            Gift Card
                         </Button>
                         {cart.length > 0 && (
                             <Button variant="ghost" onClick={handleNewSale}>
@@ -446,7 +659,110 @@ export function POS() {
                 }
             />
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+            {/* Customer Selection */}
+            <Card variant="outlined" className="mb-4 shrink-0">
+                <CardContent>
+                    <p className="text-sm font-medium mb-2">Customer (Optional)</p>
+                    {selectedCustomer ? (
+                        <div className="p-3 rounded-lg bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/20">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="font-medium text-[var(--color-foreground)]">
+                                        {selectedCustomer.name}
+                                    </p>
+                                    <p className="text-xs text-[var(--color-muted)]">
+                                        {selectedCustomer.phone || selectedCustomer.email || 'No contact info'}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={handleClearCustomer}
+                                    className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-danger)] transition-colors"
+                                >
+                                    <XIcon />
+                                </button>
+                            </div>
+                            <div className="mt-3 space-y-2">
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-[var(--color-muted)]">Store Credit</span>
+                                    <span className="font-semibold text-[var(--color-success)]">
+                                        {formatCurrency(availableStoreCredit)}
+                                    </span>
+                                </div>
+                                {availableStoreCredit > 0 && (
+                                    <label className="flex items-center justify-between text-sm">
+                                        <span className="text-[var(--color-muted)]">Apply to this sale</span>
+                                        <input
+                                            type="checkbox"
+                                            checked={useStoreCredit}
+                                            onChange={(e) => setUseStoreCredit(e.target.checked)}
+                                            className="h-4 w-4 rounded border-[var(--color-border)]"
+                                        />
+                                    </label>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex gap-2">
+                            <div className="relative flex-1">
+                                <Input
+                                    value={customerSearch}
+                                    onChange={(e) => setCustomerSearch(e.target.value)}
+                                    placeholder="Search by name, phone, or email..."
+                                    leftIcon={isSearchingCustomer ? <LoadingSpinner size={16} /> : <SearchIcon />}
+                                />
+                                {showCustomerDropdown && customerResults.length > 0 && (
+                                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-[var(--color-border)] z-50 max-h-48 overflow-y-auto">
+                                        {customerResults.map((customer) => (
+                                            <button
+                                                key={customer.id}
+                                                onClick={() => handleSelectCustomer(customer)}
+                                                className="w-full px-3 py-2 text-left hover:bg-[var(--color-surface-hover)] transition-colors"
+                                            >
+                                                <p className="font-medium text-sm">{customer.name}</p>
+                                                <p className="text-xs text-[var(--color-muted)]">
+                                                    {customer.phone || customer.email || 'No contact'}
+                                                </p>
+                                                <p className="text-xs text-[var(--color-success)]">
+                                                    Credit: {formatCurrency(Number(customer.store_credit || 0))}
+                                                </p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                {showCustomerDropdown && customerResults.length === 0 && customerSearch.length >= 2 && !isSearchingCustomer && (
+                                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-[var(--color-border)] z-50 p-3">
+                                        <p className="text-sm text-[var(--color-muted)] mb-2">No customers found</p>
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => {
+                                                setNewCustomerData({ name: customerSearch, email: null, phone: null, notes: null });
+                                                setShowNewCustomerModal(true);
+                                                setShowCustomerDropdown(false);
+                                            }}
+                                        >
+                                            + Add "{customerSearch}"
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
+                            <Button
+                                variant="secondary"
+                                onClick={() => {
+                                    setNewCustomerData({ name: '', email: null, phone: null, notes: null });
+                                    setShowNewCustomerModal(true);
+                                }}
+                                className="shrink-0"
+                                title="Create New Customer"
+                            >
+                                <UserPlusIcon />
+                            </Button>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
                 {/* Left: Scanner + Cart */}
                 <div className="lg:col-span-2 flex flex-col gap-4">
                     {/* Scanner Input */}
@@ -568,83 +884,50 @@ export function POS() {
                     </Card>
                 </div>
 
-                {/* Right: Customer + Totals + Tender */}
+                {/* Right: Totals + Tender */}
                 <div className="flex flex-col gap-4">
-                    {/* Customer Selection */}
+                    {/* Gift Card */}
                     <Card variant="outlined">
                         <CardContent>
-                            <p className="text-sm font-medium mb-2">Customer (Optional)</p>
-                            {selectedCustomer ? (
-                                <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/20">
-                                    <div>
-                                        <p className="font-medium text-[var(--color-foreground)]">
-                                            {selectedCustomer.name}
-                                        </p>
-                                        <p className="text-xs text-[var(--color-muted)]">
-                                            {selectedCustomer.phone || selectedCustomer.email || 'No contact info'}
-                                        </p>
-                                    </div>
+                            <div className="flex items-center justify-between mb-2">
+                                <p className="text-sm font-medium">Gift Card</p>
+                                {appliedGiftCard && (
                                     <button
-                                        onClick={handleClearCustomer}
-                                        className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-danger)] transition-colors"
+                                        onClick={handleRemoveGiftCard}
+                                        className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
                                     >
-                                        <XIcon />
+                                        Remove
                                     </button>
+                                )}
+                            </div>
+                            {appliedGiftCard ? (
+                                <div className="rounded-lg bg-[var(--color-success-bg)] border border-[var(--color-success)]/20 p-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm font-mono text-[var(--color-foreground)]">{appliedGiftCard.code}</span>
+                                        <span className="text-xs text-[var(--color-muted)]">
+                                            Balance: {formatCurrency(appliedGiftCard.balance)}
+                                        </span>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="flex gap-2">
-                                    <div className="relative flex-1">
-                                        <Input
-                                            value={customerSearch}
-                                            onChange={(e) => setCustomerSearch(e.target.value)}
-                                            placeholder="Search by name, phone, or email..."
-                                            leftIcon={isSearchingCustomer ? <LoadingSpinner size={16} /> : <SearchIcon />}
-                                        />
-                                        {showCustomerDropdown && customerResults.length > 0 && (
-                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-[var(--color-border)] z-50 max-h-48 overflow-y-auto">
-                                                {customerResults.map((customer) => (
-                                                    <button
-                                                        key={customer.id}
-                                                        onClick={() => handleSelectCustomer(customer)}
-                                                        className="w-full px-3 py-2 text-left hover:bg-[var(--color-surface-hover)] transition-colors"
-                                                    >
-                                                        <p className="font-medium text-sm">{customer.name}</p>
-                                                        <p className="text-xs text-[var(--color-muted)]">
-                                                            {customer.phone || customer.email || 'No contact'}
-                                                        </p>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-                                        {showCustomerDropdown && customerResults.length === 0 && customerSearch.length >= 2 && !isSearchingCustomer && (
-                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-[var(--color-border)] z-50 p-3">
-                                                <p className="text-sm text-[var(--color-muted)] mb-2">No customers found</p>
-                                                <Button
-                                                    size="sm"
-                                                    variant="secondary"
-                                                    onClick={() => {
-                                                        setNewCustomerData({ name: customerSearch, email: null, phone: null, notes: null });
-                                                        setShowNewCustomerModal(true);
-                                                        setShowCustomerDropdown(false);
-                                                    }}
-                                                >
-                                                    + Add "{customerSearch}"
-                                                </Button>
-                                            </div>
-                                        )}
-                                    </div>
+                                    <Input
+                                        value={giftCardInput}
+                                        onChange={(e) => setGiftCardInput(e.target.value.toUpperCase())}
+                                        placeholder="Enter gift card code"
+                                    />
                                     <Button
                                         variant="secondary"
-                                        onClick={() => {
-                                            setNewCustomerData({ name: '', email: null, phone: null, notes: null });
-                                            setShowNewCustomerModal(true);
-                                        }}
+                                        onClick={handleApplyGiftCard}
+                                        isLoading={isApplyingGiftCard}
                                         className="shrink-0"
-                                        title="Create New Customer"
                                     >
-                                        <UserPlusIcon />
+                                        Apply
                                     </Button>
                                 </div>
+                            )}
+                            {giftCardError && (
+                                <p className="text-xs text-[var(--color-danger)] mt-2">{giftCardError}</p>
                             )}
                         </CardContent>
                     </Card>
@@ -714,12 +997,41 @@ export function POS() {
                                 <span className="text-[var(--color-muted)]">Tax</span>
                                 <span>{formatCurrency(taxTotal)}</span>
                             </div>
+                            {appliedStoreCredit > 0 && (
+                                <div className="flex justify-between text-sm text-[var(--color-success)]">
+                                    <span>Store Credit</span>
+                                    <span>-{formatCurrency(appliedStoreCredit)}</span>
+                                </div>
+                            )}
+                            {appliedGiftCardAmount > 0 && (
+                                <div className="flex justify-between text-sm text-[var(--color-success)]">
+                                    <span>Gift Card</span>
+                                    <span>-{formatCurrency(appliedGiftCardAmount)}</span>
+                                </div>
+                            )}
+                            {cardFeeAmount > 0 && (
+                                <>
+                                    <div className="flex justify-between text-sm text-[var(--color-warning)]">
+                                        <span>Card Processing Fee</span>
+                                        <span>{formatCurrency(cardFeeAmount)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm text-[var(--color-muted)]">
+                                        <span>Cash Price</span>
+                                        <span>{formatCurrency(cashPrice)}</span>
+                                    </div>
+                                </>
+                            )}
                             <div className="flex justify-between text-2xl font-bold pt-3 border-t border-[var(--color-border)]">
-                                <span>Total</span>
+                                <span>{paymentMethod === 'card' ? 'Card Total' : 'Amount Due'}</span>
                                 <span className="text-[var(--color-primary)]">
-                                    {formatCurrency(total)}
+                                    {formatCurrency(amountDue)}
                                 </span>
                             </div>
+                            {paymentMethod === 'card' && cardFeeDifference > 0 && (
+                                <p className="text-xs text-[var(--color-muted)] text-right">
+                                    +{formatCurrency(cardFeeDifference)} vs cash
+                                </p>
+                            )}
                         </CardContent>
                     </Card>
 
@@ -737,6 +1049,16 @@ export function POS() {
                                 >
                                     <CashIcon />
                                     Cash
+                                </button>
+                                <button
+                                    onClick={() => setPaymentMethod('check')}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'check'
+                                        ? 'bg-[var(--color-primary)] text-white'
+                                        : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
+                                        }`}
+                                >
+                                    <CheckIcon />
+                                    Check
                                 </button>
                                 <button
                                     onClick={() => setPaymentMethod('card')}
@@ -775,12 +1097,12 @@ export function POS() {
                                                 ${amount}
                                             </button>
                                         ))}
-                                        {total > 0 && (
+                                        {amountDue > 0 && (
                                             <button
-                                                onClick={() => setCashTendered(Math.ceil(total).toString())}
+                                                onClick={() => setCashTendered(Math.ceil(amountDue).toString())}
                                                 className="col-span-3 py-2 px-3 rounded-lg bg-[var(--color-primary)]/10 hover:bg-[var(--color-primary)]/20 text-[var(--color-primary)] text-sm font-medium transition-colors"
                                             >
-                                                Exact: {formatCurrency(Math.ceil(total))}
+                                                Exact: {formatCurrency(Math.ceil(amountDue))}
                                             </button>
                                         )}
                                     </div>
@@ -813,10 +1135,34 @@ export function POS() {
                                             size="xl"
                                             className="w-full"
                                             onClick={handleCompleteCashSale}
-                                            disabled={cart.length === 0 || cashAmount < total}
+                                            disabled={cart.length === 0 || cashAmount < amountDue}
                                             isLoading={isProcessing}
                                         >
                                             Complete Cash Sale
+                                        </Button>
+                                    </div>
+                                </>
+                            ) : paymentMethod === 'check' ? (
+                                <>
+                                    <p className="text-sm font-medium mb-2">Check Number (Optional)</p>
+                                    <Input
+                                        value={checkNumber}
+                                        onChange={(e) => setCheckNumber(e.target.value)}
+                                        inputSize="lg"
+                                        placeholder="Enter check #"
+                                    />
+                                    <p className="text-xs text-[var(--color-muted)] mt-2">
+                                        You can also add or edit this later in Sales History.
+                                    </p>
+                                    <div className="mt-auto pt-4">
+                                        <Button
+                                            size="xl"
+                                            className="w-full"
+                                            onClick={handleCompleteCheckSale}
+                                            disabled={cart.length === 0}
+                                            isLoading={isProcessing}
+                                        >
+                                            Complete Check Sale
                                         </Button>
                                     </div>
                                 </>
@@ -868,7 +1214,7 @@ export function POS() {
                                                     {terminalStatus === 'processing' && 'Processing payment...'}
                                                 </p>
                                                 <p className="text-sm text-[var(--color-muted)]">
-                                                    {formatCurrency(total)}
+                                                    {formatCurrency(amountDue)}
                                                 </p>
                                             </div>
                                         </div>
@@ -880,10 +1226,14 @@ export function POS() {
                                             size="xl"
                                             className="w-full"
                                             onClick={handleCompleteCardSale}
-                                            disabled={cart.length === 0 || !connectedReader || isCollectingCard}
+                                            disabled={cart.length === 0 || (amountDue > 0 && !connectedReader) || isCollectingCard}
                                             isLoading={isCollectingCard}
                                         >
-                                            {isCollectingCard ? 'Processing...' : `Charge ${formatCurrency(total)}`}
+                                            {isCollectingCard
+                                                ? 'Processing...'
+                                                : amountDue > 0
+                                                    ? `Charge ${formatCurrency(amountDue)}`
+                                                    : 'Complete Sale (Credit Only)'}
                                         </Button>
                                     </div>
                                 </>
@@ -1017,6 +1367,16 @@ export function POS() {
                 onClose={() => setShowRefundModal(false)}
             />
 
+            {/* Gift Card Sale Modal */}
+            <GiftCardSaleModal
+                isOpen={showGiftCardSaleModal}
+                onClose={() => setShowGiftCardSaleModal(false)}
+                connectedReader={!!connectedReader}
+                onOpenReaderModal={handleDiscoverReaders}
+                collectCardPayment={collectCardPayment}
+                purchaserCustomerId={selectedCustomer?.id || null}
+            />
+
             {/* Discount Modal */}
             <DiscountModal
                 isOpen={showDiscountModal}
@@ -1099,6 +1459,18 @@ function UserPlusIcon() {
     );
 }
 
+function GiftCardIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="8" width="18" height="13" rx="2" />
+            <path d="M12 8v13" />
+            <path d="M3 12h18" />
+            <path d="M7.5 8a2.5 2.5 0 1 1 0-5c1.1 0 2 .9 2 2v3" />
+            <path d="M16.5 8a2.5 2.5 0 1 0 0-5c-1.1 0-2 .9-2 2v3" />
+        </svg>
+    );
+}
+
 function CashIcon() {
     return (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1114,6 +1486,14 @@ function CardIcon() {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
             <line x1="1" y1="10" x2="23" y2="10" />
+        </svg>
+    );
+}
+
+function CheckIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m20 6-11 11-5-5" />
         </svg>
     );
 }
@@ -1135,4 +1515,3 @@ function DiscountIcon() {
         </svg>
     );
 }
-

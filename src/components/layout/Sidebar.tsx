@@ -3,12 +3,14 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
 import { ChangelogModal } from './ChangelogModal';
+import { PrinterSettings } from '../PrinterSettings';
 
 const navigation = [
     { name: 'Dashboard', href: '/admin', icon: DashboardIcon },
     { name: 'Consignors', href: '/admin/consignors', icon: UsersIcon },
     { name: 'Customers', href: '/admin/customers', icon: CustomersIcon },
     { name: 'Employees', href: '/admin/employees', icon: EmployeesIcon },
+    { name: 'Employee Roles', href: '/admin/employees/roles', icon: EmployeesIcon },
     {
         name: 'Inventory',
         icon: PackageIcon,
@@ -22,12 +24,17 @@ const navigation = [
         ]
     },
     { name: 'Point of Sale', href: '/admin/pos', icon: RegisterIcon },
+    { name: 'Messages', href: '/admin/messages', icon: MessageIcon },
+    { name: 'Email Campaigns', href: '/admin/email-campaigns', icon: MailIcon },
+    { name: 'Profile', href: '/admin/profile', icon: UserIcon },
     {
         name: 'Finances',
         icon: PayoutsIcon,
         children: [
             { name: 'Sales', href: '/admin/sales', icon: ReceiptNavIcon },
             { name: 'Payouts', href: '/admin/payouts', icon: PayoutsIcon },
+            { name: 'Marketing Fees', href: '/admin/finances/marketing-fees', icon: MegaphoneIcon },
+            { name: 'Categories & Tax', href: '/admin/finances/categories', icon: TagIcon },
         ]
     },
 ];
@@ -35,6 +42,7 @@ const navigation = [
 export function Sidebar() {
     const [isMobileOpen, setIsMobileOpen] = useState(false);
     const [isChangelogOpen, setIsChangelogOpen] = useState(false);
+    const [isPrinterSettingsOpen, setIsPrinterSettingsOpen] = useState(false);
     const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
     const [isCollapsed, setIsCollapsed] = useState(() => {
         const saved = localStorage.getItem('sidebar-collapsed');
@@ -42,6 +50,7 @@ export function Sidebar() {
     });
     const location = useLocation();
     const { userRecord, signOut } = useAuth();
+    const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
 
     useEffect(() => {
         // Auto-expand groups if a child is active
@@ -138,6 +147,9 @@ export function Sidebar() {
                     <div className="px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
                         <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Admin</p>
                         <p className="text-sm font-medium text-[var(--color-foreground)] truncate">
+                            {userRecord?.full_name || 'Unnamed Admin'}
+                        </p>
+                        <p className="text-xs text-[var(--color-muted)] truncate">
                             {userRecord?.email}
                         </p>
                     </div>
@@ -248,13 +260,26 @@ export function Sidebar() {
                     'border-t border-[var(--color-border)] space-y-3',
                     isCollapsed ? 'p-2' : 'p-4'
                 )}>
+                    {isElectron && (
+                        <button
+                            onClick={() => setIsPrinterSettingsOpen(true)}
+                            className={cn(
+                                'w-full flex items-center rounded-lg text-sm font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] transition-colors',
+                                isCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'
+                            )}
+                            title={isCollapsed ? 'Printer Settings' : undefined}
+                        >
+                            <PrinterIcon />
+                            {!isCollapsed && 'Printer Settings'}
+                        </button>
+                    )}
                     {!isCollapsed && (
                         <div
                             className="px-3 py-2 rounded-lg bg-[var(--color-surface)] cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors"
                             onClick={() => setIsChangelogOpen(true)}
                         >
                             <p className="text-xs text-[var(--color-muted)]">Version</p>
-                            <p className="text-sm font-medium text-[var(--color-foreground)]">0.1.5</p>
+                            <p className="text-sm font-medium text-[var(--color-foreground)]">1.3.2</p>
                         </div>
                     )}
                     <button
@@ -274,6 +299,10 @@ export function Sidebar() {
             <ChangelogModal
                 isOpen={isChangelogOpen}
                 onClose={() => setIsChangelogOpen(false)}
+            />
+            <PrinterSettings
+                isOpen={isPrinterSettingsOpen}
+                onClose={() => setIsPrinterSettingsOpen(false)}
             />
         </>
     );
@@ -298,6 +327,16 @@ function MenuIcon() {
     );
 }
 
+function PrinterIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 6 2 18 2 18 9" />
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+            <rect x="6" y="14" width="12" height="8" />
+        </svg>
+    );
+}
+
 function DashboardIcon() {
     return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -315,6 +354,15 @@ function UsersIcon() {
             <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
             <circle cx="9" cy="7" r="4" />
             <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+    );
+}
+
+function UserIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 21a8 8 0 0 0-16 0" />
+            <circle cx="12" cy="8" r="5" />
         </svg>
     );
 }
@@ -362,6 +410,16 @@ function RegisterIcon() {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="2" y="4" width="20" height="16" rx="2" />
             <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M6 16h12" />
+        </svg>
+    );
+}
+
+function MegaphoneIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m3 11 14-5v12L3 13v-2Z" />
+            <path d="M17 8h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
+            <path d="M7 14v4a2 2 0 0 0 2 2h1" />
         </svg>
     );
 }
@@ -448,6 +506,24 @@ function BarcodeIcon() {
             <path d="M12 5v14" />
             <path d="M17 5v14" />
             <path d="M21 5v14" />
+        </svg>
+    );
+}
+
+function MessageIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 10h10M7 14h6" />
+            <path d="M21 12a8 8 0 0 1-8 8H4l-1 1v-9a8 8 0 1 1 18 0Z" />
+        </svg>
+    );
+}
+
+function MailIcon() {
+    return (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="m22 7-10 6L2 7" />
         </svg>
     );
 }

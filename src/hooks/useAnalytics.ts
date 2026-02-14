@@ -26,6 +26,11 @@ export interface InventoryStatsData {
     outOfStock: number;
 }
 
+interface AnalyticsRangeOptions {
+    startDate?: Date;
+    endDate?: Date;
+}
+
 export function useAnalytics() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -44,17 +49,23 @@ export function useAnalytics() {
         }
     };
 
-    const getSalesTrend = useCallback(async (days: number = 30, hourly: boolean = false) => {
+    const getSalesTrend = useCallback(async (
+        days: number = 30,
+        hourly: boolean = false,
+        rangeOptions?: AnalyticsRangeOptions
+    ) => {
         try {
             startLoading();
-            const endDate = new Date();
-            const startDate = new Date();
+            const endDate = rangeOptions?.endDate ? new Date(rangeOptions.endDate) : new Date();
+            const startDate = rangeOptions?.startDate ? new Date(rangeOptions.startDate) : new Date();
 
-            if (hourly) {
-                // Last 24 hours
-                startDate.setHours(endDate.getHours() - 24);
-            } else {
-                startDate.setDate(endDate.getDate() - days);
+            if (!rangeOptions?.startDate) {
+                if (hourly) {
+                    // Last 24 hours
+                    startDate.setHours(endDate.getHours() - 24);
+                } else {
+                    startDate.setDate(endDate.getDate() - days);
+                }
             }
 
             const { data, error } = await supabase
@@ -66,7 +77,7 @@ export function useAnalytics() {
 
             if (error) throw error;
 
-            if (hourly) {
+            if (hourly && !rangeOptions?.startDate) {
                 // Group by hour for last 24 hours
                 const grouped = (data || []).reduce((acc: Record<string, SalesTrendData>, sale) => {
                     const saleDate = new Date(sale.completed_at);
@@ -103,13 +114,18 @@ export function useAnalytics() {
                     return acc;
                 }, {});
 
-                // Fill in missing dates (include today, so days + 1)
+                // Fill in missing dates in the selected range
                 const result: SalesTrendData[] = [];
-                for (let i = 0; i <= days; i++) {
-                    const d = new Date(startDate);
-                    d.setDate(d.getDate() + i);
+                const cursor = new Date(startDate);
+                cursor.setHours(0, 0, 0, 0);
+                const endCursor = new Date(endDate);
+                endCursor.setHours(0, 0, 0, 0);
+
+                while (cursor <= endCursor) {
+                    const d = new Date(cursor);
                     const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     result.push(grouped[dateStr] || { date: dateStr, amount: 0, count: 0 });
+                    cursor.setDate(cursor.getDate() + 1);
                 }
 
                 return { data: result, error: null };
@@ -123,7 +139,7 @@ export function useAnalytics() {
         }
     }, []);
 
-    const getSalesByCategory = useCallback(async () => {
+    const getSalesByCategory = useCallback(async (rangeOptions?: AnalyticsRangeOptions) => {
         try {
             startLoading();
             const { data, error } = await supabase
@@ -134,12 +150,28 @@ export function useAnalytics() {
                     quantity,
                     item:items (
                         category
+                    ),
+                    sale:sales (
+                        completed_at
                     )
                 `);
 
             if (error) throw error;
 
-            const grouped = (data || []).reduce((acc: Record<string, SalesByCategoryData>, item: any) => {
+            const filteredByRange = (data || []).filter((item: any) => {
+                if (!rangeOptions?.startDate && !rangeOptions?.endDate) return true;
+                const saleData = item.sale;
+                const completedAtRaw = Array.isArray(saleData)
+                    ? saleData[0]?.completed_at
+                    : saleData?.completed_at;
+                const completedAt = completedAtRaw ? new Date(completedAtRaw) : null;
+                if (!completedAt) return false;
+                if (rangeOptions?.startDate && completedAt < rangeOptions.startDate) return false;
+                if (rangeOptions?.endDate && completedAt > rangeOptions.endDate) return false;
+                return true;
+            });
+
+            const grouped = filteredByRange.reduce((acc: Record<string, SalesByCategoryData>, item: any) => {
                 const category = item.item?.category || 'Uncategorized';
                 if (!acc[category]) {
                     acc[category] = { category, amount: 0, count: 0 };
@@ -162,16 +194,22 @@ export function useAnalytics() {
         }
     }, []);
 
-    const getCustomerGrowth = useCallback(async (days: number = 30, hourly: boolean = false) => {
+    const getCustomerGrowth = useCallback(async (
+        days: number = 30,
+        hourly: boolean = false,
+        rangeOptions?: AnalyticsRangeOptions
+    ) => {
         try {
             startLoading();
-            const endDate = new Date();
-            const startDate = new Date();
+            const endDate = rangeOptions?.endDate ? new Date(rangeOptions.endDate) : new Date();
+            const startDate = rangeOptions?.startDate ? new Date(rangeOptions.startDate) : new Date();
 
-            if (hourly) {
-                startDate.setHours(endDate.getHours() - 24);
-            } else {
-                startDate.setDate(endDate.getDate() - days);
+            if (!rangeOptions?.startDate) {
+                if (hourly) {
+                    startDate.setHours(endDate.getHours() - 24);
+                } else {
+                    startDate.setDate(endDate.getDate() - days);
+                }
             }
 
             // First, get the count of customers created before the start date
@@ -190,7 +228,7 @@ export function useAnalytics() {
 
             if (error) throw error;
 
-            if (hourly) {
+            if (hourly && !rangeOptions?.startDate) {
                 // Group by hour
                 const grouped = (data || []).reduce((acc: Record<string, number>, customer) => {
                     const custDate = new Date(customer.created_at);
@@ -223,17 +261,22 @@ export function useAnalytics() {
                     return acc;
                 }, {});
 
-                // Fill in missing dates and calculate cumulative (include today, so days + 1)
+                // Fill in missing dates and calculate cumulative in the selected range
                 const result: CustomerGrowthData[] = [];
                 let runningTotal = previousCount || 0;
 
-                for (let i = 0; i <= days; i++) {
-                    const d = new Date(startDate);
-                    d.setDate(d.getDate() + i);
+                const cursor = new Date(startDate);
+                cursor.setHours(0, 0, 0, 0);
+                const endCursor = new Date(endDate);
+                endCursor.setHours(0, 0, 0, 0);
+
+                while (cursor <= endCursor) {
+                    const d = new Date(cursor);
                     const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     const count = grouped[dateStr] || 0;
                     runningTotal += count;
                     result.push({ date: dateStr, count, cumulative: runningTotal });
+                    cursor.setDate(cursor.getDate() + 1);
                 }
 
                 return { data: result, error: null };

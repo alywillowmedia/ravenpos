@@ -4,6 +4,8 @@ import { Sidebar } from './Sidebar';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useMobile } from '../../hooks/useMobile';
 import { cn } from '../../lib/utils';
+import { PortalTopBar } from './PortalTopBar';
+import { useMessaging } from '../../hooks/useMessaging';
 
 interface AdminLayoutProps {
     children?: ReactNode;
@@ -11,6 +13,7 @@ interface AdminLayoutProps {
 
 export function AdminLayout({ children }: AdminLayoutProps) {
     const { isMobile } = useMobile();
+    const messaging = useMessaging({ portalBasePath: '/admin' });
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
         const saved = localStorage.getItem('sidebar-collapsed');
         return saved === 'true';
@@ -36,11 +39,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 isMobile ? 'mobile-content-padding' : (isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'),
                 'transition-all duration-300 ease-in-out'
             )}>
-                <div className={cn(
-                    'px-4 py-6 sm:px-6',
-                    !isMobile && 'lg:px-8'
-                )}>
-                    {children || <Outlet />}
+                <PortalTopBar messaging={messaging} portalBasePath="/admin" />
+                <div className={cn('px-4 py-6 sm:px-6', !isMobile && 'lg:px-8')}>
+                    {children || <Outlet context={{ messaging }} />}
                 </div>
             </main>
 

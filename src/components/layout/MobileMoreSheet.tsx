@@ -21,16 +21,23 @@ const adminMoreItems: MoreNavItem[] = [
     { name: 'Dashboard', href: '/admin', icon: DashboardIcon },
     { name: 'Consignors', href: '/admin/consignors', icon: ConsignorsIcon },
     { name: 'Employees', href: '/admin/employees', icon: EmployeesIcon },
+    { name: 'Employee Roles', href: '/admin/employees/roles', icon: EmployeesIcon },
     { name: 'Add Items', href: '/admin/add-items', icon: PlusIcon },
     { name: 'Scan In/Out', href: '/admin/scan', icon: BarcodeIcon },
     { name: 'Import CSV', href: '/admin/import', icon: UploadIcon },
     { name: 'Labels', href: '/admin/labels', icon: TagIcon },
     { name: 'Payouts', href: '/admin/payouts', icon: PayoutsIcon },
+    { name: 'Marketing Fees', href: '/admin/finances/marketing-fees', icon: MegaphoneIcon },
+    { name: 'Messages', href: '/admin/messages', icon: MessageIcon },
+    { name: 'Email Campaigns', href: '/admin/email-campaigns', icon: EmailIcon },
+    { name: 'Categories & Tax', href: '/admin/finances/categories', icon: TaxIcon },
     { name: 'Integrations', href: '/admin/integrations', icon: IntegrationsIcon },
+    { name: 'Profile', href: '/admin/profile', icon: ProfileIcon },
 ];
 
-// Additional employee navigation items for the "More" sheet (empty since they only have 3 bottom nav items)
-const employeeMoreItems: MoreNavItem[] = [];
+const employeeMoreItems: MoreNavItem[] = [
+    { name: 'Messages', href: '/employee/messages', icon: MessageIcon },
+];
 
 export function MobileMoreSheet({ isOpen, onClose, variant }: MobileMoreSheetProps) {
     const { signOut } = useAuth();
@@ -234,6 +241,24 @@ function PayoutsIcon() {
     );
 }
 
+function MessageIcon() {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 10h10M7 14h6" />
+            <path d="M21 12a8 8 0 0 1-8 8H4l-1 1v-9a8 8 0 1 1 18 0Z" />
+        </svg>
+    );
+}
+
+function EmailIcon() {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="m22 7-10 6L2 7" />
+        </svg>
+    );
+}
+
 function IntegrationsIcon() {
     return (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -241,6 +266,34 @@ function IntegrationsIcon() {
             <path d="M7 7h.01" />
             <path d="M22 12v4a2 2 0 0 1-2 2h-1" />
             <path d="M22 12h-4" />
+        </svg>
+    );
+}
+
+function TaxIcon() {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" x2="12" y1="2" y2="22" />
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+        </svg>
+    );
+}
+
+function MegaphoneIcon() {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m3 11 14-5v12L3 13v-2Z" />
+            <path d="M17 8h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
+            <path d="M7 14v4a2 2 0 0 0 2 2h1" />
+        </svg>
+    );
+}
+
+function ProfileIcon() {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 21a8 8 0 0 0-16 0" />
+            <circle cx="12" cy="8" r="5" />
         </svg>
     );
 }

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { NavLink, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
+import { PortalTopBar } from './PortalTopBar';
+import { useMessaging } from '../../hooks/useMessaging';
 
 const navigation = [
     { name: 'Dashboard', href: '/vendor', icon: DashboardIcon },
@@ -10,6 +12,7 @@ const navigation = [
     { name: 'Print Labels', href: '/vendor/labels', icon: TagIcon },
     { name: 'My Sales', href: '/vendor/sales', icon: ReceiptIcon },
     { name: 'My Payouts', href: '/vendor/payouts', icon: PayoutsIcon },
+    { name: 'Messages', href: '/vendor/messages', icon: MessageIcon },
     { name: 'Profile', href: '/vendor/profile', icon: UserIcon },
 ];
 
@@ -21,6 +24,7 @@ export function VendorLayout() {
     });
     const location = useLocation();
     const { userRecord, signOut } = useAuth();
+    const messaging = useMessaging({ portalBasePath: '/vendor' });
 
     useEffect(() => {
         localStorage.setItem('sidebar-collapsed-vendor', isCollapsed.toString());
@@ -152,8 +156,9 @@ export function VendorLayout() {
                 isCollapsed ? 'lg:pl-16' : 'lg:pl-64',
                 'transition-all duration-300 ease-in-out'
             )}>
+                <PortalTopBar messaging={messaging} portalBasePath="/vendor" />
                 <div className="px-4 py-6 sm:px-6 lg:px-8">
-                    <Outlet />
+                    <Outlet context={{ messaging }} />
                 </div>
             </main>
         </div>
@@ -243,6 +248,15 @@ function TagIcon() {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
             <path d="M7 7h.01" />
+        </svg>
+    );
+}
+
+function MessageIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 10h10M7 14h6" />
+            <path d="M21 12a8 8 0 0 1-8 8H4l-1 1v-9a8 8 0 1 1 18 0Z" />
         </svg>
     );
 }

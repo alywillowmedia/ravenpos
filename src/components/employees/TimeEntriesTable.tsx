@@ -4,7 +4,13 @@
 import { useState, useEffect } from 'react';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
-import { formatTime, formatShortDate, formatDuration, getWeekDateRange } from '../../lib/timeCalculations';
+import {
+    formatTime,
+    formatShortDate,
+    formatDuration,
+    getSundaySaturdayWeekDateRange,
+    getLastTwoFullWeeksDateRange,
+} from '../../lib/timeCalculations';
 import type { TimeEntry } from '../../types/employee';
 
 interface TimeEntriesTableProps {
@@ -14,10 +20,30 @@ interface TimeEntriesTableProps {
     onEditEntry?: (entry: TimeEntry) => void;
 }
 
-type DateFilter = 'this_week' | 'last_week' | 'this_month' | 'all';
+type DateFilter = 'this_week' | 'last_week' | 'this_month' | 'last_2_full_weeks' | 'custom' | 'all';
+
+function toLocalDateInput(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function parseLocalDateInput(value: string, endOfDay = false): Date {
+    const [year, month, day] = value.split('-').map(Number);
+    const parsed = new Date(year, month - 1, day);
+    if (endOfDay) {
+        parsed.setHours(23, 59, 59, 999);
+    } else {
+        parsed.setHours(0, 0, 0, 0);
+    }
+    return parsed;
+}
 
 export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEditEntry }: TimeEntriesTableProps) {
     const [filter, setFilter] = useState<DateFilter>('this_week');
+    const [customStart, setCustomStart] = useState(() => toLocalDateInput(new Date()));
+    const [customEnd, setCustomEnd] = useState(() => toLocalDateInput(new Date()));
 
     useEffect(() => {
         if (!onDateRangeChange) return;
@@ -28,15 +54,16 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
 
         switch (filter) {
             case 'this_week': {
-                const range = getWeekDateRange(now);
+                const range = getSundaySaturdayWeekDateRange(now);
                 start = range.start;
                 end = range.end;
                 break;
             }
             case 'last_week': {
-                const lastWeek = new Date(now);
-                lastWeek.setDate(lastWeek.getDate() - 7);
-                const range = getWeekDateRange(lastWeek);
+                const thisWeek = getSundaySaturdayWeekDateRange(now);
+                const lastWeekDate = new Date(thisWeek.start);
+                lastWeekDate.setDate(lastWeekDate.getDate() - 1);
+                const range = getSundaySaturdayWeekDateRange(lastWeekDate);
                 start = range.start;
                 end = range.end;
                 break;
@@ -44,6 +71,19 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
             case 'this_month': {
                 start = new Date(now.getFullYear(), now.getMonth(), 1);
                 end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+                break;
+            }
+            case 'last_2_full_weeks': {
+                const range = getLastTwoFullWeeksDateRange(now);
+                start = range.start;
+                end = range.end;
+                break;
+            }
+            case 'custom': {
+                if (!customStart || !customEnd) return;
+                start = parseLocalDateInput(customStart);
+                end = parseLocalDateInput(customEnd, true);
+                if (start > end) return;
                 break;
             }
             case 'all':
@@ -54,7 +94,7 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
         }
 
         onDateRangeChange(start, end);
-    }, [filter, onDateRangeChange]);
+    }, [filter, onDateRangeChange, customStart, customEnd]);
 
     const totalHours = entries.reduce((sum, e) => sum + (e.total_hours || 0), 0);
 
@@ -62,8 +102,8 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
         <div>
             {/* Filter Buttons */}
             <div className="flex items-center justify-between mb-4">
-                <div className="flex gap-2">
-                    {(['this_week', 'last_week', 'this_month', 'all'] as DateFilter[]).map((f) => (
+                <div className="flex gap-2 flex-wrap">
+                    {(['this_week', 'last_week', 'this_month', 'last_2_full_weeks', 'custom', 'all'] as DateFilter[]).map((f) => (
                         <button
                             key={f}
                             onClick={() => setFilter(f)}
@@ -75,6 +115,8 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
                             {f === 'this_week' && 'This Week'}
                             {f === 'last_week' && 'Last Week'}
                             {f === 'this_month' && 'This Month'}
+                            {f === 'last_2_full_weeks' && 'Last 2 Full Weeks'}
+                            {f === 'custom' && 'Custom Range'}
                             {f === 'all' && 'All Time'}
                         </button>
                     ))}
@@ -83,6 +125,31 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
                     Total: <span className="font-bold text-[var(--color-primary)]">{formatDuration(totalHours)}</span>
                 </div>
             </div>
+
+            {filter === 'custom' && (
+                <div className="mb-4 flex items-end gap-3 flex-wrap">
+                    <label className="text-sm">
+                        <span className="block text-[var(--color-muted)] mb-1">From</span>
+                        <input
+                            type="date"
+                            value={customStart}
+                            onChange={(e) => setCustomStart(e.target.value)}
+                            className="px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white"
+                            max={customEnd || undefined}
+                        />
+                    </label>
+                    <label className="text-sm">
+                        <span className="block text-[var(--color-muted)] mb-1">To</span>
+                        <input
+                            type="date"
+                            value={customEnd}
+                            onChange={(e) => setCustomEnd(e.target.value)}
+                            className="px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white"
+                            min={customStart || undefined}
+                        />
+                    </label>
+                </div>
+            )}
 
             {/* Table */}
             <div className="rounded-lg border border-[var(--color-border)] overflow-hidden">

@@ -19,6 +19,11 @@ export function VendorProfile() {
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
     const [address, setAddress] = useState('');
+    const [addressLine2, setAddressLine2] = useState('');
+    const [city, setCity] = useState('');
+    const [state, setState] = useState('');
+    const [postalCode, setPostalCode] = useState('');
+    const [country, setCountry] = useState('');
 
     // Password change
     const [newPassword, setNewPassword] = useState('');
@@ -40,6 +45,11 @@ export function VendorProfile() {
                 setEmail(data.email || '');
                 setPhone(data.phone || '');
                 setAddress(data.address || '');
+                setAddressLine2(data.address_line_2 || '');
+                setCity(data.city || '');
+                setState(data.state || '');
+                setPostalCode(data.postal_code || '');
+                setCountry(data.country || '');
             }
 
             setIsLoading(false);
@@ -55,7 +65,16 @@ export function VendorProfile() {
 
         const { error } = await supabase
             .from('consignors')
-            .update({ email, phone, address })
+            .update({
+                email,
+                phone,
+                address,
+                address_line_2: addressLine2 || null,
+                city: city || null,
+                state: state || null,
+                postal_code: postalCode || null,
+                country: country || null,
+            })
             .eq('id', userRecord?.consignor_id);
 
         setIsSaving(false);
@@ -173,10 +192,42 @@ export function VendorProfile() {
                             placeholder="(555) 123-4567"
                         />
                         <Input
-                            label="Address"
+                            label="Street Address"
                             value={address}
                             onChange={(e) => setAddress(e.target.value)}
-                            placeholder="123 Main St, City, State"
+                            placeholder="123 Main St"
+                        />
+                        <Input
+                            label="Address Line 2"
+                            value={addressLine2}
+                            onChange={(e) => setAddressLine2(e.target.value)}
+                            placeholder="Suite, Apt, Unit (optional)"
+                        />
+                        <div className="grid grid-cols-3 gap-4">
+                            <Input
+                                label="City"
+                                value={city}
+                                onChange={(e) => setCity(e.target.value)}
+                                placeholder="Nashville"
+                            />
+                            <Input
+                                label="State"
+                                value={state}
+                                onChange={(e) => setState(e.target.value)}
+                                placeholder="TN"
+                            />
+                            <Input
+                                label="ZIP"
+                                value={postalCode}
+                                onChange={(e) => setPostalCode(e.target.value)}
+                                placeholder="37201"
+                            />
+                        </div>
+                        <Input
+                            label="Country"
+                            value={country}
+                            onChange={(e) => setCountry(e.target.value)}
+                            placeholder="USA"
                         />
                         <div className="pt-2">
                             <Button type="submit" isLoading={isSaving}>

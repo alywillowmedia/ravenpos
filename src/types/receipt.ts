@@ -22,8 +22,13 @@ export interface ReceiptData {
     items: ReceiptItem[];
     subtotal: number;
     tax: number;
+    storeCreditUsed?: number;
+    giftCardUsed?: number;
     total: number;
-    paymentMethod: 'cash' | 'card';
+    cardFeeAmount?: number;
+    cardLast4?: string;
+    paymentMethod: 'cash' | 'card' | 'check';
+    checkNumber?: string;
     cashTendered?: number;
     changeGiven?: number;
 }
@@ -48,6 +53,6 @@ export interface RefundReceiptData {
     date: Date;
     items: RefundReceiptItem[];
     refundAmount: number;
-    paymentMethod: 'cash' | 'card';
+    paymentMethod: 'cash' | 'card' | 'check';
     stripeRefundId?: string;
 }

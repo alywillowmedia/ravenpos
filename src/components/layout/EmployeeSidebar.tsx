@@ -40,6 +40,15 @@ function TagIcon() {
     );
 }
 
+function MessageIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 10h10M7 14h6" />
+            <path d="M21 12a8 8 0 0 1-8 8H4l-1 1v-9a8 8 0 1 1 18 0Z" />
+        </svg>
+    );
+}
+
 function LogoutIcon() {
     return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -79,6 +88,7 @@ const navigation = [
     { name: 'POS', href: '/employee/pos', icon: RegisterIcon },
     { name: 'Customers', href: '/employee/customers', icon: CustomersIcon },
     { name: 'Labels', href: '/employee/labels', icon: TagIcon },
+    { name: 'Messages', href: '/employee/messages', icon: MessageIcon },
 ];
 
 export function EmployeeSidebar() {

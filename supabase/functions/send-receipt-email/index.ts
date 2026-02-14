@@ -19,8 +19,11 @@ interface ReceiptData {
     items: ReceiptItem[];
     subtotal: number;
     tax: number;
+    storeCreditUsed?: number;
+    giftCardUsed?: number;
     total: number;
     paymentMethod: 'cash' | 'card';
+    cardLast4?: string;
     cashTendered?: number;
     changeGiven?: number;
 }
@@ -50,6 +53,13 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
     };
 
     const formatCurrency = (amount: number) => '$' + amount.toFixed(2);
+    const formatCardLast4 = (last4?: string) => {
+        if (!last4) return null
+        const digits = last4.replace(/\D/g, '').slice(-4)
+        if (digits.length !== 4) return null
+        return `•••• ${digits}`
+    }
+    const maskedCard = formatCardLast4(receipt.cardLast4)
 
     const itemsHTML = receipt.items.map(item => {
         const imageCell = item.imageUrl ? `
@@ -90,7 +100,7 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
         : `
             <tr>
                 <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Paid by</td>
-                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Card</td>
+                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">${maskedCard ? `Card (${maskedCard})` : 'Card'}</td>
             </tr>
         `;
 
@@ -146,6 +156,18 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
                                 <tr>
                                     <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Tax</td>
                                     <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">${formatCurrency(receipt.tax)}</td>
+                                </tr>
+                                ` : ''}
+                                ${receipt.storeCreditUsed && receipt.storeCreditUsed > 0 ? `
+                                <tr>
+                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Store Credit</td>
+                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">-${formatCurrency(receipt.storeCreditUsed)}</td>
+                                </tr>
+                                ` : ''}
+                                ${receipt.giftCardUsed && receipt.giftCardUsed > 0 ? `
+                                <tr>
+                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Gift Card</td>
+                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">-${formatCurrency(receipt.giftCardUsed)}</td>
                                 </tr>
                                 ` : ''}
                                 <tr>

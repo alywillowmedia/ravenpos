@@ -4,7 +4,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { hashPin, generateSalt } from '../lib/employeeAuth';
-import { getWeekDateRange } from '../lib/timeCalculations';
+import { getSundaySaturdayWeekDateRange } from '../lib/timeCalculations';
 import type { Employee, EmployeeWithStats, TimeEntry, EmployeeInput } from '../types/employee';
 
 export function useEmployees() {
@@ -31,7 +31,7 @@ export function useEmployees() {
             }
 
             // Get current week date range
-            const { start, end } = getWeekDateRange();
+            const { start, end } = getSundaySaturdayWeekDateRange();
 
             // Get all open time entries (to check who's clocked in)
             const { data: openEntries } = await supabase

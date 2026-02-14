@@ -1,5 +1,8 @@
 const { ThermalPrinter, PrinterTypes, CharacterSet } = require('node-thermal-printer');
 const Store = require('electron-store');
+const { BrowserWindow } = require('electron');
+const RECEIPT_COLUMNS = 32;
+const RECEIPT_PAPER_WIDTH_MM = 58;
 
 // Persistent storage for printer settings
 const store = new Store({
@@ -8,6 +11,48 @@ const store = new Store({
         selectedPrinter: null, // null = auto-detect
     }
 });
+
+let cachedDriver;
+
+function getSystemPrinterDriver() {
+    if (cachedDriver !== undefined) {
+        return cachedDriver;
+    }
+
+    const candidates = ['electron-printer', 'printer'];
+    for (const moduleName of candidates) {
+        try {
+            cachedDriver = require(moduleName);
+            return cachedDriver;
+        } catch (error) {
+            if (error.code !== 'MODULE_NOT_FOUND') {
+                console.error(`Failed to load printer driver module "${moduleName}":`, error);
+            }
+        }
+    }
+
+    cachedDriver = null;
+    return null;
+}
+
+function createThermalPrinter(printerName) {
+    const driver = getSystemPrinterDriver();
+    if (!driver) {
+        throw new Error(
+            'No system printer driver module installed. Install "electron-printer" (recommended) or "printer", then rebuild the app.'
+        );
+    }
+
+    return new ThermalPrinter({
+        type: PrinterTypes.EPSON, // Works for most ESC/POS printers
+        interface: `printer:${printerName}`,
+        driver,
+        characterSet: CharacterSet.PC437_USA,
+        removeSpecialCharacters: false,
+        lineCharacter: '-',
+        width: 48, // 80mm paper width in characters
+    });
+}
 
 // Get list of available printers
 async function getPrinters() {
@@ -90,6 +135,169 @@ function formatDate(date) {
     });
 }
 
+function formatCardLast4(last4) {
+    if (!last4) return null;
+    const digits = String(last4).replace(/\D/g, '').slice(-4);
+    if (digits.length !== 4) return null;
+    return `**** ${digits}`;
+}
+
+function padRight(value, width) {
+    const text = String(value ?? '');
+    if (text.length >= width) return text.slice(0, width);
+    return text + ' '.repeat(width - text.length);
+}
+
+function padLeft(value, width) {
+    const text = String(value ?? '');
+    if (text.length >= width) return text.slice(0, width);
+    return ' '.repeat(width - text.length) + text;
+}
+
+function lineItem(name, amount, width = RECEIPT_COLUMNS) {
+    const price = String(amount);
+    const nameWidth = Math.max(10, width - price.length - 1);
+    return `${padRight(name, nameWidth)} ${padLeft(price, width - nameWidth - 1)}`;
+}
+
+function buildSaleReceiptText(receipt) {
+    const lines = [];
+    lines.push('RAVENLIA');
+    lines.push('-'.repeat(RECEIPT_COLUMNS));
+    lines.push(formatDate(receipt.date));
+    lines.push(`Transaction: #${receipt.transactionId.slice(0, 8).toUpperCase()}`);
+    lines.push('-'.repeat(RECEIPT_COLUMNS));
+
+    for (const item of receipt.items) {
+        const name = item.quantity > 1 ? `${item.quantity}x ${item.name}` : item.name;
+        lines.push(lineItem(name, formatCurrency(item.lineTotal)));
+        if (item.quantity > 1) lines.push(`  @ ${formatCurrency(item.price)} each`);
+        lines.push(`  Vendor: ${item.consignorName}`);
+    }
+
+    lines.push('-'.repeat(RECEIPT_COLUMNS));
+    lines.push(lineItem('Subtotal', formatCurrency(receipt.subtotal)));
+    if (receipt.tax > 0) lines.push(lineItem('Tax', formatCurrency(receipt.tax)));
+    if (receipt.cardFeeAmount && receipt.cardFeeAmount > 0) {
+        lines.push(lineItem('Card Fee', formatCurrency(receipt.cardFeeAmount)));
+    }
+    if (receipt.storeCreditUsed && receipt.storeCreditUsed > 0) {
+        lines.push(lineItem('Store Credit', `-${formatCurrency(receipt.storeCreditUsed)}`));
+    }
+    lines.push(lineItem('TOTAL', formatCurrency(receipt.total)));
+    lines.push('-'.repeat(RECEIPT_COLUMNS));
+    lines.push(lineItem('Payment', receipt.paymentMethod.toUpperCase()));
+    const maskedCard = formatCardLast4(receipt.cardLast4);
+    if (receipt.paymentMethod === 'card' && maskedCard) {
+        lines.push(lineItem('Card', maskedCard));
+    }
+
+    if (receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined) {
+        lines.push(lineItem('Cash', formatCurrency(receipt.cashTendered)));
+        lines.push(lineItem('Change', formatCurrency(receipt.changeGiven || 0)));
+    }
+
+    lines.push('-'.repeat(RECEIPT_COLUMNS));
+    lines.push('Thank you for shopping at Ravenlia!');
+    lines.push('Keep receipt for returns');
+    lines.push('');
+    lines.push('');
+    return lines.join('\n');
+}
+
+function buildRefundReceiptText(receipt) {
+    const lines = [];
+    lines.push('RAVENLIA');
+    lines.push('*** REFUND ***');
+    lines.push('-'.repeat(RECEIPT_COLUMNS));
+    lines.push(formatDate(receipt.date));
+    lines.push(`Refund ID: #${receipt.refundId.slice(0, 8).toUpperCase()}`);
+    lines.push(`(Original: #${receipt.originalTransactionId.slice(0, 8).toUpperCase()})`);
+    lines.push('-'.repeat(RECEIPT_COLUMNS));
+    lines.push('REFUNDED ITEMS:');
+
+    for (const item of receipt.items) {
+        const name = item.quantity > 1 ? `${item.quantity}x ${item.name}` : item.name;
+        lines.push(lineItem(name, `-${formatCurrency(item.lineTotal)}`));
+        lines.push(`  ${item.restocked ? 'Restocked' : 'Not restocked'}`);
+    }
+
+    lines.push('-'.repeat(RECEIPT_COLUMNS));
+    lines.push(lineItem('REFUND TOTAL', `-${formatCurrency(receipt.refundAmount)}`));
+    lines.push('-'.repeat(RECEIPT_COLUMNS));
+    lines.push(lineItem('Refund Method', receipt.paymentMethod.toUpperCase()));
+    if (receipt.stripeRefundId) lines.push(`Stripe ID: ${receipt.stripeRefundId}`);
+    lines.push('-'.repeat(RECEIPT_COLUMNS));
+
+    if (receipt.paymentMethod === 'card') {
+        lines.push('Card refunds may take 5-10');
+        lines.push('business days to appear.');
+        lines.push('');
+    }
+    lines.push('Thank you for shopping at Ravenlia!');
+    lines.push('');
+    lines.push('');
+    return lines.join('\n');
+}
+
+function buildReceiptHtmlFromText(text) {
+    const escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @page { size: ${RECEIPT_PAPER_WIDTH_MM}mm auto; margin: 1.5mm; }
+      html, body { margin: 0; padding: 0; background: #fff; }
+      pre {
+        margin: 0;
+        padding: 1.5mm;
+        white-space: pre;
+        font-family: "Consolas", "Courier New", monospace;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.25;
+        color: #000;
+      }
+    </style>
+  </head>
+  <body><pre>${escaped}</pre></body>
+</html>`;
+}
+
+async function printViaElectron(printerName, text) {
+    const printWindow = new BrowserWindow({
+        show: false,
+        webPreferences: { sandbox: false }
+    });
+
+    try {
+        await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildReceiptHtmlFromText(text))}`);
+        const result = await new Promise((resolve) => {
+            printWindow.webContents.print(
+                {
+                    silent: true,
+                    deviceName: printerName,
+                    printBackground: true
+                },
+                (success, failureReason) => {
+                    if (success) resolve({ success: true });
+                    else resolve({ success: false, error: failureReason || 'Print failed' });
+                }
+            );
+        });
+        return result;
+    } finally {
+        if (!printWindow.isDestroyed()) {
+            printWindow.close();
+        }
+    }
+}
+
 // Print a receipt using ESC/POS commands
 async function printReceipt(receipt) {
     try {
@@ -99,14 +307,11 @@ async function printReceipt(receipt) {
             return { success: false, error: 'No printer found. Please connect a receipt printer.' };
         }
 
-        const printer = new ThermalPrinter({
-            type: PrinterTypes.EPSON, // Works for most ESC/POS printers
-            interface: `printer:${printerName}`,
-            characterSet: CharacterSet.PC437_USA,
-            removeSpecialCharacters: false,
-            lineCharacter: '-',
-            width: 48, // 80mm paper width in characters
-        });
+        if (!getSystemPrinterDriver()) {
+            return await printViaElectron(printerName, buildSaleReceiptText(receipt));
+        }
+
+        const printer = createThermalPrinter(printerName);
 
         const isConnected = await printer.isPrinterConnected();
         if (!isConnected) {
@@ -162,6 +367,20 @@ async function printReceipt(receipt) {
             ]);
         }
 
+        if (receipt.cardFeeAmount && receipt.cardFeeAmount > 0) {
+            printer.tableCustom([
+                { text: 'Card Fee', align: 'LEFT', width: 0.6 },
+                { text: formatCurrency(receipt.cardFeeAmount), align: 'RIGHT', width: 0.4 },
+            ]);
+        }
+
+        if (receipt.storeCreditUsed && receipt.storeCreditUsed > 0) {
+            printer.tableCustom([
+                { text: 'Store Credit', align: 'LEFT', width: 0.6 },
+                { text: `-${formatCurrency(receipt.storeCreditUsed)}`, align: 'RIGHT', width: 0.4 },
+            ]);
+        }
+
         printer.bold(true);
         printer.tableCustom([
             { text: 'TOTAL', align: 'LEFT', width: 0.6 },
@@ -176,6 +395,13 @@ async function printReceipt(receipt) {
             { text: 'Payment', align: 'LEFT', width: 0.6 },
             { text: receipt.paymentMethod.toUpperCase(), align: 'RIGHT', width: 0.4 },
         ]);
+        const maskedCard = formatCardLast4(receipt.cardLast4);
+        if (receipt.paymentMethod === 'card' && maskedCard) {
+            printer.tableCustom([
+                { text: 'Card', align: 'LEFT', width: 0.6 },
+                { text: maskedCard, align: 'RIGHT', width: 0.4 },
+            ]);
+        }
 
         if (receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined) {
             printer.tableCustom([
@@ -222,14 +448,11 @@ async function printRefundReceipt(receipt) {
             return { success: false, error: 'No printer found. Please connect a receipt printer.' };
         }
 
-        const printer = new ThermalPrinter({
-            type: PrinterTypes.EPSON,
-            interface: `printer:${printerName}`,
-            characterSet: CharacterSet.PC437_USA,
-            removeSpecialCharacters: false,
-            lineCharacter: '-',
-            width: 48,
-        });
+        if (!getSystemPrinterDriver()) {
+            return await printViaElectron(printerName, buildRefundReceiptText(receipt));
+        }
+
+        const printer = createThermalPrinter(printerName);
 
         const isConnected = await printer.isPrinterConnected();
         if (!isConnected) {

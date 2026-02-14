@@ -25,6 +25,13 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
     const formatCurrency = (amount: number) => {
         return '$' + amount.toFixed(2);
     };
+    const formatCardLast4 = (last4?: string) => {
+        if (!last4) return null;
+        const digits = last4.replace(/\D/g, '').slice(-4);
+        if (digits.length !== 4) return null;
+        return `•••• ${digits}`;
+    };
+    const maskedCard = formatCardLast4(receipt.cardLast4);
 
     return (
         <div style={{
@@ -67,7 +74,13 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
             {/* Items */}
             <div style={{ marginBottom: '12px' }}>
                 {receipt.items.map((item, index) => (
-                    <div key={index} style={{ marginBottom: '8px' }}>
+                    <div
+                        key={index}
+                        style={{
+                            marginBottom: '8px',
+                            ...(index > 0 ? { borderTop: '1px dotted #999', paddingTop: '6px' } : {}),
+                        }}
+                    >
                         {/* Item name */}
                         <div style={{
                             display: 'flex',
@@ -81,7 +94,7 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
                                 whiteSpace: 'nowrap',
                                 paddingRight: '8px',
                             }}>
-                                {item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
+                                • {item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                             </span>
                             <span style={{ whiteSpace: 'nowrap' }}>
                                 {formatCurrency(item.lineTotal)}
@@ -120,6 +133,18 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
                         <span>{formatCurrency(receipt.tax)}</span>
                     </div>
                 )}
+                {receipt.storeCreditUsed !== undefined && receipt.storeCreditUsed > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Store Credit</span>
+                        <span>-{formatCurrency(receipt.storeCreditUsed)}</span>
+                    </div>
+                )}
+                {receipt.giftCardUsed !== undefined && receipt.giftCardUsed > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Gift Card</span>
+                        <span>-{formatCurrency(receipt.giftCardUsed)}</span>
+                    </div>
+                )}
                 <div style={{
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -145,6 +170,12 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
                     <span>Payment</span>
                     <span>{receipt.paymentMethod.toUpperCase()}</span>
                 </div>
+                {receipt.paymentMethod === 'card' && maskedCard && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Card</span>
+                        <span>{maskedCard}</span>
+                    </div>
+                )}
                 {receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined && (
                     <>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -160,6 +191,12 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
                             <span>{formatCurrency(receipt.changeGiven ?? 0)}</span>
                         </div>
                     </>
+                )}
+                {receipt.paymentMethod === 'check' && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Check</span>
+                        <span>{receipt.checkNumber ? `#${receipt.checkNumber}` : 'N/A'}</span>
+                    </div>
                 )}
             </div>
 
@@ -177,7 +214,16 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
                     Thank you for shopping at Ravenlia!
                 </div>
                 <div style={{ fontSize: '10px', color: '#666' }}>
-                    Keep receipt for returns
+                    Ravenlia — from the hands of artisans to the heart of community.
+                </div>
+                <div style={{ fontSize: '10px', color: '#666' }}>
+                    <i>Thanks for keeping it alive!</i>
+                </div>
+                <div style={{ margin: '6px 0', fontSize: '10px', color: '#666' }}>
+                    -----
+                </div>
+                <div style={{ fontSize: '10px', color: '#666' }}>
+                    Ravenlia.com
                 </div>
             </div>
         </div>

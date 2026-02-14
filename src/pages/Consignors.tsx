@@ -77,6 +77,16 @@ export function Consignors() {
             ),
         },
         {
+            key: 'consignor_pays_card_fee',
+            header: 'Card Fee',
+            width: '130px',
+            render: (c) => (
+                <Badge variant={c.consignor_pays_card_fee ? 'warning' : 'secondary'}>
+                    {c.consignor_pays_card_fee ? 'Consignor' : 'Customer'}
+                </Badge>
+            ),
+        },
+        {
             key: 'is_active',
             header: 'Status',
             width: '100px',

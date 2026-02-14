@@ -21,10 +21,16 @@ import { Sales } from './pages/Sales';
 import { Payouts } from './pages/Payouts';
 import { Customers } from './pages/Customers';
 import { Employees } from './pages/Employees';
+import { EmployeeRoleSettings } from './pages/EmployeeRoleSettings';
 import { Integrations } from './pages/Integrations';
 import { ShopifySetup } from './pages/ShopifySetup';
 import { ScanInventory } from './pages/ScanInventory';
 import { Display } from './pages/Display';
+import { CategoryTaxSettings } from './pages/CategoryTaxSettings';
+import { Messages } from './pages/Messages';
+import { AdminProfile } from './pages/AdminProfile';
+import { EmailCampaigns } from './pages/EmailCampaigns';
+import { MarketingFees } from './pages/MarketingFees';
 
 // Vendor Pages
 import { VendorDashboard } from './pages/vendor/VendorDashboard';
@@ -74,6 +80,7 @@ export default function App() {
                         <Route path="pos" element={<POS />} />
                         <Route path="customers" element={<Customers />} />
                         <Route path="labels" element={<Labels />} />
+                        <Route path="messages" element={<Messages />} />
                     </Route>
 
                     {/* Admin Routes */}
@@ -96,10 +103,16 @@ export default function App() {
                         <Route path="pos" element={<POS />} />
                         <Route path="sales" element={<Sales />} />
                         <Route path="payouts" element={<Payouts />} />
+                        <Route path="finances/categories" element={<CategoryTaxSettings />} />
+                        <Route path="finances/marketing-fees" element={<MarketingFees />} />
                         <Route path="customers" element={<Customers />} />
                         <Route path="employees" element={<Employees />} />
+                        <Route path="employees/roles" element={<EmployeeRoleSettings />} />
                         <Route path="integrations" element={<Integrations />} />
                         <Route path="shopify-setup" element={<ShopifySetup />} />
+                        <Route path="messages" element={<Messages />} />
+                        <Route path="email-campaigns" element={<EmailCampaigns />} />
+                        <Route path="profile" element={<AdminProfile />} />
                     </Route>
 
                     {/* Vendor Routes */}
@@ -118,6 +131,7 @@ export default function App() {
                         <Route path="sales" element={<VendorSales />} />
                         <Route path="payouts" element={<VendorPayouts />} />
                         <Route path="profile" element={<VendorProfile />} />
+                        <Route path="messages" element={<Messages />} />
                     </Route>
 
                     {/* Catch all - redirect to storefront */}

@@ -7,7 +7,7 @@ import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useCustomers } from '../hooks/useCustomers';
 import { formatCurrency, formatDate } from '../lib/utils';
-import type { Customer, CustomerInput } from '../types';
+import type { Customer, CustomerInput, PaymentMethod } from '../types';
 
 interface OrderHistoryItem {
     id: string;
@@ -15,18 +15,36 @@ interface OrderHistoryItem {
     subtotal: number;
     tax_amount: number;
     total: number;
-    sale_items: { id: string; name: string; sku: string; price: number; quantity: number }[];
+    payment_method: PaymentMethod;
+    check_number?: string | null;
+    cash_tendered: number | null;
+    change_given: number | null;
+    refund_status: 'partial' | 'full' | null;
+    discount_total: number | null;
+    sale_items: {
+        id: string;
+        name: string;
+        sku: string;
+        price: number;
+        quantity: number;
+        discount_amount?: number | null;
+    }[];
 }
 
 export function Customers() {
-    const { customers, isLoading, createCustomer, updateCustomer, deleteCustomer, getCustomerOrderHistory } = useCustomers();
+    const { customers, isLoading, createCustomer, updateCustomer, deleteCustomer, getCustomerOrderHistory, addStoreCredit } = useCustomers();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [editTarget, setEditTarget] = useState<Customer | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
+    const [creditTarget, setCreditTarget] = useState<Customer | null>(null);
     const [viewOrdersCustomer, setViewOrdersCustomer] = useState<Customer | null>(null);
     const [orderHistory, setOrderHistory] = useState<OrderHistoryItem[]>([]);
+    const [selectedOrder, setSelectedOrder] = useState<OrderHistoryItem | null>(null);
     const [isLoadingOrders, setIsLoadingOrders] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [isApplyingCredit, setIsApplyingCredit] = useState(false);
+    const [creditAmount, setCreditAmount] = useState('');
+    const [creditError, setCreditError] = useState<string | null>(null);
     const [formData, setFormData] = useState<CustomerInput>({
         name: '',
         email: null,
@@ -64,8 +82,31 @@ export function Customers() {
         setDeleteTarget(null);
     };
 
+    const handleAddCredit = async () => {
+        if (!creditTarget) return;
+        const amount = Number(creditAmount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            setCreditError('Enter a valid amount greater than 0');
+            return;
+        }
+
+        setCreditError(null);
+        setIsApplyingCredit(true);
+        const { error } = await addStoreCredit(creditTarget.id, amount);
+        setIsApplyingCredit(false);
+
+        if (error) {
+            setCreditError(error);
+            return;
+        }
+
+        setCreditTarget(null);
+        setCreditAmount('');
+    };
+
     const handleViewOrders = async (customer: Customer) => {
         setViewOrdersCustomer(customer);
+        setSelectedOrder(null);
         setIsLoadingOrders(true);
         const { data } = await getCustomerOrderHistory(customer.id);
         setOrderHistory(data as OrderHistoryItem[]);
@@ -106,6 +147,17 @@ export function Customers() {
             ),
         },
         {
+            key: 'store_credit',
+            header: 'Store Credit',
+            width: '120px',
+            sortable: true,
+            render: (c) => (
+                <span className="text-sm font-medium text-[var(--color-success)]">
+                    {formatCurrency(Number(c.store_credit || 0))}
+                </span>
+            ),
+        },
+        {
             key: 'created_at',
             header: 'Added',
             width: '120px',
@@ -120,6 +172,18 @@ export function Customers() {
             width: '140px',
             render: (c) => (
                 <div className="flex items-center gap-1">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setCreditTarget(c);
+                            setCreditAmount('');
+                            setCreditError(null);
+                        }}
+                        className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-success)] transition-colors"
+                        title="Add Store Credit"
+                    >
+                        <CreditIcon />
+                    </button>
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
@@ -305,10 +369,47 @@ export function Customers() {
                 </ModalFooter>
             </Modal>
 
+            {/* Add Store Credit Modal */}
+            <Modal
+                isOpen={!!creditTarget}
+                onClose={() => { setCreditTarget(null); setCreditAmount(''); setCreditError(null); }}
+                title={`Add Store Credit - ${creditTarget?.name || ''}`}
+                size="sm"
+            >
+                <div className="space-y-4">
+                    <div className="p-3 rounded-lg bg-[var(--color-surface)]">
+                        <p className="text-xs text-[var(--color-muted)]">Current Balance</p>
+                        <p className="text-xl font-semibold text-[var(--color-success)]">
+                            {formatCurrency(Number(creditTarget?.store_credit || 0))}
+                        </p>
+                    </div>
+                    <Input
+                        label="Credit Amount"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={creditAmount}
+                        onChange={(e) => setCreditAmount(e.target.value)}
+                        placeholder="0.00"
+                    />
+                    {creditError && (
+                        <p className="text-sm text-[var(--color-danger)]">{creditError}</p>
+                    )}
+                </div>
+                <ModalFooter>
+                    <Button variant="ghost" onClick={() => { setCreditTarget(null); setCreditAmount(''); setCreditError(null); }}>
+                        Cancel
+                    </Button>
+                    <Button onClick={handleAddCredit} isLoading={isApplyingCredit}>
+                        Add Credit
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
             {/* Order History Modal */}
             <Modal
                 isOpen={!!viewOrdersCustomer}
-                onClose={() => { setViewOrdersCustomer(null); setOrderHistory([]); }}
+                onClose={() => { setViewOrdersCustomer(null); setOrderHistory([]); setSelectedOrder(null); }}
                 title={`Order History - ${viewOrdersCustomer?.name}`}
                 size="lg"
             >
@@ -319,6 +420,109 @@ export function Customers() {
                 ) : orderHistory.length === 0 ? (
                     <div className="text-center py-8 text-[var(--color-muted)]">
                         <p>No orders yet</p>
+                    </div>
+                ) : selectedOrder ? (
+                    <div className="space-y-4">
+                        <div className="flex items-start justify-between">
+                            <div>
+                                <p className="text-xs text-[var(--color-muted)]">Receipt #</p>
+                                <p className="font-mono font-semibold">{selectedOrder.id.slice(0, 8).toUpperCase()}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-xs text-[var(--color-muted)]">Date</p>
+                                <p className="text-sm">{new Date(selectedOrder.completed_at).toLocaleString()}</p>
+                            </div>
+                        </div>
+
+                        {(selectedOrder.refund_status === 'partial' || selectedOrder.refund_status === 'full') && (
+                            <div className="rounded-lg bg-[var(--color-warning-bg)] border border-[var(--color-warning)]/30 p-3">
+                                <p className="text-sm font-medium">
+                                    {selectedOrder.refund_status === 'full' ? 'Fully refunded' : 'Partially refunded'}
+                                </p>
+                            </div>
+                        )}
+
+                        <div>
+                            <h4 className="text-sm font-semibold mb-2">Items</h4>
+                            <div className="rounded-lg border border-[var(--color-border)] overflow-hidden">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-[var(--color-surface)]">
+                                        <tr>
+                                            <th className="text-left px-3 py-2 font-medium">Item</th>
+                                            <th className="text-center px-3 py-2 font-medium">Qty</th>
+                                            <th className="text-right px-3 py-2 font-medium">Unit</th>
+                                            <th className="text-right px-3 py-2 font-medium">Line Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {selectedOrder.sale_items.map((item) => {
+                                            const lineDiscount = Number(item.discount_amount || 0);
+                                            const lineTotal = Number(item.price) * item.quantity - lineDiscount;
+                                            return (
+                                                <tr key={item.id} className="border-t border-[var(--color-border)]">
+                                                    <td className="px-3 py-2">
+                                                        <p>{item.name}</p>
+                                                        <p className="text-xs text-[var(--color-muted)] font-mono">{item.sku}</p>
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center">{item.quantity}</td>
+                                                    <td className="px-3 py-2 text-right">{formatCurrency(Number(item.price))}</td>
+                                                    <td className="px-3 py-2 text-right">
+                                                        {formatCurrency(lineTotal)}
+                                                        {lineDiscount > 0 && (
+                                                            <p className="text-xs text-[var(--color-muted)]">(-{formatCurrency(lineDiscount)} discount)</p>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="rounded-lg bg-[var(--color-surface)] p-4 space-y-2">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-[var(--color-muted)]">Subtotal</span>
+                                <span>{formatCurrency(selectedOrder.subtotal)}</span>
+                            </div>
+                            {(selectedOrder.discount_total || 0) > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--color-muted)]">Discounts</span>
+                                    <span>-{formatCurrency(selectedOrder.discount_total || 0)}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between text-sm">
+                                <span className="text-[var(--color-muted)]">Tax</span>
+                                <span>{formatCurrency(selectedOrder.tax_amount)}</span>
+                            </div>
+                            <div className="flex justify-between font-semibold pt-2 border-t border-[var(--color-border)]">
+                                <span>Total</span>
+                                <span>{formatCurrency(selectedOrder.total)}</span>
+                            </div>
+                        </div>
+
+                        <div className="rounded-lg border border-[var(--color-border)] p-4">
+                            <p className="text-xs text-[var(--color-muted)] mb-1">Payment</p>
+                            <p className="font-medium">
+                                {selectedOrder.payment_method === 'cash'
+                                    ? 'Cash'
+                                    : selectedOrder.payment_method === 'check'
+                                        ? 'Check'
+                                        : 'Card'}
+                            </p>
+                            {selectedOrder.payment_method === 'cash' && (
+                                <p className="text-sm text-[var(--color-muted)] mt-1">
+                                    Tendered: {formatCurrency(selectedOrder.cash_tendered || 0)}
+                                    {' • '}
+                                    Change: {formatCurrency(selectedOrder.change_given || 0)}
+                                </p>
+                            )}
+                            {selectedOrder.payment_method === 'check' && (
+                                <p className="text-sm text-[var(--color-muted)] mt-1">
+                                    Check #: {selectedOrder.check_number || 'N/A'}
+                                </p>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     <div className="space-y-4">
@@ -340,9 +544,13 @@ export function Customers() {
                                 <div key={order.id} className="border border-[var(--color-border)] rounded-lg p-4">
                                     <div className="flex justify-between items-start mb-3">
                                         <div>
-                                            <p className="font-mono text-xs text-[var(--color-muted)]">
+                                            <button
+                                                onClick={() => setSelectedOrder(order)}
+                                                className="font-mono text-xs text-[var(--color-primary)] hover:underline"
+                                                title="View full receipt"
+                                            >
                                                 #{order.id.slice(0, 8)}
-                                            </p>
+                                            </button>
                                             <p className="text-sm">
                                                 {new Date(order.completed_at).toLocaleDateString()} at{' '}
                                                 {new Date(order.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -364,8 +572,13 @@ export function Customers() {
                     </div>
                 )}
                 <ModalFooter>
-                    <Button variant="secondary" onClick={() => { setViewOrdersCustomer(null); setOrderHistory([]); }}>
-                        Close
+                    {selectedOrder ? (
+                        <Button variant="ghost" onClick={() => setSelectedOrder(null)}>
+                            Back to Orders
+                        </Button>
+                    ) : null}
+                    <Button variant="secondary" onClick={() => { setViewOrdersCustomer(null); setOrderHistory([]); setSelectedOrder(null); }}>
+                        {selectedOrder ? 'Close Receipt' : 'Close'}
                     </Button>
                 </ModalFooter>
             </Modal>
@@ -403,6 +616,16 @@ function ReceiptIcon() {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z" />
             <path d="M8 10h8M8 14h4" />
+        </svg>
+    );
+}
+
+function CreditIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="5" width="20" height="14" rx="2" />
+            <path d="M2 10h20" />
+            <path d="M7 15h.01M11 15h2" />
         </svg>
     );
 }

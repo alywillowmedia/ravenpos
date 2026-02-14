@@ -7,7 +7,7 @@ export interface Employee {
     hourly_rate: number;
     is_active: boolean;
     employer?: 'Ravenlia' | 'Alywillow' | null;
-    employment_type?: 'Production' | 'Sales' | 'Shipping Dept.' | null;
+    employment_type?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -46,7 +46,16 @@ export interface EmployeeInput {
     hourly_rate: number;
     is_active: boolean;
     employer?: 'Ravenlia' | 'Alywillow' | null;
-    employment_type?: 'Production' | 'Sales' | 'Shipping Dept.' | null;
+    employment_type?: string | null;
+}
+
+export interface EmployeeRole {
+    id: string;
+    name: string;
+    is_active: boolean;
+    sort_order: number;
+    created_at: string;
+    updated_at: string;
 }
 
 export interface TimeEntryInput {

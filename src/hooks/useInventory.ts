@@ -205,7 +205,7 @@ export function useInventory(consignorId?: string) {
                 .from('items')
                 .select(`
           *,
-          consignor:consignors(id, consignor_number, name, commission_split)
+          consignor:consignors(id, consignor_number, name, commission_split, consignor_pays_card_fee)
         `)
                 .eq('sku', sku)
                 .single();

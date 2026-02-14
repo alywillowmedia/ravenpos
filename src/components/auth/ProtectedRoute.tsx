@@ -26,8 +26,9 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     }
 
     // User is logged in but user record is still loading (non-blocking fetch)
-    // Show a brief loading state while we wait for it
-    if (!userRecord) {
+    // Allow the page to render - userRecord will populate when ready
+    // Only block if userRecord is needed for role-based access control
+    if (!userRecord && requiredRole) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)]">
                 <div className="text-center">
