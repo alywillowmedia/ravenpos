@@ -155,14 +155,17 @@ export function POS() {
     // Refocus on click anywhere, unless clicking an interactive element
     useEffect(() => {
         const handleClick = (e: MouseEvent) => {
-            if (completedSale) return;
+            if (completedSale || showCustomItemModal) return;
 
             const target = e.target as HTMLElement;
             const isInteractive =
                 target.tagName === 'INPUT' ||
                 target.tagName === 'TEXTAREA' ||
+                target.tagName === 'SELECT' ||
+                target.tagName === 'OPTION' ||
                 target.tagName === 'BUTTON' ||
                 target.tagName === 'A' ||
+                target.closest('select') ||
                 target.closest('button') ||
                 target.closest('a') ||
                 target.closest('[role="button"]'); // Handle semantic buttons
@@ -173,7 +176,7 @@ export function POS() {
         };
         document.addEventListener('click', handleClick);
         return () => document.removeEventListener('click', handleClick);
-    }, [completedSale]);
+    }, [completedSale, showCustomItemModal]);
 
     // Broadcast cart updates to customer display
     useEffect(() => {
