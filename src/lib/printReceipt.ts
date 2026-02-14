@@ -245,6 +245,9 @@ function generateReceiptHTML(receipt: ReceiptData): string {
             <div style="font-size: 10px; color: #666;">
                 Ravenlia.com
             </div>
+            <div style="margin-top: 6px; font-size: 10px; color: #666;">
+                All sales final. No returns.
+            </div>
         </div>
     </div>
 </body>

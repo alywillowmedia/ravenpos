@@ -199,7 +199,13 @@ function buildSaleReceiptText(receipt) {
 
     lines.push('-'.repeat(RECEIPT_COLUMNS));
     lines.push('Thank you for shopping at Ravenlia!');
-    lines.push('Keep receipt for returns');
+    lines.push('');
+    lines.push('Ravenlia — from the hands of artisans to the heart of community.');
+    lines.push('');
+    lines.push('Thanks for keeping it alive!');
+    lines.push('-----');
+    lines.push('Ravenlia.com');
+    lines.push('All sales final. No returns.');
     lines.push('');
     lines.push('');
     return lines.join('\n');
@@ -421,8 +427,14 @@ async function printReceipt(receipt) {
         // Footer
         printer.alignCenter();
         printer.println('Thank you for shopping at Ravenlia!');
+        printer.println('');
+        printer.println('Ravenlia — from the hands of artisans to the heart of community.');
+        printer.println('');
+        printer.println('Thanks for keeping it alive!');
+        printer.println('-----');
+        printer.println('Ravenlia.com');
         printer.setTextSize(0, 0);
-        printer.println('Keep receipt for returns');
+        printer.println('All sales final. No returns.');
 
         // Cut paper
         printer.newLine();
