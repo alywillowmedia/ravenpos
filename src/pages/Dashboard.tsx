@@ -11,6 +11,7 @@ import { useConsignors } from '../hooks/useConsignors';
 import { useInventory } from '../hooks/useInventory';
 import { useSales } from '../hooks/useSales';
 import { useAnalytics, type SalesTrendData, type SalesByCategoryData, type CustomerGrowthData } from '../hooks/useAnalytics';
+import { isConsignorCurrentlyActive } from '../lib/consignorStatus';
 import { formatCurrency } from '../lib/utils';
 import type { DashboardStats } from '../types';
 
@@ -57,7 +58,7 @@ export function Dashboard() {
 
             setStats({
                 totalConsignors: consignors.length,
-                activeConsignors: consignors.filter((c) => c.is_active).length,
+                activeConsignors: consignors.filter(isConsignorCurrentlyActive).length,
                 totalItems: items.length,
                 totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
                 todaySalesCount: sales.length,

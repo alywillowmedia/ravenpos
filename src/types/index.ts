@@ -24,6 +24,7 @@ export interface Consignor {
     commission_split: number;
     consignor_pays_card_fee?: boolean;
     monthly_booth_rent: number;
+    scheduled_active_date?: string | null;
     is_active: boolean;
     created_at: string;
     updated_at: string;

@@ -127,6 +127,7 @@ export function useConsignors() {
                     commission_split: input.commission_split ?? 0.6,
                     consignor_pays_card_fee: input.consignor_pays_card_fee ?? false,
                     monthly_booth_rent: input.monthly_booth_rent ?? 0,
+                    scheduled_active_date: input.scheduled_active_date || null,
                     is_active: input.is_active ?? true,
                 })
                 .select()

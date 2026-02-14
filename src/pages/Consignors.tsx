@@ -8,6 +8,7 @@ import { Badge } from '../components/ui/Badge';
 import { EmptyState, UsersIcon } from '../components/ui/EmptyState';
 import { ConsignorForm } from '../components/consignors/ConsignorForm';
 import { useConsignors } from '../hooks/useConsignors';
+import { isConsignorScheduled } from '../lib/consignorStatus';
 import type { Consignor, ConsignorInput } from '../types';
 
 export function Consignors() {
@@ -90,11 +91,17 @@ export function Consignors() {
             key: 'is_active',
             header: 'Status',
             width: '100px',
-            render: (c) => (
-                <Badge variant={c.is_active ? 'success' : 'secondary'}>
-                    {c.is_active ? 'Active' : 'Inactive'}
-                </Badge>
-            ),
+            render: (c) => {
+                if (!c.is_active) {
+                    return <Badge variant="secondary">Inactive</Badge>;
+                }
+
+                if (isConsignorScheduled(c)) {
+                    return <Badge variant="warning">Scheduled</Badge>;
+                }
+
+                return <Badge variant="success">Active</Badge>;
+            },
         },
         {
             key: 'actions',

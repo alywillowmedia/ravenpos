@@ -39,6 +39,7 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
         commission_split: consignor?.commission_split ?? 0.6,
         consignor_pays_card_fee: consignor?.consignor_pays_card_fee ?? false,
         monthly_booth_rent: consignor?.monthly_booth_rent ?? 0,
+        scheduled_active_date: consignor?.scheduled_active_date || '',
         is_active: consignor?.is_active ?? true,
     });
 
@@ -101,6 +102,7 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
 
         const result = await onSubmit({
             ...formData,
+            scheduled_active_date: formData.scheduled_active_date || null,
             scheduled_rate_change: scheduledRateChange,
         });
         setIsSubmitting(false);
@@ -225,6 +227,14 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                     hint="$0 if none"
                 />
             </div>
+
+            <Input
+                label="Schedule Active Date (optional)"
+                type="date"
+                value={formData.scheduled_active_date}
+                onChange={(e) => updateField('scheduled_active_date', e.target.value)}
+                hint="If set in the future, status shows as Scheduled until that date."
+            />
 
             <div className="rounded-lg border border-[var(--color-border)] p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">

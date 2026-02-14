@@ -17,6 +17,7 @@ import { useBoothRentPayments } from '../hooks/useBoothRentPayments';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { getLocalDateString } from '../lib/consignorRateSchedules';
+import { isConsignorScheduled } from '../lib/consignorStatus';
 import type { Consignor, Item, BoothRentPayment, ConsignorInput } from '../types';
 
 const MONTH_NAMES = [
@@ -322,10 +323,19 @@ export function ConsignorDetail() {
                     <CardContent className="space-y-2 text-sm">
                         <p className="flex items-center justify-between">
                             <strong>Status:</strong>
-                            <Badge variant={consignor.is_active ? 'success' : 'secondary'}>
-                                {consignor.is_active ? 'Active' : 'Inactive'}
-                            </Badge>
+                            {!consignor.is_active ? (
+                                <Badge variant="secondary">Inactive</Badge>
+                            ) : isConsignorScheduled(consignor) ? (
+                                <Badge variant="warning">Scheduled</Badge>
+                            ) : (
+                                <Badge variant="success">Active</Badge>
+                            )}
                         </p>
+                        {consignor.scheduled_active_date && isConsignorScheduled(consignor) && (
+                            <p>
+                                <strong>Scheduled Active Date:</strong> {formatDate(consignor.scheduled_active_date)}
+                            </p>
+                        )}
                         <p>
                             <strong>Commission:</strong> {Math.round(Number(consignor.commission_split) * 100)}%
                         </p>
