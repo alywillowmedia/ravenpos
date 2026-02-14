@@ -1,4 +1,4 @@
-import { Outlet, Navigate } from 'react-router-dom';
+import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { EmployeeSidebar } from './EmployeeSidebar';
 import { MobileBottomNav } from './MobileBottomNav';
@@ -12,6 +12,7 @@ export function EmployeeLayout() {
     const { employee, isLoading } = useEmployee();
     const { isMobile } = useMobile();
     const messaging = useMessaging({ portalBasePath: '/employee' });
+    const location = useLocation();
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
         const saved = localStorage.getItem('sidebar-collapsed-employee');
         return saved === 'true';
@@ -56,7 +57,7 @@ export function EmployeeLayout() {
                     'px-4 py-6 sm:px-6',
                     !isMobile && 'lg:px-8'
                 )}>
-                    <Outlet context={{ messaging }} />
+                    <Outlet key={location.pathname} context={{ messaging }} />
                 </div>
             </main>
 

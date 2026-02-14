@@ -31,7 +31,11 @@ declare global {
 }
 
 interface Terminal {
-    discoverReaders: (config: { simulated: boolean }) => Promise<DiscoverResult>;
+    discoverReaders: (config: {
+        simulated: boolean;
+        location?: string;
+        discoveryMethod?: 'internet';
+    }) => Promise<DiscoverResult>;
     connectReader: (reader: Reader) => Promise<ConnectResult>;
     disconnectReader: () => Promise<void>;
     setSimulatorConfiguration: (config: { testCardNumber: string }) => void;
@@ -75,6 +79,10 @@ interface ProcessResult {
 }
 
 export type TerminalStatus = 'not_initialized' | 'initialized' | 'discovering' | 'connecting' | 'connected' | 'collecting' | 'processing' | 'error';
+export interface ReaderDiscoveryConfig {
+    simulated?: boolean;
+    locationId?: string;
+}
 
 export function useStripeTerminal() {
     const terminalRef = useRef<Terminal | null>(null);
@@ -136,19 +144,30 @@ export function useStripeTerminal() {
     }, [fetchConnectionToken]);
 
     // Discover available readers
-    const discoverReaders = useCallback(async (simulated: boolean = true) => {
+    const discoverReaders = useCallback(async ({ simulated = true, locationId }: ReaderDiscoveryConfig = {}) => {
         if (!terminalRef.current) {
             await initializeTerminal();
         }
 
         if (!terminalRef.current) return;
 
+        const trimmedLocationId = locationId?.trim();
         setIsSimulated(simulated);
         setStatus('discovering');
         setError(null);
 
         try {
-            const result = await terminalRef.current.discoverReaders({ simulated });
+            const discoverConfig: {
+                simulated: boolean;
+                location?: string;
+                discoveryMethod?: 'internet';
+            } = { simulated };
+            if (!simulated && trimmedLocationId) {
+                discoverConfig.location = trimmedLocationId;
+                discoverConfig.discoveryMethod = 'internet';
+            }
+
+            const result = await terminalRef.current.discoverReaders(discoverConfig);
 
             if (result.error) {
                 setError(result.error.message);

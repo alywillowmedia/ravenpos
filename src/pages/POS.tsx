@@ -11,6 +11,7 @@ import { RefundModal } from '../components/pos/RefundModal';
 import { DiscountModal } from '../components/pos/DiscountModal';
 import { GiftCardSaleModal } from '../components/pos/GiftCardSaleModal';
 import { ReceiptDeliveryModal } from '../components/receipt/ReceiptDeliveryModal';
+import { StripeReaderSetupModal } from '../components/pos/StripeReaderSetupModal';
 import { useInventory } from '../hooks/useInventory';
 import { useConsignors } from '../hooks/useConsignors';
 import { useSales } from '../hooks/useSales';
@@ -27,6 +28,8 @@ import type { ReceiptData } from '../types/receipt';
 
 const STRIPE_FEE_PERCENT = 0.027;
 const STRIPE_FEE_FIXED = 0.05;
+const STRIPE_READER_MODE_KEY = 'ravenpos-stripe-reader-mode';
+const STRIPE_READER_LOCATION_KEY = 'ravenpos-stripe-reader-location-id';
 
 export function POS() {
     const scannerRef = useRef<HTMLInputElement>(null);
@@ -67,6 +70,7 @@ export function POS() {
     const [checkNumber, setCheckNumber] = useState('');
     const [isCollectingCard, setIsCollectingCard] = useState(false);
     const [showReaderModal, setShowReaderModal] = useState(false);
+    const [showReaderSetupModal, setShowReaderSetupModal] = useState(false);
     const [showRefundModal, setShowRefundModal] = useState(false);
     const [showGiftCardSaleModal, setShowGiftCardSaleModal] = useState(false);
     const [showCustomItemModal, setShowCustomItemModal] = useState(false);
@@ -106,6 +110,15 @@ export function POS() {
         email: null,
         phone: null,
         notes: null,
+    });
+    const [readerMode, setReaderMode] = useState<'simulated' | 'live'>(() => {
+        if (typeof window === 'undefined') return 'simulated';
+        const saved = localStorage.getItem(STRIPE_READER_MODE_KEY);
+        return saved === 'live' ? 'live' : 'simulated';
+    });
+    const [readerLocationId, setReaderLocationId] = useState(() => {
+        if (typeof window === 'undefined') return '';
+        return localStorage.getItem(STRIPE_READER_LOCATION_KEY) || '';
     });
 
     const { subtotal, taxTotal, total, itemDiscountTotal, discountTotal } = calculateCartTotals(cart, orderDiscounts);
@@ -151,6 +164,11 @@ export function POS() {
         if (customItemForm.consignorId || consignors.length === 0) return;
         setCustomItemForm((prev) => ({ ...prev, consignorId: consignors[0].id }));
     }, [customItemForm.consignorId, consignors]);
+
+    useEffect(() => {
+        localStorage.setItem(STRIPE_READER_MODE_KEY, readerMode);
+        localStorage.setItem(STRIPE_READER_LOCATION_KEY, readerLocationId.trim());
+    }, [readerMode, readerLocationId]);
 
     // Refocus on click anywhere, unless clicking an interactive element
     useEffect(() => {
@@ -492,8 +510,23 @@ export function POS() {
     };
 
     const handleDiscoverReaders = async () => {
+        if (readerMode === 'live' && !readerLocationId.trim()) {
+            setScanError('Set your Stripe Location ID in Reader Setup first');
+            setShowReaderSetupModal(true);
+            return;
+        }
         setShowReaderModal(true);
-        await discoverReaders(true); // Use simulated readers for sandbox
+        await discoverReaders({
+            simulated: readerMode === 'simulated',
+            locationId: readerLocationId.trim() || undefined,
+        });
+    };
+
+    const handleSaveReaderSetup = (settings: { mode: 'simulated' | 'live'; locationId: string }) => {
+        setReaderMode(settings.mode);
+        setReaderLocationId(settings.locationId);
+        setShowReaderSetupModal(false);
+        setScanError(null);
     };
 
     const handleCompleteCheckSale = async () => {
@@ -1270,7 +1303,20 @@ export function POS() {
                                 <>
                                     {/* Card Reader Status */}
                                     <div className="mb-4">
-                                        <p className="text-sm font-medium mb-2">Card Reader</p>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <p className="text-sm font-medium">Card Reader</p>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => setShowReaderSetupModal(true)}
+                                            >
+                                                Reader Setup
+                                            </Button>
+                                        </div>
+                                        <p className="text-xs text-[var(--color-muted)] mb-2">
+                                            Mode: {readerMode === 'simulated' ? 'Test' : 'Live'}
+                                            {readerMode === 'live' && readerLocationId.trim() ? ` (${readerLocationId.trim()})` : ''}
+                                        </p>
                                         {connectedReader ? (
                                             <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-success-bg)] border border-[var(--color-success)]/20">
                                                 <div className="flex items-center gap-2">
@@ -1362,7 +1408,10 @@ export function POS() {
                             <Button
                                 variant="secondary"
                                 size="sm"
-                                onClick={() => discoverReaders(true)}
+                                onClick={() => discoverReaders({
+                                    simulated: readerMode === 'simulated',
+                                    locationId: readerLocationId.trim() || undefined,
+                                })}
                                 className="mt-3"
                             >
                                 Search Again
@@ -1387,6 +1436,14 @@ export function POS() {
                     )}
                 </div>
             </Modal>
+
+            <StripeReaderSetupModal
+                isOpen={showReaderSetupModal}
+                onClose={() => setShowReaderSetupModal(false)}
+                mode={readerMode}
+                locationId={readerLocationId}
+                onSave={handleSaveReaderSetup}
+            />
 
             {/* Custom Item Modal */}
             <Modal

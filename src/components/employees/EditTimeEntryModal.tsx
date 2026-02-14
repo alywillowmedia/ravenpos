@@ -27,6 +27,7 @@ export function EditTimeEntryModal({ isOpen, onClose, onSubmit, entry }: EditTim
     const [clockInTime, setClockInTime] = useState('');
     const [clockOutDate, setClockOutDate] = useState('');
     const [clockOutTime, setClockOutTime] = useState('');
+    const [removeTimeMinutes, setRemoveTimeMinutes] = useState('0');
     const [lunchBreak, setLunchBreak] = useState('0');
     const [notes, setNotes] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -48,6 +49,7 @@ export function EditTimeEntryModal({ isOpen, onClose, onSubmit, entry }: EditTim
                 setClockOutTime('');
             }
 
+            setRemoveTimeMinutes('0');
             setLunchBreak((entry.lunch_break_minutes || 0).toString());
             setNotes(entry.notes || '');
         }
@@ -78,6 +80,26 @@ export function EditTimeEntryModal({ isOpen, onClose, onSubmit, entry }: EditTim
                 setError('Clock out must be after clock in');
                 return;
             }
+        }
+
+        const removeMins = parseInt(removeTimeMinutes) || 0;
+        if (removeMins < 0) {
+            setError('Removed time cannot be negative');
+            return;
+        }
+        if (removeMins > 0) {
+            if (!clockOutISO) {
+                setError('Set a clock out time before removing time');
+                return;
+            }
+
+            const adjustedClockOut = new Date(new Date(clockOutISO).getTime() - (removeMins * 60 * 1000));
+            if (adjustedClockOut <= new Date(clockInISO)) {
+                setError('Removed time is too large for this shift');
+                return;
+            }
+
+            clockOutISO = adjustedClockOut.toISOString();
         }
 
         const lunchMins = parseInt(lunchBreak) || 0;
@@ -155,6 +177,20 @@ export function EditTimeEntryModal({ isOpen, onClose, onSubmit, entry }: EditTim
                         Leave blank if still clocked in
                     </p>
                 </div>
+
+                {/* Remove Time */}
+                <Input
+                    label="Remove Time (minutes)"
+                    type="number"
+                    min="0"
+                    step="5"
+                    value={removeTimeMinutes}
+                    onChange={(e) => setRemoveTimeMinutes(e.target.value)}
+                    placeholder="0"
+                />
+                <p className="text-xs text-[var(--color-muted)] -mt-2">
+                    Subtracts minutes from clock out when saving
+                </p>
 
                 {/* Lunch Break */}
                 <Input

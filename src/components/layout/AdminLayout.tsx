@@ -1,5 +1,5 @@
 import { type ReactNode, useState, useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useMobile } from '../../hooks/useMobile';
@@ -14,6 +14,7 @@ interface AdminLayoutProps {
 export function AdminLayout({ children }: AdminLayoutProps) {
     const { isMobile } = useMobile();
     const messaging = useMessaging({ portalBasePath: '/admin' });
+    const location = useLocation();
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
         const saved = localStorage.getItem('sidebar-collapsed');
         return saved === 'true';
@@ -41,7 +42,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             )}>
                 <PortalTopBar messaging={messaging} portalBasePath="/admin" />
                 <div className={cn('px-4 py-6 sm:px-6', !isMobile && 'lg:px-8')}>
-                    {children || <Outlet context={{ messaging }} />}
+                    {children || <Outlet key={location.pathname} context={{ messaging }} />}
                 </div>
             </main>
 

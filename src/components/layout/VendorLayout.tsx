@@ -158,7 +158,7 @@ export function VendorLayout() {
             )}>
                 <PortalTopBar messaging={messaging} portalBasePath="/vendor" />
                 <div className="px-4 py-6 sm:px-6 lg:px-8">
-                    <Outlet context={{ messaging }} />
+                    <Outlet key={location.pathname} context={{ messaging }} />
                 </div>
             </main>
         </div>
