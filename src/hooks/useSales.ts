@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { formatSupabaseError } from '../lib/supabaseError';
 import type { CartItem, Sale, SaleItem, PaymentMethod, Discount } from '../types';
 
 export function useSales() {
@@ -73,7 +74,6 @@ export function useSales() {
                     tax_amount: taxTotal,
                     total,
                     payment_method: paymentMethod,
-                    check_number: paymentMethod === 'check' ? (checkNumber?.trim() || null) : null,
                     cash_tendered: paymentMethod === 'cash' ? cashTendered : null,
                     change_given: paymentMethod === 'cash' ? changeGiven : null,
                     stripe_payment_intent_id: stripePaymentIntentId || null,
@@ -88,6 +88,7 @@ export function useSales() {
                     store_credit_used: roundedStoreCreditUsed,
                     gift_card_used: roundedGiftCardUsed,
                     card_fee_amount: roundedCardFeeAmount,
+                    ...(paymentMethod === 'check' ? { check_number: checkNumber?.trim() || null } : {}),
                 })
                 .select()
                 .single();
@@ -179,7 +180,7 @@ export function useSales() {
                 });
             }
 
-            const message = err instanceof Error ? err.message : 'Failed to complete sale';
+            const message = formatSupabaseError(err, 'Failed to complete sale');
             setError(message);
             return { data: null, error: message };
         } finally {

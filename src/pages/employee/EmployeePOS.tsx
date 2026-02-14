@@ -13,6 +13,7 @@ import { useCustomers } from '../../hooks/useCustomers';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { createCartItem, calculateCartTotals } from '../../lib/tax';
 import { formatCurrency } from '../../lib/utils';
+import { formatSupabaseError } from '../../lib/supabaseError';
 import { supabase } from '../../lib/supabase';
 import type { CartItem, Customer, CustomerInput, PaymentMethod } from '../../types';
 
@@ -158,16 +159,16 @@ export function EmployeePOS() {
                     tax_amount: taxTotal,
                     total,
                     payment_method: paymentMethod,
-                    check_number: paymentMethod === 'check' ? (checkNumber.trim() || null) : null,
                     cash_tendered: paymentMethod === 'cash' ? cashAmount : null,
                     change_given: paymentMethod === 'cash' ? change : null,
                     processed_by_employee: employee?.id, // Track which employee processed
+                    ...(paymentMethod === 'check' ? { check_number: checkNumber.trim() || null } : {}),
                 })
                 .select()
                 .single();
 
             if (saleError || !sale) {
-                setScanError('Failed to complete sale');
+                setScanError(formatSupabaseError(saleError, 'Failed to complete sale'));
                 setIsProcessing(false);
                 return;
             }
@@ -203,7 +204,7 @@ export function EmployeePOS() {
             setCompletedSale({ total, change: paymentMethod === 'cash' ? change : 0 });
         } catch (err) {
             console.error('Sale error:', err);
-            setScanError('Failed to complete sale');
+            setScanError(formatSupabaseError(err, 'Failed to complete sale'));
         }
 
         setIsProcessing(false);
