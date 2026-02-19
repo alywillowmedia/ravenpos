@@ -12,6 +12,8 @@ import { useRefundHistory, type RefundWithDetails } from '../hooks/useRefundHist
 import { useConsignors } from '../hooks/useConsignors';
 import { formatCurrency } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import { printReceipt } from '../lib/printReceipt';
+import type { ReceiptData } from '../types/receipt';
 
 type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
 
@@ -47,6 +49,8 @@ export function Sales() {
     const [customDateTo, setCustomDateTo] = useState(() => toLocalDateInput(new Date()));
     const [checkNumberInput, setCheckNumberInput] = useState('');
     const [isSavingCheckNumber, setIsSavingCheckNumber] = useState(false);
+    const [isPrintingReceipt, setIsPrintingReceipt] = useState(false);
+    const [printError, setPrintError] = useState<string | null>(null);
 
     const dateRange = useMemo(() => {
         const now = new Date();
@@ -211,6 +215,42 @@ export function Sales() {
         }
     };
 
+    const createReceiptDataFromSale = (sale: SaleWithItems): ReceiptData => ({
+        transactionId: sale.id,
+        date: new Date(sale.completed_at),
+        items: sale.items.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: Number(item.price),
+            lineTotal: Number(item.price) * item.quantity,
+            consignorName: item.consignor?.name || 'Unknown Vendor',
+            consignorId: item.consignor_id,
+            imageUrl: null,
+        })),
+        subtotal: Number(sale.subtotal),
+        tax: Number(sale.tax_amount),
+        storeCreditUsed: sale.store_credit_used ? Number(sale.store_credit_used) : 0,
+        giftCardUsed: sale.gift_card_used ? Number(sale.gift_card_used) : 0,
+        total: Number(sale.total),
+        cardFeeAmount: sale.card_fee_amount ? Number(sale.card_fee_amount) : 0,
+        cardLast4: sale.card_last4 || undefined,
+        paymentMethod: sale.payment_method,
+        checkNumber: sale.check_number || undefined,
+        cashTendered: sale.cash_tendered ? Number(sale.cash_tendered) : undefined,
+        changeGiven: sale.change_given ? Number(sale.change_given) : undefined,
+    });
+
+    const handlePrintSelectedReceipt = async () => {
+        if (!selectedSale) return;
+        setIsPrintingReceipt(true);
+        setPrintError(null);
+        const result = await printReceipt(createReceiptDataFromSale(selectedSale));
+        if (!result.success) {
+            setPrintError(result.error || 'Unable to print receipt');
+        }
+        setIsPrintingReceipt(false);
+    };
+
     return (
         <div className="animate-fadeIn">
             <Header
@@ -349,6 +389,7 @@ export function Sales() {
                                         onViewReceipt={() => {
                                             setSelectedSale(sale);
                                             setCheckNumberInput(sale.check_number || '');
+                                            setPrintError(null);
                                         }}
                                         calculateSalesSummary={calculateSalesSummary}
                                     />
@@ -388,6 +429,7 @@ export function Sales() {
                 onClose={() => {
                     setSelectedSale(null);
                     setCheckNumberInput('');
+                    setPrintError(null);
                 }}
                 title="Receipt Preview"
                 size="3xl"
@@ -437,6 +479,12 @@ export function Sales() {
                                     </p>
                                 </div>
                             </div>
+
+                            {printError && (
+                                <p className="text-sm text-[var(--color-danger)]">
+                                    {printError}
+                                </p>
+                            )}
 
                             {/* Customer Info */}
                             {selectedSale.customer && (
@@ -637,9 +685,18 @@ export function Sales() {
                     );
                 })()}
                 <ModalFooter>
+                    <Button
+                        variant="secondary"
+                        onClick={handlePrintSelectedReceipt}
+                        isLoading={isPrintingReceipt}
+                    >
+                        <PrinterSmallIcon />
+                        Print Receipt
+                    </Button>
                     <Button variant="secondary" onClick={() => {
                         setSelectedSale(null);
                         setCheckNumberInput('');
+                        setPrintError(null);
                     }}>
                         Close
                     </Button>
@@ -992,6 +1049,25 @@ function ReceiptSmallIcon() {
         >
             <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z" />
             <path d="M8 10h8M8 14h4" />
+        </svg>
+    );
+}
+
+function PrinterSmallIcon() {
+    return (
+        <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <polyline points="6 9 6 2 18 2 18 9" />
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+            <rect x="6" y="14" width="12" height="8" />
         </svg>
     );
 }
