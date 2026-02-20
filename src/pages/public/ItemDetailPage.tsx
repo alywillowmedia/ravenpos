@@ -64,7 +64,7 @@ export function ItemDetailPage() {
                     </p>
                     <Link
                         to="/"
-                        className="inline-flex items-center gap-2 px-6 py-3 bg-[var(--color-primary)] text-white font-medium rounded-xl hover:bg-[var(--color-primary-hover)] transition-colors"
+                        className="inline-flex items-center gap-2 px-6 py-3 bg-[var(--color-primary)] text-[var(--color-primary-foreground)] font-medium rounded-xl hover:bg-[var(--color-primary-hover)] transition-colors"
                     >
                         <svg
                             className="w-4 h-4"
@@ -172,7 +172,7 @@ export function ItemDetailPage() {
                     {/* Vendor Info */}
                     <div className="space-y-4">
                         <div className="flex items-start gap-3">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-medium">
+                            <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] flex items-center justify-center text-[var(--color-primary-foreground)] font-medium border border-black/20">
                                 {vendorName.charAt(0).toUpperCase()}
                             </div>
                             <div>
@@ -197,11 +197,11 @@ export function ItemDetailPage() {
                     <hr className="my-8 border-[var(--color-border)]" />
 
                     {/* In Store Message */}
-                    <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-6 border border-indigo-100">
+                    <div className="bg-[var(--color-surface-elevated)] rounded-2xl p-6 border-2 border-[var(--color-border)]">
                         <div className="flex items-start gap-4">
                             <div className="w-12 h-12 rounded-xl bg-[var(--color-primary)] flex items-center justify-center flex-shrink-0">
                                 <svg
-                                    className="w-6 h-6 text-white"
+                                    className="w-6 h-6 text-[var(--color-primary-foreground)]"
                                     fill="none"
                                     viewBox="0 0 24 24"
                                     stroke="currentColor"

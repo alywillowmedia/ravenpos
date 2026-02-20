@@ -4,6 +4,7 @@ import { Input, Textarea } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { supabase } from '../../lib/supabase';
 import { getLocalDateString } from '../../lib/consignorRateSchedules';
+import { calculateBoothRent, getConsignorDisplayName, getConsignorPayToName } from '../../lib/consignors';
 import type { Consignor, ConsignorInput } from '../../types';
 
 interface ConsignorFormProps {
@@ -20,13 +21,23 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
     const [scheduledChange, setScheduledChange] = useState({
         effective_date: '',
         commission_split: consignor?.commission_split ?? 0.6,
-        monthly_booth_rent: consignor?.monthly_booth_rent ?? 0,
+        booth_square_feet: Number(consignor?.booth_square_feet) || 0,
+        booth_cost_per_square_foot: Number(consignor?.booth_cost_per_square_foot) || 0,
+        monthly_booth_rent: calculateBoothRent(
+            Number(consignor?.booth_square_feet) || 0,
+            Number(consignor?.booth_cost_per_square_foot) || 0
+        ),
     });
 
     const [formData, setFormData] = useState({
-        name: consignor?.name || '',
+        first_name: consignor?.first_name || '',
+        last_name: consignor?.last_name || '',
+        business_name: consignor?.business_name || '',
+        pay_to_type: consignor?.pay_to_type || 'business',
         consignor_number: consignor?.consignor_number || '',
         booth_location: consignor?.booth_location || '',
+        booth_square_feet: Number(consignor?.booth_square_feet) || 0,
+        booth_cost_per_square_foot: Number(consignor?.booth_cost_per_square_foot) || 0,
         email: consignor?.email || '',
         phone: consignor?.phone || '',
         address: consignor?.address || '',
@@ -38,7 +49,10 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
         notes: consignor?.notes || '',
         commission_split: consignor?.commission_split ?? 0.6,
         consignor_pays_card_fee: consignor?.consignor_pays_card_fee ?? false,
-        monthly_booth_rent: consignor?.monthly_booth_rent ?? 0,
+        monthly_booth_rent: calculateBoothRent(
+            Number(consignor?.booth_square_feet) || 0,
+            Number(consignor?.booth_cost_per_square_foot) || 0
+        ),
         scheduled_active_date: consignor?.scheduled_active_date || '',
         is_active: consignor?.is_active ?? true,
     });
@@ -52,22 +66,74 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
 
             const { data, error: fetchError } = await supabase
                 .from('consignor_rate_schedules')
-                .select('effective_date, commission_split, monthly_booth_rent')
+                .select('effective_date, commission_split, booth_square_feet, booth_cost_per_square_foot, monthly_booth_rent')
                 .eq('consignor_id', consignor.id)
-                .gt('effective_date', today)
+                .gte('effective_date', today)
                 .order('effective_date', { ascending: true })
                 .limit(1)
                 .maybeSingle();
 
+            let scheduleData: {
+                effective_date: string;
+                commission_split: number;
+                booth_square_feet?: number | null;
+                booth_cost_per_square_foot?: number | null;
+                monthly_booth_rent: number;
+            } | null = data as {
+                effective_date: string;
+                commission_split: number;
+                booth_square_feet?: number | null;
+                booth_cost_per_square_foot?: number | null;
+                monthly_booth_rent: number;
+            } | null;
+            let scheduleError = fetchError;
+            if (
+                scheduleError &&
+                `${scheduleError.message || ''} ${scheduleError.details || ''}`.toLowerCase().includes('booth_')
+            ) {
+                const legacyResult = await supabase
+                    .from('consignor_rate_schedules')
+                    .select('effective_date, commission_split, monthly_booth_rent')
+                    .eq('consignor_id', consignor.id)
+                    .gte('effective_date', today)
+                    .order('effective_date', { ascending: true })
+                    .limit(1)
+                    .maybeSingle();
+                scheduleData = legacyResult.data as {
+                    effective_date: string;
+                    commission_split: number;
+                    monthly_booth_rent: number;
+                } | null;
+                scheduleError = legacyResult.error;
+            }
+
             setIsLoadingScheduledChange(false);
 
-            if (fetchError || !data) return;
+            if (scheduleError || !scheduleData) return;
 
             setHasScheduledChange(true);
+            const savedMonthlyBoothRent = Number(scheduleData.monthly_booth_rent ?? 0);
+            const hasScheduleBoothFormula =
+                scheduleData.booth_square_feet !== undefined &&
+                scheduleData.booth_cost_per_square_foot !== undefined;
+            const boothSquareFeet = Number(
+                hasScheduleBoothFormula
+                    ? scheduleData.booth_square_feet
+                    : (consignor.booth_square_feet ?? 0)
+            ) || 0;
+            const boothCostPerSquareFoot = Number(
+                hasScheduleBoothFormula
+                    ? scheduleData.booth_cost_per_square_foot
+                    : (boothSquareFeet > 0
+                        ? savedMonthlyBoothRent / boothSquareFeet
+                        : (consignor.booth_cost_per_square_foot ?? 0))
+            ) || 0;
             setScheduledChange({
-                effective_date: data.effective_date,
-                commission_split: Number(data.commission_split),
-                monthly_booth_rent: Number(data.monthly_booth_rent),
+                effective_date: scheduleData.effective_date,
+                commission_split: Number(scheduleData.commission_split),
+                booth_square_feet: boothSquareFeet,
+                booth_cost_per_square_foot: boothCostPerSquareFoot,
+                monthly_booth_rent: savedMonthlyBoothRent,
             });
         };
 
@@ -78,8 +144,19 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
         e.preventDefault();
         setError(null);
 
-        if (!formData.name.trim()) {
-            setError('Name is required');
+        const hasBusinessName = formData.business_name.trim().length > 0;
+        const hasIndividualName = formData.first_name.trim().length > 0 || formData.last_name.trim().length > 0;
+
+        if (!hasBusinessName && !hasIndividualName) {
+            setError('Enter a business name or individual name');
+            return;
+        }
+        if (formData.pay_to_type === 'business' && !hasBusinessName) {
+            setError('Business name is required when Pay To is Business');
+            return;
+        }
+        if (formData.pay_to_type === 'individual' && !hasIndividualName) {
+            setError('First or last name is required when Pay To is Individual');
             return;
         }
 
@@ -96,12 +173,19 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                     ? {
                         effective_date: scheduledChange.effective_date,
                         commission_split: scheduledChange.commission_split,
-                        monthly_booth_rent: scheduledChange.monthly_booth_rent,
+                        booth_square_feet: scheduledChange.booth_square_feet,
+                        booth_cost_per_square_foot: scheduledChange.booth_cost_per_square_foot,
+                        monthly_booth_rent: calculateBoothRent(
+                            scheduledChange.booth_square_feet,
+                            scheduledChange.booth_cost_per_square_foot
+                        ),
                     }
                     : (consignor?.id ? null : undefined));
 
         const result = await onSubmit({
             ...formData,
+            name: getConsignorDisplayName(formData),
+            monthly_booth_rent: calculateBoothRent(formData.booth_square_feet, formData.booth_cost_per_square_foot),
             scheduled_active_date: formData.scheduled_active_date || null,
             scheduled_rate_change: scheduledRateChange,
         });
@@ -126,11 +210,10 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
 
             <div className="grid grid-cols-2 gap-4">
                 <Input
-                    label="Name"
-                    value={formData.name}
-                    onChange={(e) => updateField('name', e.target.value)}
-                    placeholder="John Smith"
-                    required
+                    label="Business Name"
+                    value={formData.business_name}
+                    onChange={(e) => updateField('business_name', e.target.value)}
+                    placeholder="Raven Vintage"
                 />
                 <Input
                     label="Consignor ID"
@@ -140,6 +223,48 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                     hint="Leave blank to auto-generate"
                 />
             </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <Input
+                    label="First Name"
+                    value={formData.first_name}
+                    onChange={(e) => updateField('first_name', e.target.value)}
+                    placeholder="John"
+                />
+                <Input
+                    label="Last Name"
+                    value={formData.last_name}
+                    onChange={(e) => updateField('last_name', e.target.value)}
+                    placeholder="Smith"
+                />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-sm font-medium mb-1">Pay To</label>
+                    <select
+                        value={formData.pay_to_type}
+                        onChange={(e) => updateField('pay_to_type', e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-sm"
+                    >
+                        <option value="business">Business</option>
+                        <option value="individual">Individual</option>
+                    </select>
+                </div>
+                <Input
+                    label="Pay To Name"
+                    value={getConsignorPayToName(formData)}
+                    disabled
+                    hint="Derived from your selected pay-to type"
+                />
+            </div>
+
+            <Input
+                label="Display Name"
+                value={getConsignorDisplayName(formData)}
+                disabled
+                hint="Used throughout RavenPOS"
+            />
 
             <Input
                 label="Booth/Location"
@@ -218,13 +343,46 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                     hint="Consignor's percentage"
                 />
                 <Input
-                    label="Monthly Booth Rent"
+                    label="Booth Square Feet"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={formData.booth_square_feet}
+                    onChange={(e) => {
+                        const boothSquareFeet = Number(e.target.value) || 0;
+                        updateField('booth_square_feet', boothSquareFeet);
+                        updateField(
+                            'monthly_booth_rent',
+                            calculateBoothRent(boothSquareFeet, formData.booth_cost_per_square_foot)
+                        );
+                    }}
+                />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <Input
+                    label="Cost Per Sq Ft"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.booth_cost_per_square_foot}
+                    onChange={(e) => {
+                        const boothCostPerSquareFoot = Number(e.target.value) || 0;
+                        updateField('booth_cost_per_square_foot', boothCostPerSquareFoot);
+                        updateField(
+                            'monthly_booth_rent',
+                            calculateBoothRent(formData.booth_square_feet, boothCostPerSquareFoot)
+                        );
+                    }}
+                />
+                <Input
+                    label="Calculated Monthly Booth Rent"
                     type="number"
                     min="0"
                     step="0.01"
                     value={formData.monthly_booth_rent}
-                    onChange={(e) => updateField('monthly_booth_rent', Number(e.target.value))}
-                    hint="$0 if none"
+                    disabled
+                    hint="Booth sqft * cost per sqft"
                 />
             </div>
 
@@ -257,37 +415,75 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                 </div>
 
                 {hasScheduledChange && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <Input
-                            label="Effective Date"
-                            type="date"
-                            min={getLocalDateString()}
-                            value={scheduledChange.effective_date}
-                            onChange={(e) => setScheduledChange((prev) => ({ ...prev, effective_date: e.target.value }))}
-                        />
-                        <Input
-                            label="Future Commission (%)"
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="0.01"
-                            value={Number((scheduledChange.commission_split * 100).toFixed(2))}
-                            onChange={(e) => setScheduledChange((prev) => ({
-                                ...prev,
-                                commission_split: Number(e.target.value) / 100
-                            }))}
-                        />
-                        <Input
-                            label="Future Monthly Booth Rent"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={scheduledChange.monthly_booth_rent}
-                            onChange={(e) => setScheduledChange((prev) => ({
-                                ...prev,
-                                monthly_booth_rent: Number(e.target.value)
-                            }))}
-                        />
+                    <div className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <Input
+                                label="Effective Date"
+                                type="date"
+                                min={getLocalDateString()}
+                                value={scheduledChange.effective_date}
+                                onChange={(e) => setScheduledChange((prev) => ({ ...prev, effective_date: e.target.value }))}
+                            />
+                            <Input
+                                label="Future Commission (%)"
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                value={Number((scheduledChange.commission_split * 100).toFixed(2))}
+                                onChange={(e) => setScheduledChange((prev) => ({
+                                    ...prev,
+                                    commission_split: Number(e.target.value) / 100
+                                }))}
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <Input
+                                label="Future Booth Sq Ft"
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={scheduledChange.booth_square_feet}
+                                onChange={(e) => {
+                                    const boothSquareFeet = Number(e.target.value) || 0;
+                                    setScheduledChange((prev) => ({
+                                        ...prev,
+                                        booth_square_feet: boothSquareFeet,
+                                        monthly_booth_rent: calculateBoothRent(
+                                            boothSquareFeet,
+                                            prev.booth_cost_per_square_foot
+                                        ),
+                                    }));
+                                }}
+                            />
+                            <Input
+                                label="Future Cost Per Sq Ft"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={scheduledChange.booth_cost_per_square_foot}
+                                onChange={(e) => {
+                                    const boothCostPerSquareFoot = Number(e.target.value) || 0;
+                                    setScheduledChange((prev) => ({
+                                        ...prev,
+                                        booth_cost_per_square_foot: boothCostPerSquareFoot,
+                                        monthly_booth_rent: calculateBoothRent(
+                                            prev.booth_square_feet,
+                                            boothCostPerSquareFoot
+                                        ),
+                                    }));
+                                }}
+                            />
+                            <Input
+                                label="Calculated Future Rent"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={scheduledChange.monthly_booth_rent}
+                                disabled
+                                hint="Future booth sqft * future cost per sqft"
+                            />
+                        </div>
                     </div>
                 )}
             </div>

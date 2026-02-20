@@ -85,6 +85,55 @@ body {
 }
 
 /* ========================================
+   Ravenlia Public Storefront Theme
+   ======================================== */
+
+.ravenlia-storefront {
+  --color-background: #e9dd92;
+  --color-foreground: #15110e;
+  --color-muted: #4d4436;
+  --color-muted-foreground: #6d604b;
+  --color-border: #231c14;
+  --color-input: #2f271d;
+  --color-ring: #96271f;
+
+  --color-surface: #efe3a5;
+  --color-surface-elevated: #f4e9b7;
+  --color-surface-hover: #e4d687;
+
+  --color-primary: #b22c22;
+  --color-primary-hover: #912119;
+  --color-primary-foreground: #fff4d8;
+
+  --color-success: #375d2a;
+  --color-success-bg: #dce6c9;
+
+  font-family: "Avenir Next", "Trebuchet MS", "Gill Sans", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 100% -20%, rgb(178 44 34 / 10%), transparent 45%),
+    radial-gradient(circle at -10% 60%, rgb(44 62 31 / 8%), transparent 38%),
+    linear-gradient(180deg, #e9dd92 0%, #e6d985 48%, #e2d07a 100%);
+}
+
+.ravenlia-storefront h1,
+.ravenlia-storefront h2,
+.ravenlia-storefront h3 {
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, "Times New Roman", serif;
+  letter-spacing: -0.01em;
+}
+
+.ravenlia-storefront .ravenlia-display {
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, "Times New Roman", serif;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ravenlia-storefront .ravenlia-card {
+  border: 2px solid rgb(35 28 20 / 85%);
+  box-shadow: 0 0 0 1px rgb(255 244 203 / 55%) inset;
+}
+
+/* ========================================
    Typography Utilities
    ======================================== */
 

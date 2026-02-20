@@ -41,6 +41,7 @@ export function Customers() {
     const [orderHistory, setOrderHistory] = useState<OrderHistoryItem[]>([]);
     const [selectedOrder, setSelectedOrder] = useState<OrderHistoryItem | null>(null);
     const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+    const [orderHistoryError, setOrderHistoryError] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isApplyingCredit, setIsApplyingCredit] = useState(false);
     const [creditAmount, setCreditAmount] = useState('');
@@ -104,13 +105,24 @@ export function Customers() {
         setCreditAmount('');
     };
 
+    const loadOrdersForCustomer = async (customerId: string) => {
+        setIsLoadingOrders(true);
+        setOrderHistoryError(null);
+        const { data, error } = await getCustomerOrderHistory(customerId);
+        if (error) {
+            setOrderHistoryError(error);
+            setOrderHistory([]);
+            setIsLoadingOrders(false);
+            return;
+        }
+        setOrderHistory(data as OrderHistoryItem[]);
+        setIsLoadingOrders(false);
+    };
+
     const handleViewOrders = async (customer: Customer) => {
         setViewOrdersCustomer(customer);
         setSelectedOrder(null);
-        setIsLoadingOrders(true);
-        const { data } = await getCustomerOrderHistory(customer.id);
-        setOrderHistory(data as OrderHistoryItem[]);
-        setIsLoadingOrders(false);
+        await loadOrdersForCustomer(customer.id);
     };
 
     const openEditModal = (customer: Customer) => {
@@ -409,13 +421,31 @@ export function Customers() {
             {/* Order History Modal */}
             <Modal
                 isOpen={!!viewOrdersCustomer}
-                onClose={() => { setViewOrdersCustomer(null); setOrderHistory([]); setSelectedOrder(null); }}
+                onClose={() => {
+                    setViewOrdersCustomer(null);
+                    setOrderHistory([]);
+                    setSelectedOrder(null);
+                    setOrderHistoryError(null);
+                }}
                 title={`Order History - ${viewOrdersCustomer?.name}`}
                 size="lg"
             >
                 {isLoadingOrders ? (
                     <div className="flex justify-center py-8">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
+                    </div>
+                ) : orderHistoryError ? (
+                    <div className="space-y-3">
+                        <p className="text-sm text-[var(--color-danger)]">{orderHistoryError}</p>
+                        {viewOrdersCustomer && (
+                            <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => loadOrdersForCustomer(viewOrdersCustomer.id)}
+                            >
+                                Refresh Orders
+                            </Button>
+                        )}
                     </div>
                 ) : orderHistory.length === 0 ? (
                     <div className="text-center py-8 text-[var(--color-muted)]">
@@ -526,6 +556,18 @@ export function Customers() {
                     </div>
                 ) : (
                     <div className="space-y-4">
+                        {viewOrdersCustomer && (
+                            <div className="flex justify-end">
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => loadOrdersForCustomer(viewOrdersCustomer.id)}
+                                >
+                                    Refresh Orders
+                                </Button>
+                            </div>
+                        )}
+
                         {/* Summary */}
                         <div className="flex gap-4 p-4 bg-[var(--color-surface)] rounded-lg">
                             <div className="flex-1 text-center">
@@ -577,7 +619,12 @@ export function Customers() {
                             Back to Orders
                         </Button>
                     ) : null}
-                    <Button variant="secondary" onClick={() => { setViewOrdersCustomer(null); setOrderHistory([]); setSelectedOrder(null); }}>
+                    <Button variant="secondary" onClick={() => {
+                        setViewOrdersCustomer(null);
+                        setOrderHistory([]);
+                        setSelectedOrder(null);
+                        setOrderHistoryError(null);
+                    }}>
                         {selectedOrder ? 'Close Receipt' : 'Close'}
                     </Button>
                 </ModalFooter>

@@ -11,7 +11,13 @@ export interface Consignor {
     id: string;
     consignor_number: string;
     name: string;
+    first_name?: string | null;
+    last_name?: string | null;
+    business_name?: string | null;
+    pay_to_type?: 'business' | 'individual';
     booth_location: string | null;
+    booth_square_feet?: number | null;
+    booth_cost_per_square_foot?: number | null;
     email: string | null;
     phone: string | null;
     address: string | null;
@@ -33,6 +39,8 @@ export interface Consignor {
 export interface ScheduledConsignorRateChangeInput {
     effective_date: string;
     commission_split: number;
+    booth_square_feet?: number;
+    booth_cost_per_square_foot?: number;
     monthly_booth_rent: number;
 }
 

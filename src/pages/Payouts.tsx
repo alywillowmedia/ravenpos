@@ -7,6 +7,7 @@ import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
 import { usePayouts } from '../hooks/usePayouts';
 import { formatCurrency } from '../lib/utils';
+import { getConsignorDisplayName, getConsignorPayToName } from '../lib/consignors';
 import type { ConsignorPayoutSummary, Payout, BalanceDisposition } from '../types';
 
 type ViewMode = 'pending' | 'history';
@@ -125,6 +126,7 @@ export function Payouts() {
         return consignorSummaries.filter(
             (s) =>
                 s.consignor.name.toLowerCase().includes(query) ||
+                getConsignorDisplayName(s.consignor).toLowerCase().includes(query) ||
                 s.consignor.consignor_number.toLowerCase().includes(query)
         );
     }, [consignorSummaries, searchQuery]);
@@ -197,7 +199,7 @@ export function Payouts() {
             <!DOCTYPE html>
             <html>
             <head>
-                <title>Payout Report - ${consignor.name}</title>
+                <title>Payout Report - ${getConsignorDisplayName(consignor)}</title>
                 <style>
                     * { margin: 0; padding: 0; box-sizing: border-box; }
                     body { font-family: 'Courier New', monospace; font-size: 10px; padding: 20px; }
@@ -226,7 +228,8 @@ export function Payouts() {
                     <h1>Sales Summary for Consignor ${consignor.consignor_number} for Period ${periodStart} - ${periodEnd}</h1>
                 </div>
                 <div class="store-info">
-                    <strong>${consignor.name}</strong><br>
+                    <strong>${getConsignorDisplayName(consignor)}</strong><br>
+                    Pay To: ${getConsignorPayToName(consignor)}<br>
                     ${consignor.email || ''}<br>
                     ${consignorAddress || ''}<br>
                     Commission: ${Math.round(consignor.commission_split * 100)}%
@@ -485,7 +488,7 @@ export function Payouts() {
             <Modal
                 isOpen={!!selectedConsignor && !showPayModal}
                 onClose={() => setSelectedConsignor(null)}
-                title={`Payout Details: ${selectedConsignor?.consignor.name}`}
+                title={`Payout Details: ${selectedConsignor ? getConsignorDisplayName(selectedConsignor.consignor) : ''}`}
                 size="3xl"
             >
                 {selectedConsignor && (
@@ -534,7 +537,7 @@ export function Payouts() {
                                 Paying out to
                             </p>
                             <p className="font-semibold text-lg">
-                                {selectedConsignor.consignor.name}
+                                {getConsignorDisplayName(selectedConsignor.consignor)}
                             </p>
                             <p className="text-sm text-[var(--color-muted)]">
                                 {selectedConsignor.consignor.consignor_number}
@@ -749,10 +752,10 @@ function ConsignorPayoutRow({
                 {/* Consignor Info */}
                 <div className="flex items-center gap-4 min-w-[200px]">
                     <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center font-semibold">
-                        {consignor.name.charAt(0).toUpperCase()}
+                        {getConsignorDisplayName(consignor).charAt(0).toUpperCase()}
                     </div>
                     <div>
-                        <p className="font-semibold">{consignor.name}</p>
+                        <p className="font-semibold">{getConsignorDisplayName(consignor)}</p>
                         <p className="text-sm text-[var(--color-muted)]">
                             {consignor.consignor_number}
                             {consignor.booth_location && ` - ${consignor.booth_location}`}
@@ -833,10 +836,10 @@ function ConsignorPayoutDetail({
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center text-lg font-semibold flex-shrink-0">
-                        {consignor.name.charAt(0).toUpperCase()}
+                        {getConsignorDisplayName(consignor).charAt(0).toUpperCase()}
                     </div>
                     <div>
-                        <h3 className="font-semibold">{consignor.name}</h3>
+                        <h3 className="font-semibold">{getConsignorDisplayName(consignor)}</h3>
                         <p className="text-xs text-[var(--color-muted)]">
                             {consignor.consignor_number}
                         </p>

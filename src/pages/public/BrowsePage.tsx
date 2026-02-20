@@ -107,7 +107,7 @@ export function BrowsePage() {
         <div className="animate-fadeIn">
             {/* Hero Section */}
             <HeroSection
-                storeName="RavenPOS"
+                storeName="Ravenlia Galleria"
                 searchValue={filters.search}
                 onSearchChange={(value) => updateFilters({ search: value })}
             />
@@ -116,17 +116,17 @@ export function BrowsePage() {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 {/* Show sections only when not filtering */}
                 {!isFiltered && !isLoading && (categoriesWithCounts.length > 0 || vendorsWithCounts.length > 0) && (
-                    <section className="py-8">
+                    <section className="py-8" id="categories">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                             {/* Categories Dropdown */}
                             {categoriesWithCounts.length > 0 && (
-                                <div className="bg-white rounded-2xl border border-[var(--color-border)] overflow-hidden">
+                                <div className="bg-[var(--color-surface-elevated)] rounded-2xl overflow-hidden ravenlia-card">
                                     <button
                                         onClick={() => setCategoriesOpen(!categoriesOpen)}
-                                        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--color-surface)] transition-colors"
+                                        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--color-surface-hover)] transition-colors"
                                     >
                                         <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-400 flex items-center justify-center">
+                                            <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] flex items-center justify-center border border-black/20">
                                                 <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                                                 </svg>
@@ -153,7 +153,7 @@ export function BrowsePage() {
                                                     <a
                                                         key={category.name}
                                                         href={`/category/${encodeURIComponent(category.name)}`}
-                                                        className="block p-3 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-primary)] hover:text-white border border-[var(--color-border)] hover:border-transparent transition-all group"
+                                                        className="block p-3 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-primary)] hover:text-[var(--color-primary-foreground)] border border-[var(--color-border)] hover:border-[var(--color-primary)] transition-all group"
                                                     >
                                                         <p className="font-medium text-sm truncate">{category.name}</p>
                                                         <p className="text-xs opacity-60 mt-0.5">{category.itemCount} items</p>
@@ -167,13 +167,13 @@ export function BrowsePage() {
 
                             {/* Vendors Dropdown */}
                             {vendorsWithCounts.length > 0 && (
-                                <div className="bg-white rounded-2xl border border-[var(--color-border)] overflow-hidden">
+                                <div className="bg-[var(--color-surface-elevated)] rounded-2xl overflow-hidden ravenlia-card" id="vendors">
                                     <button
                                         onClick={() => setVendorsOpen(!vendorsOpen)}
-                                        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--color-surface)] transition-colors"
+                                        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--color-surface-hover)] transition-colors"
                                     >
                                         <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+                                            <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] flex items-center justify-center border border-black/20">
                                                 <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                                                 </svg>
@@ -200,10 +200,10 @@ export function BrowsePage() {
                                                     <a
                                                         key={vendor.id}
                                                         href={`/vendor/${vendor.id}`}
-                                                        className="flex items-center gap-3 p-3 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-primary)] hover:text-white border border-[var(--color-border)] hover:border-transparent transition-all group"
+                                                        className="flex items-center gap-3 p-3 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-primary)] hover:text-[var(--color-primary-foreground)] border border-[var(--color-border)] hover:border-[var(--color-primary)] transition-all group"
                                                     >
-                                                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0 group-hover:from-white/20 group-hover:to-white/10">
-                                                            <span className="text-sm font-bold text-white">
+                                                        <div className="w-8 h-8 rounded-full bg-[var(--color-primary)] flex items-center justify-center flex-shrink-0 border border-black/20 group-hover:bg-[var(--color-primary-foreground)]">
+                                                            <span className="text-sm font-bold text-[var(--color-primary-foreground)] group-hover:text-[var(--color-primary)]">
                                                                 {vendor.name.charAt(0).toUpperCase()}
                                                             </span>
                                                         </div>
@@ -225,7 +225,7 @@ export function BrowsePage() {
                 )}
 
                 {/* Browse All / Search Results Section */}
-                <section className="py-10 border-t border-[var(--color-border)]">
+                <section className="py-10 border-t-2 border-[var(--color-border)]">
                     {/* Section Header */}
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
                         <div className="flex items-center gap-4">
@@ -247,7 +247,7 @@ export function BrowsePage() {
 
                         <button
                             onClick={() => setShowFilters(!showFilters)}
-                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white hover:bg-[var(--color-surface)] border border-[var(--color-border)] transition-colors"
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-surface-elevated)] hover:bg-[var(--color-surface-hover)] border-2 border-[var(--color-border)] transition-colors"
                         >
                             <svg
                                 className="w-4 h-4"
@@ -271,7 +271,7 @@ export function BrowsePage() {
 
                     {/* Expandable Filters */}
                     {showFilters && (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8 p-4 bg-white rounded-xl border border-[var(--color-border)] animate-fadeIn">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8 p-4 bg-[var(--color-surface-elevated)] rounded-xl border-2 border-[var(--color-border)] animate-fadeIn">
                             <Select
                                 label="Category"
                                 options={[
@@ -369,8 +369,8 @@ export function BrowsePage() {
                                                     key={pageNum}
                                                     onClick={() => setPage(pageNum)}
                                                     className={`w-10 h-10 rounded-lg text-sm font-medium transition-colors ${pagination.page === pageNum
-                                                        ? 'bg-[var(--color-primary)] text-white'
-                                                        : 'bg-white text-[var(--color-foreground)] hover:bg-[var(--color-surface)] border border-[var(--color-border)]'
+                                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                                                        : 'bg-[var(--color-surface-elevated)] text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)] border-2 border-[var(--color-border)]'
                                                         }`}
                                                 >
                                                     {pageNum}

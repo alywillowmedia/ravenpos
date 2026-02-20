@@ -103,7 +103,7 @@ export function usePayouts() {
             if (consignorIds.length > 0) {
                 const { data: scheduleData, error: scheduleError } = await supabase
                     .from('consignor_rate_schedules')
-                    .select('id, consignor_id, effective_date, commission_split, monthly_booth_rent, created_at, updated_at')
+                    .select('id, consignor_id, effective_date, commission_split, booth_square_feet, booth_cost_per_square_foot, monthly_booth_rent, created_at, updated_at')
                     .in('consignor_id', consignorIds)
                     .lte('effective_date', today);
 

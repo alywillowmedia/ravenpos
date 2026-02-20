@@ -9,6 +9,7 @@ import { EmptyState, UsersIcon } from '../components/ui/EmptyState';
 import { ConsignorForm } from '../components/consignors/ConsignorForm';
 import { useConsignors } from '../hooks/useConsignors';
 import { isConsignorScheduled } from '../lib/consignorStatus';
+import { getConsignorDisplayName, getConsignorPayToName } from '../lib/consignors';
 import type { Consignor, ConsignorInput } from '../types';
 
 export function Consignors() {
@@ -50,7 +51,8 @@ export function Consignors() {
             sortable: true,
             render: (c) => (
                 <div>
-                    <p className="font-medium text-[var(--color-foreground)]">{c.name}</p>
+                    <p className="font-medium text-[var(--color-foreground)]">{getConsignorDisplayName(c)}</p>
+                    <p className="text-xs text-[var(--color-muted)]">Pay To: {getConsignorPayToName(c)}</p>
                     {c.booth_location && (
                         <p className="text-xs text-[var(--color-muted)]">{c.booth_location}</p>
                     )}
@@ -160,7 +162,7 @@ export function Consignors() {
                     keyExtractor={(c) => c.id}
                     searchable
                     searchPlaceholder="Search consignors..."
-                    searchKeys={['name', 'consignor_number', 'email', 'phone', 'booth_location']}
+                    searchKeys={['name', 'business_name', 'first_name', 'last_name', 'consignor_number', 'email', 'phone', 'booth_location']}
                     onRowClick={(c) => navigate(`/admin/consignors/${c.id}`)}
                     isLoading={isLoading}
                     emptyMessage="No consignors found"

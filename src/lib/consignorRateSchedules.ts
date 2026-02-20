@@ -5,6 +5,8 @@ export interface ConsignorRateSchedule {
     consignor_id: string;
     effective_date: string;
     commission_split: number;
+    booth_square_feet?: number | null;
+    booth_cost_per_square_foot?: number | null;
     monthly_booth_rent: number;
     created_at: string;
     updated_at: string;
@@ -38,7 +40,10 @@ export function applyEffectiveConsignorTerms(
     return {
         ...consignor,
         commission_split: Number(latest.commission_split),
+        booth_square_feet: Number(latest.booth_square_feet ?? consignor.booth_square_feet ?? 0),
+        booth_cost_per_square_foot: Number(
+            latest.booth_cost_per_square_foot ?? consignor.booth_cost_per_square_foot ?? 0
+        ),
         monthly_booth_rent: Number(latest.monthly_booth_rent),
     };
 }
-

@@ -18,6 +18,7 @@ import { formatCurrency, formatDate } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { getLocalDateString } from '../lib/consignorRateSchedules';
 import { isConsignorScheduled } from '../lib/consignorStatus';
+import { getConsignorDisplayName, getConsignorPayToName } from '../lib/consignors';
 import type { Consignor, Item, BoothRentPayment, ConsignorInput } from '../types';
 
 const MONTH_NAMES = [
@@ -44,6 +45,8 @@ export function ConsignorDetail() {
     const [upcomingRateChange, setUpcomingRateChange] = useState<{
         effective_date: string;
         commission_split: number;
+        booth_square_feet?: number;
+        booth_cost_per_square_foot?: number;
         monthly_booth_rent: number;
     } | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -63,25 +66,65 @@ export function ConsignorDetail() {
     useEffect(() => {
         const fetchConsignor = async () => {
             if (!id) return;
-            const [{ data: consignorData }, { data: scheduleData }] = await Promise.all([
-                getConsignorById(id),
-                supabase
+            const { data: consignorData } = await getConsignorById(id);
+            const today = getLocalDateString();
+            const fullScheduleResult = await supabase
+                .from('consignor_rate_schedules')
+                .select('effective_date, commission_split, booth_square_feet, booth_cost_per_square_foot, monthly_booth_rent')
+                .eq('consignor_id', id)
+                .gte('effective_date', today)
+                .order('effective_date', { ascending: true })
+                .limit(1)
+                .maybeSingle();
+            let scheduleData = fullScheduleResult.data as {
+                effective_date: string;
+                commission_split: number;
+                booth_square_feet?: number | null;
+                booth_cost_per_square_foot?: number | null;
+                monthly_booth_rent: number;
+            } | null;
+            let scheduleError = fullScheduleResult.error;
+
+            if (
+                scheduleError &&
+                `${scheduleError.message || ''} ${scheduleError.details || ''}`.toLowerCase().includes('booth_')
+            ) {
+                const legacyScheduleResult = await supabase
                     .from('consignor_rate_schedules')
                     .select('effective_date, commission_split, monthly_booth_rent')
                     .eq('consignor_id', id)
-                    .gt('effective_date', getLocalDateString())
+                    .gte('effective_date', today)
                     .order('effective_date', { ascending: true })
                     .limit(1)
-                    .maybeSingle(),
-            ]);
+                    .maybeSingle();
+                scheduleData = legacyScheduleResult.data as {
+                    effective_date: string;
+                    commission_split: number;
+                    monthly_booth_rent: number;
+                } | null;
+                scheduleError = legacyScheduleResult.error;
+            }
+
             setConsignor(consignorData);
-            setUpcomingRateChange(scheduleData
-                ? {
+            if (!scheduleError && scheduleData) {
+                const monthlyBoothRent = Number(scheduleData.monthly_booth_rent ?? 0);
+                const boothSquareFeet = Number(scheduleData.booth_square_feet ?? consignorData?.booth_square_feet ?? 0) || 0;
+                const boothCostPerSquareFoot = Number(
+                    scheduleData.booth_cost_per_square_foot ??
+                    (boothSquareFeet > 0
+                        ? monthlyBoothRent / boothSquareFeet
+                        : (consignorData?.booth_cost_per_square_foot ?? 0))
+                ) || 0;
+                setUpcomingRateChange({
                     effective_date: scheduleData.effective_date,
                     commission_split: Number(scheduleData.commission_split),
-                    monthly_booth_rent: Number(scheduleData.monthly_booth_rent),
-                }
-                : null);
+                    booth_square_feet: boothSquareFeet,
+                    booth_cost_per_square_foot: boothCostPerSquareFoot,
+                    monthly_booth_rent: monthlyBoothRent,
+                });
+            } else {
+                setUpcomingRateChange(null);
+            }
             setIsLoading(false);
         };
         fetchConsignor();
@@ -280,7 +323,7 @@ export function ConsignorDetail() {
             </div>
 
             <Header
-                title={consignor.name}
+                title={getConsignorDisplayName(consignor)}
                 description={`Consignor ${consignor.consignor_number}`}
                 actions={
                     <Button variant="secondary" onClick={() => setIsEditModalOpen(true)}>
@@ -296,6 +339,15 @@ export function ConsignorDetail() {
                         <CardTitle className="text-sm text-[var(--color-muted)]">Contact Info</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm">
+                        <p>
+                            <strong>Business:</strong> {consignor.business_name || '—'}
+                        </p>
+                        <p>
+                            <strong>Individual:</strong> {[consignor.first_name, consignor.last_name].filter(Boolean).join(' ') || '—'}
+                        </p>
+                        <p>
+                            <strong>Pay To:</strong> {getConsignorPayToName(consignor)}
+                        </p>
                         <p>
                             <strong>Email:</strong> {consignor.email || '—'}
                         </p>
@@ -343,12 +395,15 @@ export function ConsignorDetail() {
                             <strong>Monthly Rent:</strong> {monthlyRent > 0 ? formatCurrency(monthlyRent) : 'None'}
                         </p>
                         <p>
+                            <strong>Booth Cost Formula:</strong> {(Number(consignor.booth_square_feet) || 0)} sqft x {formatCurrency(Number(consignor.booth_cost_per_square_foot) || 0)}
+                        </p>
+                        <p>
                             <strong>Card Fee Policy:</strong> {consignor.consignor_pays_card_fee ? 'Consignor Pays' : 'Customer Pays'}
                         </p>
                         {upcomingRateChange && (
                             <p>
                                 <strong>Scheduled Change ({formatDate(upcomingRateChange.effective_date)}):</strong>{' '}
-                                {Math.round(upcomingRateChange.commission_split * 100)}% commission, {formatCurrency(upcomingRateChange.monthly_booth_rent)} rent
+                                {Math.round(upcomingRateChange.commission_split * 100)}% commission, {Number(upcomingRateChange.booth_square_feet) || 0} sqft x {formatCurrency(Number(upcomingRateChange.booth_cost_per_square_foot) || 0)} = {formatCurrency(upcomingRateChange.monthly_booth_rent)} rent
                             </p>
                         )}
                         <p>
@@ -443,7 +498,7 @@ export function ConsignorDetail() {
                     <EmptyState
                         icon={<PackageIcon />}
                         title="No items yet"
-                        description={`${consignor.name} doesn't have any items in inventory.`}
+                        description={`${getConsignorDisplayName(consignor)} doesn't have any items in inventory.`}
                         action={
                             <Link to={`/add-items?consignor=${id}`}>
                                 <Button>Add Items</Button>

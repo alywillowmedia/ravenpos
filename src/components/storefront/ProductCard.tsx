@@ -12,7 +12,7 @@ export function ProductCard({ item }: ProductCardProps) {
     return (
         <Link
             to={`/item/${item.id}`}
-            className="group block bg-white rounded-2xl border border-[var(--color-border)] overflow-hidden hover:shadow-xl hover:border-[var(--color-primary)]/30 transition-all duration-300"
+            className="group block bg-[var(--color-surface-elevated)] rounded-2xl border-2 border-[var(--color-border)] overflow-hidden hover:shadow-xl hover:-translate-y-0.5 hover:border-[var(--color-primary)] transition-all duration-300"
         >
             {/* Image Container */}
             <div className="aspect-square bg-[var(--color-surface)] relative overflow-hidden">
@@ -43,7 +43,7 @@ export function ProductCard({ item }: ProductCardProps) {
 
                 {/* Category Badge */}
                 <div className="absolute top-3 left-3">
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-white/90 backdrop-blur-sm text-[var(--color-foreground)] shadow-sm">
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-[var(--color-surface-elevated)]/95 backdrop-blur-sm text-[var(--color-foreground)] shadow-sm border border-[var(--color-border)]">
                         {item.category}
                     </span>
                 </div>
@@ -75,7 +75,7 @@ export function ProductCard({ item }: ProductCardProps) {
 
                 {/* Price */}
                 <div className="mt-3 flex items-center justify-between">
-                    <span className="text-lg font-bold text-[var(--color-foreground)]">
+                    <span className="text-lg font-bold text-[var(--color-primary)]">
                         ${item.price.toFixed(2)}
                     </span>
                     <span className="text-xs text-[var(--color-success)] font-medium">

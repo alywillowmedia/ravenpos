@@ -102,11 +102,11 @@ export function VendorPage() {
             </Link>
 
             {/* Vendor Header */}
-            <div className="bg-white rounded-2xl border border-[var(--color-border)] p-6 mb-8">
+            <div className="bg-[var(--color-surface-elevated)] rounded-2xl border-2 border-[var(--color-border)] p-6 mb-8">
                 <div className="flex items-center gap-4">
                     {/* Vendor Avatar */}
-                    <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0">
-                        <span className="text-3xl font-bold text-white">
+                    <div className="w-16 h-16 rounded-full bg-[var(--color-primary)] flex items-center justify-center flex-shrink-0 border border-black/20">
+                        <span className="text-3xl font-bold text-[var(--color-primary-foreground)]">
                             {vendor.name.charAt(0).toUpperCase()}
                         </span>
                     </div>

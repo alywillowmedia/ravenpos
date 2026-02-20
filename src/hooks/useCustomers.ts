@@ -2,6 +2,16 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Customer, CustomerInput } from '../types';
 
+type CustomerOrderSaleItem = {
+    id: string;
+    sale_id: string;
+    name: string;
+    sku: string;
+    price: number;
+    quantity: number;
+    discount_amount?: number | null;
+};
+
 export function useCustomers() {
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -127,7 +137,9 @@ export function useCustomers() {
 
     const getCustomerOrderHistory = useCallback(async (customerId: string) => {
         try {
-            const { data, error: fetchError } = await supabase
+            // Keep this query strict to universally-present columns to avoid PostgREST
+            // schema drift/cache issues on optional discount columns.
+            const { data: salesData, error: salesError } = await supabase
                 .from('sales')
                 .select(`
                     id,
@@ -136,25 +148,72 @@ export function useCustomers() {
                     tax_amount,
                     total,
                     payment_method,
-                    check_number,
                     cash_tendered,
                     change_given,
-                    refund_status,
-                    discount_total,
-                    sale_items (
-                        id,
-                        name,
-                        sku,
-                        price,
-                        quantity,
-                        discount_amount
-                    )
+                    refund_status
                 `)
                 .eq('customer_id', customerId)
                 .order('completed_at', { ascending: false });
 
-            if (fetchError) throw fetchError;
-            return { data: data || [], error: null };
+            if (salesError) throw salesError;
+
+            if (salesData.length === 0) {
+                return { data: [], error: null };
+            }
+
+            const saleIds = salesData.map((sale) => sale.id);
+            const baseItemColumns = `
+                id,
+                sale_id,
+                name,
+                sku,
+                price,
+                quantity
+            `;
+            const itemColumnsWithDiscount = `
+                ${baseItemColumns},
+                discount_amount
+            `;
+
+            let itemsData: CustomerOrderSaleItem[] = [];
+            const { data: primaryItemsData, error: primaryItemsError } = await supabase
+                .from('sale_items')
+                .select(itemColumnsWithDiscount)
+                .in('sale_id', saleIds);
+
+            if (primaryItemsError) {
+                // Fallback query without optional discount_amount column.
+                const { data: fallbackItemsData, error: fallbackItemsError } = await supabase
+                    .from('sale_items')
+                    .select(baseItemColumns)
+                    .in('sale_id', saleIds);
+
+                if (fallbackItemsError) throw fallbackItemsError;
+
+                itemsData = (fallbackItemsData || []).map((item) => ({
+                    ...item,
+                    discount_amount: null,
+                }));
+            } else {
+                itemsData = primaryItemsData || [];
+            }
+
+            const itemsBySale: Record<string, CustomerOrderSaleItem[]> = {};
+            for (const item of itemsData) {
+                if (!itemsBySale[item.sale_id]) {
+                    itemsBySale[item.sale_id] = [];
+                }
+                itemsBySale[item.sale_id].push(item);
+            }
+
+            const normalized = salesData.map((sale) => ({
+                ...sale,
+                check_number: null,
+                discount_total: null,
+                sale_items: itemsBySale[sale.id] || [],
+            }));
+
+            return { data: normalized, error: null };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to fetch order history';
             return { data: [], error: message };

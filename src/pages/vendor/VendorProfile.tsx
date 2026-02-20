@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { getConsignorDisplayName, getConsignorPayToName } from '../../lib/consignors';
 import type { Consignor } from '../../types';
 
 export function VendorProfile() {
@@ -151,8 +152,12 @@ export function VendorProfile() {
                 <CardContent className="space-y-3">
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <p className="text-xs text-[var(--color-muted)] uppercase">Name</p>
-                            <p className="font-medium">{consignor?.name}</p>
+                            <p className="text-xs text-[var(--color-muted)] uppercase">Display Name</p>
+                            <p className="font-medium">{consignor ? getConsignorDisplayName(consignor) : '—'}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-[var(--color-muted)] uppercase">Pay To</p>
+                            <p className="font-medium">{consignor ? getConsignorPayToName(consignor) : '—'}</p>
                         </div>
                         <div>
                             <p className="text-xs text-[var(--color-muted)] uppercase">Consignor ID</p>

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Header } from '../components/layout/Header';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
@@ -7,13 +7,16 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Tabs } from '../components/ui/Tabs';
+import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { useSalesHistory, type SaleWithItems } from '../hooks/useSalesHistory';
 import { useRefundHistory, type RefundWithDetails } from '../hooks/useRefundHistory';
 import { useConsignors } from '../hooks/useConsignors';
+import { useCustomers } from '../hooks/useCustomers';
 import { formatCurrency } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { printReceipt } from '../lib/printReceipt';
 import type { ReceiptData } from '../types/receipt';
+import type { Customer, CustomerInput } from '../types';
 
 type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
 
@@ -39,6 +42,7 @@ export function Sales() {
     const { sales, isLoading, calculateSalesSummary, refetch } = useSalesHistory();
     const { refunds, isLoading: isLoadingRefunds } = useRefundHistory();
     const { consignors } = useConsignors();
+    const { searchCustomers, createCustomer } = useCustomers();
 
     const [activeTab, setActiveTab] = useState<'sales' | 'refunds'>('sales');
     const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
@@ -51,6 +55,19 @@ export function Sales() {
     const [isSavingCheckNumber, setIsSavingCheckNumber] = useState(false);
     const [isPrintingReceipt, setIsPrintingReceipt] = useState(false);
     const [printError, setPrintError] = useState<string | null>(null);
+    const [customerSearch, setCustomerSearch] = useState('');
+    const [customerResults, setCustomerResults] = useState<Customer[]>([]);
+    const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
+    const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+    const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
+    const [isSavingCustomer, setIsSavingCustomer] = useState(false);
+    const [customerError, setCustomerError] = useState<string | null>(null);
+    const [newCustomerData, setNewCustomerData] = useState<CustomerInput>({
+        name: '',
+        email: null,
+        phone: null,
+        notes: null,
+    });
 
     const dateRange = useMemo(() => {
         const now = new Date();
@@ -251,6 +268,89 @@ export function Sales() {
         setIsPrintingReceipt(false);
     };
 
+    useEffect(() => {
+        if (!selectedSale || customerSearch.length < 2) {
+            setCustomerResults([]);
+            setShowCustomerDropdown(false);
+            return;
+        }
+
+        const timer = setTimeout(async () => {
+            setIsSearchingCustomer(true);
+            const { data, error } = await searchCustomers(customerSearch);
+            setIsSearchingCustomer(false);
+
+            if (error) {
+                setCustomerError(error);
+                setCustomerResults([]);
+                setShowCustomerDropdown(false);
+                return;
+            }
+
+            setCustomerError(null);
+            setCustomerResults(data.filter((customer) => customer.id !== selectedSale.customer?.id));
+            setShowCustomerDropdown(true);
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [selectedSale, customerSearch, searchCustomers]);
+
+    const resetCustomerAttachState = () => {
+        setCustomerSearch('');
+        setCustomerResults([]);
+        setShowCustomerDropdown(false);
+        setCustomerError(null);
+        setShowNewCustomerModal(false);
+        setNewCustomerData({ name: '', email: null, phone: null, notes: null });
+    };
+
+    const attachCustomerToSelectedSale = async (customer: Customer | null) => {
+        if (!selectedSale) return;
+
+        setIsSavingCustomer(true);
+        setCustomerError(null);
+
+        const { error } = await supabase
+            .from('sales')
+            .update({ customer_id: customer?.id || null })
+            .eq('id', selectedSale.id);
+
+        setIsSavingCustomer(false);
+
+        if (error) {
+            setCustomerError(error.message || 'Failed to update customer');
+            return;
+        }
+
+        setSelectedSale({
+            ...selectedSale,
+            customer_id: customer?.id || null,
+            customer: customer || undefined,
+        });
+        setCustomerSearch('');
+        setCustomerResults([]);
+        setShowCustomerDropdown(false);
+        await refetch();
+    };
+
+    const handleCreateCustomer = async () => {
+        if (!newCustomerData.name.trim()) return;
+
+        setIsSavingCustomer(true);
+        setCustomerError(null);
+        const { data, error } = await createCustomer(newCustomerData);
+        setIsSavingCustomer(false);
+
+        if (error || !data) {
+            setCustomerError(error || 'Failed to create customer');
+            return;
+        }
+
+        setShowNewCustomerModal(false);
+        setNewCustomerData({ name: '', email: null, phone: null, notes: null });
+        await attachCustomerToSelectedSale(data);
+    };
+
     return (
         <div className="animate-fadeIn">
             <Header
@@ -390,6 +490,7 @@ export function Sales() {
                                             setSelectedSale(sale);
                                             setCheckNumberInput(sale.check_number || '');
                                             setPrintError(null);
+                                            resetCustomerAttachState();
                                         }}
                                         calculateSalesSummary={calculateSalesSummary}
                                     />
@@ -430,6 +531,7 @@ export function Sales() {
                     setSelectedSale(null);
                     setCheckNumberInput('');
                     setPrintError(null);
+                    resetCustomerAttachState();
                 }}
                 title="Receipt Preview"
                 size="3xl"
@@ -487,19 +589,102 @@ export function Sales() {
                             )}
 
                             {/* Customer Info */}
-                            {selectedSale.customer && (
-                                <div className="bg-[var(--color-primary)]/5 rounded-lg p-3 border border-[var(--color-primary)]/20">
-                                    <p className="text-xs text-[var(--color-muted)] mb-1">Customer</p>
-                                    <p className="font-medium">{selectedSale.customer.name}</p>
-                                    {(selectedSale.customer.phone || selectedSale.customer.email) && (
-                                        <p className="text-sm text-[var(--color-muted)]">
-                                            {selectedSale.customer.phone}
-                                            {selectedSale.customer.phone && selectedSale.customer.email && ' • '}
-                                            {selectedSale.customer.email}
-                                        </p>
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm font-semibold">Customer</p>
+                                    {isSavingCustomer && (
+                                        <span className="text-xs text-[var(--color-muted)] flex items-center gap-2">
+                                            <LoadingSpinner size={14} />
+                                            Saving...
+                                        </span>
                                     )}
                                 </div>
-                            )}
+                                {selectedSale.customer ? (
+                                    <div className="bg-[var(--color-primary)]/5 rounded-lg p-3 border border-[var(--color-primary)]/20">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <p className="font-medium">{selectedSale.customer.name}</p>
+                                                {(selectedSale.customer.phone || selectedSale.customer.email) && (
+                                                    <p className="text-sm text-[var(--color-muted)]">
+                                                        {selectedSale.customer.phone}
+                                                        {selectedSale.customer.phone && selectedSale.customer.email && ' • '}
+                                                        {selectedSale.customer.email}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => attachCustomerToSelectedSale(null)}
+                                                disabled={isSavingCustomer}
+                                            >
+                                                Remove
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-[var(--color-muted)]">
+                                        No customer attached.
+                                    </p>
+                                )}
+
+                                <div className="flex gap-2">
+                                    <div className="relative flex-1">
+                                        <Input
+                                            value={customerSearch}
+                                            onChange={(e) => setCustomerSearch(e.target.value)}
+                                            placeholder={selectedSale.customer ? 'Replace customer...' : 'Search by name, phone, or email...'}
+                                            leftIcon={isSearchingCustomer ? <LoadingSpinner size={16} /> : <SearchIcon />}
+                                        />
+                                        {showCustomerDropdown && customerResults.length > 0 && (
+                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-[var(--color-border)] z-50 max-h-48 overflow-y-auto">
+                                                {customerResults.map((customer) => (
+                                                    <button
+                                                        key={customer.id}
+                                                        onClick={() => attachCustomerToSelectedSale(customer)}
+                                                        className="w-full px-3 py-2 text-left hover:bg-[var(--color-surface-hover)] transition-colors"
+                                                    >
+                                                        <p className="font-medium text-sm">{customer.name}</p>
+                                                        <p className="text-xs text-[var(--color-muted)]">
+                                                            {customer.phone || customer.email || 'No contact'}
+                                                        </p>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {showCustomerDropdown && customerResults.length === 0 && customerSearch.length >= 2 && !isSearchingCustomer && (
+                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-[var(--color-border)] z-50 p-3">
+                                                <p className="text-sm text-[var(--color-muted)] mb-2">No customers found</p>
+                                                <Button
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    onClick={() => {
+                                                        setNewCustomerData({ name: customerSearch, email: null, phone: null, notes: null });
+                                                        setShowNewCustomerModal(true);
+                                                        setShowCustomerDropdown(false);
+                                                    }}
+                                                >
+                                                    + Add "{customerSearch}"
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <Button
+                                        variant="secondary"
+                                        onClick={() => {
+                                            setNewCustomerData({ name: '', email: null, phone: null, notes: null });
+                                            setShowNewCustomerModal(true);
+                                        }}
+                                        className="shrink-0"
+                                        title="Create New Customer"
+                                    >
+                                        <UserPlusIcon />
+                                    </Button>
+                                </div>
+                                {customerError && (
+                                    <p className="text-sm text-[var(--color-danger)]">{customerError}</p>
+                                )}
+                            </div>
 
                             {/* Line Items */}
                             <div>
@@ -697,10 +882,57 @@ export function Sales() {
                         setSelectedSale(null);
                         setCheckNumberInput('');
                         setPrintError(null);
+                        resetCustomerAttachState();
                     }}>
                         Close
                     </Button>
                 </ModalFooter>
+            </Modal>
+
+            <Modal
+                isOpen={showNewCustomerModal}
+                onClose={() => setShowNewCustomerModal(false)}
+                title="Add New Customer"
+                size="md"
+            >
+                <div className="space-y-4">
+                    <Input
+                        label="Name *"
+                        value={newCustomerData.name}
+                        onChange={(e) => setNewCustomerData({ ...newCustomerData, name: e.target.value })}
+                        placeholder="Customer name"
+                    />
+                    <Input
+                        label="Phone"
+                        value={newCustomerData.phone || ''}
+                        onChange={(e) => setNewCustomerData({ ...newCustomerData, phone: e.target.value || null })}
+                        placeholder="(555) 123-4567"
+                    />
+                    <Input
+                        label="Email"
+                        type="email"
+                        value={newCustomerData.email || ''}
+                        onChange={(e) => setNewCustomerData({ ...newCustomerData, email: e.target.value || null })}
+                        placeholder="customer@example.com"
+                    />
+                    <div className="flex gap-3 pt-4">
+                        <Button
+                            variant="ghost"
+                            onClick={() => setShowNewCustomerModal(false)}
+                            className="flex-1"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleCreateCustomer}
+                            disabled={!newCustomerData.name.trim() || isSavingCustomer}
+                            isLoading={isSavingCustomer}
+                            className="flex-1"
+                        >
+                            Add Customer
+                        </Button>
+                    </div>
+                </div>
             </Modal>
         </div>
     );
@@ -1068,6 +1300,44 @@ function PrinterSmallIcon() {
             <polyline points="6 9 6 2 18 2 18 9" />
             <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
             <rect x="6" y="14" width="12" height="8" />
+        </svg>
+    );
+}
+
+function UserPlusIcon() {
+    return (
+        <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="8.5" cy="7" r="4" />
+            <line x1="20" y1="8" x2="20" y2="14" />
+            <line x1="23" y1="11" x2="17" y2="11" />
+        </svg>
+    );
+}
+
+function SearchIcon() {
+    return (
+        <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
         </svg>
     );
 }
