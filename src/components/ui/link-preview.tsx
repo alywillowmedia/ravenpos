@@ -131,7 +131,7 @@ export const LinkPreview = ({
                             >
                                 <a
                                     href={url}
-                                    className="block p-1 bg-white border-2 border-transparent shadow rounded-xl hover:border-neutral-200"
+                                    className="group relative block p-1 bg-white border-2 border-transparent shadow rounded-xl hover:border-neutral-200"
                                     style={{ fontSize: 0 }}
                                 >
                                     <img
@@ -141,6 +141,9 @@ export const LinkPreview = ({
                                         className="rounded-lg"
                                         alt="preview image"
                                     />
+                                    <span className="absolute left-1/2 bottom-2 -translate-x-1/2 rounded-full bg-black/85 text-white text-[11px] font-medium px-3 py-1 whitespace-nowrap shadow-sm transition-colors group-hover:bg-black">
+                                        Go to vendor&apos;s page &rarr;
+                                    </span>
                                 </a>
                             </motion.div>
                         )}

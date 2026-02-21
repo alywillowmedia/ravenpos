@@ -42,6 +42,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const lastUserIdRef = useRef<string | null>(null);
     const currentUserIdRef = useRef<string | null>(null);
 
+    const isAnonymousUser = useCallback((authUser: User | null | undefined) => {
+        if (!authUser) return false;
+        if (authUser.is_anonymous) return true;
+        return authUser.app_metadata?.provider === 'anonymous';
+    }, []);
+
     // Fetch user record - doesn't block, just updates state when ready
     const fetchUserRecord = useCallback(async (userId: string) => {
         // Ignore stale fetch requests for a user that is no longer active
@@ -62,7 +68,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 .from('users')
                 .select('*')
                 .eq('id', userId)
-                .single();
+                .maybeSingle();
 
             if (error) {
                 console.error('Error fetching user record:', error);
@@ -98,8 +104,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setIsLoading(false); // Set loading false IMMEDIATELY
 
             // Fetch user record in background (non-blocking)
-            if (session?.user) {
+            if (session?.user && !isAnonymousUser(session.user)) {
                 fetchUserRecord(session.user.id);
+            } else {
+                setUserRecord(null);
             }
         });
 
@@ -112,7 +120,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 setSession(session);
                 setUser(session?.user ?? null);
 
-                if (session?.user) {
+                if (session?.user && !isAnonymousUser(session.user)) {
                     // Fetch user record in background (non-blocking)
                     fetchUserRecord(session.user.id);
                 } else {
@@ -127,7 +135,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             mounted = false;
             subscription.unsubscribe();
         };
-    }, [fetchUserRecord]);
+    }, [fetchUserRecord, isAnonymousUser]);
 
     const signIn = async (email: string, password: string) => {
         const { error } = await supabase.auth.signInWithPassword({

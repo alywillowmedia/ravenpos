@@ -2,7 +2,7 @@
 // Shown after PIN entry - allows choosing between clock in/out and POS access
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
@@ -16,8 +16,7 @@ export function EmployeeActionSelection() {
 
     // Redirect if not logged in
     if (!employee) {
-        navigate('/employee/login');
-        return null;
+        return <Navigate to="/employee/login" replace />;
     }
 
     const handleClockAction = async () => {

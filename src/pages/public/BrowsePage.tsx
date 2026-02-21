@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePublicInventory } from '../../hooks/usePublicInventory';
+import { usePublicStorefrontSettings } from '../../hooks/usePublicStorefrontSettings';
 import { ProductCard } from '../../components/storefront/ProductCard';
 import { HeroSection } from '../../components/storefront/HeroSection';
 import { Select } from '../../components/ui/Select';
@@ -24,6 +25,7 @@ export function BrowsePage() {
         pagination,
         setPage,
     } = usePublicInventory();
+    const { settings: homeHeroSettings } = usePublicStorefrontSettings();
 
     const [showFilters, setShowFilters] = useState(false);
     const [categoriesOpen, setCategoriesOpen] = useState(false);
@@ -116,7 +118,7 @@ export function BrowsePage() {
         <div className="animate-fadeIn">
             {!isEmbedMode && (
                 <HeroSection
-                    storeName="Ravenlia Galleria"
+                    settings={homeHeroSettings}
                     searchValue={filters.search}
                     onSearchChange={(value) => updateFilters({ search: value })}
                 />

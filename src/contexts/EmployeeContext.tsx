@@ -250,7 +250,16 @@ export function EmployeeProvider({ children }: EmployeeProviderProps) {
     // Logout (does NOT clock out - clock status persists independently)
     const logout = async () => {
         try {
-            await supabase.from('employee_sessions').delete();
+            const { data: { user: authUser } } = await supabase.auth.getUser();
+            if (authUser?.id) {
+                const { error: deleteError } = await supabase
+                    .from('employee_sessions')
+                    .delete()
+                    .eq('auth_user_id', authUser.id);
+                if (deleteError) {
+                    console.error('Failed clearing employee session mapping:', deleteError);
+                }
+            }
         } catch (err) {
             console.error('Failed clearing employee session mapping:', err);
         }

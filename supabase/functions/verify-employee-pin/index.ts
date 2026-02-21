@@ -29,6 +29,21 @@ interface Employee {
 
 const SESSION_DURATION_HOURS = 8;
 
+function isAnonymousUser(user: Record<string, unknown> | null | undefined): boolean {
+    if (!user) return false;
+
+    const isAnonymousFlag = user.is_anonymous;
+    if (isAnonymousFlag === true) return true;
+
+    const appMetadata = user.app_metadata;
+    if (appMetadata && typeof appMetadata === 'object') {
+        const provider = (appMetadata as Record<string, unknown>).provider;
+        if (provider === 'anonymous') return true;
+    }
+
+    return false;
+}
+
 Deno.serve(async (req) => {
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {
@@ -80,7 +95,7 @@ Deno.serve(async (req) => {
             );
         }
 
-        if (!authData.user.is_anonymous) {
+        if (!isAnonymousUser(authData.user as unknown as Record<string, unknown>)) {
             return new Response(
                 JSON.stringify({ error: 'Employee PIN login requires an anonymous session' }),
                 {

@@ -1,10 +1,16 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { Header } from '../components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
-import { Input } from '../components/ui/Input';
+import { Input, Textarea } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { ImageUpload } from '../components/ui/ImageUpload';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import {
+    DEFAULT_PUBLIC_STOREFRONT_SETTINGS,
+    normalizePublicStorefrontSettings,
+    type PublicStorefrontSettings,
+} from '../lib/publicStorefrontSettings';
 
 interface AdminRow {
     id: string;
@@ -21,6 +27,8 @@ export function AdminProfile() {
     const [adminMessage, setAdminMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const [isSavingProfile, setIsSavingProfile] = useState(false);
     const [isCreatingAdmin, setIsCreatingAdmin] = useState(false);
+    const [isLoadingHomeSettings, setIsLoadingHomeSettings] = useState(true);
+    const [isSavingHomeSettings, setIsSavingHomeSettings] = useState(false);
 
     const [profileName, setProfileName] = useState('');
     const [profileEmail, setProfileEmail] = useState('');
@@ -30,6 +38,8 @@ export function AdminProfile() {
     const [createName, setCreateName] = useState('');
     const [createEmail, setCreateEmail] = useState('');
     const [createPassword, setCreatePassword] = useState('');
+    const [homeSettings, setHomeSettings] = useState<PublicStorefrontSettings>(DEFAULT_PUBLIC_STOREFRONT_SETTINGS);
+    const [homeMessage, setHomeMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     const fetchAdmins = useCallback(async () => {
         setIsLoadingAdmins(true);
@@ -48,6 +58,36 @@ export function AdminProfile() {
         setIsLoadingAdmins(false);
     }, []);
 
+    const fetchHomeSettings = useCallback(async () => {
+        setIsLoadingHomeSettings(true);
+        const { data, error } = await supabase
+            .from('storefront_home_settings')
+            .select(`
+                store_name,
+                hero_badge_text,
+                hero_heading,
+                hero_subheading,
+                hero_body,
+                hero_search_placeholder,
+                hero_primary_cta_label,
+                hero_primary_cta_href,
+                hero_background_image_url,
+                hero_feature_image_url,
+                hero_accent_image_url
+            `)
+            .eq('id', true)
+            .maybeSingle();
+
+        if (error) {
+            setHomeMessage({ type: 'error', text: error.message });
+            setHomeSettings(DEFAULT_PUBLIC_STOREFRONT_SETTINGS);
+        } else {
+            setHomeSettings(normalizePublicStorefrontSettings(data));
+        }
+
+        setIsLoadingHomeSettings(false);
+    }, []);
+
     useEffect(() => {
         setProfileName(userRecord?.full_name ?? '');
         setProfileEmail(userRecord?.email ?? user?.email ?? '');
@@ -56,6 +96,10 @@ export function AdminProfile() {
     useEffect(() => {
         void fetchAdmins();
     }, [fetchAdmins]);
+
+    useEffect(() => {
+        void fetchHomeSettings();
+    }, [fetchHomeSettings]);
 
     const callManageAdmin = async (body: object) => {
         const headers: Record<string, string> = {};
@@ -168,6 +212,53 @@ export function AdminProfile() {
         }
     };
 
+    const handleSaveHomeSettings = async (e: FormEvent) => {
+        e.preventDefault();
+        setHomeMessage(null);
+        setIsSavingHomeSettings(true);
+
+        const payload = {
+            id: true,
+            store_name: homeSettings.store_name.trim().slice(0, 120),
+            hero_badge_text: homeSettings.hero_badge_text.trim().slice(0, 80),
+            hero_heading: homeSettings.hero_heading.trim().slice(0, 120),
+            hero_subheading: homeSettings.hero_subheading.trim().slice(0, 240),
+            hero_body: homeSettings.hero_body.trim().slice(0, 500),
+            hero_search_placeholder: homeSettings.hero_search_placeholder.trim().slice(0, 120),
+            hero_primary_cta_label: homeSettings.hero_primary_cta_label?.trim().slice(0, 40) || null,
+            hero_primary_cta_href: homeSettings.hero_primary_cta_href?.trim().slice(0, 240) || null,
+            hero_background_image_url: homeSettings.hero_background_image_url,
+            hero_feature_image_url: homeSettings.hero_feature_image_url,
+            hero_accent_image_url: homeSettings.hero_accent_image_url,
+        };
+
+        if (!payload.hero_heading) {
+            setHomeMessage({ type: 'error', text: 'Hero heading is required.' });
+            setIsSavingHomeSettings(false);
+            return;
+        }
+
+        if (!payload.hero_subheading) {
+            setHomeMessage({ type: 'error', text: 'Hero subheading is required.' });
+            setIsSavingHomeSettings(false);
+            return;
+        }
+
+        const { error } = await supabase
+            .from('storefront_home_settings')
+            .upsert(payload, { onConflict: 'id' });
+
+        setIsSavingHomeSettings(false);
+
+        if (error) {
+            setHomeMessage({ type: 'error', text: error.message });
+            return;
+        }
+
+        setHomeMessage({ type: 'success', text: 'Public home header settings saved.' });
+        await fetchHomeSettings();
+    };
+
     return (
         <div className="animate-fadeIn max-w-3xl">
             <Header
@@ -231,6 +322,118 @@ export function AdminProfile() {
                             Save Profile
                         </Button>
                     </form>
+                </CardContent>
+            </Card>
+
+            <Card variant="outlined" className="mb-6">
+                <CardHeader>
+                    <CardTitle className="text-sm">Public Home Header</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {homeMessage && (
+                        <div
+                            className={`mb-4 rounded-lg p-3 text-sm ${homeMessage.type === 'success'
+                                ? 'bg-[var(--color-success-bg)] text-[var(--color-success)]'
+                                : 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]'
+                                }`}
+                        >
+                            {homeMessage.text}
+                        </div>
+                    )}
+
+                    {isLoadingHomeSettings ? (
+                        <p className="text-sm text-[var(--color-muted)]">Loading home header settings...</p>
+                    ) : (
+                        <form onSubmit={handleSaveHomeSettings} className="space-y-4">
+                            <Input
+                                label="Store Name"
+                                value={homeSettings.store_name}
+                                onChange={(e) => setHomeSettings((prev) => ({ ...prev, store_name: e.target.value }))}
+                                maxLength={120}
+                            />
+                            <Input
+                                label="Hero Badge Text"
+                                value={homeSettings.hero_badge_text}
+                                onChange={(e) => setHomeSettings((prev) => ({ ...prev, hero_badge_text: e.target.value }))}
+                                maxLength={80}
+                            />
+                            <Input
+                                label="Hero Heading"
+                                value={homeSettings.hero_heading}
+                                onChange={(e) => setHomeSettings((prev) => ({ ...prev, hero_heading: e.target.value }))}
+                                maxLength={120}
+                            />
+                            <Input
+                                label="Hero Subheading"
+                                value={homeSettings.hero_subheading}
+                                onChange={(e) => setHomeSettings((prev) => ({ ...prev, hero_subheading: e.target.value }))}
+                                maxLength={240}
+                            />
+                            <Textarea
+                                label="Hero Body"
+                                value={homeSettings.hero_body}
+                                onChange={(e) => setHomeSettings((prev) => ({ ...prev, hero_body: e.target.value }))}
+                                maxLength={500}
+                                rows={4}
+                            />
+                            <Input
+                                label="Search Placeholder"
+                                value={homeSettings.hero_search_placeholder}
+                                onChange={(e) => setHomeSettings((prev) => ({ ...prev, hero_search_placeholder: e.target.value }))}
+                                maxLength={120}
+                            />
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Input
+                                    label="Primary CTA Label"
+                                    value={homeSettings.hero_primary_cta_label || ''}
+                                    onChange={(e) => setHomeSettings((prev) => ({ ...prev, hero_primary_cta_label: e.target.value || null }))}
+                                    placeholder="Shop Categories"
+                                    maxLength={40}
+                                />
+                                <Input
+                                    label="Primary CTA Link"
+                                    value={homeSettings.hero_primary_cta_href || ''}
+                                    onChange={(e) => setHomeSettings((prev) => ({ ...prev, hero_primary_cta_href: e.target.value || null }))}
+                                    placeholder="#categories or /"
+                                    maxLength={240}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                <div>
+                                    <p className="text-sm font-medium text-[var(--color-foreground)] mb-2">Background Image</p>
+                                    <ImageUpload
+                                        value={homeSettings.hero_background_image_url}
+                                        onChange={(url) => setHomeSettings((prev) => ({ ...prev, hero_background_image_url: url }))}
+                                        consignorId={userRecord?.id || 'admin'}
+                                        itemId="home-hero-background"
+                                    />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-medium text-[var(--color-foreground)] mb-2">Feature Image</p>
+                                    <ImageUpload
+                                        value={homeSettings.hero_feature_image_url}
+                                        onChange={(url) => setHomeSettings((prev) => ({ ...prev, hero_feature_image_url: url }))}
+                                        consignorId={userRecord?.id || 'admin'}
+                                        itemId="home-hero-feature"
+                                    />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-medium text-[var(--color-foreground)] mb-2">Accent Image</p>
+                                    <ImageUpload
+                                        value={homeSettings.hero_accent_image_url}
+                                        onChange={(url) => setHomeSettings((prev) => ({ ...prev, hero_accent_image_url: url }))}
+                                        consignorId={userRecord?.id || 'admin'}
+                                        itemId="home-hero-accent"
+                                    />
+                                </div>
+                            </div>
+
+                            <Button type="submit" isLoading={isSavingHomeSettings}>
+                                Save Home Header
+                            </Button>
+                        </form>
+                    )}
                 </CardContent>
             </Card>
 

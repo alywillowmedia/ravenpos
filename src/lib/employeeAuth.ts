@@ -35,6 +35,24 @@ async function ensureAnonymousAuthSession(): Promise<{ error: string | null }> {
     return { error: null };
 }
 
+async function extractFunctionErrorMessage(error: unknown): Promise<string | null> {
+    if (!error || typeof error !== 'object') return null;
+
+    const maybeContext = (error as { context?: Response }).context;
+    if (!maybeContext) return null;
+
+    try {
+        const data = await maybeContext.clone().json() as { error?: string };
+        if (typeof data?.error === 'string' && data.error.trim().length > 0) {
+            return data.error;
+        }
+    } catch {
+        // Best effort only
+    }
+
+    return null;
+}
+
 // SHA-256 hash function for PIN hashing (client-side, for creating employees)
 export async function hashPin(pin: string, salt: string): Promise<string> {
     const msgBuffer = new TextEncoder().encode(pin + salt);
@@ -58,13 +76,25 @@ export async function verifyEmployeePIN(pin: string): Promise<{ employee: Employ
             return { employee: null, error: authError };
         }
 
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !session?.access_token) {
+            if (sessionError) {
+                console.error('Failed to get anonymous session token:', sessionError);
+            }
+            return { employee: null, error: 'Unable to start employee session. Please try again.' };
+        }
+
         const { data, error } = await supabase.functions.invoke('verify-employee-pin', {
-            body: { pin }
+            body: { pin },
+            headers: {
+                Authorization: `Bearer ${session.access_token}`,
+            },
         });
 
         if (error) {
             console.error('PIN verification error:', error);
-            return { employee: null, error: 'Invalid PIN' };
+            const functionErrorMessage = await extractFunctionErrorMessage(error);
+            return { employee: null, error: functionErrorMessage || 'Invalid PIN' };
         }
 
         if (data?.employee) {
