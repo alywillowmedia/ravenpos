@@ -32,6 +32,13 @@ export interface Consignor {
     monthly_booth_rent: number;
     scheduled_active_date?: string | null;
     is_active: boolean;
+    storefront_display_name?: string | null;
+    storefront_slug?: string | null;
+    storefront_description?: string | null;
+    storefront_logo_url?: string | null;
+    storefront_header_image_url?: string | null;
+    storefront_show_items?: boolean;
+    storefront_images_only?: boolean;
     created_at: string;
     updated_at: string;
 }
@@ -58,6 +65,8 @@ export interface Item {
     price: number;
     image_url: string | null;
     is_listed: boolean;
+    show_in_public_browse: boolean;
+    storefront_featured: boolean;
     created_at: string;
     updated_at: string;
     // Shopify sync fields

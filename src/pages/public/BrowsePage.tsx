@@ -1,14 +1,21 @@
 import { useState, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { usePublicInventory } from '../../hooks/usePublicInventory';
 import { ProductCard } from '../../components/storefront/ProductCard';
 import { HeroSection } from '../../components/storefront/HeroSection';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import { buildVendorPath } from '../../lib/storefront';
 
 export function BrowsePage() {
+    const location = useLocation();
+    const embedParam = new URLSearchParams(location.search).get('embed');
+    const isEmbedMode = embedParam === '1' || embedParam === 'true';
+
     const {
         items,
+        featuredItems,
         categories,
         vendors,
         isLoading,
@@ -53,7 +60,9 @@ export function BrowsePage() {
         { value: '', label: 'All Vendors' },
         ...vendors.map((v) => ({
             value: v.id,
-            label: v.booth ? `${v.name} (Booth ${v.booth})` : v.name,
+            label: v.booth
+                ? `${v.storefront_display_name || v.name} (Booth ${v.booth})`
+                : (v.storefront_display_name || v.name),
         })),
     ];
 
@@ -105,15 +114,43 @@ export function BrowsePage() {
 
     return (
         <div className="animate-fadeIn">
-            {/* Hero Section */}
-            <HeroSection
-                storeName="Ravenlia Galleria"
-                searchValue={filters.search}
-                onSearchChange={(value) => updateFilters({ search: value })}
-            />
+            {!isEmbedMode && (
+                <HeroSection
+                    storeName="Ravenlia Galleria"
+                    searchValue={filters.search}
+                    onSearchChange={(value) => updateFilters({ search: value })}
+                />
+            )}
 
             {/* Main Content */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                {isEmbedMode && (
+                    <section className="pt-6">
+                        <div className="relative max-w-md">
+                            <input
+                                type="text"
+                                placeholder="Search for items..."
+                                value={filters.search}
+                                onChange={(e) => updateFilters({ search: e.target.value })}
+                                className="w-full px-5 py-3 pr-12 rounded-2xl bg-[var(--color-surface-elevated)] border-2 border-[var(--color-border)] text-[var(--color-foreground)] placeholder-[var(--color-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/40 focus:border-[var(--color-primary)] transition-all shadow-sm"
+                            />
+                            <svg
+                                className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--color-muted)]"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                />
+                            </svg>
+                        </div>
+                    </section>
+                )}
+
                 {/* Show sections only when not filtering */}
                 {!isFiltered && !isLoading && (categoriesWithCounts.length > 0 || vendorsWithCounts.length > 0) && (
                     <section className="py-8" id="categories">
@@ -199,16 +236,24 @@ export function BrowsePage() {
                                                 {vendorsWithCounts.map((vendor) => (
                                                     <a
                                                         key={vendor.id}
-                                                        href={`/vendor/${vendor.id}`}
+                                                        href={buildVendorPath(vendor)}
                                                         className="flex items-center gap-3 p-3 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-primary)] hover:text-[var(--color-primary-foreground)] border border-[var(--color-border)] hover:border-[var(--color-primary)] transition-all group"
                                                     >
-                                                        <div className="w-8 h-8 rounded-full bg-[var(--color-primary)] flex items-center justify-center flex-shrink-0 border border-black/20 group-hover:bg-[var(--color-primary-foreground)]">
-                                                            <span className="text-sm font-bold text-[var(--color-primary-foreground)] group-hover:text-[var(--color-primary)]">
-                                                                {vendor.name.charAt(0).toUpperCase()}
-                                                            </span>
-                                                        </div>
+                                                        {vendor.storefront_logo_url ? (
+                                                            <img
+                                                                src={vendor.storefront_logo_url}
+                                                                alt={`${vendor.storefront_display_name || vendor.name} logo`}
+                                                                className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-black/20"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-8 h-8 rounded-full bg-[var(--color-primary)] flex items-center justify-center flex-shrink-0 border border-black/20 group-hover:bg-[var(--color-primary-foreground)]">
+                                                                <span className="text-sm font-bold text-[var(--color-primary-foreground)] group-hover:text-[var(--color-primary)]">
+                                                                    {(vendor.storefront_display_name || vendor.name).charAt(0).toUpperCase()}
+                                                                </span>
+                                                            </div>
+                                                        )}
                                                         <div className="min-w-0">
-                                                            <p className="font-medium text-sm truncate">{vendor.name}</p>
+                                                            <p className="font-medium text-sm truncate">{vendor.storefront_display_name || vendor.name}</p>
                                                             {vendor.booth_location && (
                                                                 <p className="text-xs opacity-60">Booth {vendor.booth_location}</p>
                                                             )}
@@ -220,6 +265,24 @@ export function BrowsePage() {
                                     )}
                                 </div>
                             )}
+                        </div>
+                    </section>
+                )}
+
+                {!isFiltered && !isLoading && featuredItems.length > 0 && (
+                    <section className="py-10 border-t-2 border-[var(--color-border)]">
+                        <div className="flex items-center justify-between gap-3 mb-6">
+                            <h2 className="text-2xl font-bold text-[var(--color-foreground)]">
+                                Featured Storefront Picks
+                            </h2>
+                            <span className="text-sm text-[var(--color-muted)]">
+                                {featuredItems.length} {featuredItems.length === 1 ? 'item' : 'items'}
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            {featuredItems.map((item) => (
+                                <ProductCard key={item.id} item={item} />
+                            ))}
                         </div>
                     </section>
                 )}

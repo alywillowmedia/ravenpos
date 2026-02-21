@@ -342,6 +342,8 @@ export function POS() {
             price,
             image_url: null,
             is_listed: false,
+            show_in_public_browse: false,
+            storefront_featured: false,
             created_at: nowIso,
             updated_at: nowIso,
             shopify_product_id: null,

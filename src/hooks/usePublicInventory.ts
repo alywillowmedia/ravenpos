@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Item } from '../types';
+import { slugifyStorefrontName } from '../lib/storefront';
 
 export interface PublicFilters {
     search: string;
@@ -18,10 +19,20 @@ export interface PaginationState {
 
 const DEFAULT_PAGE_SIZE = 24;
 
+interface PublicVendor {
+    id: string;
+    name: string;
+    booth: string | null;
+    storefront_slug: string | null;
+    storefront_display_name: string | null;
+    storefront_logo_url: string | null;
+}
+
 export function usePublicInventory() {
     const [items, setItems] = useState<Item[]>([]);
     const [categories, setCategories] = useState<string[]>([]);
-    const [vendors, setVendors] = useState<{ id: string; name: string; booth: string | null }[]>([]);
+    const [vendors, setVendors] = useState<PublicVendor[]>([]);
+    const [featuredItems, setFeaturedItems] = useState<Item[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [pagination, setPagination] = useState<PaginationState>({
@@ -69,8 +80,9 @@ export function usePublicInventory() {
         try {
             const { data, error: fetchError } = await supabase
                 .from('consignors')
-                .select('id, name, booth_location')
+                .select('id, name, booth_location, storefront_slug, storefront_display_name, storefront_logo_url')
                 .eq('is_active', true)
+                .eq('storefront_show_items', true)
                 .order('name');
 
             if (fetchError) {
@@ -83,12 +95,63 @@ export function usePublicInventory() {
                         id: c.id,
                         name: c.name,
                         booth: c.booth_location,
+                        storefront_slug: c.storefront_slug,
+                        storefront_display_name: c.storefront_display_name,
+                        storefront_logo_url: c.storefront_logo_url,
                     })) || []
                 );
             }
         } catch (err) {
             if (err instanceof Error && err.name === 'AbortError') return;
             console.error('Failed to fetch vendors:', err);
+        }
+    }, []);
+
+    const fetchFeaturedItems = useCallback(async () => {
+        try {
+            const { data, error: fetchError } = await supabase
+                .from('items')
+                .select(`
+                    *,
+                    consignor:consignors!inner(
+                        id,
+                        name,
+                        storefront_slug,
+                        booth_location,
+                        is_active,
+                        storefront_display_name,
+                        storefront_logo_url,
+                        storefront_show_items,
+                        storefront_images_only
+                    )
+                `)
+                .eq('is_listed', true)
+                .eq('storefront_featured', true)
+                .gt('quantity', 0)
+                .eq('consignor.is_active', true)
+                .eq('consignor.storefront_show_items', true)
+                .order('updated_at', { ascending: false })
+                .limit(12);
+
+            if (fetchError) {
+                if (fetchError.message?.includes('abort')) return;
+                throw fetchError;
+            }
+
+            if (!isMountedRef.current) return;
+
+            const filtered = (data || []).filter((item) => {
+                const consignor = item.consignor as {
+                    storefront_images_only?: boolean | null;
+                } | null;
+                if (!consignor?.storefront_images_only) return true;
+                return Boolean(item.image_url);
+            });
+
+            setFeaturedItems(filtered as Item[]);
+        } catch (err) {
+            if (err instanceof Error && err.name === 'AbortError') return;
+            console.error('Failed to fetch featured items:', err);
         }
     }, []);
 
@@ -100,14 +163,95 @@ export function usePublicInventory() {
                 .select(
                     `
                     *,
-                    consignor:consignors(id, name, booth_location)
+                    consignor:consignors!inner(
+                        id,
+                        name,
+                        storefront_slug,
+                        booth_location,
+                        is_active,
+                        storefront_display_name,
+                        storefront_logo_url,
+                        storefront_show_items
+                    )
                 `
                 )
                 .eq('id', id)
+                .eq('is_listed', true)
                 .gt('quantity', 0)
+                .eq('consignor.is_active', true)
+                .eq('consignor.storefront_show_items', true)
                 .single();
 
             if (fetchError) throw fetchError;
+            return { data, error: null };
+        } catch (err) {
+            return {
+                data: null,
+                error: err instanceof Error ? err.message : 'Item not found',
+            };
+        }
+    }, []);
+
+    const getItemByVendorAndSku = useCallback(async (vendorSlug: string, sku: string) => {
+        try {
+            let vendorId: string | null = null;
+
+            const { data: vendorBySlug, error: vendorSlugError } = await supabase
+                .from('consignors')
+                .select('id')
+                .eq('storefront_slug', vendorSlug)
+                .eq('is_active', true)
+                .maybeSingle();
+
+            if (vendorSlugError) throw vendorSlugError;
+
+            if (vendorBySlug?.id) {
+                vendorId = vendorBySlug.id;
+            } else {
+                const { data: activeVendors, error: vendorsError } = await supabase
+                    .from('consignors')
+                    .select('id, name, storefront_display_name')
+                    .eq('is_active', true);
+
+                if (vendorsError) throw vendorsError;
+
+                const matched = (activeVendors || []).find((v) =>
+                    slugifyStorefrontName(v.storefront_display_name || v.name) === vendorSlug
+                );
+                vendorId = matched?.id || null;
+            }
+
+            if (!vendorId) {
+                return { data: null, error: 'Vendor not found' };
+            }
+
+            const { data, error: fetchError } = await supabase
+                .from('items')
+                .select(
+                    `
+                    *,
+                    consignor:consignors!inner(
+                        id,
+                        name,
+                        storefront_slug,
+                        booth_location,
+                        is_active,
+                        storefront_display_name,
+                        storefront_logo_url,
+                        storefront_show_items
+                    )
+                `
+                )
+                .eq('consignor_id', vendorId)
+                .eq('sku', sku)
+                .eq('is_listed', true)
+                .gt('quantity', 0)
+                .eq('consignor.is_active', true)
+                .eq('consignor.storefront_show_items', true)
+                .maybeSingle();
+
+            if (fetchError) throw fetchError;
+            if (!data) return { data: null, error: 'Item not found' };
             return { data, error: null };
         } catch (err) {
             return {
@@ -122,11 +266,12 @@ export function usePublicInventory() {
         isMountedRef.current = true;
         fetchCategories();
         fetchVendors();
+        fetchFeaturedItems();
 
         return () => {
             isMountedRef.current = false;
         };
-    }, [fetchCategories, fetchVendors]);
+    }, [fetchCategories, fetchFeaturedItems, fetchVendors]);
 
     // Fetch items when filters or pagination changes
     // Use a debounced effect with proper race condition handling
@@ -148,12 +293,24 @@ export function usePublicInventory() {
                     .select(
                         `
                         *,
-                        consignor:consignors(id, name, booth_location)
+                        consignor:consignors!inner(
+                            id,
+                            name,
+                            storefront_slug,
+                            booth_location,
+                            is_active,
+                            storefront_display_name,
+                            storefront_logo_url,
+                            storefront_show_items
+                        )
                     `,
                         { count: 'exact' }
                     )
                     .gt('quantity', 0)
-                    .eq('is_listed', true);
+                    .eq('is_listed', true)
+                    .eq('show_in_public_browse', true)
+                    .eq('consignor.is_active', true)
+                    .eq('consignor.storefront_show_items', true);
 
                 // Apply search filter
                 if (filters.search) {
@@ -248,10 +405,12 @@ export function usePublicInventory() {
         fetchIdRef.current++;
         // Trigger a re-fetch by updating a dependency
         setFilters((prev) => ({ ...prev }));
-    }, []);
+        fetchFeaturedItems();
+    }, [fetchFeaturedItems]);
 
     return {
         items,
+        featuredItems,
         categories,
         vendors,
         isLoading,
@@ -264,6 +423,7 @@ export function usePublicInventory() {
         },
         setPage,
         getItemById,
+        getItemByVendorAndSku,
         refresh,
     };
 }

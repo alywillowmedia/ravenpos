@@ -1,17 +1,19 @@
 import { Link } from 'react-router-dom';
 import type { Item } from '../../types';
+import { buildItemPath } from '../../lib/storefront';
 
 interface ProductCardProps {
     item: Item;
 }
 
 export function ProductCard({ item }: ProductCardProps) {
-    const vendorName = item.consignor?.name || 'Unknown Vendor';
+    const vendorName = item.consignor?.storefront_display_name || item.consignor?.name || 'Unknown Vendor';
     const boothLocation = item.consignor?.booth_location;
+    const detailLines = [item.variant_summary, item.other_details_1, item.other_details_2].filter(Boolean) as string[];
 
     return (
         <Link
-            to={`/item/${item.id}`}
+            to={buildItemPath(item)}
             className="group block bg-[var(--color-surface-elevated)] rounded-2xl border-2 border-[var(--color-border)] overflow-hidden hover:shadow-xl hover:-translate-y-0.5 hover:border-[var(--color-primary)] transition-all duration-300"
         >
             {/* Image Container */}
@@ -56,11 +58,14 @@ export function ProductCard({ item }: ProductCardProps) {
                     {item.name}
                 </h3>
 
-                {/* Variant if exists */}
-                {item.variant_summary && (
-                    <p className="text-sm text-[var(--color-muted)] mt-0.5 line-clamp-1">
-                        {item.variant_summary}
-                    </p>
+                {detailLines.length > 0 && (
+                    <div className="mt-0.5 space-y-0.5">
+                        {detailLines.slice(0, 2).map((line, idx) => (
+                            <p key={`${item.id}-detail-${idx}`} className="text-sm text-[var(--color-muted)] line-clamp-1">
+                                {line}
+                            </p>
+                        ))}
+                    </div>
                 )}
 
                 {/* Vendor Info */}

@@ -25,11 +25,23 @@ export function CategoryPage() {
                     .from('items')
                     .select(`
                         *,
-                        consignor:consignors(id, name, booth_location)
+                        consignor:consignors!inner(
+                            id,
+                            name,
+                            storefront_slug,
+                            booth_location,
+                            is_active,
+                            storefront_display_name,
+                            storefront_logo_url,
+                            storefront_show_items
+                        )
                     `)
                     .eq('category', decodedCategory)
                     .eq('is_listed', true)
+                    .eq('show_in_public_browse', true)
                     .gt('quantity', 0)
+                    .eq('consignor.is_active', true)
+                    .eq('consignor.storefront_show_items', true)
                     .order('created_at', { ascending: false });
 
                 if (fetchError) throw fetchError;

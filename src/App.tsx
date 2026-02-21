@@ -41,6 +41,7 @@ import { VendorLabels } from './pages/vendor/VendorLabels';
 import { VendorSales } from './pages/vendor/VendorSales';
 import { VendorPayouts } from './pages/vendor/VendorPayouts';
 import { VendorProfile } from './pages/vendor/VendorProfile';
+import { VendorStorefront } from './pages/vendor/VendorStorefront';
 
 // Employee Pages
 import { EmployeeLogin } from './pages/employee/EmployeeLogin';
@@ -61,6 +62,7 @@ export default function App() {
                     {/* Public Storefront Routes */}
                     <Route element={<PublicLayout />}>
                         <Route path="/" element={<BrowsePage />} />
+                        <Route path="/vendor/:vendorSlug/:itemSlug" element={<ItemDetailPage />} />
                         <Route path="/item/:id" element={<ItemDetailPage />} />
                         <Route path="/vendor/:id" element={<VendorPage />} />
                         <Route path="/category/:category" element={<CategoryPage />} />
@@ -134,6 +136,7 @@ export default function App() {
                         <Route path="labels" element={<VendorLabels />} />
                         <Route path="sales" element={<VendorSales />} />
                         <Route path="payouts" element={<VendorPayouts />} />
+                        <Route path="storefront" element={<VendorStorefront />} />
                         <Route path="profile" element={<VendorProfile />} />
                         <Route path="messages" element={<Messages />} />
                     </Route>

@@ -90,13 +90,27 @@ export function EmployeeProvider({ children }: EmployeeProviderProps) {
 
     // Initialize from stored session
     useEffect(() => {
-        const storedSession = getEmployeeSession();
-        if (storedSession) {
+        const initialize = async () => {
+            const storedSession = getEmployeeSession();
+            if (!storedSession) {
+                setIsLoading(false);
+                return;
+            }
+
+            const { data: { session: authSession } } = await supabase.auth.getSession();
+            if (!authSession) {
+                clearEmployeeSession();
+                setIsLoading(false);
+                return;
+            }
+
             setSession(storedSession);
             setEmployee(storedSession.employee);
-            fetchClockStatus(storedSession.employee.id);
-        }
-        setIsLoading(false);
+            await fetchClockStatus(storedSession.employee.id);
+            setIsLoading(false);
+        };
+
+        void initialize();
     }, [fetchClockStatus]);
 
     // Update duration every minute when clocked in
@@ -235,6 +249,17 @@ export function EmployeeProvider({ children }: EmployeeProviderProps) {
 
     // Logout (does NOT clock out - clock status persists independently)
     const logout = async () => {
+        try {
+            await supabase.from('employee_sessions').delete();
+        } catch (err) {
+            console.error('Failed clearing employee session mapping:', err);
+        }
+
+        const { error } = await supabase.auth.signOut();
+        if (error) {
+            console.error('Supabase sign-out error:', error);
+        }
+
         // Clear session only, don't clock out
         clearEmployeeSession();
         setEmployee(null);

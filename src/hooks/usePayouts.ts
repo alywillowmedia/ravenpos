@@ -52,12 +52,34 @@ interface MarketingAllocationRecord {
 const STRIPE_FEE_PERCENT = 0.027;
 const STRIPE_FEE_FIXED = 0.05;
 
-function getDueBoothRentMonths(lastPayout: Payout | null): Array<{ period_month: number; period_year: number }> {
+function roundCurrency(value: number): number {
+    return Number(value.toFixed(2));
+}
+
+function getDueBoothRentMonths(
+    consignorPayouts: Payout[],
+    consignorBoothRentPayments: BoothRentPaymentRecord[]
+): Array<{ period_month: number; period_year: number }> {
     const now = new Date();
     const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const start = lastPayout
-        ? new Date(new Date(lastPayout.paid_at).getFullYear(), new Date(lastPayout.paid_at).getMonth() + 1, 1)
-        : currentMonthStart;
+    let start = currentMonthStart;
+
+    if (consignorBoothRentPayments.length > 0) {
+        const latestPaidPeriod = consignorBoothRentPayments.reduce((latest, payment) => {
+            const latestKey = `${latest.period_year}-${String(latest.period_month).padStart(2, '0')}`;
+            const paymentKey = `${payment.period_year}-${String(payment.period_month).padStart(2, '0')}`;
+            return paymentKey > latestKey ? payment : latest;
+        });
+
+        // Start charging from the month after the latest booth-rent month already paid.
+        start = new Date(latestPaidPeriod.period_year, latestPaidPeriod.period_month, 1);
+    } else if (consignorPayouts.length > 0) {
+        const oldestPayout = consignorPayouts[consignorPayouts.length - 1];
+        const oldestPayoutDate = new Date(oldestPayout.paid_at);
+        // If no booth-rent period has ever been paid, carry booth-rent due months
+        // forward from the first payout month so skipped months are not dropped.
+        start = new Date(oldestPayoutDate.getFullYear(), oldestPayoutDate.getMonth(), 1);
+    }
 
     const months: Array<{ period_month: number; period_year: number }> = [];
     const cursor = new Date(start);
@@ -72,6 +94,33 @@ function getDueBoothRentMonths(lastPayout: Payout | null): Array<{ period_month:
     }
 
     return months;
+}
+
+function getDeferredBalanceCarryover(consignorPayouts: Payout[]): number {
+    let deferredBalanceOutstanding = 0;
+    const payoutTimeline = [...consignorPayouts].sort(
+        (a, b) => new Date(a.paid_at).getTime() - new Date(b.paid_at).getTime()
+    );
+
+    for (const payout of payoutTimeline) {
+        if (!payout.is_partial) {
+            deferredBalanceOutstanding = 0;
+            continue;
+        }
+
+        const originalDue = Number(
+            payout.original_amount_due !== null && payout.original_amount_due !== undefined
+                ? payout.original_amount_due
+                : payout.amount
+        );
+        const paid = Number(payout.amount || 0);
+        const remaining = Math.max(0, originalDue - paid);
+        const disposition = payout.balance_disposition || 'deferred';
+
+        deferredBalanceOutstanding = disposition === 'deferred' ? remaining : 0;
+    }
+
+    return roundCurrency(deferredBalanceOutstanding);
 }
 
 export function usePayouts() {
@@ -179,9 +228,14 @@ export function usePayouts() {
             const summaries: ConsignorPayoutSummary[] = [];
 
             for (const consignor of effectiveConsignors) {
-                // Get last payout for this consignor
-                const lastPayout = (allPayouts || []).find(p => p.consignor_id === consignor.id) || null;
+                const consignorPayouts = (allPayouts || []).filter((p) => p.consignor_id === consignor.id);
+                // allPayouts is already ordered by paid_at DESC.
+                const lastPayout = consignorPayouts[0] || null;
                 const lastPayoutDate = lastPayout ? new Date(lastPayout.paid_at) : new Date(0);
+                const deferredCarryover = getDeferredBalanceCarryover(consignorPayouts);
+                const consignorBoothRentPayments = (boothRentPayments || []).filter(
+                    (payment: BoothRentPaymentRecord) => payment.consignor_id === consignor.id
+                );
 
                 // Filter sale items for this consignor since last payout
                 const consignorSaleItems = (saleItems || [])
@@ -193,7 +247,7 @@ export function usePayouts() {
                     });
 
                 // Calculate totals
-                let pendingAmount = 0;
+                let pendingAmount = deferredCarryover;
                 let grossSales = 0;
                 let storeShare = 0;
                 let creditCardFees = 0;
@@ -286,19 +340,20 @@ export function usePayouts() {
                 const monthlyBoothRent = Number(consignor.monthly_booth_rent || 0);
                 if (monthlyBoothRent > 0) {
                     const paidPeriods = new Set(
-                        (boothRentPayments || [])
-                            .filter((payment: BoothRentPaymentRecord) => payment.consignor_id === consignor.id)
+                        consignorBoothRentPayments
                             .map((payment: BoothRentPaymentRecord) => `${payment.period_year}-${String(payment.period_month).padStart(2, '0')}`)
                     );
 
-                    const dueMonths = getDueBoothRentMonths(lastPayout).filter((period) => {
+                    const dueMonths = getDueBoothRentMonths(consignorPayouts, consignorBoothRentPayments).filter((period) => {
                         const key = `${period.period_year}-${String(period.period_month).padStart(2, '0')}`;
                         return !paidPeriods.has(key);
                     });
 
                     const maxAffordableMonths = Math.floor(Math.max(0, pendingFromSales) / monthlyBoothRent);
-                    const monthsToCharge = dueMonths.slice(0, maxAffordableMonths);
-                    boothRentDeduction = monthsToCharge.length * monthlyBoothRent;
+                    const monthsToCharge = dueMonths
+                        .sort((a, b) => (a.period_year - b.period_year) || (a.period_month - b.period_month))
+                        .slice(0, maxAffordableMonths);
+                    boothRentDeduction = roundCurrency(monthsToCharge.length * monthlyBoothRent);
                     boothRentMonthsToDeduct.push(...monthsToCharge);
                 }
 
@@ -321,11 +376,11 @@ export function usePayouts() {
                     marketingAllocationIdsToDeduct.push(allocation.id);
                 }
 
-                const finalPendingAmount = Math.max(0, pendingFromSales - marketingFeeDeduction);
+                const finalPendingAmount = roundCurrency(Math.max(0, pendingFromSales - marketingFeeDeduction));
 
                 summaries.push({
                     consignor,
-                    pendingFromSales: pendingAmount,
+                    pendingFromSales: roundCurrency(pendingAmount),
                     pendingAmount: finalPendingAmount,
                     grossSales,
                     taxCollected,
@@ -378,6 +433,9 @@ export function usePayouts() {
             // Determine if this is a partial payout
             const isPartial = customAmount !== undefined && customAmount < summary.pendingAmount;
             const payoutAmount = customAmount !== undefined ? customAmount : summary.pendingAmount;
+            const isDeferredPartial = isPartial && (balanceDisposition || 'deferred') === 'deferred';
+            const appliedBoothRentDeduction = isDeferredPartial ? 0 : summary.boothRentDeduction;
+            const appliedMarketingFeeDeduction = isDeferredPartial ? 0 : summary.marketingFeeDeduction;
 
             const payoutData: PayoutInput = {
                 consignor_id: consignorId,
@@ -390,8 +448,8 @@ export function usePayouts() {
                 tax_collected: summary.taxCollected,
                 store_share: summary.storeShare,
                 credit_card_fees: summary.creditCardFees,
-                booth_rent_deduction: summary.boothRentDeduction,
-                marketing_fee_deduction: summary.marketingFeeDeduction,
+                booth_rent_deduction: appliedBoothRentDeduction,
+                marketing_fee_deduction: appliedMarketingFeeDeduction,
                 notes: notes || null,
                 paid_at: new Date().toISOString(),
                 original_amount_due: isPartial ? summary.pendingAmount : null,
@@ -408,7 +466,7 @@ export function usePayouts() {
 
             if (insertError) throw insertError;
 
-            if (summary.boothRentMonthsToDeduct.length > 0) {
+            if (!isDeferredPartial && summary.boothRentMonthsToDeduct.length > 0) {
                 const monthlyBoothRent = Number(summary.consignor.monthly_booth_rent || 0);
                 if (monthlyBoothRent > 0) {
                     const boothRentRows = summary.boothRentMonthsToDeduct.map((period) => ({
@@ -428,7 +486,7 @@ export function usePayouts() {
                 }
             }
 
-            if (summary.marketingAllocationIdsToDeduct.length > 0) {
+            if (!isDeferredPartial && summary.marketingAllocationIdsToDeduct.length > 0) {
                 const { error: marketingUpdateError } = await supabase
                     .from('marketing_fee_allocations')
                     .update({

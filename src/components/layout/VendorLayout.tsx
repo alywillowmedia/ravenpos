@@ -12,6 +12,7 @@ const navigation = [
     { name: 'Print Labels', href: '/vendor/labels', icon: TagIcon },
     { name: 'My Sales', href: '/vendor/sales', icon: ReceiptIcon },
     { name: 'My Payouts', href: '/vendor/payouts', icon: PayoutsIcon },
+    { name: 'Storefront', href: '/vendor/storefront', icon: StorefrontIcon },
     { name: 'Messages', href: '/vendor/messages', icon: MessageIcon },
     { name: 'Profile', href: '/vendor/profile', icon: UserIcon },
 ];
@@ -257,6 +258,16 @@ function MessageIcon() {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M7 10h10M7 14h6" />
             <path d="M21 12a8 8 0 0 1-8 8H4l-1 1v-9a8 8 0 1 1 18 0Z" />
+        </svg>
+    );
+}
+
+function StorefrontIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 9h18l-1.5 11a2 2 0 0 1-2 2H6.5a2 2 0 0 1-2-2L3 9Z" />
+            <path d="M5 9V6a7 7 0 1 1 14 0v3" />
+            <path d="M9 14h6" />
         </svg>
     );
 }

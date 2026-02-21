@@ -14,7 +14,9 @@ interface BatchRow {
     id: string;
     sku: string;
     name: string;
-    variant: string;
+    variant_summary: string;
+    other_details_1: string;
+    other_details_2: string;
     category: string;
     quantity: number;
     price: number;
@@ -24,7 +26,9 @@ const createEmptyRow = (): BatchRow => ({
     id: Math.random().toString(36).substring(7),
     sku: '',
     name: '',
-    variant: '',
+    variant_summary: '',
+    other_details_1: '',
+    other_details_2: '',
     category: 'Other',
     quantity: 1,
     price: 0,
@@ -117,15 +121,17 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
                 </div>
             )}
 
-            <div className="space-y-3">
+            <div className="space-y-2">
                 {/* Header */}
-                <div className="hidden sm:grid grid-cols-12 gap-2 text-xs font-medium text-[var(--color-muted)] px-1">
+                <div className="hidden sm:grid grid-cols-12 gap-1.5 text-[11px] font-medium text-[var(--color-muted)] px-1">
                     <div className="col-span-2">SKU</div>
                     <div className="col-span-2">Name *</div>
-                    <div className="col-span-2">Variant</div>
+                    <div className="col-span-1">Variant</div>
+                    <div className="col-span-1">Detail 1</div>
+                    <div className="col-span-1">Detail 2</div>
                     <div className="col-span-2">Category</div>
                     <div className="col-span-1">Qty</div>
-                    <div className="col-span-2">Price *</div>
+                    <div className="col-span-1">Price *</div>
                     <div className="col-span-1"></div>
                 </div>
 
@@ -133,7 +139,7 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
                 {rows.map((row) => (
                     <div
                         key={row.id}
-                        className="grid grid-cols-12 gap-2 items-center p-2 rounded-lg bg-[var(--color-surface-hover)]/50 hover:bg-[var(--color-surface-hover)] transition-colors"
+                        className="grid grid-cols-12 gap-1.5 items-center p-1.5 rounded-lg bg-[var(--color-surface-hover)]/50 hover:bg-[var(--color-surface-hover)] transition-colors"
                     >
                         <div className="col-span-12 sm:col-span-2">
                             <Input
@@ -143,7 +149,7 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
                                 onChange={(e) => updateRow(row.id, 'sku', e.target.value)}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'sku')}
                                 inputSize="sm"
-                                className="font-mono"
+                                className="font-mono md:text-xs"
                             />
                         </div>
                         <div className="col-span-12 sm:col-span-2">
@@ -151,18 +157,44 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
                                 data-field="name"
                                 placeholder="Item name"
                                 value={row.name}
-                                onChange={(e) => updateRow(row.id, 'name', e.target.value)}
+                                onChange={(e) => updateRow(row.id, 'name', e.target.value.slice(0, 20))}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'name')}
                                 inputSize="sm"
+                                className="md:text-xs"
+                                maxLength={20}
                             />
                         </div>
-                        <div className="col-span-6 sm:col-span-2">
+                        <div className="col-span-4 sm:col-span-1">
                             <Input
                                 placeholder="Size, color..."
-                                value={row.variant}
-                                onChange={(e) => updateRow(row.id, 'variant', e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, row.id, 'variant')}
+                                value={row.variant_summary}
+                                onChange={(e) => updateRow(row.id, 'variant_summary', e.target.value.slice(0, 25))}
+                                onKeyDown={(e) => handleKeyDown(e, row.id, 'variant_summary')}
                                 inputSize="sm"
+                                className="md:text-xs"
+                                maxLength={25}
+                            />
+                        </div>
+                        <div className="col-span-4 sm:col-span-1">
+                            <Input
+                                placeholder="Detail 1"
+                                value={row.other_details_1}
+                                onChange={(e) => updateRow(row.id, 'other_details_1', e.target.value.slice(0, 50))}
+                                onKeyDown={(e) => handleKeyDown(e, row.id, 'other_details_1')}
+                                inputSize="sm"
+                                className="md:text-xs"
+                                maxLength={50}
+                            />
+                        </div>
+                        <div className="col-span-4 sm:col-span-1">
+                            <Input
+                                placeholder="Detail 2"
+                                value={row.other_details_2}
+                                onChange={(e) => updateRow(row.id, 'other_details_2', e.target.value.slice(0, 50))}
+                                onKeyDown={(e) => handleKeyDown(e, row.id, 'other_details_2')}
+                                inputSize="sm"
+                                className="md:text-xs"
+                                maxLength={50}
                             />
                         </div>
                         <div className="col-span-6 sm:col-span-2">
@@ -171,6 +203,7 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
                                 value={row.category}
                                 onChange={(e) => updateRow(row.id, 'category', e.target.value)}
                                 selectSize="sm"
+                                className="md:text-xs"
                             />
                         </div>
                         <div className="col-span-4 sm:col-span-1">
@@ -182,9 +215,10 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
                                 onChange={(e) => updateRow(row.id, 'quantity', parseInt(e.target.value) || 1)}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'quantity')}
                                 inputSize="sm"
+                                className="md:text-xs"
                             />
                         </div>
-                        <div className="col-span-6 sm:col-span-2">
+                        <div className="col-span-6 sm:col-span-1">
                             <Input
                                 type="number"
                                 min="0"
@@ -194,6 +228,7 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
                                 onChange={(e) => updateRow(row.id, 'price', parseFloat(e.target.value) || 0)}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'price')}
                                 inputSize="sm"
+                                className="md:text-xs"
                                 leftIcon={<span className="text-[var(--color-muted)] text-xs">$</span>}
                             />
                         </div>

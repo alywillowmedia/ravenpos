@@ -2,32 +2,49 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { usePublicInventory } from '../../hooks/usePublicInventory';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import { LinkPreview } from '../../components/ui/link-preview';
+import { buildVendorPath } from '../../lib/storefront';
 import type { Item } from '../../types';
 
 export function ItemDetailPage() {
-    const { id } = useParams<{ id: string }>();
-    const { getItemById } = usePublicInventory();
+    const { id, vendorSlug, itemSlug } = useParams<{ id?: string; vendorSlug?: string; itemSlug?: string }>();
+    const { getItemById, getItemByVendorAndSku } = usePublicInventory();
     const [item, setItem] = useState<Item | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         async function fetchItem() {
-            if (!id) return;
+            if (!id && (!vendorSlug || !itemSlug)) return;
 
             setIsLoading(true);
-            const { data, error: fetchError } = await getItemById(id);
+            setError(null);
 
-            if (fetchError) {
-                setError(fetchError);
+            let result: { data: Item | null; error: string | null };
+
+            if (id) {
+                result = await getItemById(id);
             } else {
-                setItem(data);
+                if (!itemSlug?.startsWith('item-')) {
+                    setError('Item not found');
+                    setIsLoading(false);
+                    return;
+                }
+                const encodedSku = itemSlug.slice(5);
+                const decodedSku = decodeURIComponent(encodedSku || '');
+                result = await getItemByVendorAndSku(vendorSlug || '', decodedSku);
+            }
+
+            if (result.error) {
+                setError(result.error);
+            } else {
+                setItem(result.data);
             }
             setIsLoading(false);
         }
 
         fetchItem();
-    }, [id, getItemById]);
+    }, [id, vendorSlug, itemSlug, getItemById, getItemByVendorAndSku]);
 
     if (isLoading) {
         return (
@@ -86,8 +103,18 @@ export function ItemDetailPage() {
         );
     }
 
-    const vendorName = item.consignor?.name || 'Unknown Vendor';
+    const vendorName = item.consignor?.storefront_display_name || item.consignor?.name || 'Unknown Vendor';
     const boothLocation = item.consignor?.booth_location;
+    const detailLines = [item.variant_summary, item.other_details_1, item.other_details_2].filter(Boolean) as string[];
+    const vendorPreviewImage = item.consignor?.storefront_logo_url || '';
+    const vendorUrl = item.consignor
+        ? buildVendorPath({
+            id: item.consignor.id,
+            name: item.consignor.name,
+            storefront_display_name: item.consignor.storefront_display_name,
+            storefront_slug: item.consignor.storefront_slug,
+        })
+        : '/';
 
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 animate-fadeIn">
@@ -152,11 +179,15 @@ export function ItemDetailPage() {
                         {item.name}
                     </h1>
 
-                    {/* Variant */}
-                    {item.variant_summary && (
-                        <p className="text-lg text-[var(--color-muted)] mt-2">
-                            {item.variant_summary}
-                        </p>
+                    {/* Details */}
+                    {detailLines.length > 0 && (
+                        <div className="mt-3 space-y-1">
+                            {detailLines.map((detail, idx) => (
+                                <p key={`detail-${idx}`} className="text-lg text-[var(--color-muted)]">
+                                    {detail}
+                                </p>
+                            ))}
+                        </div>
                     )}
 
                     {/* Price */}
@@ -171,21 +202,77 @@ export function ItemDetailPage() {
 
                     {/* Vendor Info */}
                     <div className="space-y-4">
-                        <div className="flex items-start gap-3">
-                            <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] flex items-center justify-center text-[var(--color-primary-foreground)] font-medium border border-black/20">
-                                {vendorName.charAt(0).toUpperCase()}
-                            </div>
-                            <div>
-                                <p className="font-medium text-[var(--color-foreground)]">
-                                    {vendorName}
-                                </p>
+                        {vendorPreviewImage ? (
+                            <LinkPreview
+                                url={vendorUrl}
+                                className="block rounded-xl border-2 border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-4 hover:border-[var(--color-primary)] transition-colors"
+                                width={220}
+                                height={140}
+                                isStatic
+                                imageSrc={vendorPreviewImage}
+                            >
+                                <div className="flex items-start gap-3">
+                                    {item.consignor?.storefront_logo_url ? (
+                                        <img
+                                            src={item.consignor.storefront_logo_url}
+                                            alt={`${vendorName} logo`}
+                                            className="w-10 h-10 rounded-full object-cover border border-black/20"
+                                        />
+                                    ) : (
+                                        <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] flex items-center justify-center text-[var(--color-primary-foreground)] font-medium border border-black/20">
+                                            {vendorName.charAt(0).toUpperCase()}
+                                        </div>
+                                    )}
+                                    <div>
+                                        <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">
+                                            Vendor
+                                        </p>
+                                        <p className="font-semibold text-[var(--color-foreground)]">
+                                            {vendorName}
+                                        </p>
+                                        {boothLocation && (
+                                            <p className="text-sm text-[var(--color-muted)]">
+                                                Booth {boothLocation}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            </LinkPreview>
+                        ) : (
+                            <LinkPreview
+                                url={vendorUrl}
+                                className="block rounded-xl border-2 border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-4 hover:border-[var(--color-primary)] transition-colors"
+                                width={220}
+                                height={140}
+                            >
+                                <div className="flex items-start gap-3">
+                                    {item.consignor?.storefront_logo_url ? (
+                                        <img
+                                            src={item.consignor.storefront_logo_url}
+                                            alt={`${vendorName} logo`}
+                                            className="w-10 h-10 rounded-full object-cover border border-black/20"
+                                        />
+                                    ) : (
+                                        <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] flex items-center justify-center text-[var(--color-primary-foreground)] font-medium border border-black/20">
+                                            {vendorName.charAt(0).toUpperCase()}
+                                        </div>
+                                    )}
+                                <div>
+                                    <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">
+                                        Vendor
+                                    </p>
+                                    <p className="font-semibold text-[var(--color-foreground)]">
+                                        {vendorName}
+                                    </p>
                                 {boothLocation && (
                                     <p className="text-sm text-[var(--color-muted)]">
                                         Booth {boothLocation}
                                     </p>
                                 )}
+                                </div>
                             </div>
-                        </div>
+                            </LinkPreview>
+                        )}
 
                         {/* SKU */}
                         <p className="text-sm text-[var(--color-muted)]">

@@ -1,9 +1,12 @@
 import { Link } from 'react-router-dom';
+import { buildVendorPath } from '../../lib/storefront';
 
 interface VendorCardProps {
     vendor: {
         id: string;
         name: string;
+        storefront_display_name?: string | null;
+        storefront_logo_url?: string | null;
         booth_location?: string | null;
         itemCount?: number;
     };
@@ -12,19 +15,27 @@ interface VendorCardProps {
 export function VendorCard({ vendor }: VendorCardProps) {
     return (
         <Link
-            to={`/vendor/${vendor.id}`}
+            to={buildVendorPath(vendor)}
             className="group flex-shrink-0 w-64 bg-white rounded-2xl border border-[var(--color-border)] p-5 hover:shadow-lg hover:border-[var(--color-primary)]/30 transition-all duration-300"
         >
             {/* Vendor Avatar */}
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
-                <span className="text-2xl font-bold text-white">
-                    {vendor.name.charAt(0).toUpperCase()}
-                </span>
-            </div>
+            {vendor.storefront_logo_url ? (
+                <img
+                    src={vendor.storefront_logo_url}
+                    alt={`${vendor.storefront_display_name || vendor.name} logo`}
+                    className="w-14 h-14 rounded-xl object-cover mb-4 group-hover:scale-105 transition-transform border border-[var(--color-border)]"
+                />
+            ) : (
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
+                    <span className="text-2xl font-bold text-white">
+                        {(vendor.storefront_display_name || vendor.name).charAt(0).toUpperCase()}
+                    </span>
+                </div>
+            )}
 
             {/* Vendor Name */}
             <h3 className="text-lg font-semibold text-[var(--color-foreground)] group-hover:text-[var(--color-primary)] transition-colors line-clamp-1">
-                {vendor.name}
+                {vendor.storefront_display_name || vendor.name}
             </h3>
 
             {/* Booth Location */}

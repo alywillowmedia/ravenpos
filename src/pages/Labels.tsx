@@ -40,6 +40,8 @@ export function Labels() {
     const [printMode, setPrintMode] = useState<PrintMode>('all');
     const [customQuantities, setCustomQuantities] = useState<PrintQuantityOverride>({});
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isAwaitingPrintConfirmation, setIsAwaitingPrintConfirmation] = useState(false);
+    const [pendingPrintedItems, setPendingPrintedItems] = useState<Array<{ id: string; printedCount: number }>>([]);
 
     // Filters
     const [filters, setFilters] = useState<Filters>({
@@ -226,20 +228,37 @@ export function Labels() {
             const itemsWithQuantities = getItemsWithPrintQuantities();
             generateLabelsPDF(itemsWithQuantities);
 
-            // Mark items as printed
             const printedItems = selectedItems.map((item) => ({
                 id: item.id,
                 printedCount: getPrintQuantity(item),
-            }));
-            await markAsPrinted(printedItems);
+            })).filter((item) => item.printedCount > 0);
 
-            // Reset selection
-            setShowPrintOptions(false);
-            setSelectedIds(new Set());
-            setCustomQuantities({});
+            setPendingPrintedItems(printedItems);
+            setIsAwaitingPrintConfirmation(true);
         } catch (error) {
             console.error('Failed to generate PDF:', error);
             alert('Failed to generate PDF. Please try again.');
+        }
+        setIsGenerating(false);
+    };
+
+    const handleConfirmPrinted = async () => {
+        if (pendingPrintedItems.length === 0) {
+            alert('No labels are queued to be marked as printed.');
+            return;
+        }
+
+        setIsGenerating(true);
+        try {
+            await markAsPrinted(pendingPrintedItems);
+            setShowPrintOptions(false);
+            setSelectedIds(new Set());
+            setCustomQuantities({});
+            setPendingPrintedItems([]);
+            setIsAwaitingPrintConfirmation(false);
+        } catch (error) {
+            console.error('Failed to mark labels as printed:', error);
+            alert('Failed to mark labels as printed. Please try again.');
         }
         setIsGenerating(false);
     };
@@ -251,6 +270,8 @@ export function Labels() {
             initial[item.id] = item.qty_unlabeled || 0;
         });
         setCustomQuantities(initial);
+        setPendingPrintedItems([]);
+        setIsAwaitingPrintConfirmation(false);
         setShowPrintOptions(true);
     };
 
@@ -363,8 +384,15 @@ export function Labels() {
     if (showPrintOptions) {
         return (
             <div className="animate-fadeIn">
-                <div className="mb-6 flex items-center justify-between">
-                    <Button variant="ghost" onClick={() => setShowPrintOptions(false)}>
+                    <div className="mb-6 flex items-center justify-between">
+                    <Button
+                        variant="ghost"
+                        onClick={() => {
+                            setShowPrintOptions(false);
+                            setPendingPrintedItems([]);
+                            setIsAwaitingPrintConfirmation(false);
+                        }}
+                    >
                         ← Back to Selection
                     </Button>
                 </div>
@@ -382,6 +410,7 @@ export function Labels() {
                                     name="printMode"
                                     checked={printMode === 'all'}
                                     onChange={() => setPrintMode('all')}
+                                    disabled={isAwaitingPrintConfirmation}
                                     className="mt-1"
                                 />
                                 <div>
@@ -397,6 +426,7 @@ export function Labels() {
                                     name="printMode"
                                     checked={printMode === 'new'}
                                     onChange={() => setPrintMode('new')}
+                                    disabled={isAwaitingPrintConfirmation}
                                     className="mt-1"
                                 />
                                 <div>
@@ -412,6 +442,7 @@ export function Labels() {
                                     name="printMode"
                                     checked={printMode === 'custom'}
                                     onChange={() => setPrintMode('custom')}
+                                    disabled={isAwaitingPrintConfirmation}
                                     className="mt-1"
                                 />
                                 <div>
@@ -442,6 +473,7 @@ export function Labels() {
                                 <Button
                                     variant="secondary"
                                     size="sm"
+                                    disabled={isAwaitingPrintConfirmation}
                                     onClick={() => {
                                         const input = document.getElementById('applyToAllInput') as HTMLInputElement;
                                         const value = Math.max(0, parseInt(input.value) || 0);
@@ -473,6 +505,7 @@ export function Labels() {
                                             min="0"
                                             max={item.quantity}
                                             value={customQuantities[item.id] ?? 0}
+                                            disabled={isAwaitingPrintConfirmation}
                                             onChange={(e) => setCustomQuantities((prev) => ({
                                                 ...prev,
                                                 [item.id]: Math.max(0, parseInt(e.target.value) || 0),
@@ -492,9 +525,24 @@ export function Labels() {
                             <strong>{Math.ceil(getTotalLabels() / 30)}</strong> sheet(s)
                         </p>
                     </div>
+                    {isAwaitingPrintConfirmation && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+                            <p className="text-amber-800 text-sm">
+                                PDF generated. After you finish printing from the PDF tab, click
+                                {' '}<strong>Confirm Printed &amp; Mark</strong>.
+                            </p>
+                        </div>
+                    )}
 
                     <div className="flex justify-end gap-3">
-                        <Button variant="secondary" onClick={() => setShowPrintOptions(false)}>
+                        <Button
+                            variant="secondary"
+                            onClick={() => {
+                                setShowPrintOptions(false);
+                                setPendingPrintedItems([]);
+                                setIsAwaitingPrintConfirmation(false);
+                            }}
+                        >
                             Cancel
                         </Button>
                         <Button
@@ -502,14 +550,14 @@ export function Labels() {
                             onClick={handleGeneratePDF}
                             disabled={getTotalLabels() === 0 || isGenerating}
                         >
-                            {isGenerating ? 'Generating...' : 'Preview PDF'}
+                            {isGenerating ? 'Generating...' : (isAwaitingPrintConfirmation ? 'Re-open PDF' : 'Preview PDF')}
                         </Button>
                         <Button
-                            onClick={handleGenerateAndMark}
+                            onClick={isAwaitingPrintConfirmation ? handleConfirmPrinted : handleGenerateAndMark}
                             disabled={getTotalLabels() === 0 || isGenerating}
                         >
                             <PrintIcon />
-                            {isGenerating ? 'Generating...' : 'Generate & Mark Printed'}
+                            {isGenerating ? 'Processing...' : (isAwaitingPrintConfirmation ? 'Confirm Printed & Mark' : 'Generate PDF Then Confirm')}
                         </Button>
                     </div>
                 </div>

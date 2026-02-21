@@ -1,11 +1,39 @@
 // Employee authentication utilities
-// Separate from Supabase Auth (admin/vendor)
+// Employee PIN access now uses Supabase anonymous auth sessions.
 
 import { supabase } from './supabase';
 import type { Employee, EmployeeSession } from '../types/employee';
 
 const EMPLOYEE_SESSION_KEY = 'employeeSession';
 const SESSION_DURATION_HOURS = 8;
+
+async function ensureAnonymousAuthSession(): Promise<{ error: string | null }> {
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+        console.error('Unable to get Supabase session:', sessionError);
+        return { error: 'Unable to start session. Please try again.' };
+    }
+
+    if (session?.user?.is_anonymous) {
+        return { error: null };
+    }
+
+    if (session) {
+        const { error: signOutError } = await supabase.auth.signOut();
+        if (signOutError) {
+            console.error('Unable to clear existing session:', signOutError);
+            return { error: 'Unable to start employee session. Please try again.' };
+        }
+    }
+
+    const { error: anonError } = await supabase.auth.signInAnonymously();
+    if (anonError) {
+        console.error('Anonymous sign-in failed:', anonError);
+        return { error: 'Employee sign-in is unavailable right now.' };
+    }
+
+    return { error: null };
+}
 
 // SHA-256 hash function for PIN hashing (client-side, for creating employees)
 export async function hashPin(pin: string, salt: string): Promise<string> {
@@ -25,6 +53,11 @@ export function generateSalt(): string {
 // Verify employee PIN via Edge Function
 export async function verifyEmployeePIN(pin: string): Promise<{ employee: Employee | null; error: string | null }> {
     try {
+        const { error: authError } = await ensureAnonymousAuthSession();
+        if (authError) {
+            return { employee: null, error: authError };
+        }
+
         const { data, error } = await supabase.functions.invoke('verify-employee-pin', {
             body: { pin }
         });

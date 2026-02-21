@@ -71,6 +71,8 @@ export function useInventory(consignorId?: string) {
                     qty_unlabeled: itemQuantity, // New items need labels for full quantity
                     price: input.price,
                     image_url: input.image_url || null,
+                    show_in_public_browse: input.show_in_public_browse ?? true,
+                    storefront_featured: input.storefront_featured ?? false,
                 })
                 .select(`
           *,
@@ -107,6 +109,8 @@ export function useInventory(consignorId?: string) {
                     qty_unlabeled: itemQuantity, // New items need labels for full quantity
                     price: input.price,
                     image_url: input.image_url || null,
+                    show_in_public_browse: input.show_in_public_browse ?? true,
+                    storefront_featured: input.storefront_featured ?? false,
                 };
             });
 

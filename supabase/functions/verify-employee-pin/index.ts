@@ -27,6 +27,8 @@ interface Employee {
     updated_at: string;
 }
 
+const SESSION_DURATION_HOURS = 8;
+
 Deno.serve(async (req) => {
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {
@@ -34,6 +36,19 @@ Deno.serve(async (req) => {
     }
 
     try {
+        const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization');
+        if (!authHeader?.startsWith('Bearer ')) {
+            return new Response(
+                JSON.stringify({ error: 'Authentication required' }),
+                {
+                    status: 401,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                }
+            );
+        }
+
+        const accessToken = authHeader.replace('Bearer ', '').trim();
+
         const { pin } = await req.json();
 
         // Validate PIN format
@@ -52,6 +67,28 @@ Deno.serve(async (req) => {
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+        const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
+        if (authError || !authData?.user) {
+            console.error('Auth validation error:', authError);
+            return new Response(
+                JSON.stringify({ error: 'Authentication required' }),
+                {
+                    status: 401,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                }
+            );
+        }
+
+        if (!authData.user.is_anonymous) {
+            return new Response(
+                JSON.stringify({ error: 'Employee PIN login requires an anonymous session' }),
+                {
+                    status: 403,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                }
+            );
+        }
 
         // Fetch all active employees
         const { data: employees, error } = await supabase
@@ -86,6 +123,31 @@ Deno.serve(async (req) => {
             const hashedPin = await sha256(pin + employee.pin_salt);
 
             if (hashedPin === employee.pin_hash) {
+                const expiresAt = new Date(Date.now() + SESSION_DURATION_HOURS * 60 * 60 * 1000).toISOString();
+
+                const { error: upsertError } = await supabase
+                    .from('employee_sessions')
+                    .upsert(
+                        {
+                            auth_user_id: authData.user.id,
+                            employee_id: employee.id,
+                            expires_at: expiresAt,
+                            updated_at: new Date().toISOString(),
+                        },
+                        { onConflict: 'auth_user_id' }
+                    );
+
+                if (upsertError) {
+                    console.error('Employee session upsert error:', upsertError);
+                    return new Response(
+                        JSON.stringify({ error: 'Unable to establish employee session' }),
+                        {
+                            status: 500,
+                            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                        }
+                    );
+                }
+
                 // Found matching employee - return without sensitive data
                 return new Response(
                     JSON.stringify({
