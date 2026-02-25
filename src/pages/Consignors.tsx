@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Table, type Column } from '../components/ui/Table';
-import { Modal, ModalFooter } from '../components/ui/Modal';
+import { Modal } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
 import { EmptyState, UsersIcon } from '../components/ui/EmptyState';
 import { ConsignorForm } from '../components/consignors/ConsignorForm';

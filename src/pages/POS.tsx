@@ -39,7 +39,7 @@ const STRIPE_READER_LOCATION_KEY = 'ravenpos-stripe-reader-location-id';
 export function POS() {
     const scannerRef = useRef<HTMLInputElement>(null);
     const { getItemBySku } = useInventory();
-    const { consignors, updateConsignor } = useConsignors();
+    const { consignors } = useConsignors();
     const { completeSale, isProcessing } = useSales();
     const { createInvoice, isLoading: isCreatingInvoice } = useInvoices();
     const { searchCustomers, createCustomer, updateCustomer } = useCustomers();
