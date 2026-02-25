@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
@@ -14,7 +14,7 @@ const navigation = [
         icon: EmployeesIcon,
         children: [
             { name: 'Timecards', href: '/admin/employees', icon: TimecardIcon },
-            { name: 'Roles', href: '/admin/employees/roles', icon: EmployeesIcon },
+            { name: 'Roles', href: '/admin/employees/roles', icon: ShieldIcon },
             { name: 'Schedule', href: '/admin/employees/schedule', icon: ScheduleIcon },
         ]
     },
@@ -22,7 +22,7 @@ const navigation = [
         name: 'Inventory',
         icon: PackageIcon,
         children: [
-            { name: 'Items', href: '/admin/inventory', icon: PackageIcon },
+            { name: 'Items', href: '/admin/inventory', icon: ListIcon },
             { name: 'Add Items', href: '/admin/add-items', icon: PlusIcon },
             { name: 'Scan In/Out', href: '/admin/scan', icon: BarcodeIcon },
             { name: 'Import CSV', href: '/admin/import', icon: UploadIcon },
@@ -36,13 +36,13 @@ const navigation = [
     { name: 'Profile', href: '/admin/profile', icon: UserIcon },
     {
         name: 'Finances',
-        icon: PayoutsIcon,
+        icon: WalletIcon,
         children: [
             { name: 'Sales', href: '/admin/sales', icon: ReceiptNavIcon },
-            { name: 'Invoices', href: '/admin/finances/invoices', icon: ReceiptNavIcon },
+            { name: 'Invoices', href: '/admin/finances/invoices', icon: InvoiceIcon },
             { name: 'Payouts', href: '/admin/payouts', icon: PayoutsIcon },
             { name: 'Marketing Fees', href: '/admin/finances/marketing-fees', icon: MegaphoneIcon },
-            { name: 'Categories & Tax', href: '/admin/finances/categories', icon: TagIcon },
+            { name: 'Categories & Tax', href: '/admin/finances/categories', icon: CategoryIcon },
         ]
     },
 ];
@@ -59,6 +59,45 @@ export function Sidebar() {
     const location = useLocation();
     const { userRecord, signOut } = useAuth();
     const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
+
+    // Flyout state for collapsed sidebar hover menus
+    const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
+    const [flyoutTop, setFlyoutTop] = useState(0);
+    const flyoutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const handleGroupMouseEnter = useCallback((groupName: string, event: React.MouseEvent) => {
+        if (flyoutTimeoutRef.current) {
+            clearTimeout(flyoutTimeoutRef.current);
+            flyoutTimeoutRef.current = null;
+        }
+        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+        setFlyoutTop(rect.top);
+        setHoveredGroup(groupName);
+    }, []);
+
+    const handleGroupMouseLeave = useCallback(() => {
+        flyoutTimeoutRef.current = setTimeout(() => {
+            setHoveredGroup(null);
+        }, 200);
+    }, []);
+
+    const handleFlyoutMouseEnter = useCallback(() => {
+        if (flyoutTimeoutRef.current) {
+            clearTimeout(flyoutTimeoutRef.current);
+            flyoutTimeoutRef.current = null;
+        }
+    }, []);
+
+    const handleFlyoutMouseLeave = useCallback(() => {
+        setHoveredGroup(null);
+    }, []);
+
+    // Clean up flyout timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (flyoutTimeoutRef.current) clearTimeout(flyoutTimeoutRef.current);
+        };
+    }, []);
 
     useEffect(() => {
         // Auto-expand groups if a child is active
@@ -171,24 +210,22 @@ export function Sidebar() {
                             const hasActiveChild = item.children.some(child => child.href === location.pathname);
 
                             if (isCollapsed) {
-                                // Show only parent icon when collapsed, clicking goes to first child
-                                const firstChild = item.children[0];
+                                // Show icon with hover flyout when collapsed
                                 return (
-                                    <NavLink
+                                    <div
                                         key={item.name}
-                                        to={firstChild.href}
-                                        onClick={() => setIsMobileOpen(false)}
+                                        onMouseEnter={(e) => handleGroupMouseEnter(item.name, e)}
+                                        onMouseLeave={handleGroupMouseLeave}
                                         className={cn(
-                                            'flex items-center justify-center p-3 rounded-lg',
+                                            'flex items-center justify-center p-3 rounded-lg cursor-pointer',
                                             'text-sm font-medium transition-all duration-150',
-                                            hasActiveChild
+                                            hasActiveChild || hoveredGroup === item.name
                                                 ? 'bg-[var(--color-primary)] text-white shadow-sm'
                                                 : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
                                         )}
-                                        title={item.name}
                                     >
                                         <item.icon />
-                                    </NavLink>
+                                    </div>
                                 );
                             }
 
@@ -302,6 +339,46 @@ export function Sidebar() {
                         {!isCollapsed && 'Sign Out'}
                     </button>
                 </div>
+
+                {/* Flyout menu for collapsed sidebar groups */}
+                {isCollapsed && hoveredGroup && (() => {
+                    const group = navigation.find(item => item.name === hoveredGroup);
+                    if (!group?.children) return null;
+                    return (
+                        <div
+                            className="fixed bg-white border border-[var(--color-border)] rounded-lg shadow-lg py-1.5 min-w-[180px] z-[60] animate-in fade-in slide-in-from-left-1 duration-150"
+                            style={{ left: '72px', top: `${flyoutTop}px` }}
+                            onMouseEnter={handleFlyoutMouseEnter}
+                            onMouseLeave={handleFlyoutMouseLeave}
+                        >
+                            <div className="px-3 py-1.5 text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wider border-b border-[var(--color-border)] mb-1">
+                                {group.name}
+                            </div>
+                            {group.children.map((child) => {
+                                const isActive = location.pathname === child.href;
+                                return (
+                                    <NavLink
+                                        key={child.name}
+                                        to={child.href}
+                                        onClick={() => {
+                                            setHoveredGroup(null);
+                                            setIsMobileOpen(false);
+                                        }}
+                                        className={cn(
+                                            'flex items-center gap-2.5 px-3 py-2 text-sm transition-colors mx-1.5 rounded-md',
+                                            isActive
+                                                ? 'text-[var(--color-primary)] bg-[var(--color-surface)] font-medium'
+                                                : 'text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
+                                        )}
+                                    >
+                                        <child.icon />
+                                        {child.name}
+                                    </NavLink>
+                                );
+                            })}
+                        </div>
+                    );
+                })()}
             </aside>
 
             <ChangelogModal
@@ -369,8 +446,11 @@ function UsersIcon() {
 function UserIcon() {
     return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 21a8 8 0 0 0-16 0" />
-            <circle cx="12" cy="8" r="5" />
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <circle cx="9" cy="11" r="2.5" />
+            <path d="M14 11.5h4" />
+            <path d="M14 15h3" />
+            <path d="M5 17a3 3 0 0 1 8 0" />
         </svg>
     );
 }
@@ -453,10 +533,9 @@ function PayoutsIcon() {
 function CustomersIcon() {
     return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+            <line x1="3" x2="21" y1="6" y2="6" />
+            <path d="M16 10a4 4 0 0 1-8 0" />
         </svg>
     );
 }
@@ -496,6 +575,59 @@ function IntegrationsIcon() {
             <path d="M7 7h.01" />
             <path d="M22 12v4a2 2 0 0 1-2 2h-1" />
             <path d="M22 12h-4" />
+        </svg>
+    );
+}
+
+function ShieldIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+        </svg>
+    );
+}
+
+function ListIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="8" x2="21" y1="6" y2="6" />
+            <line x1="8" x2="21" y1="12" y2="12" />
+            <line x1="8" x2="21" y1="18" y2="18" />
+            <line x1="3" x2="3.01" y1="6" y2="6" />
+            <line x1="3" x2="3.01" y1="12" y2="12" />
+            <line x1="3" x2="3.01" y1="18" y2="18" />
+        </svg>
+    );
+}
+
+function InvoiceIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+            <path d="M14 2v6h6" />
+            <path d="M9 15h6" />
+            <path d="M9 11h6" />
+        </svg>
+    );
+}
+
+function CategoryIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 3H3v7h7V3Z" />
+            <path d="M21 3h-7v7h7V3Z" />
+            <path d="M21 14h-7v7h7v-7Z" />
+            <path d="M10 14H3v7h7v-7Z" />
+        </svg>
+    );
+}
+
+function WalletIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
+            <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
+            <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
         </svg>
     );
 }
