@@ -346,7 +346,7 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                     label="Booth Square Feet"
                     type="number"
                     min="0"
-                    step="1"
+                    step="0.01"
                     value={formData.booth_square_feet}
                     onChange={(e) => {
                         const boothSquareFeet = Number(e.target.value) || 0;
@@ -442,7 +442,7 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                                 label="Future Booth Sq Ft"
                                 type="number"
                                 min="0"
-                                step="1"
+                                step="0.01"
                                 value={scheduledChange.booth_square_feet}
                                 onChange={(e) => {
                                     const boothSquareFeet = Number(e.target.value) || 0;

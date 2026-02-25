@@ -16,11 +16,10 @@ export function formatCurrency(amount: number): string {
     }).format(amount);
 }
 
-// Generate SKU: [consignor_number]-[timestamp]-[random]
-export function generateSKU(consignorNumber: string): string {
-    const timestamp = Date.now().toString(36).toUpperCase();
-    const random = Math.random().toString(36).substring(2, 5).toUpperCase();
-    return `${consignorNumber}-${timestamp}-${random}`;
+// Generate SKU: 9-character uppercase base36 id
+export function generateSKU(_consignorNumber: string): string {
+    const raw = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+    return raw.slice(0, 9).padEnd(9, '0');
 }
 
 // Generate next consignor number (C001, C002, etc.)
