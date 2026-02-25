@@ -200,6 +200,47 @@ export interface Refund {
     created_at: string;
 }
 
+export type InvoiceRecipientType = 'customer' | 'vendor';
+export type InvoiceStatus = 'unpaid' | 'paid';
+
+export interface InvoiceItem {
+    id: string;
+    invoice_id: string;
+    item_id: string | null;
+    consignor_id: string | null;
+    sku: string | null;
+    name: string;
+    price: number;
+    quantity: number;
+    line_total: number;
+    is_custom: boolean;
+    created_at: string;
+    // Joined data
+    consignor?: Consignor;
+    item?: Item;
+}
+
+export interface Invoice {
+    id: string;
+    recipient_type: InvoiceRecipientType;
+    customer_id: string | null;
+    consignor_id: string | null;
+    recipient_name: string;
+    recipient_email: string | null;
+    status: InvoiceStatus;
+    subtotal: number;
+    tax_amount: number;
+    total: number;
+    notes?: string | null;
+    paid_at: string | null;
+    created_at: string;
+    updated_at: string;
+    // Joined data
+    customer?: Customer;
+    consignor?: Consignor;
+    items?: InvoiceItem[];
+}
+
 // Form/input types
 export type ConsignorInput = Omit<Consignor, 'id' | 'created_at' | 'updated_at'> & {
     scheduled_rate_change?: ScheduledConsignorRateChangeInput | null;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
@@ -7,9 +7,11 @@ import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
 import { EmptyState, UsersIcon } from '../components/ui/EmptyState';
 import { ConsignorForm } from '../components/consignors/ConsignorForm';
+import { DeleteConfirmationModal } from '../components/ui/DeleteConfirmationModal';
 import { useConsignors } from '../hooks/useConsignors';
 import { isConsignorScheduled } from '../lib/consignorStatus';
 import { getConsignorDisplayName, getConsignorPayToName } from '../lib/consignors';
+import { supabase } from '../lib/supabase';
 import type { Consignor, ConsignorInput } from '../types';
 
 export function Consignors() {
@@ -18,6 +20,32 @@ export function Consignors() {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Consignor | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [itemCount, setItemCount] = useState(0);
+
+    // Fetch item count when deleteTarget changes
+    useEffect(() => {
+        if (!deleteTarget) {
+            setItemCount(0);
+            return;
+        }
+
+        const fetchItemCount = async () => {
+            try {
+                const { count, error: countError } = await supabase
+                    .from('items')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('consignor_id', deleteTarget.id);
+
+                if (countError) throw countError;
+                setItemCount(count || 0);
+            } catch (err) {
+                console.error('Failed to fetch item count:', err);
+                setItemCount(0);
+            }
+        };
+
+        fetchItemCount();
+    }, [deleteTarget]);
 
     const handleAddConsignor = async (data: Partial<ConsignorInput>) => {
         const { error } = await createConsignor(data);
@@ -184,24 +212,14 @@ export function Consignors() {
             </Modal>
 
             {/* Delete Confirmation Modal */}
-            <Modal
+            <DeleteConfirmationModal
                 isOpen={!!deleteTarget}
                 onClose={() => setDeleteTarget(null)}
-                title="Delete Consignor"
-                size="sm"
-            >
-                <p className="text-sm text-[var(--color-muted)]">
-                    Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This will also delete all their inventory items. This action cannot be undone.
-                </p>
-                <ModalFooter>
-                    <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
-                        Cancel
-                    </Button>
-                    <Button variant="danger" onClick={handleDelete} isLoading={isDeleting}>
-                        Delete
-                    </Button>
-                </ModalFooter>
-            </Modal>
+                onConfirm={handleDelete}
+                isLoading={isDeleting}
+                targetName={deleteTarget?.name || ''}
+                itemCount={itemCount}
+            />
         </div>
     );
 }

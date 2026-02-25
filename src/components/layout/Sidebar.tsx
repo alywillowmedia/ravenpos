@@ -39,6 +39,7 @@ const navigation = [
         icon: PayoutsIcon,
         children: [
             { name: 'Sales', href: '/admin/sales', icon: ReceiptNavIcon },
+            { name: 'Invoices', href: '/admin/finances/invoices', icon: ReceiptNavIcon },
             { name: 'Payouts', href: '/admin/payouts', icon: PayoutsIcon },
             { name: 'Marketing Fees', href: '/admin/finances/marketing-fees', icon: MegaphoneIcon },
             { name: 'Categories & Tax', href: '/admin/finances/categories', icon: TagIcon },

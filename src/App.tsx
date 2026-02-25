@@ -32,6 +32,7 @@ import { Messages } from './pages/Messages';
 import { AdminProfile } from './pages/AdminProfile';
 import { EmailCampaigns } from './pages/EmailCampaigns';
 import { MarketingFees } from './pages/MarketingFees';
+import { Invoices } from './pages/Invoices';
 
 // Vendor Pages
 import { VendorDashboard } from './pages/vendor/VendorDashboard';
@@ -108,6 +109,7 @@ export default function App() {
                         <Route path="pos" element={<POS />} />
                         <Route path="sales" element={<Sales />} />
                         <Route path="payouts" element={<Payouts />} />
+                        <Route path="finances/invoices" element={<Invoices />} />
                         <Route path="finances/categories" element={<CategoryTaxSettings />} />
                         <Route path="finances/marketing-fees" element={<MarketingFees />} />
                         <Route path="customers" element={<Customers />} />

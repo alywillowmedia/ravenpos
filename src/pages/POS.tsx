@@ -11,10 +11,13 @@ import { RefundModal } from '../components/pos/RefundModal';
 import { DiscountModal } from '../components/pos/DiscountModal';
 import { GiftCardSaleModal } from '../components/pos/GiftCardSaleModal';
 import { ReceiptDeliveryModal } from '../components/receipt/ReceiptDeliveryModal';
+import { InvoiceDeliveryModal } from '../components/invoice/InvoiceDeliveryModal';
 import { StripeReaderSetupModal } from '../components/pos/StripeReaderSetupModal';
+import { SmartSearch } from '../components/pos/SmartSearch';
 import { useInventory } from '../hooks/useInventory';
 import { useConsignors } from '../hooks/useConsignors';
 import { useSales } from '../hooks/useSales';
+import { useInvoices } from '../hooks/useInvoices';
 import { useCategories } from '../hooks/useCategories';
 import { useCustomers } from '../hooks/useCustomers';
 import { useStripeTerminal } from '../hooks/useStripeTerminal';
@@ -22,9 +25,11 @@ import { createCartItem, calculateCartTotals } from '../lib/tax';
 import { createDiscount, formatDiscountLabel } from '../lib/discounts';
 import { formatCurrency } from '../lib/utils';
 import { createReceiptData } from '../lib/printReceipt';
+import { createInvoiceEmailDataFromCart } from '../lib/invoice';
 import { supabase } from '../lib/supabase';
-import type { CartItem, Item, Sale, Customer, CustomerInput, PaymentMethod, Discount, DiscountType } from '../types';
+import type { CartItem, Item, Sale, Customer, CustomerInput, PaymentMethod, Discount, DiscountType, Invoice, InvoiceRecipientType } from '../types';
 import type { ReceiptData } from '../types/receipt';
+import type { InvoiceEmailData } from '../types/invoice';
 
 const STRIPE_FEE_PERCENT = 0.027;
 const STRIPE_FEE_FIXED = 0.05;
@@ -34,8 +39,9 @@ const STRIPE_READER_LOCATION_KEY = 'ravenpos-stripe-reader-location-id';
 export function POS() {
     const scannerRef = useRef<HTMLInputElement>(null);
     const { getItemBySku } = useInventory();
-    const { consignors } = useConsignors();
+    const { consignors, updateConsignor } = useConsignors();
     const { completeSale, isProcessing } = useSales();
+    const { createInvoice, isLoading: isCreatingInvoice } = useInvoices();
     const { searchCustomers, createCustomer, updateCustomer } = useCustomers();
 
     // Stripe Terminal
@@ -65,6 +71,15 @@ export function POS() {
     const [completedCart, setCompletedCart] = useState<CartItem[]>([]);
     const [showReceiptDelivery, setShowReceiptDelivery] = useState(false);
 
+    // Invoice state
+    const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+    const [showInvoiceDelivery, setShowInvoiceDelivery] = useState(false);
+    const [completedInvoice, setCompletedInvoice] = useState<Invoice | null>(null);
+    const [completedInvoiceEmail, setCompletedInvoiceEmail] = useState<InvoiceEmailData | null>(null);
+    const [invoiceRecipientType, setInvoiceRecipientType] = useState<InvoiceRecipientType>('customer');
+    const [selectedInvoiceVendorId, setSelectedInvoiceVendorId] = useState('');
+    const [invoiceNote, setInvoiceNote] = useState('');
+
     // Payment method state
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
     const [checkNumber, setCheckNumber] = useState('');
@@ -74,6 +89,7 @@ export function POS() {
     const [showRefundModal, setShowRefundModal] = useState(false);
     const [showGiftCardSaleModal, setShowGiftCardSaleModal] = useState(false);
     const [showCustomItemModal, setShowCustomItemModal] = useState(false);
+    const [showSmartSearch, setShowSmartSearch] = useState(false);
     const [customItemForm, setCustomItemForm] = useState({
         name: '',
         price: '',
@@ -173,7 +189,7 @@ export function POS() {
     // Refocus on click anywhere, unless clicking an interactive element
     useEffect(() => {
         const handleClick = (e: MouseEvent) => {
-            if (completedSale || showCustomItemModal) return;
+            if (completedSale || showCustomItemModal || showSmartSearch) return;
 
             const target = e.target as HTMLElement;
             const isInteractive =
@@ -194,7 +210,7 @@ export function POS() {
         };
         document.addEventListener('click', handleClick);
         return () => document.removeEventListener('click', handleClick);
-    }, [completedSale, showCustomItemModal]);
+    }, [completedSale, showCustomItemModal, showSmartSearch]);
 
     // Broadcast cart updates to customer display
     useEffect(() => {
@@ -613,6 +629,58 @@ export function POS() {
         await updateCustomer(customerId, { email });
     };
 
+    const handleCreateInvoice = async () => {
+        if (cart.length === 0) {
+            setScanError('Cannot create invoice with empty cart');
+            return;
+        }
+
+        if (!selectedCustomer && invoiceRecipientType === 'customer') {
+            setScanError('Please select a customer for the invoice');
+            return;
+        }
+
+        if (!selectedInvoiceVendorId && invoiceRecipientType === 'vendor') {
+            setScanError('Please select a vendor for the invoice');
+            return;
+        }
+
+        setShowInvoiceModal(false);
+        const recipientName = invoiceRecipientType === 'customer'
+            ? selectedCustomer?.name || ''
+            : consignors.find(c => c.id === selectedInvoiceVendorId)?.name || '';
+        const recipientEmail = invoiceRecipientType === 'customer'
+            ? selectedCustomer?.email || undefined
+            : consignors.find(c => c.id === selectedInvoiceVendorId)?.email || undefined;
+
+        const { data: invoice, error } = await createInvoice({
+            recipientType: invoiceRecipientType,
+            customerId: invoiceRecipientType === 'customer' ? selectedCustomer?.id : undefined,
+            consignorId: invoiceRecipientType === 'vendor' ? selectedInvoiceVendorId : undefined,
+            recipientName,
+            recipientEmail: recipientEmail || undefined,
+            cartItems: cart,
+            subtotal,
+            taxAmount: taxTotal,
+            total,
+            notes: invoiceNote || undefined,
+        });
+
+        if (error) {
+            setScanError(error);
+            return;
+        }
+
+        if (invoice) {
+            const invoiceEmailData = createInvoiceEmailDataFromCart(invoice, cart);
+            setCompletedInvoice(invoice);
+            setCompletedInvoiceEmail(invoiceEmailData);
+            setShowInvoiceDelivery(true);
+            setInvoiceNote('');
+            setSelectedInvoiceVendorId('');
+        }
+    };
+
     // Discount handlers
     const handleOpenOrderDiscount = () => {
         setDiscountTarget({ scope: 'order' });
@@ -756,6 +824,14 @@ export function POS() {
                     <div className="flex gap-2">
                         <Button
                             variant="ghost"
+                            onClick={() => setShowInvoiceModal(true)}
+                            disabled={cart.length === 0}
+                        >
+                            <FileTextIcon />
+                            Invoice
+                        </Button>
+                        <Button
+                            variant="ghost"
                             onClick={() => setShowRefundModal(true)}
                         >
                             <RefundIcon />
@@ -773,6 +849,14 @@ export function POS() {
                                 Clear
                             </Button>
                         )}
+                        <Button
+                            variant="ghost"
+                            onClick={() => setShowSmartSearch(true)}
+                            title="Smart Item Search"
+                        >
+                            <SearchIcon />
+                            Search
+                        </Button>
                         <Button
                             variant="ghost"
                             onClick={openCustomerDisplay}
@@ -1616,6 +1700,109 @@ export function POS() {
                 purchaserCustomerId={selectedCustomer?.id || null}
             />
 
+            {/* Invoice Modal */}
+            <Modal
+                isOpen={showInvoiceModal}
+                onClose={() => setShowInvoiceModal(false)}
+                title="Create Invoice"
+                size="md"
+            >
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium mb-2">Invoice For</label>
+                        <div className="flex gap-3">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="radio"
+                                    checked={invoiceRecipientType === 'customer'}
+                                    onChange={() => {
+                                        setInvoiceRecipientType('customer');
+                                        setSelectedInvoiceVendorId('');
+                                    }}
+                                />
+                                <span className="text-sm">Customer</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="radio"
+                                    checked={invoiceRecipientType === 'vendor'}
+                                    onChange={() => {
+                                        setInvoiceRecipientType('vendor');
+                                    }}
+                                />
+                                <span className="text-sm">Vendor</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    {invoiceRecipientType === 'customer' ? (
+                        <div>
+                            <label className="block text-sm font-medium mb-2">Customer</label>
+                            {selectedCustomer ? (
+                                <div className="p-3 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)]">
+                                    <p className="font-medium">{selectedCustomer.name}</p>
+                                    <p className="text-xs text-[var(--color-muted)]">{selectedCustomer.email || 'No email'}</p>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-[var(--color-muted)]">Please select a customer first</p>
+                            )}
+                        </div>
+                    ) : (
+                        <div>
+                            <label className="block text-sm font-medium mb-2">Vendor</label>
+                            <select
+                                value={selectedInvoiceVendorId}
+                                onChange={(e) => setSelectedInvoiceVendorId(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white"
+                            >
+                                <option value="">Select a vendor...</option>
+                                {consignors.map((consignor) => (
+                                    <option key={consignor.id} value={consignor.id}>
+                                        {consignor.consignor_number} - {consignor.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="block text-sm font-medium mb-2">Note (Optional)</label>
+                        <textarea
+                            value={invoiceNote}
+                            onChange={(e) => setInvoiceNote(e.target.value)}
+                            placeholder="Any notes for the invoice..."
+                            className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm resize-none h-20"
+                        />
+                    </div>
+
+                    <div className="flex gap-2 pt-4">
+                        <Button variant="secondary" onClick={() => setShowInvoiceModal(false)} className="flex-1">
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleCreateInvoice}
+                            isLoading={isCreatingInvoice}
+                            className="flex-1"
+                            disabled={
+                                (invoiceRecipientType === 'customer' && !selectedCustomer) ||
+                                (invoiceRecipientType === 'vendor' && !selectedInvoiceVendorId)
+                            }
+                        >
+                            Create Invoice
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Invoice Delivery Modal */}
+            <InvoiceDeliveryModal
+                isOpen={showInvoiceDelivery}
+                onClose={() => setShowInvoiceDelivery(false)}
+                invoice={completedInvoiceEmail}
+                recipientEmail={completedInvoice?.recipient_email || null}
+                recipientName={completedInvoice?.recipient_name || null}
+            />
+
             {/* Discount Modal */}
             <DiscountModal
                 isOpen={showDiscountModal}
@@ -1647,6 +1834,32 @@ export function POS() {
                         ? cart[discountTarget.itemIndex]?.discount
                         : undefined
                 }
+            />
+
+            {/* Smart Search Modal */}
+            <SmartSearch
+                isOpen={showSmartSearch}
+                onClose={() => setShowSmartSearch(false)}
+                onItemSelect={async (item) => {
+                    const existingIndex = cart.findIndex((ci) => ci.item.sku === item.sku);
+                    if (existingIndex >= 0) {
+                        const existing = cart[existingIndex];
+                        if (existing.quantity >= existing.item.quantity) {
+                            setScanError('No more in stock');
+                            return;
+                        }
+                        const updated = createCartItem(existing.item, existing.quantity + 1, existing.discount);
+                        setCart((prev) => prev.map((ci, i) => (i === existingIndex ? updated : ci)));
+                    } else {
+                        if (item.quantity <= 0) {
+                            setScanError('Out of stock');
+                            return;
+                        }
+                        const cartItem = createCartItem(item, 1);
+                        setCart((prev) => [...prev, cartItem]);
+                    }
+                    setScanError(null);
+                }}
             />
         </div>
     );
@@ -1733,6 +1946,17 @@ function CheckIcon() {
     return (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m20 6-11 11-5-5" />
+        </svg>
+    );
+}
+
+function FileTextIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="12" y1="11" x2="12" y2="17" />
+            <line x1="9" y1="14" x2="15" y2="14" />
         </svg>
     );
 }

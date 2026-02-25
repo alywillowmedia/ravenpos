@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import type { ReceiptData, RefundReceiptData } from '../types/receipt';
+import type { InvoiceEmailData } from '../types/invoice';
 
 /**
  * Generate email-safe HTML for receipt
@@ -244,6 +245,37 @@ export async function sendReceiptEmail(
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown email error';
         console.error('Send receipt email error:', error);
+        return { success: false, error: message };
+    }
+}
+
+export async function sendInvoiceEmail(
+    invoice: InvoiceEmailData,
+    recipientEmail: string,
+    recipientName?: string
+): Promise<SendEmailResult> {
+    try {
+        const response = await supabase.functions.invoke('send-invoice-email', {
+            body: {
+                invoice,
+                recipientEmail,
+                recipientName,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            },
+        });
+
+        if (response.error) {
+            console.error('Invoice email send error:', response.error);
+            return {
+                success: false,
+                error: response.error.message || 'Failed to send invoice email'
+            };
+        }
+
+        return { success: true };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown email error';
+        console.error('Send invoice email error:', error);
         return { success: false, error: message };
     }
 }
