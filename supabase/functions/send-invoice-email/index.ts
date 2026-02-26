@@ -30,7 +30,7 @@ interface RequestBody {
     timezone?: string;
 }
 
-function generateInvoiceEmailHTML(invoice: InvoiceData, timezone?: string): string {
+function generateInvoiceEmailHTML(invoice: InvoiceData, timezone?: string, paymentUrl?: string): string {
     const formatDate = (dateStr: string) => {
         const date = new Date(dateStr);
         const tz = timezone || 'America/New_York';
@@ -73,6 +73,34 @@ function generateInvoiceEmailHTML(invoice: InvoiceData, timezone?: string): stri
             </td>
         </tr>
     ` : '';
+
+    const paymentSectionHTML = paymentUrl ? `
+        <tr>
+            <td style="padding: 0 32px 24px 32px;">
+                <div style="border-bottom: 2px dashed #ddd; margin-bottom: 16px;"></div>
+                <div style="text-align: center;">
+                    <a
+                        href="${paymentUrl}"
+                        style="display: inline-block; padding: 12px 18px; background-color: #1d4ed8; color: #ffffff; text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 600;"
+                    >
+                        Pay Invoice Securely
+                    </a>
+                    <p style="margin: 10px 0 0 0; font-size: 12px; color: #666;">
+                        Link opens secure Stripe checkout for ${formatCurrency(invoice.total)}.
+                    </p>
+                </div>
+            </td>
+        </tr>
+    ` : `
+        <tr>
+            <td style="padding: 0 32px 24px 32px;">
+                <div style="border-bottom: 2px dashed #ddd; margin-bottom: 16px;"></div>
+                <p style="margin: 0; font-size: 13px; color: #555; text-align: center;">
+                    Please call us to pay with a card, or stop by in person to pay in person.
+                </p>
+            </td>
+        </tr>
+    `;
 
     return `
 <!DOCTYPE html>
@@ -142,14 +170,7 @@ function generateInvoiceEmailHTML(invoice: InvoiceData, timezone?: string): stri
                     ${noteHTML ? `<tr><td style="padding: 0 32px 16px 32px;">${noteHTML}</td></tr>` : ''}
 
                     <!-- Payment Instructions -->
-                    <tr>
-                        <td style="padding: 0 32px 24px 32px;">
-                            <div style="border-bottom: 2px dashed #ddd; margin-bottom: 16px;"></div>
-                            <p style="margin: 0; font-size: 13px; color: #555; text-align: center;">
-                                Please call us to pay with a card, or stop by in person to pay in person.
-                            </p>
-                        </td>
-                    </tr>
+                    ${paymentSectionHTML}
 
                     <!-- Footer -->
                     <tr>
@@ -169,6 +190,49 @@ function generateInvoiceEmailHTML(invoice: InvoiceData, timezone?: string): stri
 </body>
 </html>
     `;
+}
+
+async function createInvoiceCheckoutSession(
+    invoice: InvoiceData,
+    recipientEmail: string,
+    stripeSecretKey: string,
+    successUrl: string,
+    cancelUrl: string
+): Promise<string> {
+    const params = new URLSearchParams();
+    params.append('mode', 'payment');
+    params.append('success_url', successUrl);
+    params.append('cancel_url', cancelUrl);
+    params.append('customer_email', recipientEmail);
+    params.append('payment_method_types[]', 'card');
+    params.append('line_items[0][price_data][currency]', 'usd');
+    params.append('line_items[0][price_data][product_data][name]', `Invoice #${invoice.invoiceId.slice(0, 8).toUpperCase()}`);
+    params.append('line_items[0][price_data][product_data][description]', `Ravenlia invoice for ${invoice.recipientName}`);
+    params.append('line_items[0][price_data][unit_amount]', String(Math.round(invoice.total * 100)));
+    params.append('line_items[0][quantity]', '1');
+    params.append('metadata[invoice_id]', invoice.invoiceId);
+    params.append('metadata[invoice_total]', invoice.total.toFixed(2));
+    params.append('metadata[recipient_email]', recipientEmail);
+
+    const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${stripeSecretKey}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data?.error?.message || 'Failed to create Stripe checkout session');
+    }
+
+    if (!data?.url) {
+        throw new Error('Stripe checkout session did not return a URL');
+    }
+
+    return String(data.url);
 }
 
 Deno.serve(async (req) => {
@@ -204,7 +268,28 @@ Deno.serve(async (req) => {
             )
         }
 
-        const html = generateInvoiceEmailHTML(invoice, timezone)
+        let paymentUrl: string | undefined;
+        const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
+        const stripeSuccessUrl = Deno.env.get('STRIPE_INVOICE_SUCCESS_URL');
+        const stripeCancelUrl = Deno.env.get('STRIPE_INVOICE_CANCEL_URL') || stripeSuccessUrl;
+
+        if (stripeSecretKey && stripeSuccessUrl && stripeCancelUrl) {
+            try {
+                paymentUrl = await createInvoiceCheckoutSession(
+                    invoice,
+                    recipientEmail,
+                    stripeSecretKey,
+                    stripeSuccessUrl,
+                    stripeCancelUrl
+                );
+            } catch (stripeError) {
+                console.error('Stripe checkout session creation failed:', stripeError);
+            }
+        } else {
+            console.warn('Invoice checkout link disabled: set STRIPE_SECRET_KEY and STRIPE_INVOICE_SUCCESS_URL (optional: STRIPE_INVOICE_CANCEL_URL)');
+        }
+
+        const html = generateInvoiceEmailHTML(invoice, timezone, paymentUrl)
         const invoiceId = invoice.invoiceId.slice(0, 8).toUpperCase()
 
         const resendResponse = await fetch('https://api.resend.com/emails', {

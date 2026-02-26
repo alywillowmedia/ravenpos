@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePublicInventory } from '../../hooks/usePublicInventory';
 import { usePublicStorefrontSettings } from '../../hooks/usePublicStorefrontSettings';
@@ -12,6 +12,7 @@ import { buildVendorPath } from '../../lib/storefront';
 export function BrowsePage() {
     const location = useLocation();
     const embedParam = new URLSearchParams(location.search).get('embed');
+    const querySearch = new URLSearchParams(location.search).get('q')?.trim() || '';
     const isEmbedMode = embedParam === '1' || embedParam === 'true';
 
     const {
@@ -28,8 +29,6 @@ export function BrowsePage() {
     const { settings: homeHeroSettings } = usePublicStorefrontSettings();
 
     const [showFilters, setShowFilters] = useState(false);
-    const [categoriesOpen, setCategoriesOpen] = useState(false);
-    const [vendorsOpen, setVendorsOpen] = useState(false);
 
     // Calculate category item counts
     const categoriesWithCounts = useMemo(() => {
@@ -114,30 +113,34 @@ export function BrowsePage() {
     // Check if we're showing filtered results or the full homepage
     const isFiltered = hasActiveFilters;
 
+    useEffect(() => {
+        if (filters.search !== querySearch) {
+            updateFilters({ search: querySearch });
+        }
+    }, [filters.search, querySearch, updateFilters]);
+
     return (
         <div className="animate-fadeIn">
             {!isEmbedMode && (
                 <HeroSection
                     settings={homeHeroSettings}
-                    searchValue={filters.search}
-                    onSearchChange={(value) => updateFilters({ search: value })}
                 />
             )}
 
             {/* Main Content */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 {isEmbedMode && (
-                    <section className="pt-6">
-                        <div className="relative max-w-md">
+                    <section className="pt-8 pb-4">
+                        <div className="relative max-w-2xl mx-auto">
                             <input
                                 type="text"
                                 placeholder="Search for items..."
                                 value={filters.search}
                                 onChange={(e) => updateFilters({ search: e.target.value })}
-                                className="w-full px-5 py-3 pr-12 rounded-2xl bg-[var(--color-surface-elevated)] border-2 border-[var(--color-border)] text-[var(--color-foreground)] placeholder-[var(--color-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/40 focus:border-[var(--color-primary)] transition-all shadow-sm"
+                                className="w-full px-6 py-4 pr-14 rounded-2xl bg-[var(--color-surface-elevated)] border-2 border-[var(--color-border)] text-lg text-[var(--color-foreground)] placeholder-[var(--color-muted)] focus:outline-none focus:ring-4 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)] transition-all shadow-sm"
                             />
                             <svg
-                                className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--color-muted)]"
+                                className="absolute right-5 top-1/2 -translate-y-1/2 w-6 h-6 text-[var(--color-muted)]"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -155,133 +158,86 @@ export function BrowsePage() {
 
                 {/* Show sections only when not filtering */}
                 {!isFiltered && !isLoading && (categoriesWithCounts.length > 0 || vendorsWithCounts.length > 0) && (
-                    <section className="py-8" id="categories">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                            {/* Categories Dropdown */}
-                            {categoriesWithCounts.length > 0 && (
-                                <div className="bg-[var(--color-surface-elevated)] rounded-2xl overflow-hidden ravenlia-card">
-                                    <button
-                                        onClick={() => setCategoriesOpen(!categoriesOpen)}
-                                        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--color-surface-hover)] transition-colors"
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] flex items-center justify-center border border-black/20">
-                                                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <div className="space-y-12 py-8">
+                        {/* Categories Section */}
+                        {categoriesWithCounts.length > 0 && (
+                            <section id="categories">
+                                <div className="flex items-center justify-between mb-6">
+                                    <h2 className="text-2xl font-bold text-[var(--color-foreground)]">Shop by Category</h2>
+                                </div>
+                                <div className="flex overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 gap-4 snap-x hide-scrollbar">
+                                    {categoriesWithCounts.map((category) => (
+                                        <a
+                                            key={category.name}
+                                            href={`/category/${encodeURIComponent(category.name)}`}
+                                            className="flex-none w-40 p-6 rounded-2xl bg-[var(--color-surface-elevated)] hover:bg-[var(--color-primary)] hover:text-[var(--color-primary-foreground)] border-2 border-[var(--color-border)] hover:border-[var(--color-primary)] transition-all group snap-start text-center shadow-sm"
+                                        >
+                                            <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-[var(--color-surface)] group-hover:bg-white/20 flex items-center justify-center transition-colors">
+                                                <svg className="w-6 h-6 text-[var(--color-primary)] group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                                                 </svg>
                                             </div>
-                                            <div className="text-left">
-                                                <h3 className="font-semibold text-[var(--color-foreground)]">Shop by Category</h3>
-                                                <p className="text-sm text-[var(--color-muted)]">{categoriesWithCounts.length} categories</p>
-                                            </div>
-                                        </div>
-                                        <svg
-                                            className={`w-5 h-5 text-[var(--color-muted)] transition-transform ${categoriesOpen ? 'rotate-180' : ''}`}
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={2}
-                                        >
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                                        </svg>
-                                    </button>
-                                    {categoriesOpen && (
-                                        <div className="px-4 pb-4 animate-fadeIn">
-                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                                {categoriesWithCounts.map((category) => (
-                                                    <a
-                                                        key={category.name}
-                                                        href={`/category/${encodeURIComponent(category.name)}`}
-                                                        className="block p-3 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-primary)] hover:text-[var(--color-primary-foreground)] border border-[var(--color-border)] hover:border-[var(--color-primary)] transition-all group"
-                                                    >
-                                                        <p className="font-medium text-sm truncate">{category.name}</p>
-                                                        <p className="text-xs opacity-60 mt-0.5">{category.itemCount} items</p>
-                                                    </a>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+                                            <h3 className="font-semibold text-sm truncate">{category.name}</h3>
+                                            <p className="text-xs opacity-70 mt-1">{category.itemCount} items</p>
+                                        </a>
+                                    ))}
                                 </div>
-                            )}
+                            </section>
+                        )}
 
-                            {/* Vendors Dropdown */}
-                            {vendorsWithCounts.length > 0 && (
-                                <div className="bg-[var(--color-surface-elevated)] rounded-2xl overflow-hidden ravenlia-card" id="vendors">
-                                    <button
-                                        onClick={() => setVendorsOpen(!vendorsOpen)}
-                                        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--color-surface-hover)] transition-colors"
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] flex items-center justify-center border border-black/20">
-                                                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                                </svg>
-                                            </div>
-                                            <div className="text-left">
-                                                <h3 className="font-semibold text-[var(--color-foreground)]">Our Vendors</h3>
-                                                <p className="text-sm text-[var(--color-muted)]">{vendorsWithCounts.length} vendors</p>
-                                            </div>
-                                        </div>
-                                        <svg
-                                            className={`w-5 h-5 text-[var(--color-muted)] transition-transform ${vendorsOpen ? 'rotate-180' : ''}`}
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={2}
-                                        >
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                                        </svg>
-                                    </button>
-                                    {vendorsOpen && (
-                                        <div className="px-4 pb-4 animate-fadeIn">
-                                            <div className="grid grid-cols-2 gap-2">
-                                                {vendorsWithCounts.map((vendor) => (
-                                                    <a
-                                                        key={vendor.id}
-                                                        href={buildVendorPath(vendor)}
-                                                        className="flex items-center gap-3 p-3 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-primary)] hover:text-[var(--color-primary-foreground)] border border-[var(--color-border)] hover:border-[var(--color-primary)] transition-all group"
-                                                    >
-                                                        {vendor.storefront_logo_url ? (
-                                                            <img
-                                                                src={vendor.storefront_logo_url}
-                                                                alt={`${vendor.storefront_display_name || vendor.name} logo`}
-                                                                className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-black/20"
-                                                            />
-                                                        ) : (
-                                                            <div className="w-8 h-8 rounded-full bg-[var(--color-primary)] flex items-center justify-center flex-shrink-0 border border-black/20 group-hover:bg-[var(--color-primary-foreground)]">
-                                                                <span className="text-sm font-bold text-[var(--color-primary-foreground)] group-hover:text-[var(--color-primary)]">
-                                                                    {(vendor.storefront_display_name || vendor.name).charAt(0).toUpperCase()}
-                                                                </span>
-                                                            </div>
-                                                        )}
-                                                        <div className="min-w-0">
-                                                            <p className="font-medium text-sm truncate">{vendor.storefront_display_name || vendor.name}</p>
-                                                            {vendor.booth_location && (
-                                                                <p className="text-xs opacity-60">Booth {vendor.booth_location}</p>
-                                                            )}
-                                                        </div>
-                                                    </a>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+                        {/* Vendors Section */}
+                        {vendorsWithCounts.length > 0 && (
+                            <section className="bg-[var(--color-surface-elevated)] -mx-4 px-4 py-8 sm:mx-0 sm:px-8 sm:rounded-3xl border-2 border-[var(--color-border)] shadow-sm" id="vendors">
+                                <div className="flex items-center justify-between mb-8">
+                                    <h2 className="text-2xl font-bold text-[var(--color-foreground)]">Meet Our Vendors</h2>
                                 </div>
-                            )}
-                        </div>
-                    </section>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                    {vendorsWithCounts.slice(0, 8).map((vendor) => (
+                                        <a
+                                            key={vendor.id}
+                                            href={buildVendorPath(vendor)}
+                                            className="flex items-center gap-4 p-4 rounded-2xl bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] border-2 border-[var(--color-border)] hover:border-[var(--color-primary)] transition-all group"
+                                        >
+                                            {vendor.storefront_logo_url ? (
+                                                <img
+                                                    src={vendor.storefront_logo_url}
+                                                    alt={`${vendor.storefront_display_name || vendor.name} logo`}
+                                                    className="w-12 h-12 rounded-full object-cover flex-shrink-0 border-2 border-[var(--color-border)] group-hover:border-[var(--color-primary)] transition-colors"
+                                                />
+                                            ) : (
+                                                <div className="w-12 h-12 rounded-full bg-[var(--color-primary)]/10 flex items-center justify-center flex-shrink-0 border-2 border-[var(--color-primary)]/20 group-hover:border-[var(--color-primary)] transition-colors">
+                                                    <span className="text-lg font-bold text-[var(--color-primary)]">
+                                                        {(vendor.storefront_display_name || vendor.name).charAt(0).toUpperCase()}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <div className="min-w-0">
+                                                <p className="font-semibold text-sm text-[var(--color-foreground)] truncate group-hover:text-[var(--color-primary)] transition-colors">
+                                                    {vendor.storefront_display_name || vendor.name}
+                                                </p>
+                                                {vendor.booth_location && (
+                                                    <p className="text-xs text-[var(--color-muted)] mt-0.5">Booth {vendor.booth_location}</p>
+                                                )}
+                                            </div>
+                                        </a>
+                                    ))}
+                                </div>
+                            </section>
+                        )}
+                    </div>
                 )}
 
                 {!isFiltered && !isLoading && featuredItems.length > 0 && (
-                    <section className="py-10 border-t-2 border-[var(--color-border)]">
-                        <div className="flex items-center justify-between gap-3 mb-6">
-                            <h2 className="text-2xl font-bold text-[var(--color-foreground)]">
-                                Featured Storefront Picks
+                    <section className="py-12 border-t-2 border-[var(--color-border)]">
+                        <div className="flex items-center justify-between gap-3 mb-8">
+                            <h2 className="text-3xl font-bold text-[var(--color-foreground)] tracking-tight">
+                                Featured Picks
                             </h2>
-                            <span className="text-sm text-[var(--color-muted)]">
+                            <span className="inline-flex items-center px-3 py-1 rounded-full bg-[var(--color-primary)]/10 text-[var(--color-primary)] text-sm font-bold">
                                 {featuredItems.length} {featuredItems.length === 1 ? 'item' : 'items'}
                             </span>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
                             {featuredItems.map((item) => (
                                 <ProductCard key={item.id} item={item} />
                             ))}
@@ -290,20 +246,20 @@ export function BrowsePage() {
                 )}
 
                 {/* Browse All / Search Results Section */}
-                <section className="py-10 border-t-2 border-[var(--color-border)]">
+                <section className="py-12 border-t-2 border-[var(--color-border)]">
                     {/* Section Header */}
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
                         <div className="flex items-center gap-4">
-                            <h2 className="text-2xl font-bold text-[var(--color-foreground)]">
+                            <h2 className="text-3xl font-bold text-[var(--color-foreground)] tracking-tight">
                                 {isFiltered ? 'Search Results' : 'Browse All Items'}
                             </h2>
-                            <span className="text-[var(--color-muted)]">
-                                ({pagination.total} {pagination.total === 1 ? 'item' : 'items'})
+                            <span className="inline-flex items-center px-3 py-1 rounded-full bg-[var(--color-surface-elevated)] border-2 border-[var(--color-border)] text-[var(--color-muted)] text-sm font-bold">
+                                {pagination.total} {pagination.total === 1 ? 'item' : 'items'}
                             </span>
                             {hasActiveFilters && (
                                 <button
                                     onClick={clearFilters}
-                                    className="text-sm text-[var(--color-primary)] hover:underline"
+                                    className="text-sm font-bold text-[var(--color-primary)] hover:underline"
                                 >
                                     Clear filters
                                 </button>
@@ -312,10 +268,10 @@ export function BrowsePage() {
 
                         <button
                             onClick={() => setShowFilters(!showFilters)}
-                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-surface-elevated)] hover:bg-[var(--color-surface-hover)] border-2 border-[var(--color-border)] transition-colors"
+                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--color-surface-elevated)] hover:bg-[var(--color-surface-hover)] border-2 border-[var(--color-border)] transition-colors shadow-sm"
                         >
                             <svg
-                                className="w-4 h-4"
+                                className="w-5 h-5"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -327,16 +283,16 @@ export function BrowsePage() {
                                     d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
                                 />
                             </svg>
-                            <span className="text-sm font-medium">Filters</span>
+                            <span className="text-sm font-bold">Filters</span>
                             {hasActiveFilters && (
-                                <span className="w-2 h-2 rounded-full bg-[var(--color-primary)]" />
+                                <span className="w-2.5 h-2.5 rounded-full bg-[var(--color-primary)] shadow-[0_0_8px_var(--color-primary)]" />
                             )}
                         </button>
                     </div>
 
                     {/* Expandable Filters */}
                     {showFilters && (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8 p-4 bg-[var(--color-surface-elevated)] rounded-xl border-2 border-[var(--color-border)] animate-fadeIn">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10 p-6 bg-[var(--color-surface-elevated)] rounded-3xl border-2 border-[var(--color-border)] shadow-lg animate-fadeIn">
                             <Select
                                 label="Category"
                                 options={[
@@ -370,10 +326,10 @@ export function BrowsePage() {
 
                     {/* Empty State */}
                     {!isLoading && items.length === 0 && (
-                        <div className="text-center py-24">
-                            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[var(--color-surface)] flex items-center justify-center">
+                        <div className="text-center py-32 bg-[var(--color-surface-elevated)] rounded-3xl border-2 border-[var(--color-border)] border-dashed">
+                            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-[var(--color-surface)] flex items-center justify-center border-2 border-[var(--color-border)]">
                                 <svg
-                                    className="w-8 h-8 text-[var(--color-muted)]"
+                                    className="w-10 h-10 text-[var(--color-muted)]"
                                     fill="none"
                                     viewBox="0 0 24 24"
                                     stroke="currentColor"
@@ -386,19 +342,27 @@ export function BrowsePage() {
                                     />
                                 </svg>
                             </div>
-                            <h3 className="text-lg font-semibold text-[var(--color-foreground)] mb-2">
+                            <h3 className="text-2xl font-bold text-[var(--color-foreground)] mb-2">
                                 No items found
                             </h3>
-                            <p className="text-[var(--color-muted)]">
+                            <p className="text-[var(--color-muted)] text-lg">
                                 Try adjusting your search or filters
                             </p>
+                            {hasActiveFilters && (
+                                <button
+                                    onClick={clearFilters}
+                                    className="mt-6 px-6 py-3 rounded-xl bg-[var(--color-primary)] text-[var(--color-primary-foreground)] font-bold hover:opacity-90 transition-opacity"
+                                >
+                                    Clear all filters
+                                </button>
+                            )}
                         </div>
                     )}
 
                     {/* Product Grid */}
                     {!isLoading && items.length > 0 && (
                         <>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
                                 {items.map((item) => (
                                     <ProductCard key={item.id} item={item} />
                                 ))}
@@ -433,9 +397,9 @@ export function BrowsePage() {
                                                 <button
                                                     key={pageNum}
                                                     onClick={() => setPage(pageNum)}
-                                                    className={`w-10 h-10 rounded-lg text-sm font-medium transition-colors ${pagination.page === pageNum
-                                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
-                                                        : 'bg-[var(--color-surface-elevated)] text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)] border-2 border-[var(--color-border)]'
+                                                    className={`w-10 h-10 rounded-xl text-sm font-bold transition-all ${pagination.page === pageNum
+                                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)] shadow-md scale-110'
+                                                        : 'bg-[var(--color-surface-elevated)] text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)] border-2 border-[var(--color-border)] hover:border-[var(--color-primary)]'
                                                         }`}
                                                 >
                                                     {pageNum}

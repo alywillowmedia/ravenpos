@@ -151,8 +151,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
 
     const signOut = async () => {
-        // Full sign out clears local session and invalidates refresh token
-        await supabase.auth.signOut();
+        // Try global sign-out first so other tabs/windows can't immediately rehydrate this session.
+        const { error: globalError } = await supabase.auth.signOut();
+        if (globalError) {
+            console.error('Global sign-out error, falling back to local sign-out:', globalError);
+            const { error: localError } = await supabase.auth.signOut({ scope: 'local' });
+            if (localError) {
+                console.error('Local sign-out error:', localError);
+            }
+        }
+
+        // Hard-clear any persisted Supabase auth tokens to prevent immediate session rehydration.
+        const clearSupabaseAuthStorage = (storage: Storage) => {
+            for (let i = storage.length - 1; i >= 0; i -= 1) {
+                const key = storage.key(i);
+                if (!key) continue;
+                if (key.startsWith('sb-') && key.includes('-auth-token')) {
+                    storage.removeItem(key);
+                }
+            }
+        };
+        clearSupabaseAuthStorage(window.localStorage);
+        clearSupabaseAuthStorage(window.sessionStorage);
+
         currentUserIdRef.current = null;
         setUser(null);
         setSession(null);
@@ -160,8 +181,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
         lastUserIdRef.current = null;
         fetchingRef.current = false;
 
-        // Force full page reload to /login to ensure complete state reset
-        window.location.replace('/login');
+        // Force full page reload to login with router-compatible URL.
+        const isElectron = typeof window !== 'undefined' && (
+            window.electronAPI?.isElectron === true || window.location.protocol === 'file:'
+        );
+        const loginPath = isElectron
+            ? `${window.location.pathname}#/login`
+            : '/login';
+        window.location.replace(loginPath);
     };
 
     // Expose a way to manually refresh user record if needed

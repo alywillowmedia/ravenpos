@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Item, ItemInput } from '../types';
 import { generateSKU } from '../lib/utils';
+import { formatSupabaseError } from '../lib/supabaseError';
 import {
     applyEffectiveConsignorTerms,
     getLocalDateString,
@@ -41,7 +42,7 @@ export function useInventory(consignorId?: string) {
             if (fetchError) throw fetchError;
             setItems(data || []);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to fetch items');
+            setError(formatSupabaseError(err, 'Failed to fetch items'));
         } finally {
             setIsLoading(false);
         }
@@ -85,7 +86,7 @@ export function useInventory(consignorId?: string) {
             setItems((prev) => [data, ...prev]);
             return { data, error: null };
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to create item';
+            const message = formatSupabaseError(err, 'Failed to create item');
             return { data: null, error: message };
         }
     };
@@ -127,7 +128,7 @@ export function useInventory(consignorId?: string) {
             setItems((prev) => [...(data || []), ...prev]);
             return { data, error: null };
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to create items';
+            const message = formatSupabaseError(err, 'Failed to create items');
             return { data: null, error: message };
         }
     };
@@ -192,7 +193,7 @@ export function useInventory(consignorId?: string) {
 
             return { data, error: null };
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to update item';
+            const message = formatSupabaseError(err, 'Failed to update item');
             return { data: null, error: message };
         }
     };
@@ -209,7 +210,7 @@ export function useInventory(consignorId?: string) {
             setItems((prev) => prev.filter((item) => item.id !== id));
             return { error: null };
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to delete item';
+            const message = formatSupabaseError(err, 'Failed to delete item');
             return { error: message };
         }
     };
@@ -252,7 +253,7 @@ export function useInventory(consignorId?: string) {
 
             return { data: nextData, error: null };
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Item not found';
+            const message = formatSupabaseError(err, 'Item not found');
             return { data: null, error: message };
         }
     };
@@ -276,7 +277,7 @@ export function useInventory(consignorId?: string) {
             );
             return { error: null };
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to update quantity';
+            const message = formatSupabaseError(err, 'Failed to update quantity');
             return { error: message };
         }
     };
@@ -303,7 +304,7 @@ export function useInventory(consignorId?: string) {
             await fetchItems();
             return { error: null };
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to mark items as printed';
+            const message = formatSupabaseError(err, 'Failed to mark items as printed');
             return { error: message };
         }
     };
@@ -376,7 +377,7 @@ export function useInventory(consignorId?: string) {
                     }
                 } catch (err) {
                     const itemName = originalItems.find((i) => i.id === id)?.name || id;
-                    errors.push(`${itemName}: ${err instanceof Error ? err.message : 'Update failed'}`);
+                    errors.push(`${itemName}: ${formatSupabaseError(err, 'Update failed')}`);
                 }
             });
 
@@ -391,7 +392,7 @@ export function useInventory(consignorId?: string) {
             setItems(originalItems);
             return {
                 success: false,
-                errors: [err instanceof Error ? err.message : 'Bulk update failed'],
+                errors: [formatSupabaseError(err, 'Bulk update failed')],
             };
         }
     };

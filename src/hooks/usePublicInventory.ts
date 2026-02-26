@@ -387,15 +387,15 @@ export function usePublicInventory() {
     }, [filters, pagination.page, pagination.pageSize]);
 
     // Update filters (resets to page 1)
-    const updateFilters = (newFilters: Partial<PublicFilters>) => {
+    const updateFilters = useCallback((newFilters: Partial<PublicFilters>) => {
         setFilters((prev) => ({ ...prev, ...newFilters }));
         setPagination((prev) => ({ ...prev, page: 1 }));
-    };
+    }, []);
 
     // Change page
-    const setPage = (page: number) => {
+    const setPage = useCallback((page: number) => {
         setPagination((prev) => ({ ...prev, page }));
-    };
+    }, []);
 
     // Calculate total pages
     const totalPages = Math.ceil(pagination.total / pagination.pageSize);

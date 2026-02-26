@@ -54,6 +54,8 @@ import { BrowsePage } from './pages/public/BrowsePage';
 import { ItemDetailPage } from './pages/public/ItemDetailPage';
 import { VendorPage } from './pages/public/VendorPage';
 import { CategoryPage } from './pages/public/CategoryPage';
+import { CategoriesPage } from './pages/public/CategoriesPage';
+import { VendorsPage } from './pages/public/VendorsPage';
 
 export default function App() {
     return (
@@ -63,6 +65,8 @@ export default function App() {
                     {/* Public Storefront Routes */}
                     <Route element={<PublicLayout />}>
                         <Route path="/" element={<BrowsePage />} />
+                        <Route path="/categories" element={<CategoriesPage />} />
+                        <Route path="/vendors" element={<VendorsPage />} />
                         <Route path="/vendor/:vendorSlug/:itemSlug" element={<ItemDetailPage />} />
                         <Route path="/item/:id" element={<ItemDetailPage />} />
                         <Route path="/vendor/:id" element={<VendorPage />} />
