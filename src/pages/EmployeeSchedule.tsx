@@ -938,7 +938,11 @@ export function EmployeeSchedule() {
                                                                         {formatTimeLabel(shift.start_time)} - {formatTimeLabel(shift.end_time)}
                                                                     </p>
                                                                     {shift.source === 'recurring' && (
-                                                                        <p className="mt-1 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">From template</p>
+                                                                        <span className="absolute right-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-border)] text-[var(--color-muted)]" title="From template">
+                                                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                                                <path d="M3 7h18M3 12h18M3 17h18" />
+                                                                            </svg>
+                                                                        </span>
                                                                     )}
                                                                     {isBlocked && (
                                                                         <p className="mt-1 text-[11px] font-semibold text-[var(--color-danger)]">Approved day off</p>
