@@ -11,6 +11,7 @@ import { supabase } from '../../lib/supabase';
 type ViewMode = 'week' | 'month';
 type EmployeeTab = 'schedule' | 'requests';
 type TimeOffRequestStatus = 'pending' | 'approved' | 'denied';
+type ShiftTimeOffImpact = 'none' | 'partial' | 'full';
 
 type OneTimeShift = {
     id: string;
@@ -43,6 +44,9 @@ type TimeOffRequest = {
     id: string;
     start_date: string;
     end_date: string;
+    is_full_day: boolean;
+    start_time: string | null;
+    end_time: string | null;
     reason: string | null;
     status: TimeOffRequestStatus;
     review_notes: string | null;
@@ -52,6 +56,9 @@ type TimeOffRequest = {
 type RequestFormState = {
     startDate: string;
     endDate: string;
+    isFullDay: boolean;
+    startTime: string;
+    endTime: string;
     reason: string;
 };
 
@@ -112,6 +119,36 @@ function getShiftDurationHours(startTime: string, endTime: string) {
     return Math.max(0, end - start) / 60;
 }
 
+function timeRangesOverlap(startA: string, endA: string, startB: string, endB: string) {
+    return parseTimeToMinutes(startA) < parseTimeToMinutes(endB)
+        && parseTimeToMinutes(endA) > parseTimeToMinutes(startB);
+}
+
+function getRequestShiftImpact(request: TimeOffRequest, shiftDate: string, shiftStart: string, shiftEnd: string): ShiftTimeOffImpact {
+    if (request.status !== 'approved') return 'none';
+    if (shiftDate < request.start_date || shiftDate > request.end_date) return 'none';
+    if (request.is_full_day) return 'full';
+    if (shiftDate !== request.start_date || !request.start_time || !request.end_time) return 'none';
+    if (!timeRangesOverlap(shiftStart, shiftEnd, request.start_time, request.end_time)) return 'none';
+
+    const fullyCovered =
+        parseTimeToMinutes(request.start_time) <= parseTimeToMinutes(shiftStart)
+        && parseTimeToMinutes(request.end_time) >= parseTimeToMinutes(shiftEnd);
+
+    return fullyCovered ? 'full' : 'partial';
+}
+
+function formatRequestDateTimeRange(request: TimeOffRequest) {
+    if (request.is_full_day) {
+        if (request.start_date === request.end_date) return `${formatDateLabel(request.start_date)} (Full day)`;
+        return `${formatDateRange(request.start_date, request.end_date)} (Full day)`;
+    }
+
+    const startTime = request.start_time ? formatTimeLabel(request.start_time) : '--';
+    const endTime = request.end_time ? formatTimeLabel(request.end_time) : '--';
+    return `${formatDateLabel(request.start_date)} ${startTime} - ${endTime}`;
+}
+
 function getStatusBadgeClass(status: TimeOffRequestStatus) {
     if (status === 'approved') {
         return 'bg-[var(--color-success-bg)] text-[var(--color-success)]';
@@ -140,6 +177,9 @@ export function EmployeeSchedule() {
     const [requestForm, setRequestForm] = useState<RequestFormState>({
         startDate: toDateKey(new Date()),
         endDate: toDateKey(new Date()),
+        isFullDay: true,
+        startTime: '09:00',
+        endTime: '17:00',
         reason: '',
     });
 
@@ -207,7 +247,7 @@ export function EmployeeSchedule() {
 
         const { data, error: queryError } = await supabase
             .from('employee_time_off_requests')
-            .select('id, start_date, end_date, reason, status, review_notes, created_at')
+            .select('id, start_date, end_date, is_full_day, start_time, end_time, reason, status, review_notes, created_at')
             .eq('employee_id', employee.id)
             .order('start_date', { ascending: false });
 
@@ -230,23 +270,18 @@ export function EmployeeSchedule() {
         fetchTimeOffRequests();
     }, [fetchTimeOffRequests]);
 
-    const approvedDays = useMemo(() => {
-        const set = new Set<string>();
-
-        for (const request of timeOffRequests) {
-            if (request.status !== 'approved') continue;
-            const start = parseDateKey(request.start_date);
-            const end = parseDateKey(request.end_date);
-
-            for (const day of visibleDays) {
-                if (day >= start && day <= end) {
-                    set.add(toDateKey(day));
-                }
+    const getTimeOffImpactForShift = useCallback(
+        (shiftDate: string, shiftStart: string, shiftEnd: string): ShiftTimeOffImpact => {
+            let hasPartial = false;
+            for (const request of timeOffRequests) {
+                const impact = getRequestShiftImpact(request, shiftDate, shiftStart, shiftEnd);
+                if (impact === 'full') return 'full';
+                if (impact === 'partial') hasPartial = true;
             }
-        }
-
-        return set;
-    }, [timeOffRequests, visibleDays]);
+            return hasPartial ? 'partial' : 'none';
+        },
+        [timeOffRequests]
+    );
 
     const displayShifts = useMemo(() => {
         const overrides = new Set(oneTimeShifts.map((shift) => shift.shift_date));
@@ -314,6 +349,16 @@ export function EmployeeSchedule() {
             return;
         }
 
+        if (!requestForm.isFullDay && requestForm.startDate !== requestForm.endDate) {
+            setRequestError('Hourly requests must be a single day.');
+            return;
+        }
+
+        if (!requestForm.isFullDay && parseTimeToMinutes(requestForm.endTime) <= parseTimeToMinutes(requestForm.startTime)) {
+            setRequestError('End time must be after start time for hourly requests.');
+            return;
+        }
+
         setIsSubmittingRequest(true);
 
         const { error: insertError } = await supabase
@@ -322,6 +367,9 @@ export function EmployeeSchedule() {
                 employee_id: employee.id,
                 start_date: requestForm.startDate,
                 end_date: requestForm.endDate,
+                is_full_day: requestForm.isFullDay,
+                start_time: requestForm.isFullDay ? null : requestForm.startTime,
+                end_time: requestForm.isFullDay ? null : requestForm.endTime,
                 reason: requestForm.reason.trim() || null,
             });
 
@@ -335,6 +383,9 @@ export function EmployeeSchedule() {
         setRequestForm({
             startDate: toDateKey(new Date()),
             endDate: toDateKey(new Date()),
+            isFullDay: true,
+            startTime: '09:00',
+            endTime: '17:00',
             reason: '',
         });
         setIsSubmittingRequest(false);
@@ -381,7 +432,7 @@ export function EmployeeSchedule() {
         <div className="animate-fadeIn max-w-5xl">
             <Header
                 title="Schedule"
-                description={activeTab === 'schedule' ? 'Your assigned shifts with weekly repeat rules.' : 'Submit and track day-off requests.'}
+                description={activeTab === 'schedule' ? 'Your assigned shifts with weekly repeat rules.' : 'Submit and track full-day or hourly time-off requests.'}
                 actions={(
                     <div className="flex flex-wrap gap-2">
                         <Button size="sm" variant="secondary" onClick={() => moveRange(-1)}>
@@ -468,21 +519,30 @@ export function EmployeeSchedule() {
                                                 ) : (
                                                     <div className="space-y-1.5">
                                                         {renderedShifts.map((shift) => {
-                                                            const isBlocked = approvedDays.has(shift.shift_date);
+                                                            const timeOffImpact = getTimeOffImpactForShift(
+                                                                shift.shift_date,
+                                                                shift.start_time,
+                                                                shift.end_time
+                                                            );
+                                                            const isFullyBlocked = timeOffImpact === 'full';
+                                                            const isPartiallyBlocked = timeOffImpact === 'partial';
                                                             return (
                                                                 <div key={shift.id} className="rounded-lg border border-[var(--color-border)] px-2 py-1.5">
-                                                                    <p className={`text-xs font-medium text-[var(--color-foreground)] ${isBlocked ? 'line-through opacity-70' : ''}`}>
+                                                                    <p className={`text-xs font-medium text-[var(--color-foreground)] ${isFullyBlocked ? 'line-through opacity-70' : ''}`}>
                                                                         {formatTimeLabel(shift.start_time)} - {formatTimeLabel(shift.end_time)}
                                                                         <span className="ml-1 text-[var(--color-muted)]">({getShiftDurationHours(shift.start_time, shift.end_time).toFixed(1)}h)</span>
                                                                     </p>
                                                                     {shift.source === 'recurring' && (
                                                                         <p className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">Repeats weekly</p>
                                                                     )}
-                                                                    {isBlocked && (
-                                                                        <p className="text-[10px] font-semibold text-[var(--color-danger)]">Approved day off</p>
+                                                                    {isFullyBlocked && (
+                                                                        <p className="text-[10px] font-semibold text-[var(--color-danger)]">Approved time off</p>
+                                                                    )}
+                                                                    {isPartiallyBlocked && (
+                                                                        <p className="text-[10px] font-semibold text-[var(--color-warning)]">Partial time-off overlap</p>
                                                                     )}
                                                                     {shift.notes && (
-                                                                        <p className={`text-[11px] text-[var(--color-muted)] ${isBlocked ? 'line-through opacity-70' : ''}`}>{shift.notes}</p>
+                                                                        <p className={`text-[11px] text-[var(--color-muted)] ${isFullyBlocked ? 'line-through opacity-70' : ''}`}>{shift.notes}</p>
                                                                     )}
                                                                 </div>
                                                             );
@@ -507,7 +567,7 @@ export function EmployeeSchedule() {
                     <Card variant="outlined" className="mb-4 bg-white">
                         <CardContent>
                             <h2 className="mb-1 text-base font-semibold text-[var(--color-foreground)]">Request Time Off</h2>
-                            <p className="mb-3 text-xs text-[var(--color-muted)]">Submit days you cannot work. Admins can approve or deny.</p>
+                            <p className="mb-3 text-xs text-[var(--color-muted)]">Submit full days or specific hours you cannot work. Admins can approve or deny.</p>
                             <form className="space-y-3" onSubmit={handleSubmitRequest}>
                                 <div className="grid gap-3 sm:grid-cols-2">
                                     <Input
@@ -525,6 +585,32 @@ export function EmployeeSchedule() {
                                         required
                                     />
                                 </div>
+                                <label className="inline-flex items-center gap-2 text-sm text-[var(--color-foreground)]">
+                                    <input
+                                        type="checkbox"
+                                        checked={requestForm.isFullDay}
+                                        onChange={(event) => setRequestForm((prev) => ({ ...prev, isFullDay: event.target.checked }))}
+                                    />
+                                    Full day
+                                </label>
+                                {!requestForm.isFullDay && (
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <Input
+                                            label="Start Time"
+                                            type="time"
+                                            value={requestForm.startTime}
+                                            onChange={(event) => setRequestForm((prev) => ({ ...prev, startTime: event.target.value }))}
+                                            required
+                                        />
+                                        <Input
+                                            label="End Time"
+                                            type="time"
+                                            value={requestForm.endTime}
+                                            onChange={(event) => setRequestForm((prev) => ({ ...prev, endTime: event.target.value }))}
+                                            required
+                                        />
+                                    </div>
+                                )}
                                 <Textarea
                                     label="Reason (optional)"
                                     rows={2}
@@ -559,14 +645,14 @@ export function EmployeeSchedule() {
                                 <LoadingSpinner size={24} />
                             </div>
                         ) : timeOffRequests.length === 0 ? (
-                            <div className="px-4 py-6 text-sm text-[var(--color-muted)]">No day-off requests submitted yet.</div>
+                            <div className="px-4 py-6 text-sm text-[var(--color-muted)]">No time-off requests submitted yet.</div>
                         ) : (
                             <div className="divide-y divide-[var(--color-border)]">
                                 {timeOffRequests.map((request) => (
                                     <div key={request.id} className="space-y-2 px-4 py-3">
                                         <div className="flex items-center justify-between gap-2">
                                             <p className="text-sm font-semibold text-[var(--color-foreground)]">
-                                                {formatDateRange(request.start_date, request.end_date)}
+                                                {formatRequestDateTimeRange(request)}
                                             </p>
                                             <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${getStatusBadgeClass(request.status)}`}>
                                                 {request.status}

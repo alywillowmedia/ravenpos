@@ -18,6 +18,7 @@ interface TimeEntriesTableProps {
     isLoading?: boolean;
     onDateRangeChange?: (start: Date, end: Date) => void;
     onEditEntry?: (entry: TimeEntry) => void;
+    hideSensitiveValues?: boolean;
 }
 
 type DateFilter = 'this_week' | 'last_week' | 'this_month' | 'last_2_full_weeks' | 'custom' | 'all';
@@ -40,7 +41,7 @@ function parseLocalDateInput(value: string, endOfDay = false): Date {
     return parsed;
 }
 
-export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEditEntry }: TimeEntriesTableProps) {
+export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEditEntry, hideSensitiveValues = false }: TimeEntriesTableProps) {
     const [filter, setFilter] = useState<DateFilter>('this_week');
     const [customStart, setCustomStart] = useState(() => toLocalDateInput(new Date()));
     const [customEnd, setCustomEnd] = useState(() => toLocalDateInput(new Date()));
@@ -122,7 +123,7 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
                     ))}
                 </div>
                 <div className="text-sm">
-                    Total: <span className="font-bold text-[var(--color-primary)]">{formatDecimalHours(totalHours)}</span>
+                    Total: <span className={`font-bold text-[var(--color-primary)] ${hideSensitiveValues ? 'blur-sm select-none' : ''}`}>{formatDecimalHours(totalHours)}</span>
                 </div>
             </div>
 
@@ -200,7 +201,9 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
                                         )}
                                     </td>
                                     <td className="px-4 py-3 text-sm font-medium text-right">
-                                        {entry.total_hours ? formatDecimalHours(entry.total_hours) : '-'}
+                                        <span className={hideSensitiveValues ? 'blur-sm select-none' : ''}>
+                                            {entry.total_hours ? formatDecimalHours(entry.total_hours) : '-'}
+                                        </span>
                                     </td>
                                     <td className="px-4 py-3 text-sm text-center text-[var(--color-muted)]">
                                         {entry.lunch_break_minutes ? `${entry.lunch_break_minutes}m` : '-'}

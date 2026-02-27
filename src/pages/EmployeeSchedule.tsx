@@ -16,6 +16,7 @@ type AdminTab = 'schedule' | 'templates' | 'requests';
 type RequestStatusTab = 'pending' | 'approved' | 'denied';
 type ShiftSource = 'one_time' | 'recurring';
 type TimeOffRequestStatus = 'pending' | 'approved' | 'denied';
+type ShiftTimeOffImpact = 'none' | 'partial' | 'full';
 
 type OneTimeShift = {
     id: string;
@@ -52,6 +53,9 @@ type TimeOffRequest = {
     employee_id: string;
     start_date: string;
     end_date: string;
+    is_full_day: boolean;
+    start_time: string | null;
+    end_time: string | null;
     reason: string | null;
     status: TimeOffRequestStatus;
     reviewed_by: string | null;
@@ -169,6 +173,38 @@ function shiftKey(employeeId: string, shiftDate: string) {
     return `${employeeId}|${shiftDate}`;
 }
 
+function timeRangesOverlap(startA: string, endA: string, startB: string, endB: string) {
+    return parseTimeToMinutes(startA) < parseTimeToMinutes(endB)
+        && parseTimeToMinutes(endA) > parseTimeToMinutes(startB);
+}
+
+function getRequestShiftImpact(request: TimeOffRequest, shiftDate: string, shiftStart: string, shiftEnd: string): ShiftTimeOffImpact {
+    if (request.status !== 'approved') return 'none';
+    if (shiftDate < request.start_date || shiftDate > request.end_date) return 'none';
+    if (request.is_full_day) return 'full';
+    if (shiftDate !== request.start_date || !request.start_time || !request.end_time) return 'none';
+    if (!timeRangesOverlap(shiftStart, shiftEnd, request.start_time, request.end_time)) return 'none';
+
+    const fullyCovered =
+        parseTimeToMinutes(request.start_time) <= parseTimeToMinutes(shiftStart)
+        && parseTimeToMinutes(request.end_time) >= parseTimeToMinutes(shiftEnd);
+
+    return fullyCovered ? 'full' : 'partial';
+}
+
+function formatRequestDateTimeRange(request: TimeOffRequest) {
+    if (request.is_full_day) {
+        if (request.start_date === request.end_date) {
+            return `${formatDateLabel(request.start_date)} (Full day)`;
+        }
+        return `${formatDateRange(request.start_date, request.end_date)} (Full day)`;
+    }
+
+    const startTime = request.start_time ? formatTimeLabel(request.start_time) : '--';
+    const endTime = request.end_time ? formatTimeLabel(request.end_time) : '--';
+    return `${formatDateLabel(request.start_date)} ${startTime} - ${endTime}`;
+}
+
 function previousDateKey(dateKey: string) {
     return toDateKey(addDays(parseDateKey(dateKey), -1));
 }
@@ -267,7 +303,7 @@ export function EmployeeSchedule() {
                 .order('active_from', { ascending: false }),
             supabase
                 .from('employee_time_off_requests')
-                .select('id, employee_id, start_date, end_date, reason, status, reviewed_by, reviewed_at, review_notes, created_at')
+                .select('id, employee_id, start_date, end_date, is_full_day, start_time, end_time, reason, status, reviewed_by, reviewed_at, review_notes, created_at')
                 .order('status', { ascending: true })
                 .order('start_date', { ascending: false }),
         ]);
@@ -334,24 +370,22 @@ export function EmployeeSchedule() {
         setTemplateDays(nextDays);
     }, [templateEffectiveFrom, templateEmployeeId, recurringSchedules]);
 
-    const approvedDayOffSet = useMemo(() => {
-        const set = new Set<string>();
+    const getTimeOffImpactForShift = useCallback(
+        (employeeId: string, shiftDate: string, shiftStart: string, shiftEnd: string): ShiftTimeOffImpact => {
+            let hasPartial = false;
 
-        for (const request of timeOffRequests) {
-            if (request.status !== 'approved') continue;
+            for (const request of timeOffRequests) {
+                if (request.employee_id !== employeeId) continue;
 
-            const start = parseDateKey(request.start_date);
-            const end = parseDateKey(request.end_date);
-
-            for (const day of visibleDays) {
-                if (day >= start && day <= end) {
-                    set.add(shiftKey(request.employee_id, toDateKey(day)));
-                }
+                const impact = getRequestShiftImpact(request, shiftDate, shiftStart, shiftEnd);
+                if (impact === 'full') return 'full';
+                if (impact === 'partial') hasPartial = true;
             }
-        }
 
-        return set;
-    }, [timeOffRequests, visibleDays]);
+            return hasPartial ? 'partial' : 'none';
+        },
+        [timeOffRequests]
+    );
 
     const displayShifts = useMemo(() => {
         const specificDayOverrides = new Set(oneTimeShifts.map((shift) => shiftKey(shift.employee_id, shift.shift_date)));
@@ -444,7 +478,7 @@ export function EmployeeSchedule() {
             .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
     }, [employeeNameById, filteredRequests]);
 
-    const approvedEmployeesByDate = useMemo(() => {
+    const approvedTimeOffByDate = useMemo(() => {
         const map = new Map<string, Set<string>>();
 
         for (const request of timeOffRequests) {
@@ -457,29 +491,37 @@ export function EmployeeSchedule() {
                 if (day < start || day > end) continue;
                 const dayKey = toDateKey(day);
                 const current = map.get(dayKey) || new Set<string>();
-                current.add(request.employee_id);
+                const employeeName = employeeNameById.get(request.employee_id) || 'Unknown employee';
+                if (request.is_full_day) {
+                    current.add(`${employeeName} (Full day)`);
+                } else if (request.start_time && request.end_time && dayKey === request.start_date) {
+                    current.add(`${employeeName} (${formatTimeLabel(request.start_time)} - ${formatTimeLabel(request.end_time)})`);
+                }
                 map.set(dayKey, current);
             }
         }
 
         return map;
-    }, [timeOffRequests, visibleDays]);
+    }, [employeeNameById, timeOffRequests, visibleDays]);
 
     const blockedEmployeesForFormDate = useMemo(() => {
         const blocked = new Set<string>();
-        const formDate = parseDateKey(formState.shiftDate);
 
         for (const request of timeOffRequests) {
-            if (request.status !== 'approved') continue;
-            const start = parseDateKey(request.start_date);
-            const end = parseDateKey(request.end_date);
-            if (formDate >= start && formDate <= end) {
+            if (
+                getRequestShiftImpact(
+                    request,
+                    formState.shiftDate,
+                    formState.startTime,
+                    formState.endTime
+                ) === 'full'
+            ) {
                 blocked.add(request.employee_id);
             }
         }
 
         return blocked;
-    }, [formState.shiftDate, timeOffRequests]);
+    }, [formState.endTime, formState.shiftDate, formState.startTime, timeOffRequests]);
 
     useEffect(() => {
         if (!isShiftModalOpen || editingShiftId) return;
@@ -549,8 +591,8 @@ export function EmployeeSchedule() {
             return;
         }
 
-        if (approvedDayOffSet.has(shiftKey(formState.employeeId, formState.shiftDate))) {
-            setNotice({ type: 'error', message: 'This employee has approved time off on that day.' });
+        if (getTimeOffImpactForShift(formState.employeeId, formState.shiftDate, formState.startTime, formState.endTime) === 'full') {
+            setNotice({ type: 'error', message: 'This employee has approved time off covering the full shift.' });
             return;
         }
 
@@ -766,7 +808,7 @@ export function EmployeeSchedule() {
                     ? 'Edit one-time calendar shifts. Recurring shifts come from templates.'
                     : activeTab === 'templates'
                         ? 'Edit weekly templates per employee. Changes repeat from the effective date.'
-                        : 'Review and approve employee day-off requests.'}
+                        : 'Review and approve employee time-off requests.'}
                 actions={(
                     <div className="flex flex-wrap gap-2">
                         <Button variant="secondary" onClick={() => moveRange(-1)}>
@@ -870,7 +912,7 @@ export function EmployeeSchedule() {
                                 {visibleDays.map((day) => {
                                     const dayKey = toDateKey(day);
                                     const dayShifts = shiftsByDate.get(dayKey) || [];
-                                    const approvedEmployees = approvedEmployeesByDate.get(dayKey);
+                                    const approvedEntries = approvedTimeOffByDate.get(dayKey);
                                     const totalDayHours = dayShifts.reduce(
                                         (sum, shift) => sum + getShiftDurationHours(shift.start_time, shift.end_time),
                                         0
@@ -905,12 +947,10 @@ export function EmployeeSchedule() {
                                                     </div>
                                                 </div>
 
-                                                {approvedEmployees && approvedEmployees.size > 0 && (
+                                                {approvedEntries && approvedEntries.size > 0 && (
                                                     <div className="rounded-lg bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-muted)]">
-                                                        <span className="font-semibold text-[var(--color-danger)]">Approved day off:</span>{' '}
-                                                        {Array.from(approvedEmployees)
-                                                            .map((employeeId) => employeeNameById.get(employeeId) || 'Unknown employee')
-                                                            .join(', ')}
+                                                        <span className="font-semibold text-[var(--color-danger)]">Approved time off:</span>{' '}
+                                                        {Array.from(approvedEntries).join(', ')}
                                                     </div>
                                                 )}
 
@@ -921,20 +961,27 @@ export function EmployeeSchedule() {
                                                 ) : (
                                                     <div className="space-y-1.5">
                                                         {renderedShifts.map((shift) => {
-                                                            const isBlocked = approvedDayOffSet.has(shiftKey(shift.employee_id, shift.shift_date));
+                                                            const timeOffImpact = getTimeOffImpactForShift(
+                                                                shift.employee_id,
+                                                                shift.shift_date,
+                                                                shift.start_time,
+                                                                shift.end_time
+                                                            );
+                                                            const isFullyBlocked = timeOffImpact === 'full';
+                                                            const isPartiallyBlocked = timeOffImpact === 'partial';
 
                                                             return (
                                                                 <div
                                                                     key={shift.id}
-                                                                    className={`group relative rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 ${isBlocked ? 'opacity-80' : ''}`}
+                                                                    className={`group relative rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 ${isFullyBlocked ? 'opacity-80' : ''}`}
                                                                 >
-                                                                    <p className={`text-sm font-semibold text-[var(--color-foreground)] ${isBlocked ? 'line-through' : ''}`}>
+                                                                    <p className={`text-sm font-semibold text-[var(--color-foreground)] ${isFullyBlocked ? 'line-through' : ''}`}>
                                                                         {employeeNameById.get(shift.employee_id) || 'Unknown employee'}
                                                                         <span className="ml-1 font-normal text-[var(--color-muted)]">
                                                                             ({formatHours(getShiftDurationHours(shift.start_time, shift.end_time))})
                                                                         </span>
                                                                     </p>
-                                                                    <p className={`mt-1 text-xs text-[var(--color-muted)] ${isBlocked ? 'line-through' : ''}`}>
+                                                                    <p className={`mt-1 text-xs text-[var(--color-muted)] ${isFullyBlocked ? 'line-through' : ''}`}>
                                                                         {formatTimeLabel(shift.start_time)} - {formatTimeLabel(shift.end_time)}
                                                                     </p>
                                                                     {shift.source === 'recurring' && (
@@ -944,11 +991,14 @@ export function EmployeeSchedule() {
                                                                             </svg>
                                                                         </span>
                                                                     )}
-                                                                    {isBlocked && (
-                                                                        <p className="mt-1 text-[11px] font-semibold text-[var(--color-danger)]">Approved day off</p>
+                                                                    {isFullyBlocked && (
+                                                                        <p className="mt-1 text-[11px] font-semibold text-[var(--color-danger)]">Approved time off</p>
+                                                                    )}
+                                                                    {isPartiallyBlocked && (
+                                                                        <p className="mt-1 text-[11px] font-semibold text-[var(--color-warning)]">Partial time-off overlap</p>
                                                                     )}
                                                                     {shift.notes && (
-                                                                        <p className={`mt-2 text-xs text-[var(--color-muted)] ${isBlocked ? 'line-through' : ''}`}>{shift.notes}</p>
+                                                                        <p className={`mt-2 text-xs text-[var(--color-muted)] ${isFullyBlocked ? 'line-through' : ''}`}>{shift.notes}</p>
                                                                     )}
 
                                                                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
@@ -1082,7 +1132,7 @@ export function EmployeeSchedule() {
                     <CardContent className="space-y-4">
                         <div>
                             <h2 className="text-base font-semibold text-[var(--color-foreground)]">Time Off Requests</h2>
-                            <p className="text-xs text-[var(--color-muted)]">Grouped by employee.</p>
+                            <p className="text-xs text-[var(--color-muted)]">Grouped by employee. Supports full-day and partial-hour requests.</p>
                         </div>
 
                         <Tabs
@@ -1113,7 +1163,7 @@ export function EmployeeSchedule() {
                                                 <div key={request.id} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
                                                     <div className="mb-2 flex items-center justify-between gap-2">
                                                         <p className="text-sm font-semibold text-[var(--color-foreground)]">
-                                                            {formatDateRange(request.start_date, request.end_date)}
+                                                            {formatRequestDateTimeRange(request)}
                                                         </p>
                                                         <span className={`rounded-full px-2 py-1 text-[11px] font-semibold uppercase ${getStatusBadgeClass(request.status)}`}>
                                                             {request.status}
@@ -1174,11 +1224,11 @@ export function EmployeeSchedule() {
                         options={activeEmployees.map((employee) => ({
                             value: employee.id,
                             label: blockedEmployeesForFormDate.has(employee.id)
-                                ? `${employee.name} (approved day off)`
+                                ? `${employee.name} (full shift blocked)`
                                 : employee.name,
                             disabled: blockedEmployeesForFormDate.has(employee.id),
                         }))}
-                        hint="Employees with approved day off on the selected date are disabled."
+                        hint="Employees whose approved time off fully covers this shift are disabled."
                         disabled={isLoadingEmployees || activeEmployees.length === 0}
                         required
                     />

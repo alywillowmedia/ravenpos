@@ -41,6 +41,7 @@ export function Employees() {
     const [isLoadingEntries, setIsLoadingEntries] = useState(false);
     const [salesCount, setSalesCount] = useState(0);
     const [editingTimeEntry, setEditingTimeEntry] = useState<TimeEntry | null>(null);
+    const [showSensitiveNumbers, setShowSensitiveNumbers] = useState(false);
 
     const handleAddEmployee = async (input: EmployeeInput): Promise<{ error: string | null }> => {
         const { error } = await createEmployee(input);
@@ -124,6 +125,12 @@ export function Employees() {
                 description="Manage employee accounts and review time clock activity"
                 actions={
                     <div className="flex gap-2">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowSensitiveNumbers((prev) => !prev)}
+                        >
+                            {showSensitiveNumbers ? 'Hide Numbers' : 'Unhide Numbers'}
+                        </Button>
                         <Button variant="secondary" onClick={() => setShowAuthModal(true)}>
                             🔒 Authorize Device
                         </Button>
@@ -189,10 +196,14 @@ export function Employees() {
                                             )}
                                         </td>
                                         <td className="px-4 py-3 text-right font-mono">
-                                            {formatCurrency(emp.hourly_rate)}/hr
+                                            <span className={showSensitiveNumbers ? '' : 'blur-sm select-none'}>
+                                                {formatCurrency(emp.hourly_rate)}/hr
+                                            </span>
                                         </td>
                                         <td className="px-4 py-3 text-right">
-                                            {formatDecimalHours(emp.weeklyHours)}
+                                            <span className={showSensitiveNumbers ? '' : 'blur-sm select-none'}>
+                                                {formatDecimalHours(emp.weeklyHours)}
+                                            </span>
                                         </td>
                                         <td className="px-4 py-3">
                                             {emp.is_active ? (
@@ -266,11 +277,13 @@ export function Employees() {
                         <div className="grid grid-cols-3 gap-4">
                             <div className="p-4 rounded-lg bg-[var(--color-surface)]">
                                 <p className="text-sm text-[var(--color-muted)]">Hourly Rate</p>
-                                <p className="text-xl font-bold">{formatCurrency(viewingEmployee.hourly_rate)}</p>
+                                <p className={`text-xl font-bold ${showSensitiveNumbers ? '' : 'blur-sm select-none'}`}>
+                                    {formatCurrency(viewingEmployee.hourly_rate)}
+                                </p>
                             </div>
                             <div className="p-4 rounded-lg bg-[var(--color-surface)]">
                                 <p className="text-sm text-[var(--color-muted)]">This Week</p>
-                                <p className="text-xl font-bold text-[var(--color-primary)]">
+                                <p className={`text-xl font-bold text-[var(--color-primary)] ${showSensitiveNumbers ? '' : 'blur-sm select-none'}`}>
                                     {formatDecimalHours(viewingEmployee.weeklyHours)}
                                 </p>
                             </div>
@@ -301,6 +314,7 @@ export function Employees() {
                                 isLoading={isLoadingEntries}
                                 onDateRangeChange={handleDateRangeChange}
                                 onEditEntry={setEditingTimeEntry}
+                                hideSensitiveValues={!showSensitiveNumbers}
                             />
                         </div>
                     </div>
