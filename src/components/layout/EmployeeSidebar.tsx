@@ -95,7 +95,7 @@ function ChevronLeftIcon() {
 
 const navigation = [
     { name: 'POS', href: '/employee/pos', icon: RegisterIcon },
-    { name: 'Schedule', href: '/employee/schedule', icon: ScheduleIcon },
+    { name: 'Schedule & Time Off', href: '/employee/schedule', icon: ScheduleIcon },
     { name: 'Customers', href: '/employee/customers', icon: CustomersIcon },
     { name: 'Labels', href: '/employee/labels', icon: TagIcon },
     { name: 'Messages', href: '/employee/messages', icon: MessageIcon },

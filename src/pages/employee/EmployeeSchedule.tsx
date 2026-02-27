@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Header } from '../../components/layout/Header';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { Input, Textarea } from '../../components/ui/Input';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { supabase } from '../../lib/supabase';
@@ -12,6 +13,24 @@ type ScheduleShift = {
     start_time: string;
     end_time: string;
     notes: string | null;
+};
+
+type TimeOffRequestStatus = 'pending' | 'approved' | 'denied';
+
+type TimeOffRequest = {
+    id: string;
+    start_date: string;
+    end_date: string;
+    reason: string | null;
+    status: TimeOffRequestStatus;
+    review_notes: string | null;
+    created_at: string;
+};
+
+type RequestFormState = {
+    startDate: string;
+    endDate: string;
+    reason: string;
 };
 
 function startOfWeekSunday(date: Date) {
@@ -50,18 +69,48 @@ function formatDayLabel(date: Date) {
     return date.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
 }
 
+function formatDateLabel(value: string) {
+    return new Date(`${value}T00:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function formatDateRange(startDate: string, endDate: string) {
+    if (startDate === endDate) return formatDateLabel(startDate);
+    return `${formatDateLabel(startDate)} - ${formatDateLabel(endDate)}`;
+}
+
 function getShiftDurationHours(startTime: string, endTime: string) {
     const start = parseTimeToMinutes(startTime);
     const end = parseTimeToMinutes(endTime);
     return Math.max(0, end - start) / 60;
 }
 
+function getStatusBadgeClass(status: TimeOffRequestStatus) {
+    if (status === 'approved') {
+        return 'bg-[var(--color-success-bg)] text-[var(--color-success)]';
+    }
+    if (status === 'denied') {
+        return 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]';
+    }
+    return 'bg-[var(--color-surface)] text-[var(--color-muted)]';
+}
+
 export function EmployeeSchedule() {
     const { employee } = useEmployee();
     const [weekStart, setWeekStart] = useState(() => startOfWeekSunday(new Date()));
     const [shifts, setShifts] = useState<ScheduleShift[]>([]);
+    const [timeOffRequests, setTimeOffRequests] = useState<TimeOffRequest[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+    const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+    const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [requestError, setRequestError] = useState<string | null>(null);
+    const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
+    const [requestForm, setRequestForm] = useState<RequestFormState>({
+        startDate: toDateKey(new Date()),
+        endDate: toDateKey(new Date()),
+        reason: '',
+    });
 
     const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart]);
     const daysInWeek = useMemo(
@@ -95,15 +144,105 @@ export function EmployeeSchedule() {
         setIsLoading(false);
     }, [employee?.id, weekStart, weekEnd]);
 
+    const fetchTimeOffRequests = useCallback(async () => {
+        if (!employee?.id) return;
+
+        setIsLoadingRequests(true);
+        setRequestError(null);
+
+        const { data, error: queryError } = await supabase
+            .from('employee_time_off_requests')
+            .select('id, start_date, end_date, reason, status, review_notes, created_at')
+            .eq('employee_id', employee.id)
+            .order('start_date', { ascending: false })
+            .limit(20);
+
+        if (queryError) {
+            setRequestError(queryError.message);
+            setTimeOffRequests([]);
+            setIsLoadingRequests(false);
+            return;
+        }
+
+        setTimeOffRequests((data || []) as TimeOffRequest[]);
+        setIsLoadingRequests(false);
+    }, [employee?.id]);
+
     useEffect(() => {
         fetchSchedule();
     }, [fetchSchedule]);
+
+    useEffect(() => {
+        fetchTimeOffRequests();
+    }, [fetchTimeOffRequests]);
+
+    const handleSubmitRequest = async (event: FormEvent) => {
+        event.preventDefault();
+
+        if (!employee?.id) return;
+
+        setRequestError(null);
+        setRequestSuccess(null);
+
+        if (requestForm.endDate < requestForm.startDate) {
+            setRequestError('End date must be on or after start date.');
+            return;
+        }
+
+        setIsSubmittingRequest(true);
+
+        const { error: insertError } = await supabase
+            .from('employee_time_off_requests')
+            .insert({
+                employee_id: employee.id,
+                start_date: requestForm.startDate,
+                end_date: requestForm.endDate,
+                reason: requestForm.reason.trim() || null,
+            });
+
+        if (insertError) {
+            setRequestError(insertError.message);
+            setIsSubmittingRequest(false);
+            return;
+        }
+
+        setRequestSuccess('Request submitted.');
+        setRequestForm({
+            startDate: toDateKey(new Date()),
+            endDate: toDateKey(new Date()),
+            reason: '',
+        });
+        setIsSubmittingRequest(false);
+        await fetchTimeOffRequests();
+    };
+
+    const handleDeleteRequest = async (requestId: string) => {
+        setRequestError(null);
+        setRequestSuccess(null);
+        setDeletingRequestId(requestId);
+
+        const { error: deleteError } = await supabase
+            .from('employee_time_off_requests')
+            .delete()
+            .eq('id', requestId)
+            .eq('status', 'pending');
+
+        if (deleteError) {
+            setRequestError(deleteError.message);
+            setDeletingRequestId(null);
+            return;
+        }
+
+        setRequestSuccess('Request canceled.');
+        setDeletingRequestId(null);
+        await fetchTimeOffRequests();
+    };
 
     return (
         <div className="animate-fadeIn max-w-4xl">
             <Header
                 title="Schedule"
-                description="Your assigned shifts for the selected week."
+                description="Your assigned shifts and day-off requests."
                 actions={(
                     <div className="flex gap-2">
                         <Button size="sm" variant="secondary" onClick={() => setWeekStart((prev) => addDays(prev, -7))}>
@@ -146,7 +285,7 @@ export function EmployeeSchedule() {
                     <LoadingSpinner size={28} />
                 </div>
             ) : (
-                <Card variant="outlined" className="bg-white" padding="none">
+                <Card variant="outlined" className="mb-6 bg-white" padding="none">
                     <div className="divide-y divide-[var(--color-border)]">
                         {daysInWeek.map((day) => {
                             const dayKey = toDateKey(day);
@@ -183,6 +322,100 @@ export function EmployeeSchedule() {
                     </div>
                 </Card>
             )}
+
+            <Card variant="outlined" className="mb-4 bg-white">
+                <CardContent>
+                    <h2 className="mb-1 text-base font-semibold text-[var(--color-foreground)]">Request Time Off</h2>
+                    <p className="mb-3 text-xs text-[var(--color-muted)]">Submit days you cannot work. Admins will approve or deny.</p>
+                    <form className="space-y-3" onSubmit={handleSubmitRequest}>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <Input
+                                label="Start Date"
+                                type="date"
+                                value={requestForm.startDate}
+                                onChange={(event) => setRequestForm((prev) => ({ ...prev, startDate: event.target.value }))}
+                                required
+                            />
+                            <Input
+                                label="End Date"
+                                type="date"
+                                value={requestForm.endDate}
+                                onChange={(event) => setRequestForm((prev) => ({ ...prev, endDate: event.target.value }))}
+                                required
+                            />
+                        </div>
+                        <Textarea
+                            label="Reason (optional)"
+                            rows={2}
+                            value={requestForm.reason}
+                            onChange={(event) => setRequestForm((prev) => ({ ...prev, reason: event.target.value }))}
+                            placeholder="Appointment, travel, event, etc."
+                        />
+                        <div className="flex justify-end">
+                            <Button type="submit" isLoading={isSubmittingRequest}>Submit Request</Button>
+                        </div>
+                    </form>
+                </CardContent>
+            </Card>
+
+            {requestError && (
+                <div className="mb-4 rounded-lg bg-[var(--color-danger-bg)] p-3 text-[var(--color-danger)]">
+                    {requestError}
+                </div>
+            )}
+            {requestSuccess && (
+                <div className="mb-4 rounded-lg bg-[var(--color-success-bg)] p-3 text-[var(--color-success)]">
+                    {requestSuccess}
+                </div>
+            )}
+
+            <Card variant="outlined" className="bg-white" padding="none">
+                <div className="border-b border-[var(--color-border)] px-4 py-3">
+                    <h2 className="text-base font-semibold text-[var(--color-foreground)]">Your Requests</h2>
+                </div>
+                {isLoadingRequests ? (
+                    <div className="flex items-center justify-center py-8">
+                        <LoadingSpinner size={24} />
+                    </div>
+                ) : timeOffRequests.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-[var(--color-muted)]">No day-off requests submitted yet.</div>
+                ) : (
+                    <div className="divide-y divide-[var(--color-border)]">
+                        {timeOffRequests.map((request) => (
+                            <div key={request.id} className="space-y-2 px-4 py-3">
+                                <div className="flex items-center justify-between gap-2">
+                                    <p className="text-sm font-semibold text-[var(--color-foreground)]">
+                                        {formatDateRange(request.start_date, request.end_date)}
+                                    </p>
+                                    <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${getStatusBadgeClass(request.status)}`}>
+                                        {request.status}
+                                    </span>
+                                </div>
+                                {request.reason && (
+                                    <p className="text-sm text-[var(--color-muted)]">{request.reason}</p>
+                                )}
+                                {request.review_notes && (
+                                    <p className="text-xs text-[var(--color-muted)]">Admin note: {request.review_notes}</p>
+                                )}
+                                {request.status === 'pending' && (
+                                    <div>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            className="text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
+                                            onClick={() => handleDeleteRequest(request.id)}
+                                            isLoading={deletingRequestId === request.id}
+                                        >
+                                            Cancel Request
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </Card>
         </div>
     );
 }

@@ -19,6 +19,21 @@ type ScheduleShift = {
     notes: string | null;
 };
 
+type TimeOffRequestStatus = 'pending' | 'approved' | 'denied';
+
+type TimeOffRequest = {
+    id: string;
+    employee_id: string;
+    start_date: string;
+    end_date: string;
+    reason: string | null;
+    status: TimeOffRequestStatus;
+    reviewed_by: string | null;
+    reviewed_at: string | null;
+    review_notes: string | null;
+    created_at: string;
+};
+
 type Notice = {
     type: 'success' | 'error';
     message: string;
@@ -70,10 +85,29 @@ function formatHours(hours: number) {
     return `${Math.round(hours * 10) / 10}h`;
 }
 
+function formatDateLabel(value: string) {
+    return new Date(`${value}T00:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function formatDateRange(startDate: string, endDate: string) {
+    if (startDate === endDate) return formatDateLabel(startDate);
+    return `${formatDateLabel(startDate)} - ${formatDateLabel(endDate)}`;
+}
+
 function getShiftDurationHours(startTime: string, endTime: string) {
     const start = parseTimeToMinutes(startTime);
     const end = parseTimeToMinutes(endTime);
     return Math.max(0, end - start) / 60;
+}
+
+function getStatusBadgeClass(status: TimeOffRequestStatus) {
+    if (status === 'approved') {
+        return 'bg-[var(--color-success-bg)] text-[var(--color-success)]';
+    }
+    if (status === 'denied') {
+        return 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]';
+    }
+    return 'bg-[var(--color-surface)] text-[var(--color-muted)]';
 }
 
 export function EmployeeSchedule() {
@@ -81,9 +115,12 @@ export function EmployeeSchedule() {
     const { employees, isLoading: isLoadingEmployees, error: employeeError } = useEmployees();
     const [weekStart, setWeekStart] = useState(() => startOfWeekMonday(new Date()));
     const [shifts, setShifts] = useState<ScheduleShift[]>([]);
+    const [timeOffRequests, setTimeOffRequests] = useState<TimeOffRequest[]>([]);
     const [isLoadingShifts, setIsLoadingShifts] = useState(true);
+    const [isLoadingRequests, setIsLoadingRequests] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [deletingShiftId, setDeletingShiftId] = useState<string | null>(null);
+    const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
     const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
     const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
     const [notice, setNotice] = useState<Notice>(null);
@@ -112,32 +149,50 @@ export function EmployeeSchedule() {
         [weekStart]
     );
 
-    const fetchWeekShifts = useCallback(async () => {
+    const fetchWeekData = useCallback(async () => {
         setIsLoadingShifts(true);
+        setIsLoadingRequests(true);
         setNotice(null);
 
-        const { data, error } = await supabase
-            .from('employee_schedules')
-            .select('id, employee_id, shift_date, start_time, end_time, notes')
-            .gte('shift_date', toDateKey(weekStart))
-            .lte('shift_date', toDateKey(weekEnd))
-            .order('shift_date')
-            .order('start_time');
+        const weekStartKey = toDateKey(weekStart);
+        const weekEndKey = toDateKey(weekEnd);
 
-        if (error) {
-            setNotice({ type: 'error', message: error.message });
+        const [shiftsResult, requestsResult] = await Promise.all([
+            supabase
+                .from('employee_schedules')
+                .select('id, employee_id, shift_date, start_time, end_time, notes')
+                .gte('shift_date', weekStartKey)
+                .lte('shift_date', weekEndKey)
+                .order('shift_date')
+                .order('start_time'),
+            supabase
+                .from('employee_time_off_requests')
+                .select('id, employee_id, start_date, end_date, reason, status, reviewed_by, reviewed_at, review_notes, created_at')
+                .order('status', { ascending: true })
+                .order('start_date', { ascending: false }),
+        ]);
+
+        if (shiftsResult.error) {
+            setNotice({ type: 'error', message: shiftsResult.error.message });
             setShifts([]);
-            setIsLoadingShifts(false);
-            return;
+        } else {
+            setShifts((shiftsResult.data || []) as ScheduleShift[]);
         }
 
-        setShifts((data || []) as ScheduleShift[]);
+        if (requestsResult.error) {
+            setNotice({ type: 'error', message: requestsResult.error.message });
+            setTimeOffRequests([]);
+        } else {
+            setTimeOffRequests((requestsResult.data || []) as TimeOffRequest[]);
+        }
+
         setIsLoadingShifts(false);
+        setIsLoadingRequests(false);
     }, [weekStart, weekEnd]);
 
     useEffect(() => {
-        fetchWeekShifts();
-    }, [fetchWeekShifts]);
+        fetchWeekData();
+    }, [fetchWeekData]);
 
     useEffect(() => {
         if (!formState.employeeId && activeEmployees.length > 0) {
@@ -153,6 +208,11 @@ export function EmployeeSchedule() {
     const scheduledEmployeesCount = useMemo(
         () => new Set(shifts.map((shift) => shift.employee_id)).size,
         [shifts]
+    );
+
+    const pendingRequestCount = useMemo(
+        () => timeOffRequests.filter((request) => request.status === 'pending').length,
+        [timeOffRequests]
     );
 
     const closeShiftModal = () => {
@@ -246,7 +306,7 @@ export function EmployeeSchedule() {
 
         setIsSaving(false);
         closeShiftModal();
-        await fetchWeekShifts();
+        await fetchWeekData();
     };
 
     const handleDeleteShift = async (shiftId: string) => {
@@ -270,14 +330,39 @@ export function EmployeeSchedule() {
 
         setNotice({ type: 'success', message: 'Shift deleted.' });
         setDeletingShiftId(null);
-        await fetchWeekShifts();
+        await fetchWeekData();
+    };
+
+    const handleReviewTimeOffRequest = async (requestId: string, status: Exclude<TimeOffRequestStatus, 'pending'>) => {
+        setNotice(null);
+        setReviewingRequestId(requestId);
+
+        const { error } = await supabase
+            .from('employee_time_off_requests')
+            .update({
+                status,
+                reviewed_by: user?.id ?? null,
+                reviewed_at: new Date().toISOString(),
+            })
+            .eq('id', requestId)
+            .eq('status', 'pending');
+
+        if (error) {
+            setNotice({ type: 'error', message: error.message });
+            setReviewingRequestId(null);
+            return;
+        }
+
+        setNotice({ type: 'success', message: `Request ${status}.` });
+        setReviewingRequestId(null);
+        await fetchWeekData();
     };
 
     return (
         <div className="animate-fadeIn">
             <Header
                 title="Schedule"
-                description="Click any day to add a shift. Click a shift to edit it."
+                description="Click any day to add a shift. Review day-off requests below."
                 actions={(
                     <div className="flex flex-wrap gap-2">
                         <Button
@@ -317,7 +402,7 @@ export function EmployeeSchedule() {
                 </div>
             )}
 
-            <div className="mb-6 grid gap-3 sm:grid-cols-3">
+            <div className="mb-6 grid gap-3 sm:grid-cols-4">
                 <Card variant="outlined" className="bg-white">
                     <CardContent>
                         <p className="text-sm text-[var(--color-muted)]">Week Range</p>
@@ -339,7 +424,73 @@ export function EmployeeSchedule() {
                         <p className="text-xs text-[var(--color-muted)]">{scheduledEmployeesCount} team members</p>
                     </CardContent>
                 </Card>
+                <Card variant="outlined" className="bg-white">
+                    <CardContent>
+                        <p className="text-sm text-[var(--color-muted)]">Pending Requests</p>
+                        <p className="text-2xl font-bold text-[var(--color-foreground)]">{pendingRequestCount}</p>
+                    </CardContent>
+                </Card>
             </div>
+
+            <Card variant="outlined" className="mb-6 bg-white" padding="none">
+                <div className="border-b border-[var(--color-border)] px-4 py-3">
+                    <h2 className="text-base font-semibold text-[var(--color-foreground)]">Time Off Requests</h2>
+                    <p className="text-xs text-[var(--color-muted)]">All requests, with pending requests first.</p>
+                </div>
+                {isLoadingRequests ? (
+                    <div className="flex items-center justify-center py-8">
+                        <LoadingSpinner size={24} />
+                    </div>
+                ) : timeOffRequests.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-[var(--color-muted)]">No requests yet.</div>
+                ) : (
+                    <div className="divide-y divide-[var(--color-border)]">
+                        {timeOffRequests.map((request) => (
+                            <div key={request.id} className="space-y-2 px-4 py-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                        <p className="text-sm font-semibold text-[var(--color-foreground)]">
+                                            {employeeNameById.get(request.employee_id) || 'Unknown employee'}
+                                        </p>
+                                        <p className="text-xs text-[var(--color-muted)]">
+                                            {formatDateRange(request.start_date, request.end_date)}
+                                        </p>
+                                    </div>
+                                    <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${getStatusBadgeClass(request.status)}`}>
+                                        {request.status}
+                                    </span>
+                                </div>
+                                {request.reason && (
+                                    <p className="text-sm text-[var(--color-muted)]">{request.reason}</p>
+                                )}
+                                {request.status === 'pending' && (
+                                    <div className="flex gap-2">
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => handleReviewTimeOffRequest(request.id, 'approved')}
+                                            isLoading={reviewingRequestId === request.id}
+                                        >
+                                            Approve
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            className="text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
+                                            onClick={() => handleReviewTimeOffRequest(request.id, 'denied')}
+                                            isLoading={reviewingRequestId === request.id}
+                                        >
+                                            Deny
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </Card>
 
             {isLoadingShifts ? (
                 <div className="flex items-center justify-center py-12">
