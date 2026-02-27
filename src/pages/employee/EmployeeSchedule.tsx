@@ -4,10 +4,15 @@ import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input, Textarea } from '../../components/ui/Input';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import { Tabs } from '../../components/ui/Tabs';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { supabase } from '../../lib/supabase';
 
-type ScheduleShift = {
+type ViewMode = 'week' | 'month';
+type EmployeeTab = 'schedule' | 'requests';
+type TimeOffRequestStatus = 'pending' | 'approved' | 'denied';
+
+type OneTimeShift = {
     id: string;
     shift_date: string;
     start_time: string;
@@ -15,7 +20,24 @@ type ScheduleShift = {
     notes: string | null;
 };
 
-type TimeOffRequestStatus = 'pending' | 'approved' | 'denied';
+type RecurringSchedule = {
+    id: string;
+    weekday: number;
+    start_time: string;
+    end_time: string;
+    notes: string | null;
+    active_from: string;
+    active_until: string | null;
+};
+
+type DisplayShift = {
+    id: string;
+    shift_date: string;
+    start_time: string;
+    end_time: string;
+    notes: string | null;
+    source: 'one_time' | 'recurring';
+};
 
 type TimeOffRequest = {
     id: string;
@@ -33,13 +55,6 @@ type RequestFormState = {
     reason: string;
 };
 
-function startOfWeekSunday(date: Date) {
-    const next = new Date(date);
-    next.setHours(0, 0, 0, 0);
-    next.setDate(next.getDate() - next.getDay());
-    return next;
-}
-
 function addDays(base: Date, days: number) {
     const next = new Date(base);
     next.setDate(next.getDate() + days);
@@ -51,6 +66,23 @@ function toDateKey(date: Date) {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+}
+
+function parseDateKey(value: string) {
+    const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10));
+    return new Date(year, month - 1, day);
+}
+
+function startOfWeekSunday(date: Date) {
+    const next = new Date(date);
+    next.setHours(0, 0, 0, 0);
+    next.setDate(next.getDate() - next.getDay());
+    return next;
+}
+
+function startOfMonthGridSunday(date: Date) {
+    const first = new Date(date.getFullYear(), date.getMonth(), 1);
+    return startOfWeekSunday(first);
 }
 
 function parseTimeToMinutes(time: string) {
@@ -65,12 +97,8 @@ function formatTimeLabel(time: string) {
     return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-function formatDayLabel(date: Date) {
-    return date.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
-}
-
 function formatDateLabel(value: string) {
-    return new Date(`${value}T00:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return parseDateKey(value).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 function formatDateRange(startDate: string, endDate: string) {
@@ -96,10 +124,13 @@ function getStatusBadgeClass(status: TimeOffRequestStatus) {
 
 export function EmployeeSchedule() {
     const { employee } = useEmployee();
-    const [weekStart, setWeekStart] = useState(() => startOfWeekSunday(new Date()));
-    const [shifts, setShifts] = useState<ScheduleShift[]>([]);
+    const [activeTab, setActiveTab] = useState<EmployeeTab>('schedule');
+    const [viewMode, setViewMode] = useState<ViewMode>('week');
+    const [anchorDate, setAnchorDate] = useState(() => new Date());
+    const [oneTimeShifts, setOneTimeShifts] = useState<OneTimeShift[]>([]);
+    const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
     const [timeOffRequests, setTimeOffRequests] = useState<TimeOffRequest[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
     const [isLoadingRequests, setIsLoadingRequests] = useState(true);
     const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
     const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
@@ -112,37 +143,61 @@ export function EmployeeSchedule() {
         reason: '',
     });
 
-    const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart]);
-    const daysInWeek = useMemo(
-        () => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)),
-        [weekStart]
+    const rangeStart = useMemo(
+        () => (viewMode === 'week' ? startOfWeekSunday(anchorDate) : startOfMonthGridSunday(anchorDate)),
+        [anchorDate, viewMode]
     );
+
+    const visibleDays = useMemo(() => {
+        const count = viewMode === 'week' ? 7 : 42;
+        return Array.from({ length: count }, (_, index) => addDays(rangeStart, index));
+    }, [rangeStart, viewMode]);
+
+    const rangeEnd = visibleDays[visibleDays.length - 1];
+    const rangeStartKey = toDateKey(rangeStart);
+    const rangeEndKey = toDateKey(rangeEnd);
 
     const fetchSchedule = useCallback(async () => {
         if (!employee?.id) return;
 
-        setIsLoading(true);
+        setIsLoadingSchedule(true);
         setError(null);
 
-        const { data, error: queryError } = await supabase
-            .from('employee_schedules')
-            .select('id, shift_date, start_time, end_time, notes')
-            .eq('employee_id', employee.id)
-            .gte('shift_date', toDateKey(weekStart))
-            .lte('shift_date', toDateKey(weekEnd))
-            .order('shift_date')
-            .order('start_time');
+        const [oneTimeResult, recurringResult] = await Promise.all([
+            supabase
+                .from('employee_schedules')
+                .select('id, shift_date, start_time, end_time, notes')
+                .eq('employee_id', employee.id)
+                .gte('shift_date', rangeStartKey)
+                .lte('shift_date', rangeEndKey)
+                .order('shift_date')
+                .order('start_time'),
+            supabase
+                .from('employee_recurring_schedules')
+                .select('id, weekday, start_time, end_time, notes, active_from, active_until')
+                .eq('employee_id', employee.id)
+                .lte('active_from', rangeEndKey)
+                .or(`active_until.is.null,active_until.gte.${rangeStartKey}`)
+                .order('weekday')
+                .order('start_time'),
+        ]);
 
-        if (queryError) {
-            setError(queryError.message);
-            setShifts([]);
-            setIsLoading(false);
-            return;
+        if (oneTimeResult.error) {
+            setError(oneTimeResult.error.message);
+            setOneTimeShifts([]);
+        } else {
+            setOneTimeShifts((oneTimeResult.data || []) as OneTimeShift[]);
         }
 
-        setShifts((data || []) as ScheduleShift[]);
-        setIsLoading(false);
-    }, [employee?.id, weekStart, weekEnd]);
+        if (recurringResult.error) {
+            setError(recurringResult.error.message);
+            setRecurringSchedules([]);
+        } else {
+            setRecurringSchedules((recurringResult.data || []) as RecurringSchedule[]);
+        }
+
+        setIsLoadingSchedule(false);
+    }, [employee?.id, rangeEndKey, rangeStartKey]);
 
     const fetchTimeOffRequests = useCallback(async () => {
         if (!employee?.id) return;
@@ -154,8 +209,7 @@ export function EmployeeSchedule() {
             .from('employee_time_off_requests')
             .select('id, start_date, end_date, reason, status, review_notes, created_at')
             .eq('employee_id', employee.id)
-            .order('start_date', { ascending: false })
-            .limit(20);
+            .order('start_date', { ascending: false });
 
         if (queryError) {
             setRequestError(queryError.message);
@@ -175,6 +229,77 @@ export function EmployeeSchedule() {
     useEffect(() => {
         fetchTimeOffRequests();
     }, [fetchTimeOffRequests]);
+
+    const approvedDays = useMemo(() => {
+        const set = new Set<string>();
+
+        for (const request of timeOffRequests) {
+            if (request.status !== 'approved') continue;
+            const start = parseDateKey(request.start_date);
+            const end = parseDateKey(request.end_date);
+
+            for (const day of visibleDays) {
+                if (day >= start && day <= end) {
+                    set.add(toDateKey(day));
+                }
+            }
+        }
+
+        return set;
+    }, [timeOffRequests, visibleDays]);
+
+    const displayShifts = useMemo(() => {
+        const overrides = new Set(oneTimeShifts.map((shift) => shift.shift_date));
+
+        const recurringShifts: DisplayShift[] = [];
+        for (const schedule of recurringSchedules) {
+            for (const day of visibleDays) {
+                const dayKey = toDateKey(day);
+                if (day.getDay() !== schedule.weekday) continue;
+                if (dayKey < schedule.active_from) continue;
+                if (schedule.active_until && dayKey > schedule.active_until) continue;
+                if (overrides.has(dayKey)) continue;
+
+                recurringShifts.push({
+                    id: `recurring-${schedule.id}-${dayKey}`,
+                    shift_date: dayKey,
+                    start_time: schedule.start_time,
+                    end_time: schedule.end_time,
+                    notes: schedule.notes,
+                    source: 'recurring',
+                });
+            }
+        }
+
+        const specificShifts: DisplayShift[] = oneTimeShifts.map((shift) => ({
+            id: shift.id,
+            shift_date: shift.shift_date,
+            start_time: shift.start_time,
+            end_time: shift.end_time,
+            notes: shift.notes,
+            source: 'one_time',
+        }));
+
+        return [...specificShifts, ...recurringShifts].sort((a, b) => {
+            if (a.shift_date !== b.shift_date) return a.shift_date.localeCompare(b.shift_date);
+            return a.start_time.localeCompare(b.start_time);
+        });
+    }, [oneTimeShifts, recurringSchedules, visibleDays]);
+
+    const shiftsByDate = useMemo(() => {
+        const map = new Map<string, DisplayShift[]>();
+        for (const shift of displayShifts) {
+            const list = map.get(shift.shift_date) || [];
+            list.push(shift);
+            map.set(shift.shift_date, list);
+        }
+        return map;
+    }, [displayShifts]);
+
+    const pendingRequestCount = useMemo(
+        () => timeOffRequests.filter((request) => request.status === 'pending').length,
+        [timeOffRequests]
+    );
 
     const handleSubmitRequest = async (event: FormEvent) => {
         event.preventDefault();
@@ -238,41 +363,56 @@ export function EmployeeSchedule() {
         await fetchTimeOffRequests();
     };
 
+    const moveRange = (direction: -1 | 1) => {
+        if (viewMode === 'week') {
+            setAnchorDate((prev) => addDays(prev, direction * 7));
+            return;
+        }
+
+        setAnchorDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + direction, 1));
+    };
+
+    const rangeLabel =
+        viewMode === 'week'
+            ? `${rangeStart.toLocaleDateString([], { month: 'short', day: 'numeric' })} - ${rangeEnd.toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+            : anchorDate.toLocaleDateString([], { month: 'long', year: 'numeric' });
+
     return (
-        <div className="animate-fadeIn max-w-4xl">
+        <div className="animate-fadeIn max-w-5xl">
             <Header
                 title="Schedule"
-                description="Your assigned shifts and day-off requests."
+                description={activeTab === 'schedule' ? 'Your assigned shifts with weekly repeat rules.' : 'Submit and track day-off requests.'}
                 actions={(
-                    <div className="flex gap-2">
-                        <Button size="sm" variant="secondary" onClick={() => setWeekStart((prev) => addDays(prev, -7))}>
+                    <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => moveRange(-1)}>
                             Previous
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setWeekStart(startOfWeekSunday(new Date()))}>
-                            This Week
+                        <Button size="sm" variant="ghost" onClick={() => setAnchorDate(new Date())}>
+                            Today
                         </Button>
-                        <Button size="sm" variant="secondary" onClick={() => setWeekStart((prev) => addDays(prev, 7))}>
+                        <Button size="sm" variant="secondary" onClick={() => moveRange(1)}>
                             Next
+                        </Button>
+                        <Button size="sm" variant={viewMode === 'week' ? 'primary' : 'ghost'} onClick={() => setViewMode('week')}>
+                            Week
+                        </Button>
+                        <Button size="sm" variant={viewMode === 'month' ? 'primary' : 'ghost'} onClick={() => setViewMode('month')}>
+                            Month
                         </Button>
                     </div>
                 )}
             />
 
-            <Card variant="outlined" className="mb-3 bg-white">
-                <CardContent className="flex items-center justify-between gap-2 py-2">
-                    <Button variant="ghost" size="sm" onClick={() => setWeekStart((prev) => addDays(prev, -7))}>
-                        &lt;
-                    </Button>
-                    <p className="text-sm font-semibold text-[var(--color-foreground)]">
-                        {weekStart.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' })}
-                        {' - '}
-                        {weekEnd.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' })}
-                    </p>
-                    <Button variant="ghost" size="sm" onClick={() => setWeekStart((prev) => addDays(prev, 7))}>
-                        &gt;
-                    </Button>
-                </CardContent>
-            </Card>
+            <div className="mb-4">
+                <Tabs
+                    tabs={[
+                        { id: 'schedule', label: 'Schedule' },
+                        { id: 'requests', label: `Requests (${pendingRequestCount})` },
+                    ]}
+                    activeTab={activeTab}
+                    onChange={(tabId) => setActiveTab(tabId as EmployeeTab)}
+                />
+            </div>
 
             {error && (
                 <div className="mb-4 rounded-lg bg-[var(--color-danger-bg)] p-3 text-[var(--color-danger)]">
@@ -280,142 +420,185 @@ export function EmployeeSchedule() {
                 </div>
             )}
 
-            {isLoading ? (
-                <div className="flex items-center justify-center py-10">
-                    <LoadingSpinner size={28} />
-                </div>
-            ) : (
-                <Card variant="outlined" className="mb-6 bg-white" padding="none">
-                    <div className="divide-y divide-[var(--color-border)]">
-                        {daysInWeek.map((day) => {
-                            const dayKey = toDateKey(day);
-                            const dayShifts = shifts.filter((shift) => shift.shift_date === dayKey);
+            {activeTab === 'schedule' && (
+                <>
+                    <Card variant="outlined" className="mb-3 bg-white">
+                        <CardContent className="py-3">
+                            <p className="text-sm font-semibold text-[var(--color-foreground)]">{rangeLabel}</p>
+                        </CardContent>
+                    </Card>
 
-                            return (
-                                <div key={dayKey} className="px-4 py-4">
-                                    <h3 className="mb-2 text-lg font-semibold text-[var(--color-foreground)]">
-                                        {formatDayLabel(day)}
-                                    </h3>
+                    {isLoadingSchedule ? (
+                        <div className="flex items-center justify-center py-10">
+                            <LoadingSpinner size={28} />
+                        </div>
+                    ) : (
+                        <>
+                            {viewMode === 'month' && (
+                                <div className="mb-2 grid grid-cols-7 gap-2 px-1">
+                                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
+                                        <p key={label} className="text-center text-xs font-semibold uppercase text-[var(--color-muted)]">
+                                            {label}
+                                        </p>
+                                    ))}
+                                </div>
+                            )}
 
-                                    {dayShifts.length === 0 ? (
-                                        <p className="text-sm text-[var(--color-muted)]">No shifts scheduled</p>
-                                    ) : (
-                                        <div className="space-y-1.5">
-                                            {dayShifts.map((shift) => (
-                                                <div key={shift.id} className="rounded-lg border border-[var(--color-border)] px-3 py-2">
-                                                    <p className="text-sm font-medium text-[var(--color-foreground)]">
-                                                        {formatTimeLabel(shift.start_time)} - {formatTimeLabel(shift.end_time)}
-                                                        <span className="ml-1.5 font-normal text-[var(--color-muted)]">
-                                                            ({getShiftDurationHours(shift.start_time, shift.end_time).toFixed(1)}h)
-                                                        </span>
+                            <div className={viewMode === 'week' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-7' : 'grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-7'}>
+                                {visibleDays.map((day) => {
+                                    const dayKey = toDateKey(day);
+                                    const dayShifts = shiftsByDate.get(dayKey) || [];
+                                    const isOutsideMonth = viewMode === 'month' && day.getMonth() !== anchorDate.getMonth();
+                                    const renderedShifts = viewMode === 'month' ? dayShifts.slice(0, 3) : dayShifts;
+
+                                    return (
+                                        <Card key={dayKey} variant="outlined" className={`bg-white ${isOutsideMonth ? 'opacity-60' : ''}`}>
+                                            <CardContent className="space-y-2">
+                                                <div className="border-b border-[var(--color-border)] pb-2">
+                                                    <p className="text-sm font-semibold text-[var(--color-foreground)]">
+                                                        {day.toLocaleDateString([], { weekday: 'short' })}
                                                     </p>
-                                                    {shift.notes && (
-                                                        <p className="mt-0.5 text-xs text-[var(--color-muted)]">{shift.notes}</p>
-                                                    )}
+                                                    <p className="text-xs text-[var(--color-muted)]">
+                                                        {day.toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                                    </p>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </Card>
-            )}
 
-            <Card variant="outlined" className="mb-4 bg-white">
-                <CardContent>
-                    <h2 className="mb-1 text-base font-semibold text-[var(--color-foreground)]">Request Time Off</h2>
-                    <p className="mb-3 text-xs text-[var(--color-muted)]">Submit days you cannot work. Admins will approve or deny.</p>
-                    <form className="space-y-3" onSubmit={handleSubmitRequest}>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            <Input
-                                label="Start Date"
-                                type="date"
-                                value={requestForm.startDate}
-                                onChange={(event) => setRequestForm((prev) => ({ ...prev, startDate: event.target.value }))}
-                                required
-                            />
-                            <Input
-                                label="End Date"
-                                type="date"
-                                value={requestForm.endDate}
-                                onChange={(event) => setRequestForm((prev) => ({ ...prev, endDate: event.target.value }))}
-                                required
-                            />
-                        </div>
-                        <Textarea
-                            label="Reason (optional)"
-                            rows={2}
-                            value={requestForm.reason}
-                            onChange={(event) => setRequestForm((prev) => ({ ...prev, reason: event.target.value }))}
-                            placeholder="Appointment, travel, event, etc."
-                        />
-                        <div className="flex justify-end">
-                            <Button type="submit" isLoading={isSubmittingRequest}>Submit Request</Button>
-                        </div>
-                    </form>
-                </CardContent>
-            </Card>
-
-            {requestError && (
-                <div className="mb-4 rounded-lg bg-[var(--color-danger-bg)] p-3 text-[var(--color-danger)]">
-                    {requestError}
-                </div>
-            )}
-            {requestSuccess && (
-                <div className="mb-4 rounded-lg bg-[var(--color-success-bg)] p-3 text-[var(--color-success)]">
-                    {requestSuccess}
-                </div>
-            )}
-
-            <Card variant="outlined" className="bg-white" padding="none">
-                <div className="border-b border-[var(--color-border)] px-4 py-3">
-                    <h2 className="text-base font-semibold text-[var(--color-foreground)]">Your Requests</h2>
-                </div>
-                {isLoadingRequests ? (
-                    <div className="flex items-center justify-center py-8">
-                        <LoadingSpinner size={24} />
-                    </div>
-                ) : timeOffRequests.length === 0 ? (
-                    <div className="px-4 py-6 text-sm text-[var(--color-muted)]">No day-off requests submitted yet.</div>
-                ) : (
-                    <div className="divide-y divide-[var(--color-border)]">
-                        {timeOffRequests.map((request) => (
-                            <div key={request.id} className="space-y-2 px-4 py-3">
-                                <div className="flex items-center justify-between gap-2">
-                                    <p className="text-sm font-semibold text-[var(--color-foreground)]">
-                                        {formatDateRange(request.start_date, request.end_date)}
-                                    </p>
-                                    <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${getStatusBadgeClass(request.status)}`}>
-                                        {request.status}
-                                    </span>
-                                </div>
-                                {request.reason && (
-                                    <p className="text-sm text-[var(--color-muted)]">{request.reason}</p>
-                                )}
-                                {request.review_notes && (
-                                    <p className="text-xs text-[var(--color-muted)]">Admin note: {request.review_notes}</p>
-                                )}
-                                {request.status === 'pending' && (
-                                    <div>
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="ghost"
-                                            className="text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
-                                            onClick={() => handleDeleteRequest(request.id)}
-                                            isLoading={deletingRequestId === request.id}
-                                        >
-                                            Cancel Request
-                                        </Button>
-                                    </div>
-                                )}
+                                                {renderedShifts.length === 0 ? (
+                                                    <p className="text-xs text-[var(--color-muted)]">No shifts</p>
+                                                ) : (
+                                                    <div className="space-y-1.5">
+                                                        {renderedShifts.map((shift) => {
+                                                            const isBlocked = approvedDays.has(shift.shift_date);
+                                                            return (
+                                                                <div key={shift.id} className="rounded-lg border border-[var(--color-border)] px-2 py-1.5">
+                                                                    <p className={`text-xs font-medium text-[var(--color-foreground)] ${isBlocked ? 'line-through opacity-70' : ''}`}>
+                                                                        {formatTimeLabel(shift.start_time)} - {formatTimeLabel(shift.end_time)}
+                                                                        <span className="ml-1 text-[var(--color-muted)]">({getShiftDurationHours(shift.start_time, shift.end_time).toFixed(1)}h)</span>
+                                                                    </p>
+                                                                    {shift.source === 'recurring' && (
+                                                                        <p className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">Repeats weekly</p>
+                                                                    )}
+                                                                    {isBlocked && (
+                                                                        <p className="text-[10px] font-semibold text-[var(--color-danger)]">Approved day off</p>
+                                                                    )}
+                                                                    {shift.notes && (
+                                                                        <p className={`text-[11px] text-[var(--color-muted)] ${isBlocked ? 'line-through opacity-70' : ''}`}>{shift.notes}</p>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        {viewMode === 'month' && dayShifts.length > renderedShifts.length && (
+                                                            <p className="text-xs text-[var(--color-muted)]">+{dayShifts.length - renderedShifts.length} more</p>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </CardContent>
+                                        </Card>
+                                    );
+                                })}
                             </div>
-                        ))}
-                    </div>
-                )}
-            </Card>
+                        </>
+                    )}
+                </>
+            )}
+
+            {activeTab === 'requests' && (
+                <>
+                    <Card variant="outlined" className="mb-4 bg-white">
+                        <CardContent>
+                            <h2 className="mb-1 text-base font-semibold text-[var(--color-foreground)]">Request Time Off</h2>
+                            <p className="mb-3 text-xs text-[var(--color-muted)]">Submit days you cannot work. Admins can approve or deny.</p>
+                            <form className="space-y-3" onSubmit={handleSubmitRequest}>
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <Input
+                                        label="Start Date"
+                                        type="date"
+                                        value={requestForm.startDate}
+                                        onChange={(event) => setRequestForm((prev) => ({ ...prev, startDate: event.target.value }))}
+                                        required
+                                    />
+                                    <Input
+                                        label="End Date"
+                                        type="date"
+                                        value={requestForm.endDate}
+                                        onChange={(event) => setRequestForm((prev) => ({ ...prev, endDate: event.target.value }))}
+                                        required
+                                    />
+                                </div>
+                                <Textarea
+                                    label="Reason (optional)"
+                                    rows={2}
+                                    value={requestForm.reason}
+                                    onChange={(event) => setRequestForm((prev) => ({ ...prev, reason: event.target.value }))}
+                                    placeholder="Appointment, travel, event, etc."
+                                />
+                                <div className="flex justify-end">
+                                    <Button type="submit" isLoading={isSubmittingRequest}>Submit Request</Button>
+                                </div>
+                            </form>
+                        </CardContent>
+                    </Card>
+
+                    {requestError && (
+                        <div className="mb-4 rounded-lg bg-[var(--color-danger-bg)] p-3 text-[var(--color-danger)]">
+                            {requestError}
+                        </div>
+                    )}
+                    {requestSuccess && (
+                        <div className="mb-4 rounded-lg bg-[var(--color-success-bg)] p-3 text-[var(--color-success)]">
+                            {requestSuccess}
+                        </div>
+                    )}
+
+                    <Card variant="outlined" className="bg-white" padding="none">
+                        <div className="border-b border-[var(--color-border)] px-4 py-3">
+                            <h2 className="text-base font-semibold text-[var(--color-foreground)]">Your Requests</h2>
+                        </div>
+                        {isLoadingRequests ? (
+                            <div className="flex items-center justify-center py-8">
+                                <LoadingSpinner size={24} />
+                            </div>
+                        ) : timeOffRequests.length === 0 ? (
+                            <div className="px-4 py-6 text-sm text-[var(--color-muted)]">No day-off requests submitted yet.</div>
+                        ) : (
+                            <div className="divide-y divide-[var(--color-border)]">
+                                {timeOffRequests.map((request) => (
+                                    <div key={request.id} className="space-y-2 px-4 py-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-sm font-semibold text-[var(--color-foreground)]">
+                                                {formatDateRange(request.start_date, request.end_date)}
+                                            </p>
+                                            <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${getStatusBadgeClass(request.status)}`}>
+                                                {request.status}
+                                            </span>
+                                        </div>
+                                        {request.reason && (
+                                            <p className="text-sm text-[var(--color-muted)]">{request.reason}</p>
+                                        )}
+                                        {request.review_notes && (
+                                            <p className="text-xs text-[var(--color-muted)]">Admin note: {request.review_notes}</p>
+                                        )}
+                                        {request.status === 'pending' && (
+                                            <div>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
+                                                    onClick={() => handleDeleteRequest(request.id)}
+                                                    isLoading={deletingRequestId === request.id}
+                                                >
+                                                    Cancel Request
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </Card>
+                </>
+            )}
         </div>
     );
 }
