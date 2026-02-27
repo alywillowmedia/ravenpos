@@ -13,6 +13,7 @@ import { formatCurrency } from '../../lib/utils';
 import { VendorItemForm } from '../../components/vendor/VendorItemForm';
 import { VendorBatchEntry } from '../../components/vendor/VendorBatchEntry';
 import { Tabs } from '../../components/ui/Tabs';
+import { Card, CardContent } from '../../components/ui/Card';
 import type { Item } from '../../types';
 
 export function VendorInventory() {
@@ -170,6 +171,10 @@ export function VendorInventory() {
         { id: 'batch', label: 'Batch Entry' },
     ];
 
+    const totalItems = items.length;
+    const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const totalValue = items.reduce((sum, item) => sum + (Number(item.price) * Number(item.quantity || 0)), 0);
+
     return (
         <div className="animate-fadeIn space-y-6">
             <Header
@@ -187,6 +192,29 @@ export function VendorInventory() {
             <div className="bg-white rounded-xl border border-[var(--color-border)] shadow-sm overflow-hidden p-6">
                 {view === 'list' && (
                     <>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                            <Card variant="outlined">
+                                <CardContent className="p-4">
+                                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Total Items</p>
+                                    <p className="text-2xl font-bold text-[var(--color-foreground)]">{totalItems}</p>
+                                </CardContent>
+                            </Card>
+
+                            <Card variant="outlined">
+                                <CardContent className="p-4">
+                                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Total Qty</p>
+                                    <p className="text-2xl font-bold text-[var(--color-foreground)]">{totalQuantity}</p>
+                                </CardContent>
+                            </Card>
+
+                            <Card variant="elevated" className="bg-gradient-to-br from-[var(--color-primary)]/10 to-transparent">
+                                <CardContent className="p-4">
+                                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Total Value</p>
+                                    <p className="text-2xl font-bold text-[var(--color-primary)]">{formatCurrency(totalValue)}</p>
+                                </CardContent>
+                            </Card>
+                        </div>
+
                         {items.length === 0 && !isLoading ? (
                             <div className="py-12">
                                 <EmptyState
