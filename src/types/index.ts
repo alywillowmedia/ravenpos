@@ -88,6 +88,7 @@ export interface Customer {
     email: string | null;
     phone: string | null;
     notes: string | null;
+    accepts_marketing: boolean;
     store_credit?: number;
     created_at: string;
     updated_at: string;

@@ -56,6 +56,7 @@ async function resolveRecipients(
     const { data, error } = await adminClient
         .from('customers')
         .select('email')
+        .eq('accepts_marketing', true)
         .not('email', 'is', null)
 
     if (error) {

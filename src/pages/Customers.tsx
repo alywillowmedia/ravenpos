@@ -51,10 +51,11 @@ export function Customers() {
         email: null,
         phone: null,
         notes: null,
+        accepts_marketing: false,
     });
 
     const resetForm = () => {
-        setFormData({ name: '', email: null, phone: null, notes: null });
+        setFormData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
     };
 
     const handleAdd = async () => {
@@ -131,6 +132,7 @@ export function Customers() {
             email: customer.email,
             phone: customer.phone,
             notes: customer.notes,
+            accepts_marketing: customer.accepts_marketing ?? false,
         });
         setEditTarget(customer);
     };
@@ -306,6 +308,15 @@ export function Customers() {
                         onChange={(e) => setFormData({ ...formData, notes: e.target.value || null })}
                         placeholder="Optional notes..."
                     />
+                    <label className="flex items-center gap-2 text-sm text-[var(--color-foreground)]">
+                        <input
+                            type="checkbox"
+                            checked={formData.accepts_marketing}
+                            onChange={(e) => setFormData({ ...formData, accepts_marketing: e.target.checked })}
+                            className="h-4 w-4 rounded border-[var(--color-border)]"
+                        />
+                        Accepts marketing emails
+                    </label>
                 </div>
                 <ModalFooter>
                     <Button variant="ghost" onClick={() => { setIsAddModalOpen(false); resetForm(); }}>
@@ -350,6 +361,15 @@ export function Customers() {
                         onChange={(e) => setFormData({ ...formData, notes: e.target.value || null })}
                         placeholder="Optional notes..."
                     />
+                    <label className="flex items-center gap-2 text-sm text-[var(--color-foreground)]">
+                        <input
+                            type="checkbox"
+                            checked={formData.accepts_marketing}
+                            onChange={(e) => setFormData({ ...formData, accepts_marketing: e.target.checked })}
+                            className="h-4 w-4 rounded border-[var(--color-border)]"
+                        />
+                        Accepts marketing emails
+                    </label>
                 </div>
                 <ModalFooter>
                     <Button variant="ghost" onClick={() => { setEditTarget(null); resetForm(); }}>

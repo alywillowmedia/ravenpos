@@ -331,6 +331,7 @@ export function EmailCampaigns() {
             supabase
                 .from('customers')
                 .select('id', { count: 'exact', head: true })
+                .eq('accepts_marketing', true)
                 .not('email', 'is', null),
         ]);
 
@@ -601,7 +602,7 @@ export function EmailCampaigns() {
                                 value={audienceMode}
                                 onChange={(event) => setAudienceMode(event.target.value as 'customers' | 'manual')}
                                 options={[
-                                    { value: 'customers', label: `All customers with email (${customerAudienceCount})` },
+                                    { value: 'customers', label: `Opted-in customers with email (${customerAudienceCount})` },
                                     { value: 'manual', label: 'Manual list' },
                                 ]}
                             />

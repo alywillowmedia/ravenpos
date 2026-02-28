@@ -1,4 +1,12 @@
-import { forwardRef, type InputHTMLAttributes, type ReactNode } from 'react';
+import {
+    type ClipboardEvent,
+    forwardRef,
+    useEffect,
+    useRef,
+    useState,
+    type InputHTMLAttributes,
+    type ReactNode,
+} from 'react';
 import { cn } from '../../lib/utils';
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -22,11 +30,85 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             inputSize = 'md',
             type = 'text',
             id,
+            maxLength,
+            onBeforeInput,
+            onPaste,
             ...props
         },
         ref
     ) => {
         const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
+        const [showMaxLengthTooltip, setShowMaxLengthTooltip] = useState(false);
+        const [flashMaxLengthWarning, setFlashMaxLengthWarning] = useState(false);
+        const hideTooltipTimeoutRef = useRef<number | null>(null);
+        const hideFlashTimeoutRef = useRef<number | null>(null);
+
+        useEffect(() => {
+            return () => {
+                if (hideTooltipTimeoutRef.current !== null) {
+                    window.clearTimeout(hideTooltipTimeoutRef.current);
+                }
+                if (hideFlashTimeoutRef.current !== null) {
+                    window.clearTimeout(hideFlashTimeoutRef.current);
+                }
+            };
+        }, []);
+
+        const triggerMaxLengthFeedback = () => {
+            if (!maxLength || maxLength < 1) return;
+            setShowMaxLengthTooltip(true);
+            setFlashMaxLengthWarning(true);
+
+            if (hideTooltipTimeoutRef.current !== null) {
+                window.clearTimeout(hideTooltipTimeoutRef.current);
+            }
+            if (hideFlashTimeoutRef.current !== null) {
+                window.clearTimeout(hideFlashTimeoutRef.current);
+            }
+
+            hideFlashTimeoutRef.current = window.setTimeout(() => {
+                setFlashMaxLengthWarning(false);
+            }, 450);
+
+            hideTooltipTimeoutRef.current = window.setTimeout(() => {
+                setShowMaxLengthTooltip(false);
+            }, 1400);
+        };
+
+        const wouldExceedMaxLength = (
+            element: HTMLInputElement,
+            incomingTextLength: number
+        ) => {
+            if (!maxLength || maxLength < 1) return false;
+            const start = element.selectionStart ?? element.value.length;
+            const end = element.selectionEnd ?? element.value.length;
+            const selectedLength = end - start;
+            const nextLength = element.value.length - selectedLength + incomingTextLength;
+            return nextLength > maxLength;
+        };
+
+        const handleBeforeInput: NonNullable<InputProps['onBeforeInput']> = (e) => {
+            const native = e.nativeEvent as globalThis.InputEvent;
+            const incoming = native.data ?? '';
+            const isDelete = native.inputType?.startsWith('delete');
+
+            if (!isDelete && incoming.length > 0 && wouldExceedMaxLength(e.currentTarget, incoming.length)) {
+                e.preventDefault();
+                triggerMaxLengthFeedback();
+            }
+
+            onBeforeInput?.(e);
+        };
+
+        const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
+            const pasted = e.clipboardData.getData('text');
+            if (pasted.length > 0 && wouldExceedMaxLength(e.currentTarget, pasted.length)) {
+                e.preventDefault();
+                triggerMaxLengthFeedback();
+            }
+
+            onPaste?.(e);
+        };
 
         const sizes = {
             sm: 'h-9 min-h-[36px] text-sm px-3',
@@ -45,7 +127,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[var(--color-surface)]
       touch-manipulation tap-highlight-none
       text-[16px] md:text-sm
-      ${error ? 'border-[var(--color-danger)] focus:ring-[var(--color-danger)]' : ''}
+      ${error || flashMaxLengthWarning ? 'border-[var(--color-danger)] focus:ring-[var(--color-danger)]' : ''}
     `;
 
         return (
@@ -68,15 +150,24 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
                         ref={ref}
                         id={inputId}
                         type={type}
+                        maxLength={maxLength}
+                        onBeforeInput={handleBeforeInput}
+                        onPaste={handlePaste}
                         className={cn(
                             inputStyles,
                             sizes[inputSize],
                             leftIcon && 'pl-10',
                             rightIcon && 'pr-10',
+                            flashMaxLengthWarning && 'ring-2 ring-[var(--color-danger)] ring-offset-1',
                             className
                         )}
                         {...props}
                     />
+                    {showMaxLengthTooltip && maxLength && (
+                        <div className="pointer-events-none absolute -top-9 right-0 rounded-md bg-[var(--color-danger)] px-2 py-1 text-xs font-medium text-white shadow-sm">
+                            Max {maxLength} characters
+                        </div>
+                    )}
                     {rightIcon && (
                         <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]">
                             {rightIcon}
@@ -105,8 +196,79 @@ export interface TextareaProps
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-    ({ className, label, error, hint, id, ...props }, ref) => {
+    ({ className, label, error, hint, id, maxLength, onBeforeInput, onPaste, ...props }, ref) => {
         const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
+        const [showMaxLengthTooltip, setShowMaxLengthTooltip] = useState(false);
+        const [flashMaxLengthWarning, setFlashMaxLengthWarning] = useState(false);
+        const hideTooltipTimeoutRef = useRef<number | null>(null);
+        const hideFlashTimeoutRef = useRef<number | null>(null);
+
+        useEffect(() => {
+            return () => {
+                if (hideTooltipTimeoutRef.current !== null) {
+                    window.clearTimeout(hideTooltipTimeoutRef.current);
+                }
+                if (hideFlashTimeoutRef.current !== null) {
+                    window.clearTimeout(hideFlashTimeoutRef.current);
+                }
+            };
+        }, []);
+
+        const triggerMaxLengthFeedback = () => {
+            if (!maxLength || maxLength < 1) return;
+            setShowMaxLengthTooltip(true);
+            setFlashMaxLengthWarning(true);
+
+            if (hideTooltipTimeoutRef.current !== null) {
+                window.clearTimeout(hideTooltipTimeoutRef.current);
+            }
+            if (hideFlashTimeoutRef.current !== null) {
+                window.clearTimeout(hideFlashTimeoutRef.current);
+            }
+
+            hideFlashTimeoutRef.current = window.setTimeout(() => {
+                setFlashMaxLengthWarning(false);
+            }, 450);
+
+            hideTooltipTimeoutRef.current = window.setTimeout(() => {
+                setShowMaxLengthTooltip(false);
+            }, 1400);
+        };
+
+        const wouldExceedMaxLength = (
+            element: HTMLTextAreaElement,
+            incomingTextLength: number
+        ) => {
+            if (!maxLength || maxLength < 1) return false;
+            const start = element.selectionStart ?? element.value.length;
+            const end = element.selectionEnd ?? element.value.length;
+            const selectedLength = end - start;
+            const nextLength = element.value.length - selectedLength + incomingTextLength;
+            return nextLength > maxLength;
+        };
+
+        const handleBeforeInput: NonNullable<TextareaProps['onBeforeInput']> = (e) => {
+            const native = e.nativeEvent as globalThis.InputEvent;
+            const incoming = native.data ?? '';
+            const isDelete = native.inputType?.startsWith('delete');
+
+            if (!isDelete && incoming.length > 0 && wouldExceedMaxLength(e.currentTarget, incoming.length)) {
+                e.preventDefault();
+                triggerMaxLengthFeedback();
+            }
+
+            onBeforeInput?.(e);
+        };
+
+        const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+            const pasted = e.clipboardData.getData('text');
+            if (pasted.length > 0 && wouldExceedMaxLength(e.currentTarget, pasted.length)) {
+                e.preventDefault();
+                triggerMaxLengthFeedback();
+            }
+
+            onPaste?.(e);
+        };
 
         const textareaStyles = `
       w-full rounded-lg
@@ -119,7 +281,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
       disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[var(--color-surface)]
       px-3 py-2 text-sm
       min-h-[80px] resize-y
-      ${error ? 'border-[var(--color-danger)] focus:ring-[var(--color-danger)]' : ''}
+      ${error || flashMaxLengthWarning ? 'border-[var(--color-danger)] focus:ring-[var(--color-danger)]' : ''}
     `;
 
         return (
@@ -132,12 +294,26 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
                         {label}
                     </label>
                 )}
-                <textarea
-                    ref={ref}
-                    id={inputId}
-                    className={cn(textareaStyles, className)}
-                    {...props}
-                />
+                <div className="relative">
+                    <textarea
+                        ref={ref}
+                        id={inputId}
+                        maxLength={maxLength}
+                        onBeforeInput={handleBeforeInput}
+                        onPaste={handlePaste}
+                        className={cn(
+                            textareaStyles,
+                            flashMaxLengthWarning && 'ring-2 ring-[var(--color-danger)] ring-offset-1',
+                            className
+                        )}
+                        {...props}
+                    />
+                    {showMaxLengthTooltip && maxLength && (
+                        <div className="pointer-events-none absolute -top-9 right-0 rounded-md bg-[var(--color-danger)] px-2 py-1 text-xs font-medium text-white shadow-sm">
+                            Max {maxLength} characters
+                        </div>
+                    )}
+                </div>
                 {error && (
                     <p className="text-sm text-[var(--color-danger)]">{error}</p>
                 )}

@@ -47,6 +47,7 @@ export function EmployeePOS() {
         email: null,
         phone: null,
         notes: null,
+        accepts_marketing: false,
     });
 
     const { subtotal, taxTotal, total } = calculateCartTotals(cart);
@@ -251,7 +252,7 @@ export function EmployeePOS() {
         if (!error && data) {
             setSelectedCustomer(data);
             setShowNewCustomerModal(false);
-            setNewCustomerData({ name: '', email: null, phone: null, notes: null });
+            setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
         }
     };
 
@@ -565,6 +566,15 @@ export function EmployeePOS() {
                         onChange={(e) => setNewCustomerData({ ...newCustomerData, email: e.target.value || null })}
                         placeholder="customer@example.com"
                     />
+                    <label className="flex items-center gap-2 text-sm text-[var(--color-foreground)]">
+                        <input
+                            type="checkbox"
+                            checked={newCustomerData.accepts_marketing}
+                            onChange={(e) => setNewCustomerData({ ...newCustomerData, accepts_marketing: e.target.checked })}
+                            className="h-4 w-4 rounded border-[var(--color-border)]"
+                        />
+                        Accepts marketing emails
+                    </label>
                     <div className="flex gap-3 pt-4">
                         <Button variant="ghost" onClick={() => setShowNewCustomerModal(false)} className="flex-1">
                             Cancel

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { syncCustomerKitSubscriber } from '../lib/kit';
 import type { Customer, CustomerInput } from '../types';
 
 type CustomerOrderSaleItem = {
@@ -49,6 +50,7 @@ export function useCustomers() {
                     email: input.email || null,
                     phone: input.phone || null,
                     notes: input.notes || null,
+                    accepts_marketing: input.accepts_marketing,
                     store_credit: input.store_credit ?? 0,
                 })
                 .select()
@@ -57,6 +59,15 @@ export function useCustomers() {
             if (createError) throw createError;
 
             setCustomers((prev) => [...prev, data]);
+            const kitWarning = await syncCustomerKitSubscriber({
+                customerId: data.id,
+                email: data.email,
+                name: data.name,
+                acceptsMarketing: Boolean(data.accepts_marketing),
+            });
+            if (kitWarning) {
+                console.warn('[Kit] create sync failed:', kitWarning);
+            }
             return { data, error: null };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to create customer';
@@ -78,6 +89,15 @@ export function useCustomers() {
             setCustomers((prev) =>
                 prev.map((c) => (c.id === id ? data : c))
             );
+            const kitWarning = await syncCustomerKitSubscriber({
+                customerId: data.id,
+                email: data.email,
+                name: data.name,
+                acceptsMarketing: Boolean(data.accepts_marketing),
+            });
+            if (kitWarning) {
+                console.warn('[Kit] update sync failed:', kitWarning);
+            }
             return { data, error: null };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to update customer';

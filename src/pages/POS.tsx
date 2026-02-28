@@ -126,6 +126,7 @@ export function POS() {
         email: null,
         phone: null,
         notes: null,
+        accepts_marketing: false,
     });
     const [readerMode, setReaderMode] = useState<'simulated' | 'live'>(() => {
         if (typeof window === 'undefined') return 'simulated';
@@ -812,7 +813,7 @@ export function POS() {
         if (!error && data) {
             setSelectedCustomer(data);
             setShowNewCustomerModal(false);
-            setNewCustomerData({ name: '', email: null, phone: null, notes: null });
+            setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
         }
     };
 
@@ -945,7 +946,7 @@ export function POS() {
                                             size="sm"
                                             variant="secondary"
                                             onClick={() => {
-                                                setNewCustomerData({ name: customerSearch, email: null, phone: null, notes: null });
+                                                setNewCustomerData({ name: customerSearch, email: null, phone: null, notes: null, accepts_marketing: false });
                                                 setShowNewCustomerModal(true);
                                                 setShowCustomerDropdown(false);
                                             }}
@@ -958,7 +959,7 @@ export function POS() {
                             <Button
                                 variant="secondary"
                                 onClick={() => {
-                                    setNewCustomerData({ name: '', email: null, phone: null, notes: null });
+                                    setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
                                     setShowNewCustomerModal(true);
                                 }}
                                 className="shrink-0"
@@ -1665,6 +1666,15 @@ export function POS() {
                         onChange={(e) => setNewCustomerData({ ...newCustomerData, email: e.target.value || null })}
                         placeholder="customer@example.com"
                     />
+                    <label className="flex items-center gap-2 text-sm text-[var(--color-foreground)]">
+                        <input
+                            type="checkbox"
+                            checked={newCustomerData.accepts_marketing}
+                            onChange={(e) => setNewCustomerData({ ...newCustomerData, accepts_marketing: e.target.checked })}
+                            className="h-4 w-4 rounded border-[var(--color-border)]"
+                        />
+                        Accepts marketing emails
+                    </label>
                     <div className="flex gap-3 pt-4">
                         <Button
                             variant="ghost"
