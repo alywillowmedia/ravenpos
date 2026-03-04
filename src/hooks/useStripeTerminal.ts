@@ -84,6 +84,18 @@ export interface ReaderDiscoveryConfig {
     locationId?: string;
 }
 
+export interface ReaderReconnectConfig {
+    simulated?: boolean;
+    locationId?: string;
+    readerId: string;
+}
+
+export interface ReaderRegistrationConfig {
+    registrationCode: string;
+    locationId: string;
+    label?: string;
+}
+
 export function useStripeTerminal() {
     const terminalRef = useRef<Terminal | null>(null);
     const [status, setStatus] = useState<TerminalStatus>('not_initialized');
@@ -144,12 +156,12 @@ export function useStripeTerminal() {
     }, [fetchConnectionToken]);
 
     // Discover available readers
-    const discoverReaders = useCallback(async ({ simulated = true, locationId }: ReaderDiscoveryConfig = {}) => {
+    const discoverReaders = useCallback(async ({ simulated = true, locationId }: ReaderDiscoveryConfig = {}): Promise<Reader[]> => {
         if (!terminalRef.current) {
             await initializeTerminal();
         }
 
-        if (!terminalRef.current) return;
+        if (!terminalRef.current) return [];
 
         const trimmedLocationId = locationId?.trim();
         setIsSimulated(simulated);
@@ -172,20 +184,23 @@ export function useStripeTerminal() {
             if (result.error) {
                 setError(result.error.message);
                 setStatus('error');
-                return;
+                return [];
             }
 
-            setDiscoveredReaders(result.discoveredReaders || []);
+            const readers = result.discoveredReaders || [];
+            setDiscoveredReaders(readers);
             setStatus('initialized');
+            return readers;
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to discover readers');
             setStatus('error');
+            return [];
         }
     }, [initializeTerminal]);
 
     // Connect to a reader
-    const connectReader = useCallback(async (reader: Reader) => {
-        if (!terminalRef.current) return;
+    const connectReader = useCallback(async (reader: Reader): Promise<boolean> => {
+        if (!terminalRef.current) return false;
 
         setStatus('connecting');
         setError(null);
@@ -196,14 +211,66 @@ export function useStripeTerminal() {
             if (result.error) {
                 setError(result.error.message);
                 setStatus('error');
-                return;
+                return false;
             }
 
             setConnectedReader(result.reader || null);
             setStatus('connected');
+            return true;
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to connect to reader');
             setStatus('error');
+            return false;
+        }
+    }, []);
+
+    // Reconnect to a specific reader by id
+    const reconnectReaderById = useCallback(async ({
+        simulated = true,
+        locationId,
+        readerId,
+    }: ReaderReconnectConfig): Promise<boolean> => {
+        if (!readerId.trim()) return false;
+
+        const readers = await discoverReaders({ simulated, locationId });
+        const preferredReader = readers.find((reader) => reader.id === readerId);
+        if (!preferredReader) {
+            return false;
+        }
+
+        return connectReader(preferredReader);
+    }, [connectReader, discoverReaders]);
+
+    const registerReaderByCode = useCallback(async ({
+        registrationCode,
+        locationId,
+        label,
+    }: ReaderRegistrationConfig): Promise<boolean> => {
+        try {
+            const { error } = await supabase.functions.invoke('stripe-terminal', {
+                body: {
+                    action: 'register_reader',
+                    registrationCode,
+                    locationId,
+                    label,
+                },
+            });
+
+            if (error) {
+                const message = await extractFunctionError(error);
+                setError(message);
+                setStatus('error');
+                return false;
+            }
+
+            setError(null);
+            setStatus('initialized');
+            return true;
+        } catch (err) {
+            const message = await extractFunctionError(err);
+            setError(message);
+            setStatus('error');
+            return false;
         }
     }, []);
 
@@ -215,7 +282,7 @@ export function useStripeTerminal() {
             await terminalRef.current.disconnectReader();
             setConnectedReader(null);
             setStatus('initialized');
-        } catch (err) {
+        } catch {
             // Ignore disconnect errors
         }
     }, []);
@@ -354,6 +421,8 @@ export function useStripeTerminal() {
         isSimulated,
         initializeTerminal,
         discoverReaders,
+        reconnectReaderById,
+        registerReaderByCode,
         connectReader,
         disconnectReader,
         collectCardPayment,

@@ -35,6 +35,8 @@ const STRIPE_FEE_PERCENT = 0.027;
 const STRIPE_FEE_FIXED = 0.05;
 const STRIPE_READER_MODE_KEY = 'ravenpos-stripe-reader-mode';
 const STRIPE_READER_LOCATION_KEY = 'ravenpos-stripe-reader-location-id';
+const STRIPE_READER_AUTO_RECONNECT_KEY = 'ravenpos-stripe-reader-auto-reconnect';
+const STRIPE_READER_PREFERRED_ID_KEY = 'ravenpos-stripe-reader-preferred-id';
 
 export function POS() {
     const scannerRef = useRef<HTMLInputElement>(null);
@@ -51,6 +53,8 @@ export function POS() {
         discoveredReaders,
         connectedReader,
         discoverReaders,
+        reconnectReaderById,
+        registerReaderByCode,
         connectReader,
         disconnectReader,
         collectCardPayment,
@@ -137,6 +141,15 @@ export function POS() {
         if (typeof window === 'undefined') return '';
         return localStorage.getItem(STRIPE_READER_LOCATION_KEY) || '';
     });
+    const [autoReconnectReader, setAutoReconnectReader] = useState(() => {
+        if (typeof window === 'undefined') return true;
+        return localStorage.getItem(STRIPE_READER_AUTO_RECONNECT_KEY) !== 'false';
+    });
+    const [autoReconnectPaused, setAutoReconnectPaused] = useState(false);
+    const [preferredReaderId, setPreferredReaderId] = useState(() => {
+        if (typeof window === 'undefined') return '';
+        return localStorage.getItem(STRIPE_READER_PREFERRED_ID_KEY) || '';
+    });
 
     const { subtotal, taxTotal, total, itemDiscountTotal, discountTotal } = calculateCartTotals(cart, orderDiscounts);
     const cardFeeEligibleSubtotal = cart.reduce((sum, cartItem) => {
@@ -185,7 +198,47 @@ export function POS() {
     useEffect(() => {
         localStorage.setItem(STRIPE_READER_MODE_KEY, readerMode);
         localStorage.setItem(STRIPE_READER_LOCATION_KEY, readerLocationId.trim());
-    }, [readerMode, readerLocationId]);
+        localStorage.setItem(STRIPE_READER_AUTO_RECONNECT_KEY, autoReconnectReader ? 'true' : 'false');
+    }, [readerMode, readerLocationId, autoReconnectReader]);
+
+    useEffect(() => {
+        if (!preferredReaderId) return;
+        localStorage.setItem(STRIPE_READER_PREFERRED_ID_KEY, preferredReaderId);
+    }, [preferredReaderId]);
+
+    useEffect(() => {
+        if (!connectedReader) return;
+        setPreferredReaderId(connectedReader.id);
+        setShowReaderModal(false);
+    }, [connectedReader]);
+
+    useEffect(() => {
+        if (paymentMethod !== 'card') return;
+        if (!autoReconnectReader) return;
+        if (autoReconnectPaused) return;
+        if (!preferredReaderId.trim()) return;
+        if (connectedReader) return;
+        if (readerMode === 'live' && !readerLocationId.trim()) return;
+
+        const timer = setTimeout(async () => {
+            await reconnectReaderById({
+                simulated: readerMode === 'simulated',
+                locationId: readerLocationId.trim() || undefined,
+                readerId: preferredReaderId.trim(),
+            });
+        }, 500);
+
+        return () => clearTimeout(timer);
+    }, [
+        autoReconnectReader,
+        autoReconnectPaused,
+        connectedReader,
+        paymentMethod,
+        preferredReaderId,
+        readerLocationId,
+        readerMode,
+        reconnectReaderById,
+    ]);
 
     // Refocus on click anywhere, unless clicking an interactive element
     useEffect(() => {
@@ -541,9 +594,51 @@ export function POS() {
         });
     };
 
-    const handleSaveReaderSetup = (settings: { mode: 'simulated' | 'live'; locationId: string }) => {
+    const handleConnectReader = async (reader: { id: string; label: string; device_type: string; status: string }) => {
+        const connected = await connectReader(reader);
+        if (!connected) {
+            return;
+        }
+        setAutoReconnectPaused(false);
+        setPreferredReaderId(reader.id);
+        setScanError(null);
+    };
+
+    const handleDisconnectReader = async () => {
+        setAutoReconnectPaused(true);
+        await disconnectReader();
+    };
+
+    const handleRegisterReader = async (registrationCode: string, label?: string) => {
+        if (!readerLocationId.trim()) {
+            setScanError('Set your Stripe Location ID first');
+            return false;
+        }
+
+        const ok = await registerReaderByCode({
+            registrationCode,
+            locationId: readerLocationId.trim(),
+            label,
+        });
+
+        if (!ok) {
+            setScanError('Reader registration failed. Confirm code and location, then retry.');
+            return false;
+        }
+
+        setScanError(null);
+        await discoverReaders({
+            simulated: false,
+            locationId: readerLocationId.trim(),
+        });
+        return true;
+    };
+
+    const handleSaveReaderSetup = (settings: { mode: 'simulated' | 'live'; locationId: string; autoReconnect: boolean }) => {
         setReaderMode(settings.mode);
         setReaderLocationId(settings.locationId);
+        setAutoReconnectReader(settings.autoReconnect);
+        setAutoReconnectPaused(false);
         setShowReaderSetupModal(false);
         setScanError(null);
     };
@@ -1411,7 +1506,7 @@ export function POS() {
                                                     <span className="text-sm font-medium">{connectedReader.label}</span>
                                                 </div>
                                                 <button
-                                                    onClick={disconnectReader}
+                                                    onClick={handleDisconnectReader}
                                                     className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
                                                 >
                                                     Disconnect
@@ -1509,8 +1604,7 @@ export function POS() {
                             <button
                                 key={reader.id}
                                 onClick={async () => {
-                                    await connectReader(reader);
-                                    setShowReaderModal(false);
+                                    await handleConnectReader(reader);
                                 }}
                                 className="w-full p-3 rounded-lg border border-[var(--color-border)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 transition-colors text-left"
                             >
@@ -1529,7 +1623,21 @@ export function POS() {
                 onClose={() => setShowReaderSetupModal(false)}
                 mode={readerMode}
                 locationId={readerLocationId}
+                autoReconnect={autoReconnectReader}
+                terminalStatus={terminalStatus}
+                discoveredReaders={discoveredReaders}
+                connectedReader={connectedReader}
                 onSave={handleSaveReaderSetup}
+                onDiscoverReaders={async (settings) => {
+                    setReaderMode(settings.mode);
+                    setReaderLocationId(settings.locationId);
+                    await discoverReaders({
+                        simulated: settings.mode === 'simulated',
+                        locationId: settings.locationId || undefined,
+                    });
+                }}
+                onConnectReader={handleConnectReader}
+                onRegisterReader={handleRegisterReader}
             />
 
             {/* Custom Item Modal */}

@@ -2,7 +2,7 @@
   "name": "ravenpos",
   "description": "RavenPOS desktop point-of-sale application",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "Ravenlia",
   "type": "module",
   "main": "electron/main.cjs",
@@ -70,6 +70,7 @@
       "electron/**/*"
     ],
     "win": {
+      "icon": "public/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -91,6 +92,8 @@
       "perMachine": false,
       "allowElevation": true,
       "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
       "artifactName": "RavenPOS-Setup-${version}-${arch}.${ext}"
     },
     "portable": {

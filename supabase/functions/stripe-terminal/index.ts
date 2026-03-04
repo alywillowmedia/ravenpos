@@ -30,12 +30,20 @@ interface GetPaymentIntentRequest {
     paymentIntentId: string
 }
 
+interface RegisterReaderRequest {
+    action: 'register_reader'
+    registrationCode: string
+    locationId: string
+    label?: string
+}
+
 type RequestBody =
     | ConnectionTokenRequest
     | CreatePaymentIntentRequest
     | CapturePaymentIntentRequest
     | CancelPaymentIntentRequest
     | GetPaymentIntentRequest
+    | RegisterReaderRequest
 
 // Helper to make Stripe API requests
 async function stripeRequest(
@@ -216,6 +224,45 @@ Deno.serve(async (req) => {
                     id: paymentIntent.id,
                     status: paymentIntent.status,
                     card_last4: cardLast4,
+                }),
+                { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+
+        } else if (body.action === 'register_reader') {
+            const { registrationCode, locationId, label } = body as RegisterReaderRequest
+
+            if (!registrationCode?.trim()) {
+                return new Response(
+                    JSON.stringify({ error: 'Missing registrationCode' }),
+                    { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            if (!locationId?.trim()) {
+                return new Response(
+                    JSON.stringify({ error: 'Missing locationId' }),
+                    { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            const reader = await stripeRequest(
+                '/terminal/readers',
+                'POST',
+                stripeSecretKey,
+                {
+                    registration_code: registrationCode.trim(),
+                    location: locationId.trim(),
+                    label: label?.trim() || 'Front Counter',
+                }
+            )
+
+            return new Response(
+                JSON.stringify({
+                    id: reader.id,
+                    label: reader.label,
+                    device_type: reader.device_type,
+                    status: reader.status,
+                    location: reader.location,
                 }),
                 { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             )
