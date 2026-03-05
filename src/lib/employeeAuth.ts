@@ -100,7 +100,10 @@ export async function verifyEmployeePIN(pin: string): Promise<{ employee: Employ
         if (error) {
             console.error('PIN verification error:', error);
             const functionErrorMessage = await extractFunctionErrorMessage(error);
-            return { employee: null, error: functionErrorMessage || 'Invalid PIN' };
+            if (functionErrorMessage) {
+                return { employee: null, error: functionErrorMessage };
+            }
+            return { employee: null, error: 'Unable to verify PIN. Please try again.' };
         }
 
         if (data?.employee) {
