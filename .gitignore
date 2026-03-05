@@ -24,3 +24,10 @@ electron-dist
 
 # Local Supabase advisor exports
 supabase/security_warnings_*.json
+supabase_errors_warnings.json
+
+# Local docs/samples/assets not needed for runtime
+INVOICE_FEATURE.md
+stripe example.md
+stripe-sample-code_1/
+Screenshot*.png
