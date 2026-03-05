@@ -11,6 +11,8 @@
     "stop": "lsof -ti:5173 | xargs kill",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run electron:build:base && npm run electron:build:installer:only && npm run electron:build:portable:only && npm run electron:verify:artifacts",
@@ -56,6 +58,7 @@
     "tailwindcss": "^4.0.0",
     "typescript": "~5.7.0",
     "typescript-eslint": "^8.20.0",
+    "vitest": "^3.2.4",
     "vite": "^6.0.0",
     "wait-on": "^7.2.0"
   },

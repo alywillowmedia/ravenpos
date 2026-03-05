@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { EmployeeProvider } from './contexts/EmployeeContext';
+import { ToastProvider } from './contexts/ToastContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { AdminLayout } from './components/layout/AdminLayout';
 import { VendorLayout } from './components/layout/VendorLayout';
@@ -60,8 +61,9 @@ import { VendorsPage } from './pages/public/VendorsPage';
 export default function App() {
     return (
         <AuthProvider>
-            <EmployeeProvider>
-                <Routes>
+            <ToastProvider>
+                <EmployeeProvider>
+                    <Routes>
                     {/* Public Storefront Routes */}
                     <Route element={<PublicLayout />}>
                         <Route path="/" element={<BrowsePage />} />
@@ -149,8 +151,9 @@ export default function App() {
 
                     {/* Catch all - redirect to storefront */}
                     <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-            </EmployeeProvider>
+                    </Routes>
+                </EmployeeProvider>
+            </ToastProvider>
         </AuthProvider>
     );
 }

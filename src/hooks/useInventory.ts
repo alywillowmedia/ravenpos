@@ -142,7 +142,7 @@ export function useInventory(consignorId?: string) {
                 updates.quantity !== currentItem.quantity;
 
             // If quantity is increasing, add the difference to qty_unlabeled (new stock needs labels)
-            let finalUpdates = { ...updates };
+            const finalUpdates = { ...updates };
             if (quantityChanged && currentItem && updates.quantity !== undefined) {
                 const quantityDiff = updates.quantity - currentItem.quantity;
                 if (quantityDiff > 0) {
@@ -332,7 +332,7 @@ export function useInventory(consignorId?: string) {
             const updatePromises = updates.map(async ({ id, changes }) => {
                 try {
                     const currentItem = originalItems.find((i) => i.id === id);
-                    let finalChanges = { ...changes };
+                    const finalChanges = { ...changes };
 
                     // Handle qty_unlabeled for quantity increases
                     if (

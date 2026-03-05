@@ -15,12 +15,14 @@ import { useInventory } from '../hooks/useInventory';
 import { useConsignors } from '../hooks/useConsignors';
 import { useCategories } from '../hooks/useCategories';
 import { useBulkEdit } from '../hooks/useBulkEdit';
+import { useToast } from '../contexts/ToastContext';
 import { formatCurrency } from '../lib/utils';
 import type { Item, ItemInput } from '../types';
 
 export function Inventory() {
     const navigate = useNavigate();
     const { items, isLoading, updateItem, updateItems, deleteItem } = useInventory();
+    const toast = useToast();
     const { consignors } = useConsignors();
     const { getCategoryNames } = useCategories();
 
@@ -105,12 +107,12 @@ export function Inventory() {
             bulkEdit.clearChanges();
             bulkEdit.deselectAll();
             bulkEdit.toggleBulkEditMode();
+            toast.success('Bulk changes saved', `${updates.length} item update${updates.length === 1 ? '' : 's'} applied.`);
         } else {
-            // Show errors (could improve with toast notifications)
             console.error('Bulk update errors:', result.errors);
-            alert(`Some updates failed:\n${result.errors.join('\n')}`);
+            toast.error('Some updates failed', result.errors.slice(0, 2).join(' • '));
         }
-    }, [bulkEdit, items, updateItems]);
+    }, [bulkEdit, toast, updateItems]);
 
     const handleCancelBulkEdit = useCallback(() => {
         if (bulkEdit.hasChanges) {

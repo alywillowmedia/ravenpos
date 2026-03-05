@@ -30,7 +30,7 @@ export function VendorSales() {
         const fetchSales = async () => {
             if (!userRecord?.consignor_id) return;
 
-            let query = supabase
+            const query = supabase
                 .from('sale_items')
                 .select('id, name, sku, price, quantity, commission_split, sales!inner(completed_at)')
                 .eq('consignor_id', userRecord.consignor_id)

@@ -72,8 +72,7 @@ export function generateLabelsPDF(items: LabelItem[]): void {
     }
 
     if (expandedItems.length === 0) {
-        alert('No labels to print');
-        return;
+        throw new Error('No labels to print');
     }
 
     // Calculate grid positions
@@ -262,8 +261,7 @@ export function downloadLabelsPDF(items: LabelItem[], filename: string = 'labels
     }
 
     if (expandedItems.length === 0) {
-        alert('No labels to print');
-        return;
+        throw new Error('No labels to print');
     }
 
     const { labelWidth, labelHeight, topMargin, sideMargin, horizontalGap, columns, labelsPerPage } = AVERY_5160;

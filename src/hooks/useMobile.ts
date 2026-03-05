@@ -131,9 +131,10 @@ export function useIsStandalone(): boolean {
     const [isStandalone, setIsStandalone] = useState(false);
 
     useEffect(() => {
+        const standaloneNavigator = window.navigator as Navigator & { standalone?: boolean };
         const standalone =
             window.matchMedia('(display-mode: standalone)').matches ||
-            (window.navigator as any).standalone === true;
+            standaloneNavigator.standalone === true;
         setIsStandalone(standalone);
     }, []);
 

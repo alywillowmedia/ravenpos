@@ -6,6 +6,7 @@ import { EmptyState, TagIcon } from '../components/ui/EmptyState';
 import { useInventory } from '../hooks/useInventory';
 import { useConsignors } from '../hooks/useConsignors';
 import { useCategories } from '../hooks/useCategories';
+import { useToast } from '../contexts/ToastContext';
 import { formatCurrency } from '../lib/utils';
 import { generateLabelsPDF } from '../lib/generateLabelsPDF';
 import type { Item } from '../types';
@@ -33,6 +34,7 @@ export function Labels() {
     const { items, isLoading, markAsPrinted } = useInventory();
     const { consignors } = useConsignors();
     const { getCategoryNames } = useCategories();
+    const toast = useToast();
 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [showPrintOptions, setShowPrintOptions] = useState(false);
@@ -215,9 +217,11 @@ export function Labels() {
         try {
             const itemsWithQuantities = getItemsWithPrintQuantities();
             generateLabelsPDF(itemsWithQuantities);
+            toast.success('Labels ready', 'Opened label PDF in a new tab.');
         } catch (error) {
             console.error('Failed to generate PDF:', error);
-            alert('Failed to generate PDF. Please try again.');
+            const message = error instanceof Error ? error.message : 'Failed to generate PDF. Please try again.';
+            toast.error('Unable to generate labels', message);
         }
         setIsGenerating(false);
     };
@@ -235,16 +239,18 @@ export function Labels() {
 
             setPendingPrintedItems(printedItems);
             setIsAwaitingPrintConfirmation(true);
+            toast.info('Print generated', 'Confirm once labels finish printing to mark them as printed.');
         } catch (error) {
             console.error('Failed to generate PDF:', error);
-            alert('Failed to generate PDF. Please try again.');
+            const message = error instanceof Error ? error.message : 'Failed to generate PDF. Please try again.';
+            toast.error('Unable to generate labels', message);
         }
         setIsGenerating(false);
     };
 
     const handleConfirmPrinted = async () => {
         if (pendingPrintedItems.length === 0) {
-            alert('No labels are queued to be marked as printed.');
+            toast.warning('Nothing to confirm', 'No labels are queued to be marked as printed.');
             return;
         }
 
@@ -256,9 +262,10 @@ export function Labels() {
             setCustomQuantities({});
             setPendingPrintedItems([]);
             setIsAwaitingPrintConfirmation(false);
+            toast.success('Labels marked as printed', 'Inventory unlabeled counts were updated.');
         } catch (error) {
             console.error('Failed to mark labels as printed:', error);
-            alert('Failed to mark labels as printed. Please try again.');
+            toast.error('Unable to mark labels as printed', 'Please try again.');
         }
         setIsGenerating(false);
     };

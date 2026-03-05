@@ -31,6 +31,13 @@ interface AnalyticsRangeOptions {
     endDate?: Date;
 }
 
+type SaleItemCategoryRow = {
+    price: number | string | null;
+    quantity: number | string | null;
+    item: { category?: string | null } | Array<{ category?: string | null }> | null;
+    sale: { completed_at?: string | null } | Array<{ completed_at?: string | null }> | null;
+};
+
 export function useAnalytics() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -158,7 +165,7 @@ export function useAnalytics() {
 
             if (error) throw error;
 
-            const filteredByRange = (data || []).filter((item: any) => {
+            const filteredByRange = (data as SaleItemCategoryRow[] || []).filter((item) => {
                 if (!rangeOptions?.startDate && !rangeOptions?.endDate) return true;
                 const saleData = item.sale;
                 const completedAtRaw = Array.isArray(saleData)
@@ -171,8 +178,10 @@ export function useAnalytics() {
                 return true;
             });
 
-            const grouped = filteredByRange.reduce((acc: Record<string, SalesByCategoryData>, item: any) => {
-                const category = item.item?.category || 'Uncategorized';
+            const grouped = filteredByRange.reduce((acc: Record<string, SalesByCategoryData>, item) => {
+                const itemData = item.item;
+                const categoryRaw = Array.isArray(itemData) ? itemData[0]?.category : itemData?.category;
+                const category = categoryRaw || 'Uncategorized';
                 if (!acc[category]) {
                     acc[category] = { category, amount: 0, count: 0 };
                 }

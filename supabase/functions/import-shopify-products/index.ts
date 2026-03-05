@@ -53,11 +53,12 @@ Deno.serve(async (req) => {
 
         let consignorCreated = false
 
-        let { data: consignor, error: consignorError } = await supabase
+        const { data: existingConsignor, error: consignorError } = await supabase
             .from('consignors')
             .select('id')
             .eq('name', consignorName)
             .single()
+        let consignor = existingConsignor
 
         if (consignorError || !consignor) {
             // Create the consignor

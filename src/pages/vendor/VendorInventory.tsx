@@ -185,7 +185,11 @@ export function VendorInventory() {
             <Tabs
                 tabs={tabs}
                 activeTab={view}
-                onChange={(id) => setView(id as any)}
+                onChange={(id) => {
+                    if (id === 'list' || id === 'single' || id === 'batch') {
+                        setView(id);
+                    }
+                }}
                 className="max-w-md"
             />
 

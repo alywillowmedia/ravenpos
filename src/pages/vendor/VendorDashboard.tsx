@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Header } from '../../components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { useAuth } from '../../contexts/AuthContext';
+import { useToast } from '../../contexts/ToastContext';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency, formatDate } from '../../lib/utils';
 import type { Consignor } from '../../types';
@@ -23,22 +25,74 @@ interface RecentSale {
     completed_at: string;
 }
 
+interface VendorSaleNotification {
+    id: string;
+    saleItemId: string;
+    title: string;
+    message: string;
+    createdAt: string;
+    read: boolean;
+}
+
+interface SaleItemInsertRow {
+    id: string;
+    sale_id: string;
+    name: string;
+    price: number | string;
+    quantity: number;
+    commission_split: number | string;
+    created_at: string;
+}
+
 export function VendorDashboard() {
     const { userRecord } = useAuth();
+    const toast = useToast();
     const [consignor, setConsignor] = useState<Consignor | null>(null);
     const [stats, setStats] = useState<VendorStats | null>(null);
     const [recentSales, setRecentSales] = useState<RecentSale[]>([]);
+    const [saleNotifications, setSaleNotifications] = useState<VendorSaleNotification[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const consignorId = userRecord?.consignor_id ?? null;
+
+    const notificationsStorageKey = useMemo(
+        () => (consignorId ? `vendor-sale-notifications:${consignorId}` : null),
+        [consignorId]
+    );
+
+    useEffect(() => {
+        if (!notificationsStorageKey) {
+            setSaleNotifications([]);
+            return;
+        }
+
+        const raw = localStorage.getItem(notificationsStorageKey);
+        if (!raw) {
+            setSaleNotifications([]);
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(raw) as VendorSaleNotification[];
+            setSaleNotifications(Array.isArray(parsed) ? parsed.slice(0, 20) : []);
+        } catch {
+            setSaleNotifications([]);
+        }
+    }, [notificationsStorageKey]);
+
+    useEffect(() => {
+        if (!notificationsStorageKey) return;
+        localStorage.setItem(notificationsStorageKey, JSON.stringify(saleNotifications.slice(0, 20)));
+    }, [saleNotifications, notificationsStorageKey]);
 
     useEffect(() => {
         const fetchData = async () => {
-            if (!userRecord?.consignor_id) return;
+            if (!consignorId) return;
 
             // Fetch consignor info
             const { data: consignorData } = await supabase
                 .from('consignors')
                 .select('*')
-                .eq('id', userRecord.consignor_id)
+                .eq('id', consignorId)
                 .single();
 
             setConsignor(consignorData);
@@ -47,7 +101,7 @@ export function VendorDashboard() {
             const { data: items } = await supabase
                 .from('items')
                 .select('quantity')
-                .eq('consignor_id', userRecord.consignor_id);
+                .eq('consignor_id', consignorId);
 
             const totalItems = items?.length || 0;
             const totalQuantity = items?.reduce((sum, i) => sum + i.quantity, 0) || 0;
@@ -56,7 +110,7 @@ export function VendorDashboard() {
             const { data: allSaleItems } = await supabase
                 .from('sale_items')
                 .select('*, sales!inner(completed_at)')
-                .eq('consignor_id', userRecord.consignor_id);
+                .eq('consignor_id', consignorId);
 
             const soldAllTime = allSaleItems?.reduce((sum, si) => sum + si.quantity, 0) || 0;
 
@@ -97,7 +151,7 @@ export function VendorDashboard() {
             const { data: recent } = await supabase
                 .from('sale_items')
                 .select('id, name, price, commission_split, sales!inner(completed_at)')
-                .eq('consignor_id', userRecord.consignor_id)
+                .eq('consignor_id', consignorId)
                 .order('sales(completed_at)', { ascending: false })
                 .limit(10);
 
@@ -125,7 +179,92 @@ export function VendorDashboard() {
         };
 
         fetchData();
-    }, [userRecord?.consignor_id]);
+    }, [consignorId]);
+
+    useEffect(() => {
+        if (!consignorId) return;
+
+        const channel = supabase
+            .channel(`vendor-sale-notifications-${consignorId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'sale_items',
+                    filter: `consignor_id=eq.${consignorId}`,
+                },
+                async (payload) => {
+                    const row = payload.new as SaleItemInsertRow;
+                    if (!row?.id || !row?.sale_id) return;
+
+                    const quantity = Number(row.quantity) || 0;
+                    const price = Number(row.price) || 0;
+                    const commissionSplit = Number(row.commission_split) || 0;
+                    const earned = price * quantity * commissionSplit;
+
+                    const { data: saleData } = await supabase
+                        .from('sales')
+                        .select('completed_at')
+                        .eq('id', row.sale_id)
+                        .maybeSingle();
+
+                    const completedAt = saleData?.completed_at || row.created_at || new Date().toISOString();
+                    const saleDate = new Date(completedAt);
+                    const startOfMonth = new Date();
+                    startOfMonth.setDate(1);
+                    startOfMonth.setHours(0, 0, 0, 0);
+
+                    setRecentSales((prev) => [
+                        {
+                            id: row.id,
+                            name: row.name,
+                            price,
+                            commission_split: commissionSplit,
+                            completed_at: completedAt,
+                        },
+                        ...prev,
+                    ].slice(0, 10));
+
+                    setStats((prev) => {
+                        if (!prev) return prev;
+                        return {
+                            ...prev,
+                            soldAllTime: prev.soldAllTime + quantity,
+                            soldThisMonth: saleDate >= startOfMonth ? prev.soldThisMonth + quantity : prev.soldThisMonth,
+                            earningsThisMonth: saleDate >= startOfMonth ? prev.earningsThisMonth + earned : prev.earningsThisMonth,
+                        };
+                    });
+
+                    const notification: VendorSaleNotification = {
+                        id: `sale-note-${row.id}`,
+                        saleItemId: row.id,
+                        title: `New sale: ${row.name}`,
+                        message: `${quantity} sold • ${formatCurrency(earned)} earned`,
+                        createdAt: completedAt,
+                        read: false,
+                    };
+
+                    setSaleNotifications((prev) => [notification, ...prev].slice(0, 20));
+                    toast.success(notification.title, notification.message);
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [consignorId, toast]);
+
+    const unreadCount = useMemo(
+        () => saleNotifications.filter((note) => !note.read).length,
+        [saleNotifications]
+    );
+
+    const markAllNotificationsRead = () => {
+        setSaleNotifications((prev) => prev.map((note) => ({ ...note, read: true })));
+        toast.info('Notifications cleared', 'All sale notifications marked as read.');
+    };
 
     if (isLoading) {
         return (
@@ -181,6 +320,47 @@ export function VendorDashboard() {
 
             {/* Recent Sales */}
             <Card variant="outlined">
+                <CardHeader>
+                    <div className="flex items-center justify-between gap-3">
+                        <CardTitle>Live Sale Notifications</CardTitle>
+                        <div className="flex items-center gap-2">
+                            {unreadCount > 0 ? (
+                                <span className="rounded-full bg-[var(--color-success-bg)] px-2 py-0.5 text-xs font-semibold text-[var(--color-success)]">
+                                    {unreadCount} new
+                                </span>
+                            ) : null}
+                            <Button size="sm" variant="secondary" onClick={markAllNotificationsRead} disabled={saleNotifications.length === 0}>
+                                Mark all read
+                            </Button>
+                        </div>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    {saleNotifications.length === 0 ? (
+                        <p className="text-[var(--color-muted)] text-sm py-8 text-center">
+                            Sale notifications will appear here in real time.
+                        </p>
+                    ) : (
+                        <div className="divide-y divide-[var(--color-border)]">
+                            {saleNotifications.slice(0, 6).map((notification) => (
+                                <div key={notification.id} className="py-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <p className="font-medium text-[var(--color-foreground)]">{notification.title}</p>
+                                        {!notification.read ? (
+                                            <span className="h-2.5 w-2.5 rounded-full bg-[var(--color-success)]" />
+                                        ) : null}
+                                    </div>
+                                    <p className="text-xs text-[var(--color-primary)] mt-1">{notification.message}</p>
+                                    <p className="text-xs text-[var(--color-muted)] mt-1">{formatDate(notification.createdAt)}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            {/* Recent Sales */}
+            <Card variant="outlined" className="mt-6">
                 <CardHeader>
                     <CardTitle>Recent Sales</CardTitle>
                 </CardHeader>
