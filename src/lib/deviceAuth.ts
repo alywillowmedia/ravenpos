@@ -49,32 +49,15 @@ export async function isDeviceAuthorized(): Promise<{ authorized: boolean; expir
     }
 
     try {
-        const { data, error } = await supabase
-            .from('device_authorizations')
-            .select('expires_at, revoked_at')
-            .eq('device_token', token)
-            .single();
+        const { data, error } = await supabase.functions.invoke('verify-device-token', {
+            body: { token },
+        });
 
-        if (error || !data) {
-            // Token not found in database
+        if (error || !data?.authorized) {
             clearDeviceToken();
             return { authorized: false, expiresAt: null };
         }
-
-        // Check if revoked
-        if (data.revoked_at) {
-            clearDeviceToken();
-            return { authorized: false, expiresAt: null };
-        }
-
-        // Check if expired
-        const expiresAt = new Date(data.expires_at);
-        if (expiresAt < new Date()) {
-            clearDeviceToken();
-            return { authorized: false, expiresAt: null };
-        }
-
-        return { authorized: true, expiresAt: data.expires_at };
+        return { authorized: true, expiresAt: data.expiresAt ?? null };
     } catch (err) {
         console.error('Error checking device authorization:', err);
         return { authorized: false, expiresAt: null };

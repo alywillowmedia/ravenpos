@@ -2,6 +2,7 @@
 // Employee PIN access now uses Supabase anonymous auth sessions.
 
 import { supabase } from './supabase';
+import { getDeviceToken } from './deviceAuth';
 import type { Employee, EmployeeSession } from '../types/employee';
 
 const EMPLOYEE_SESSION_KEY = 'employeeSession';
@@ -83,11 +84,16 @@ export async function verifyEmployeePIN(pin: string): Promise<{ employee: Employ
             }
             return { employee: null, error: 'Unable to start employee session. Please try again.' };
         }
+        const deviceToken = getDeviceToken();
+        if (!deviceToken) {
+            return { employee: null, error: 'This device is not authorized for employee login.' };
+        }
 
         const { data, error } = await supabase.functions.invoke('verify-employee-pin', {
             body: { pin },
             headers: {
                 Authorization: `Bearer ${session.access_token}`,
+                'x-device-token': deviceToken,
             },
         });
 

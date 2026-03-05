@@ -28,6 +28,8 @@ interface Employee {
 }
 
 const SESSION_DURATION_HOURS = 8;
+const MAX_PIN_ATTEMPTS = 10;
+const LOCKOUT_MINUTES = 15;
 
 function isAnonymousUser(user: Record<string, unknown> | null | undefined): boolean {
     if (!user) return false;
@@ -65,6 +67,7 @@ Deno.serve(async (req) => {
         const accessToken = authHeader.replace('Bearer ', '').trim();
 
         const { pin } = await req.json();
+        const deviceToken = req.headers.get('x-device-token')?.trim() ?? '';
 
         // Validate PIN format
         if (!pin || typeof pin !== 'string' || !/^\d{4,6}$/.test(pin)) {
@@ -72,6 +75,15 @@ Deno.serve(async (req) => {
                 JSON.stringify({ error: 'Invalid PIN format' }),
                 {
                     status: 400,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                }
+            );
+        }
+        if (!deviceToken) {
+            return new Response(
+                JSON.stringify({ error: 'Authorized device required' }),
+                {
+                    status: 403,
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
                 }
             );
@@ -100,6 +112,53 @@ Deno.serve(async (req) => {
                 JSON.stringify({ error: 'Employee PIN login requires an anonymous session' }),
                 {
                     status: 403,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                }
+            );
+        }
+
+        const nowIso = new Date().toISOString();
+
+        const { data: deviceAuth, error: deviceAuthError } = await supabase
+            .from('device_authorizations')
+            .select('expires_at, revoked_at')
+            .eq('device_token', deviceToken)
+            .is('revoked_at', null)
+            .gt('expires_at', nowIso)
+            .maybeSingle();
+
+        if (deviceAuthError || !deviceAuth) {
+            return new Response(
+                JSON.stringify({ error: 'Authorized device required' }),
+                {
+                    status: 403,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                }
+            );
+        }
+
+        const { data: attemptState, error: attemptFetchError } = await supabase
+            .from('employee_pin_attempts')
+            .select('attempts, locked_until')
+            .eq('auth_user_id', authData.user.id)
+            .maybeSingle();
+
+        if (attemptFetchError) {
+            console.error('PIN attempt fetch error:', attemptFetchError);
+            return new Response(
+                JSON.stringify({ error: 'Internal server error' }),
+                {
+                    status: 500,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                }
+            );
+        }
+
+        if (attemptState?.locked_until && new Date(attemptState.locked_until) > new Date()) {
+            return new Response(
+                JSON.stringify({ error: 'Too many attempts. Try again later.' }),
+                {
+                    status: 429,
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
                 }
             );
@@ -138,6 +197,11 @@ Deno.serve(async (req) => {
             const hashedPin = await sha256(pin + employee.pin_salt);
 
             if (hashedPin === employee.pin_hash) {
+                await supabase
+                    .from('employee_pin_attempts')
+                    .delete()
+                    .eq('auth_user_id', authData.user.id);
+
                 const expiresAt = new Date(Date.now() + SESSION_DURATION_HOURS * 60 * 60 * 1000).toISOString();
 
                 const { error: upsertError } = await supabase
@@ -179,6 +243,28 @@ Deno.serve(async (req) => {
                     }
                 );
             }
+        }
+
+        const nextAttempts = (attemptState?.attempts ?? 0) + 1;
+        const lockedUntil =
+            nextAttempts >= MAX_PIN_ATTEMPTS
+                ? new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000).toISOString()
+                : null;
+
+        const { error: attemptUpsertError } = await supabase
+            .from('employee_pin_attempts')
+            .upsert(
+                {
+                    auth_user_id: authData.user.id,
+                    attempts: lockedUntil ? 0 : nextAttempts,
+                    last_attempt_at: nowIso,
+                    locked_until: lockedUntil,
+                },
+                { onConflict: 'auth_user_id' }
+            );
+
+        if (attemptUpsertError) {
+            console.error('PIN attempt upsert error:', attemptUpsertError);
         }
 
         // No match found

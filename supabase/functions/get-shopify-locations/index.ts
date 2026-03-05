@@ -1,8 +1,8 @@
 // Supabase Edge Function: get-shopify-locations
 // Fetches available locations from a Shopify store
 
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
-import { getShopifyToken } from '../_shared/shopify.ts'
 
 interface LocationsRequest {
     store_name: string;
@@ -25,6 +25,39 @@ Deno.serve(async (req) => {
     }
 
     try {
+        const authHeader = req.headers.get('Authorization')
+        if (!authHeader?.startsWith('Bearer ')) {
+            return new Response(
+                JSON.stringify({ error: 'Missing authorization header' }),
+                { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+        }
+        const token = authHeader.replace('Bearer ', '').trim()
+
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+        const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+            auth: { autoRefreshToken: false, persistSession: false }
+        })
+        const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+        if (authError || !user) {
+            return new Response(
+                JSON.stringify({ error: 'Invalid token' }),
+                { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+        }
+        const { data: requester, error: requesterError } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', user.id)
+            .single()
+        if (requesterError || requester?.role !== 'admin') {
+            return new Response(
+                JSON.stringify({ error: 'Admin access required' }),
+                { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+        }
+
         const body: LocationsRequest = await req.json()
 
         if (!body.store_name) {

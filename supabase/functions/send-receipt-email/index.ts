@@ -1,6 +1,7 @@
 // Supabase Edge Function: send-receipt-email
 // Sends receipt emails via Resend API
 
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
 
 interface ReceiptItem {
@@ -220,6 +221,50 @@ Deno.serve(async (req) => {
     }
 
     try {
+        const authHeader = req.headers.get('Authorization')
+        if (!authHeader?.startsWith('Bearer ')) {
+            return new Response(
+                JSON.stringify({ error: 'Missing authorization header' }),
+                { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+        }
+        const token = authHeader.replace('Bearer ', '').trim()
+
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+        const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+            auth: { autoRefreshToken: false, persistSession: false }
+        })
+
+        const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+        if (authError || !user) {
+            return new Response(
+                JSON.stringify({ error: 'Invalid token' }),
+                { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+        }
+
+        const [{ data: appUser }, { data: employeeSession }] = await Promise.all([
+            supabase
+                .from('users')
+                .select('id')
+                .eq('id', user.id)
+                .maybeSingle(),
+            supabase
+                .from('employee_sessions')
+                .select('auth_user_id')
+                .eq('auth_user_id', user.id)
+                .gt('expires_at', new Date().toISOString())
+                .maybeSingle(),
+        ])
+
+        if (!appUser && !employeeSession) {
+            return new Response(
+                JSON.stringify({ error: 'Access denied' }),
+                { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+        }
+
         const resendApiKey = Deno.env.get('RESEND_API_KEY')
         if (!resendApiKey) {
             console.error('RESEND_API_KEY not configured')
