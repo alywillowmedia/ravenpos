@@ -1,2 +1,2 @@
-# Require JWT verification for send-receipt-email
-verify_jwt = true
+# Legacy gateway JWT verification off (function enforces auth in handler)
+verify_jwt = false
