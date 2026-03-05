@@ -38,6 +38,9 @@ export function Inventory() {
     const [showChangeSummary, setShowChangeSummary] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [showExitConfirm, setShowExitConfirm] = useState(false);
+    const [showTransferModal, setShowTransferModal] = useState(false);
+    const [transferTargetConsignor, setTransferTargetConsignor] = useState('');
+    const [isTransferring, setIsTransferring] = useState(false);
 
     const handleUpdate = async (data: Partial<Item>) => {
         if (!editItem) return { error: 'No item' };
@@ -90,6 +93,50 @@ export function Inventory() {
     const handleEditSelected = useCallback(() => {
         setIsSpreadsheetOpen(true);
     }, []);
+
+    const handleOpenTransfer = useCallback(() => {
+        if (bulkEdit.selectedCount === 0) return;
+        setTransferTargetConsignor('');
+        setShowTransferModal(true);
+    }, [bulkEdit.selectedCount]);
+
+    const handleConfirmTransfer = useCallback(async () => {
+        if (!transferTargetConsignor) {
+            toast.error('Select a vendor', 'Choose the destination vendor before transferring.');
+            return;
+        }
+
+        const updates = selectedItems
+            .filter((item) => item.consignor_id !== transferTargetConsignor)
+            .map((item) => ({
+                id: item.id,
+                changes: { consignor_id: transferTargetConsignor } as Partial<ItemInput>,
+            }));
+
+        if (updates.length === 0) {
+            toast.error('No eligible items', 'Selected items are already assigned to that vendor.');
+            return;
+        }
+
+        setIsTransferring(true);
+        const result = await updateItems(updates);
+        setIsTransferring(false);
+
+        if (result.success) {
+            const target = consignors.find((c) => c.id === transferTargetConsignor);
+            const targetLabel = target ? `${target.consignor_number} - ${target.name}` : 'selected vendor';
+            setShowTransferModal(false);
+            setTransferTargetConsignor('');
+            bulkEdit.clearChanges();
+            bulkEdit.deselectAll();
+            toast.success(
+                'Items transferred',
+                `${updates.length} item${updates.length === 1 ? '' : 's'} moved to ${targetLabel}.`
+            );
+        } else {
+            toast.error('Some transfers failed', result.errors.slice(0, 2).join(' • '));
+        }
+    }, [bulkEdit, consignors, selectedItems, toast, transferTargetConsignor, updateItems]);
 
     const handleSaveChanges = useCallback(() => {
         setShowChangeSummary(true);
@@ -392,6 +439,7 @@ export function Inventory() {
                     onSelectAll={handleSelectAll}
                     onDeselectAll={bulkEdit.deselectAll}
                     onEditSelected={handleEditSelected}
+                    onTransferSelected={handleOpenTransfer}
                     onSaveChanges={handleSaveChanges}
                     onCancel={handleCancelBulkEdit}
                     isSaving={isSaving}
@@ -425,6 +473,53 @@ export function Inventory() {
                     </Button>
                     <Button variant="danger" onClick={handleConfirmExit}>
                         Discard Changes
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
+            {/* Transfer modal */}
+            <Modal
+                isOpen={showTransferModal}
+                onClose={() => {
+                    setShowTransferModal(false);
+                    setTransferTargetConsignor('');
+                }}
+                title={`Transfer ${selectedItems.length} Item${selectedItems.length === 1 ? '' : 's'}`}
+                size="sm"
+            >
+                <div className="space-y-4">
+                    <p className="text-sm text-[var(--color-muted)]">
+                        Move selected items to a different vendor.
+                    </p>
+                    <Select
+                        label="Destination Vendor"
+                        options={[
+                            { value: '', label: 'Select vendor...' },
+                            ...consignors.map((c) => ({
+                                value: c.id,
+                                label: `${c.consignor_number} - ${c.name}`,
+                            })),
+                        ]}
+                        value={transferTargetConsignor}
+                        onChange={(e) => setTransferTargetConsignor(e.target.value)}
+                    />
+                </div>
+                <ModalFooter>
+                    <Button
+                        variant="ghost"
+                        onClick={() => {
+                            setShowTransferModal(false);
+                            setTransferTargetConsignor('');
+                        }}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={handleConfirmTransfer}
+                        isLoading={isTransferring}
+                        disabled={!transferTargetConsignor}
+                    >
+                        Transfer Items
                     </Button>
                 </ModalFooter>
             </Modal>

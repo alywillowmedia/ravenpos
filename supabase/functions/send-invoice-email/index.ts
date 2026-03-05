@@ -3,6 +3,13 @@
 
 import { corsHeaders } from '../_shared/cors.ts'
 
+declare const Deno: {
+    serve: (handler: (req: Request) => Response | Promise<Response>) => void;
+    env: {
+        get: (key: string) => string | undefined;
+    };
+};
+
 interface InvoiceItem {
     name: string;
     quantity: number;
@@ -235,7 +242,7 @@ async function createInvoiceCheckoutSession(
     return String(data.url);
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
     }
@@ -323,10 +330,11 @@ Deno.serve(async (req) => {
             { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
 
-    } catch (error) {
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         console.error('Unhandled error:', error)
         return new Response(
-            JSON.stringify({ error: error.message }),
+            JSON.stringify({ error: errorMessage }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
     }

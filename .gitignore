@@ -21,3 +21,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 electron-dist
+
+# Local Supabase advisor exports
+supabase/security_warnings_*.json

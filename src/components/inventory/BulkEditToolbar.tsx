@@ -8,6 +8,7 @@ interface BulkEditToolbarProps {
     onSelectAll: () => void;
     onDeselectAll: () => void;
     onEditSelected: () => void;
+    onTransferSelected?: () => void;
     onSaveChanges: () => void;
     onCancel: () => void;
     isSaving?: boolean;
@@ -21,6 +22,7 @@ export function BulkEditToolbar({
     onSelectAll,
     onDeselectAll,
     onEditSelected,
+    onTransferSelected,
     onSaveChanges,
     onCancel,
     isSaving = false,
@@ -62,15 +64,28 @@ export function BulkEditToolbar({
                 {/* Action buttons */}
                 <div className="flex items-center gap-2">
                     {!isEditing ? (
-                        <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={onEditSelected}
-                            disabled={selectedCount === 0}
-                        >
-                            <EditIcon />
-                            Edit Selected ({selectedCount})
-                        </Button>
+                        <>
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={onEditSelected}
+                                disabled={selectedCount === 0}
+                            >
+                                <EditIcon />
+                                Edit Selected ({selectedCount})
+                            </Button>
+                            {onTransferSelected && (
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={onTransferSelected}
+                                    disabled={selectedCount === 0}
+                                >
+                                    <TransferIcon />
+                                    Transfer
+                                </Button>
+                            )}
+                        </>
                     ) : (
                         <Button
                             variant="primary"
@@ -134,6 +149,26 @@ function EditIcon() {
             strokeLinejoin="round"
         >
             <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+        </svg>
+    );
+}
+
+function TransferIcon() {
+    return (
+        <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <path d="M17 3h4v4" />
+            <path d="M21 3l-7 7" />
+            <path d="M3 21l7-7" />
+            <path d="M3 17v4h4" />
         </svg>
     );
 }
