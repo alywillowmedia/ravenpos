@@ -1,11 +1,11 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { Input } from '../components/ui/Input';
-import { Button } from '../components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import { Input } from '../../components/ui/Input';
+import { Button } from '../../components/ui/Button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 
-export function Login() {
+export function EmployeePortalLogin() {
     const navigate = useNavigate();
     const { signIn, isLoading, user, userRecord } = useAuth();
 
@@ -14,20 +14,18 @@ export function Login() {
     const [error, setError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // If already logged in, redirect based on role (in useEffect, not during render)
     useEffect(() => {
         if (!isLoading && user && userRecord) {
             const redirectPath =
-                userRecord.role === 'admin'
-                    ? '/admin'
-                    : userRecord.role === 'vendor'
-                        ? '/vendor'
-                        : '/employee-portal';
+                userRecord.role === 'employee'
+                    ? '/employee-portal'
+                    : userRecord.role === 'admin'
+                        ? '/admin'
+                        : '/vendor';
             navigate(redirectPath, { replace: true });
         }
     }, [isLoading, user, userRecord, navigate]);
 
-    // Show nothing while redirecting (already logged in)
     if (!isLoading && user && userRecord) {
         return null;
     }
@@ -48,27 +46,23 @@ export function Login() {
         if (result.error) {
             setError(result.error);
         }
-        // Auth state change will trigger redirect via useEffect in auth context
     };
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)] p-4">
             <div className="w-full max-w-md animate-fadeIn">
-                {/* Logo */}
                 <div className="text-center mb-8">
                     <img
                         src="./ravenpos_logo.svg"
                         alt="RavenPOS"
                         className="h-16 mx-auto mb-4"
                     />
-                    <p className="text-[var(--color-muted)]">
-                        Sign in to your account
-                    </p>
+                    <p className="text-[var(--color-muted)]">Employee portal sign in</p>
                 </div>
 
                 <Card variant="elevated">
                     <CardHeader>
-                        <CardTitle>Welcome Back</CardTitle>
+                        <CardTitle>Employee Portal</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={handleSubmit} className="space-y-4">
@@ -83,7 +77,7 @@ export function Login() {
                                 type="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                placeholder="you@example.com"
+                                placeholder="employee@example.com"
                                 autoComplete="email"
                                 required
                             />
@@ -109,21 +103,19 @@ export function Login() {
                     </CardContent>
                 </Card>
 
-                <p className="text-center text-xs text-[var(--color-muted)] mt-6">
-                    Admin and vendor accounts sign in here
-                </p>
-
-                {/* Employee Login Link */}
-                <div className="mt-8 pt-6 border-t border-[var(--color-border)]">
-                    <p className="text-center text-sm text-[var(--color-muted)] mb-3">
-                        Employee access
-                    </p>
-                    <button
-                        onClick={() => navigate('/employee/portal-login')}
-                        className="w-full py-2.5 px-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors text-sm font-medium"
+                <div className="mt-8 pt-6 border-t border-[var(--color-border)] space-y-3">
+                    <Link
+                        to="/employee/login"
+                        className="block w-full py-2.5 px-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors text-sm font-medium text-center"
                     >
-                        Employee Portal Login
-                    </button>
+                        Back to PIN Clock-In
+                    </Link>
+                    <Link
+                        to="/login"
+                        className="block text-center text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                    >
+                        Admin/Vendor sign in
+                    </Link>
                 </div>
             </div>
         </div>

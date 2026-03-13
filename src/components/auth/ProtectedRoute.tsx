@@ -10,6 +10,7 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
     const { user, userRecord, isLoading, isAdmin, isVendor, isEmployee, signOut } = useAuth();
     const location = useLocation();
+    const loginPath = requiredRole === 'employee' ? '/employee/portal-login' : '/login';
 
     // Show loading while checking initial auth state
     if (isLoading) {
@@ -22,7 +23,7 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
 
     // Not authenticated - redirect to login
     if (!user) {
-        return <Navigate to="/login" state={{ from: location }} replace />;
+        return <Navigate to={loginPath} state={{ from: location }} replace />;
     }
 
     // User is logged in but user record is still loading (non-blocking fetch)
@@ -38,7 +39,7 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
                     <button
                         onClick={async () => {
                             await signOut();
-                            window.location.href = '/login';
+                            window.location.href = loginPath;
                         }}
                         className="mt-4 text-sm text-[var(--color-primary)] hover:underline"
                     >
@@ -63,7 +64,7 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
             // Non-employee users should go to their default area
             if (isAdmin) return <Navigate to="/admin" replace />;
             if (isVendor) return <Navigate to="/vendor" replace />;
-            return <Navigate to="/login" replace />;
+            return <Navigate to={loginPath} replace />;
         }
     }
 

@@ -148,31 +148,49 @@ export function EmployeeLogin() {
                     fontSize: '16px',
                     textAlign: 'center',
                     maxWidth: '400px',
-                    marginBottom: '32px',
+                    marginBottom: '24px',
                     lineHeight: 1.5,
                 }}>
                     This device needs to be authorized by an administrator before employees can clock in.
-                    Please contact your manager or log in as an admin to authorize this device.
+                    You can still sign in to the employee portal with your username and password.
                 </p>
 
-                {/* Admin Login Link */}
-                <Link
-                    to="/login"
-                    style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '12px 24px',
-                        backgroundColor: 'var(--color-primary)',
-                        color: 'white',
-                        borderRadius: '8px',
-                        textDecoration: 'none',
-                        fontWeight: 500,
-                        transition: 'opacity 0.15s ease',
-                    }}
-                >
-                    Admin Login →
-                </Link>
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                    <Link
+                        to="/employee/portal-login"
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '12px 24px',
+                            backgroundColor: 'var(--color-primary)',
+                            color: 'white',
+                            borderRadius: '8px',
+                            textDecoration: 'none',
+                            fontWeight: 500,
+                            transition: 'opacity 0.15s ease',
+                        }}
+                    >
+                        Employee Portal Login →
+                    </Link>
+                    <Link
+                        to="/login"
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '12px 24px',
+                            backgroundColor: 'var(--color-gray-800)',
+                            color: 'var(--color-gray-200)',
+                            borderRadius: '8px',
+                            textDecoration: 'none',
+                            fontWeight: 500,
+                            transition: 'opacity 0.15s ease',
+                        }}
+                    >
+                        Admin Login →
+                    </Link>
+                </div>
 
                 <p style={{
                     color: 'var(--color-gray-500)',

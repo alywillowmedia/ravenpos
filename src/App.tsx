@@ -10,6 +10,7 @@ import { EmployeeLayout } from './components/layout/EmployeeLayout';
 
 // Pages
 import { Login } from './pages/Login';
+import { EmployeePortalLogin } from './pages/employee/EmployeePortalLogin';
 import { Dashboard } from './pages/Dashboard';
 import { Consignors } from './pages/Consignors';
 import { ConsignorDetail } from './pages/ConsignorDetail';
@@ -79,6 +80,7 @@ export default function App() {
                     {/* Login Routes */}
                     <Route path="/login" element={<Login />} />
                     <Route path="/employee/login" element={<EmployeeLogin />} />
+                    <Route path="/employee/portal-login" element={<EmployeePortalLogin />} />
 
                     {/* Customer Display - Standalone Route */}
                     <Route path="/display" element={<Display />} />
