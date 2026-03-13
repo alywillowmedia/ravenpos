@@ -52,7 +52,7 @@ type SendResult = {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const DEFAULT_FROM_NAME = 'Ravenlia'
 const DEFAULT_FROM_EMAIL = 'email@ravenlia.com'
-const DEFAULT_LOGIN_URL = 'https://app.ravenlia.com/login'
+const DEFAULT_LOGIN_URL = 'https://ravenpos.vercel.app/employee/portal-login'
 
 function normalizeEmail(value: string): string {
     return value.trim().toLowerCase()
