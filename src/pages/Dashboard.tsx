@@ -285,7 +285,7 @@ export function Dashboard() {
                                     2
                                 </span>
                                 <span>
-                                    <strong className="text-[var(--color-foreground)]">Add inventory</strong> — Enter items individually, in batch, or import from CSV.
+                                    <strong className="text-[var(--color-foreground)]">Add inventory</strong> — Enter single or multiple items, or import from CSV.
                                 </span>
                             </li>
                             <li className="flex items-start gap-3">

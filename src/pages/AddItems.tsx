@@ -72,7 +72,7 @@ export function AddItems() {
         <div className="animate-fadeIn">
             <Header
                 title="Add Items"
-                description="Add single items or batch import multiple items at once."
+                description="Add single items or multiple items at once."
             />
 
             {/* Consignor Selection */}
@@ -117,7 +117,7 @@ export function AddItems() {
                                 : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
                                 }`}
                         >
-                            Batch Entry
+                            Multiple Items
                         </button>
                     </div>
 
@@ -125,7 +125,7 @@ export function AddItems() {
                     <Card variant="outlined">
                         <CardHeader>
                             <CardTitle>
-                                {mode === 'single' ? 'Add Single Item' : 'Batch Entry'}
+                                {mode === 'single' ? 'Add Single Item' : 'Add Multiple Items'}
                             </CardTitle>
                         </CardHeader>
                         <CardContent>

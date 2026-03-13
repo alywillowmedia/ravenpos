@@ -168,7 +168,7 @@ export function VendorInventory() {
     const tabs = [
         { id: 'list', label: 'View All Items' },
         { id: 'single', label: 'Add Single Item' },
-        { id: 'batch', label: 'Batch Entry' },
+        { id: 'batch', label: 'Multiple Items' },
     ];
 
     const totalItems = items.length;
@@ -265,7 +265,7 @@ export function VendorInventory() {
                 {view === 'batch' && (
                     <div>
                         <div className="mb-6">
-                            <h2 className="text-lg font-semibold">Batch Entry</h2>
+                            <h2 className="text-lg font-semibold">Add Multiple Items</h2>
                             <p className="text-sm text-[var(--color-muted)]">
                                 Quickly add multiple items at once.
                             </p>
