@@ -17,7 +17,12 @@ export function Login() {
     // If already logged in, redirect based on role (in useEffect, not during render)
     useEffect(() => {
         if (!isLoading && user && userRecord) {
-            const redirectPath = userRecord.role === 'admin' ? '/admin' : '/vendor';
+            const redirectPath =
+                userRecord.role === 'admin'
+                    ? '/admin'
+                    : userRecord.role === 'vendor'
+                        ? '/vendor'
+                        : '/employee-portal';
             navigate(redirectPath, { replace: true });
         }
     }, [isLoading, user, userRecord, navigate]);
@@ -105,7 +110,7 @@ export function Login() {
                 </Card>
 
                 <p className="text-center text-xs text-[var(--color-muted)] mt-6">
-                    Contact your administrator if you need access
+                    Admin, vendor, and employee portal accounts sign in here
                 </p>
 
                 {/* Employee Login Link */}

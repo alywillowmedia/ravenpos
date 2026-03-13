@@ -27,16 +27,16 @@ Deno.serve(async (req) => {
             auth: { autoRefreshToken: false, persistSession: false }
         })
 
-        const nowIso = new Date().toISOString()
         const { data, error } = await supabase
             .from('device_authorizations')
             .select('expires_at, revoked_at')
             .eq('device_token', token)
             .is('revoked_at', null)
-            .gt('expires_at', nowIso)
             .maybeSingle()
 
-        if (error || !data) {
+        const isExpired = data?.expires_at ? new Date(data.expires_at) <= new Date() : false
+
+        if (error || !data || isExpired) {
             return new Response(
                 JSON.stringify({ authorized: false }),
                 { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

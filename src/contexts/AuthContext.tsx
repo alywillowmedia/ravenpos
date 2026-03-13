@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useRef, useCallback, ty
 import { supabase } from '../lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 
-export type UserRole = 'admin' | 'vendor';
+export type UserRole = 'admin' | 'vendor' | 'employee';
 
 export interface UserRecord {
     id: string;
@@ -10,6 +10,7 @@ export interface UserRecord {
     full_name: string | null;
     role: UserRole;
     consignor_id: string | null;
+    employee_id: string | null;
     created_at: string;
 }
 
@@ -20,6 +21,7 @@ interface AuthContextValue {
     isLoading: boolean;
     isAdmin: boolean;
     isVendor: boolean;
+    isEmployee: boolean;
     signIn: (email: string, password: string) => Promise<{ error: string | null }>;
     signOut: () => Promise<void>;
     refreshUserRecord: () => Promise<void>;
@@ -205,6 +207,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         isLoading,
         isAdmin: userRecord?.role === 'admin',
         isVendor: userRecord?.role === 'vendor',
+        isEmployee: userRecord?.role === 'employee',
         signIn,
         signOut,
         refreshUserRecord,

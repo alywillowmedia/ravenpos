@@ -141,7 +141,7 @@ function formatTimeLabel(time: string) {
 }
 
 function formatHours(hours: number) {
-    return `${Math.round(hours * 10) / 10}h`;
+    return `${hours.toFixed(2)}h`;
 }
 
 function formatDateLabel(value: string) {

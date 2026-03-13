@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
-    const { user, userRecord, isLoading, isAdmin, isVendor, signOut } = useAuth();
+    const { user, userRecord, isLoading, isAdmin, isVendor, isEmployee, signOut } = useAuth();
     const location = useLocation();
 
     // Show loading while checking initial auth state
@@ -58,6 +58,12 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
         if (requiredRole === 'vendor' && !isVendor) {
             // Admin trying to access vendor area - redirect to admin dashboard
             return <Navigate to="/admin" replace />;
+        }
+        if (requiredRole === 'employee' && !isEmployee) {
+            // Non-employee users should go to their default area
+            if (isAdmin) return <Navigate to="/admin" replace />;
+            if (isVendor) return <Navigate to="/vendor" replace />;
+            return <Navigate to="/login" replace />;
         }
     }
 

@@ -49,6 +49,7 @@ import { VendorStorefront } from './pages/vendor/VendorStorefront';
 import { EmployeeLogin } from './pages/employee/EmployeeLogin';
 import { EmployeeActionSelection } from './pages/employee/EmployeeActionSelection';
 import { EmployeeSchedule as EmployeeSelfSchedule } from './pages/employee/EmployeeSchedule';
+import { EmployeePortalDashboard } from './pages/employee/EmployeePortalDashboard';
 
 // Public Pages
 import { BrowsePage } from './pages/public/BrowsePage';
@@ -94,6 +95,16 @@ export default function App() {
                         <Route path="labels" element={<Labels />} />
                         <Route path="messages" element={<Messages />} />
                     </Route>
+
+                    {/* Employee Portal Routes - email/password auth */}
+                    <Route
+                        path="/employee-portal"
+                        element={
+                            <ProtectedRoute requiredRole="employee">
+                                <EmployeePortalDashboard />
+                            </ProtectedRoute>
+                        }
+                    />
 
                     {/* Admin Routes */}
                     <Route

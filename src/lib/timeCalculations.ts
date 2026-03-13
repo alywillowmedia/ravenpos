@@ -19,11 +19,10 @@ export function formatDuration(hours: number): string {
 }
 
 /**
- * Format hours as decimal value like "4.5 hours"
+ * Format hours as decimal value like "4.50 hours"
  */
 export function formatDecimalHours(hours: number): string {
-    const roundedHours = Math.round(hours * 10) / 10;
-    return `${roundedHours.toFixed(1)} hours`;
+    return `${hours.toFixed(2)} hours`;
 }
 
 /**

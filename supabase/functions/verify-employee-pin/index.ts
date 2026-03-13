@@ -117,17 +117,16 @@ Deno.serve(async (req) => {
             );
         }
 
-        const nowIso = new Date().toISOString();
-
         const { data: deviceAuth, error: deviceAuthError } = await supabase
             .from('device_authorizations')
             .select('expires_at, revoked_at')
             .eq('device_token', deviceToken)
             .is('revoked_at', null)
-            .gt('expires_at', nowIso)
             .maybeSingle();
 
-        if (deviceAuthError || !deviceAuth) {
+        const isDeviceAuthExpired = deviceAuth?.expires_at ? new Date(deviceAuth.expires_at) <= new Date() : false;
+
+        if (deviceAuthError || !deviceAuth || isDeviceAuthExpired) {
             return new Response(
                 JSON.stringify({ error: 'Authorized device required' }),
                 {

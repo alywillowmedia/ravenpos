@@ -1,0 +1,250 @@
+import { useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
+import { Input } from '../ui/Input';
+import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
+import { supabase } from '../../lib/supabase';
+
+interface EmployeeCredentialsProps {
+    employeeId: string;
+    employeeName: string;
+}
+
+interface ExistingEmployeeUser {
+    id: string;
+    email: string;
+    created_at: string;
+}
+
+export function EmployeeCredentials({ employeeId, employeeName }: EmployeeCredentialsProps) {
+    const [existingUser, setExistingUser] = useState<ExistingEmployeeUser | null>(null);
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+    useEffect(() => {
+        const loadExisting = async () => {
+            setIsLoading(true);
+            const { data } = await supabase
+                .from('users')
+                .select('id, email, created_at')
+                .eq('role', 'employee')
+                .eq('employee_id', employeeId)
+                .maybeSingle();
+
+            if (data) {
+                setExistingUser(data);
+                setEmail(data.email);
+            } else {
+                setExistingUser(null);
+                setEmail('');
+            }
+
+            setPassword('');
+            setIsLoading(false);
+        };
+
+        void loadExisting();
+    }, [employeeId]);
+
+    const callFunction = async (body: object) => {
+        const { data, error } = await supabase.functions.invoke('manage-employee-account', { body });
+
+        if (error) {
+            throw new Error(error.message || 'Request failed');
+        }
+
+        if (data?.error) {
+            throw new Error(data.error);
+        }
+
+        return data;
+    };
+
+    const handleCreate = async () => {
+        setMessage(null);
+
+        if (!email.trim()) {
+            setMessage({ type: 'error', text: 'Email is required' });
+            return;
+        }
+
+        if (!password.trim() || password.length < 6) {
+            setMessage({ type: 'error', text: 'Password must be at least 6 characters' });
+            return;
+        }
+
+        setIsProcessing(true);
+
+        try {
+            const result = await callFunction({
+                action: 'create',
+                employeeId,
+                email,
+                password,
+            });
+
+            setExistingUser({
+                id: result.user.id,
+                email: result.user.email,
+                created_at: result.user.created_at,
+            });
+            setEmail(result.user.email);
+            setPassword('');
+            setMessage({ type: 'success', text: 'Employee portal login created.' });
+        } catch (err) {
+            setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to create login' });
+        }
+
+        setIsProcessing(false);
+    };
+
+    const handleUpdatePassword = async () => {
+        if (!existingUser) return;
+        setMessage(null);
+
+        if (!password.trim() || password.length < 6) {
+            setMessage({ type: 'error', text: 'Password must be at least 6 characters' });
+            return;
+        }
+
+        setIsProcessing(true);
+
+        try {
+            await callFunction({
+                action: 'update_password',
+                userId: existingUser.id,
+                password,
+            });
+            setPassword('');
+            setMessage({ type: 'success', text: 'Password updated.' });
+        } catch (err) {
+            setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to update password' });
+        }
+
+        setIsProcessing(false);
+    };
+
+    const handleRemove = async () => {
+        if (!existingUser) return;
+        if (!confirm(`Remove portal login for ${employeeName}?`)) return;
+
+        setMessage(null);
+        setIsProcessing(true);
+
+        try {
+            await callFunction({
+                action: 'delete',
+                userId: existingUser.id,
+            });
+            setExistingUser(null);
+            setPassword('');
+            setEmail('');
+            setMessage({ type: 'success', text: 'Employee portal login removed.' });
+        } catch (err) {
+            setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to remove login' });
+        }
+
+        setIsProcessing(false);
+    };
+
+    if (isLoading) {
+        return (
+            <Card variant="outlined">
+                <CardContent className="py-4 text-center text-sm text-[var(--color-muted)]">
+                    Loading portal credentials...
+                </CardContent>
+            </Card>
+        );
+    }
+
+    return (
+        <Card variant="outlined">
+            <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-sm">Employee Portal Access</CardTitle>
+                {existingUser && <Badge variant="success">Login Exists</Badge>}
+            </CardHeader>
+            <CardContent className="space-y-4">
+                {message && (
+                    <div className={`p-3 rounded-lg text-sm ${message.type === 'success'
+                        ? 'bg-[var(--color-success-bg)] text-[var(--color-success)]'
+                        : 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]'
+                        }`}>
+                        {message.text}
+                    </div>
+                )}
+
+                {existingUser ? (
+                    <>
+                        <div className="text-sm">
+                            <p className="text-[var(--color-muted)]">Current login email:</p>
+                            <p className="font-medium">{existingUser.email}</p>
+                        </div>
+
+                        <Input
+                            label="New Password"
+                            type="text"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="Enter new password"
+                            hint="Visible so you can share with employee"
+                        />
+
+                        <div className="flex gap-3">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={handleUpdatePassword}
+                                isLoading={isProcessing}
+                            >
+                                Update Password
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={handleRemove}
+                                isLoading={isProcessing}
+                                className="text-[var(--color-danger)]"
+                            >
+                                Remove Login
+                            </Button>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <p className="text-sm text-[var(--color-muted)]">
+                            Create a login so this employee can view schedule, hours worked, and estimated pay remotely.
+                        </p>
+
+                        <Input
+                            label="Login Email"
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="employee@example.com"
+                        />
+
+                        <Input
+                            label="Password"
+                            type="text"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="Create a password"
+                            hint="Visible so you can share with employee (min 6 characters)"
+                        />
+
+                        <Button
+                            type="button"
+                            onClick={handleCreate}
+                            isLoading={isProcessing}
+                        >
+                            Create Employee Login
+                        </Button>
+                    </>
+                )}
+            </CardContent>
+        </Card>
+    );
+}

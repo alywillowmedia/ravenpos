@@ -10,7 +10,7 @@ export interface DeviceAuthorization {
     device_token: string;
     authorized_by: string;
     authorized_at: string;
-    expires_at: string;
+    expires_at: string | null;
     device_name: string | null;
     revoked_at: string | null;
     created_at: string;
@@ -66,18 +66,20 @@ export async function isDeviceAuthorized(): Promise<{ authorized: boolean; expir
 
 // Create a new device authorization
 export async function authorizeDevice(
-    durationHours: number,
+    durationHours: number | null,
     deviceName?: string
 ): Promise<{ success: boolean; error: string | null; expiresAt: string | null }> {
     const token = generateDeviceToken();
-    const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000);
+    const expiresAt = durationHours === null
+        ? null
+        : new Date(Date.now() + durationHours * 60 * 60 * 1000);
 
     try {
         const { error } = await supabase
             .from('device_authorizations')
             .insert({
                 device_token: token,
-                expires_at: expiresAt.toISOString(),
+                expires_at: expiresAt?.toISOString() ?? null,
                 device_name: deviceName || null,
             });
 
@@ -89,7 +91,7 @@ export async function authorizeDevice(
         // Store token in localStorage
         setDeviceToken(token);
 
-        return { success: true, error: null, expiresAt: expiresAt.toISOString() };
+        return { success: true, error: null, expiresAt: expiresAt?.toISOString() ?? null };
     } catch (err) {
         console.error('Exception authorizing device:', err);
         return { success: false, error: 'Failed to authorize device', expiresAt: null };
@@ -103,7 +105,7 @@ export async function getActiveAuthorizations(): Promise<DeviceAuthorization[]> 
             .from('device_authorizations')
             .select('*')
             .is('revoked_at', null)
-            .gt('expires_at', new Date().toISOString())
+            .or(`expires_at.gt.${new Date().toISOString()},expires_at.is.null`)
             .order('created_at', { ascending: false });
 
         if (error) {
@@ -140,6 +142,7 @@ export async function revokeAuthorization(id: string): Promise<{ success: boolea
 
 // Duration presets for the UI
 export const DURATION_PRESETS = [
+    { label: 'Permanent', hours: null },
     { label: '1 hour', hours: 1 },
     { label: '4 hours', hours: 4 },
     { label: '8 hours', hours: 8 },

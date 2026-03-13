@@ -530,7 +530,7 @@ export function EmployeeSchedule() {
                                                                 <div key={shift.id} className="rounded-lg border border-[var(--color-border)] px-2 py-1.5">
                                                                     <p className={`text-xs font-medium text-[var(--color-foreground)] ${isFullyBlocked ? 'line-through opacity-70' : ''}`}>
                                                                         {formatTimeLabel(shift.start_time)} - {formatTimeLabel(shift.end_time)}
-                                                                        <span className="ml-1 text-[var(--color-muted)]">({getShiftDurationHours(shift.start_time, shift.end_time).toFixed(1)}h)</span>
+                                                                        <span className="ml-1 text-[var(--color-muted)]">({getShiftDurationHours(shift.start_time, shift.end_time).toFixed(2)}h)</span>
                                                                     </p>
                                                                     {shift.source === 'recurring' && (
                                                                         <p className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">Repeats weekly</p>

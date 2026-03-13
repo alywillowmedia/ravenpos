@@ -212,15 +212,15 @@ export function EmployeeLogin() {
                 <p style={{ color: 'var(--color-gray-400)', fontSize: '16px' }}>
                     Employee Clock In
                 </p>
-                {expiresAt && (
-                    <p style={{
-                        color: 'var(--color-gray-500)',
-                        fontSize: '12px',
-                        marginTop: '8px',
-                    }}>
-                        Device authorized until {new Date(expiresAt).toLocaleDateString()}
-                    </p>
-                )}
+                <p style={{
+                    color: 'var(--color-gray-500)',
+                    fontSize: '12px',
+                    marginTop: '8px',
+                }}>
+                    {expiresAt
+                        ? `Device authorized until ${new Date(expiresAt).toLocaleDateString()}`
+                        : 'Device permanently authorized'}
+                </p>
             </div>
 
             {/* PIN Display */}

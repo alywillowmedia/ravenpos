@@ -20,7 +20,7 @@ interface AuthorizeDeviceModalProps {
 }
 
 export function AuthorizeDeviceModal({ isOpen, onClose }: AuthorizeDeviceModalProps) {
-    const [selectedDuration, setSelectedDuration] = useState(24); // Default to 1 day
+    const [selectedDuration, setSelectedDuration] = useState<number | null>(null); // Default to permanent
     const [deviceName, setDeviceName] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
@@ -59,8 +59,12 @@ export function AuthorizeDeviceModal({ isOpen, onClose }: AuthorizeDeviceModalPr
         if (result.error) {
             setError(result.error);
         } else {
-            const expiresAt = new Date(result.expiresAt!);
-            setSuccess(`Device authorized until ${expiresAt.toLocaleString()}`);
+            if (result.expiresAt) {
+                const expiresAt = new Date(result.expiresAt);
+                setSuccess(`Device authorized until ${expiresAt.toLocaleString()}`);
+            } else {
+                setSuccess('Device authorized permanently');
+            }
             setDeviceName('');
             loadAuthorizations();
         }
@@ -78,7 +82,9 @@ export function AuthorizeDeviceModal({ isOpen, onClose }: AuthorizeDeviceModalPr
         }
     };
 
-    const formatTimeRemaining = (expiresAt: string): string => {
+    const formatTimeRemaining = (expiresAt: string | null): string => {
+        if (!expiresAt) return 'No expiration';
+
         const now = new Date();
         const expires = new Date(expiresAt);
         const diffMs = expires.getTime() - now.getTime();
@@ -119,7 +125,7 @@ export function AuthorizeDeviceModal({ isOpen, onClose }: AuthorizeDeviceModalPr
                         <div className="grid grid-cols-3 gap-2">
                             {DURATION_PRESETS.map((preset) => (
                                 <button
-                                    key={preset.hours}
+                                    key={`${preset.label}-${preset.hours ?? 'permanent'}`}
                                     type="button"
                                     onClick={() => setSelectedDuration(preset.hours)}
                                     className={`

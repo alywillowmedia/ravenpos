@@ -9,6 +9,7 @@ import { Modal } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { AddEmployeeModal } from '../components/employees/AddEmployeeModal';
 import { AuthorizeDeviceModal } from '../components/employees/AuthorizeDeviceModal';
+import { EmployeeCredentials } from '../components/employees/EmployeeCredentials';
 import { TimeEntriesTable } from '../components/employees/TimeEntriesTable';
 import { EditTimeEntryModal, type TimeEntryUpdate } from '../components/employees/EditTimeEntryModal';
 import { useEmployees } from '../hooks/useEmployees';
@@ -16,6 +17,7 @@ import { useEmployeeRoles } from '../hooks/useEmployeeRoles';
 import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../lib/utils';
 import { formatDecimalHours } from '../lib/timeCalculations';
+import { supabase } from '../lib/supabase';
 import type { Employee, EmployeeWithStats, TimeEntry, EmployeeInput } from '../types/employee';
 
 export function Employees() {
@@ -42,6 +44,8 @@ export function Employees() {
     const [salesCount, setSalesCount] = useState(0);
     const [editingTimeEntry, setEditingTimeEntry] = useState<TimeEntry | null>(null);
     const [showSensitiveNumbers, setShowSensitiveNumbers] = useState(false);
+    const [isSendingSchedules, setIsSendingSchedules] = useState(false);
+    const [scheduleSendMessage, setScheduleSendMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     const handleAddEmployee = async (input: EmployeeInput): Promise<{ error: string | null }> => {
         const { error } = await createEmployee(input);
@@ -118,6 +122,34 @@ export function Employees() {
         return result;
     };
 
+    const handleSendWeeklySchedules = async () => {
+        setIsSendingSchedules(true);
+        setScheduleSendMessage(null);
+
+        const { data, error: invokeError } = await supabase.functions.invoke('send-employee-weekly-schedules', {
+            body: {},
+        });
+
+        setIsSendingSchedules(false);
+
+        if (invokeError || data?.error) {
+            setScheduleSendMessage({
+                type: 'error',
+                text: invokeError?.message || data?.error || 'Failed to send schedule emails',
+            });
+            return;
+        }
+
+        const sentCount = data?.sentCount ?? 0;
+        const failedCount = data?.failedCount ?? 0;
+        const weekStart = data?.weekStart ?? '';
+        const weekEnd = data?.weekEnd ?? '';
+        setScheduleSendMessage({
+            type: 'success',
+            text: `Weekly schedules sent: ${sentCount} sent, ${failedCount} failed (${weekStart} to ${weekEnd}).`,
+        });
+    };
+
     return (
         <div className="animate-fadeIn">
             <Header
@@ -134,12 +166,28 @@ export function Employees() {
                         <Button variant="secondary" onClick={() => setShowAuthModal(true)}>
                             🔒 Authorize Device
                         </Button>
+                        <Button
+                            variant="secondary"
+                            onClick={handleSendWeeklySchedules}
+                            isLoading={isSendingSchedules}
+                        >
+                            ✉️ Send Weekly Schedules
+                        </Button>
                         <Button onClick={() => setShowAddModal(true)}>
                             + Add Employee
                         </Button>
                     </div>
                 }
             />
+
+            {scheduleSendMessage && (
+                <div className={`mb-4 p-3 rounded-lg text-sm ${scheduleSendMessage.type === 'success'
+                    ? 'bg-[var(--color-success-bg)] text-[var(--color-success)]'
+                    : 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]'
+                    }`}>
+                    {scheduleSendMessage.text}
+                </div>
+            )}
 
             {error && (
                 <div className="mb-4 p-3 rounded-lg bg-[var(--color-danger-bg)] text-[var(--color-danger)]">
@@ -317,6 +365,8 @@ export function Employees() {
                                 hideSensitiveValues={!showSensitiveNumbers}
                             />
                         </div>
+
+                        <EmployeeCredentials employeeId={viewingEmployee.id} employeeName={viewingEmployee.name} />
                     </div>
                 )}
             </Modal>
