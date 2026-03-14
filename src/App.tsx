@@ -25,6 +25,7 @@ import { Customers } from './pages/Customers';
 import { Employees } from './pages/Employees';
 import { EmployeeRoleSettings } from './pages/EmployeeRoleSettings';
 import { EmployeeSchedule } from './pages/EmployeeSchedule';
+import { EmployeePayouts } from './pages/EmployeePayouts';
 import { Integrations } from './pages/Integrations';
 import { ShopifySetup } from './pages/ShopifySetup';
 import { ScanInventory } from './pages/ScanInventory';
@@ -135,6 +136,7 @@ export default function App() {
                         <Route path="employees" element={<Employees />} />
                         <Route path="employees/roles" element={<EmployeeRoleSettings />} />
                         <Route path="employees/schedule" element={<EmployeeSchedule />} />
+                        <Route path="employees/payouts" element={<EmployeePayouts />} />
                         <Route path="integrations" element={<Integrations />} />
                         <Route path="shopify-setup" element={<ShopifySetup />} />
                         <Route path="messages" element={<Messages />} />

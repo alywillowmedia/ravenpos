@@ -10,6 +10,8 @@ export interface ModalProps {
     description?: string;
     size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | 'full';
     className?: string;
+    closeOnOverlayClick?: boolean;
+    closeOnEscape?: boolean;
 }
 
 export function Modal({
@@ -20,6 +22,8 @@ export function Modal({
     description,
     size = 'md',
     className,
+    closeOnOverlayClick = true,
+    closeOnEscape = true,
 }: ModalProps) {
     const overlayRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
@@ -27,7 +31,7 @@ export function Modal({
     // Close on escape key
     useEffect(() => {
         const handleEscape = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
+            if (closeOnEscape && e.key === 'Escape') onClose();
         };
 
         if (isOpen) {
@@ -39,11 +43,11 @@ export function Modal({
             document.removeEventListener('keydown', handleEscape);
             document.body.style.overflow = '';
         };
-    }, [isOpen, onClose]);
+    }, [closeOnEscape, isOpen, onClose]);
 
     // Close on overlay click
     const handleOverlayClick = (e: React.MouseEvent) => {
-        if (e.target === overlayRef.current) onClose();
+        if (closeOnOverlayClick && e.target === overlayRef.current) onClose();
     };
 
     if (!isOpen) return null;
