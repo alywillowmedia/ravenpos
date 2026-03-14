@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Printer management
     getPrinters: () => ipcRenderer.invoke('get-printers'),
+    getPrintDiagnostics: () => ipcRenderer.invoke('get-print-diagnostics'),
     getSelectedPrinter: () => ipcRenderer.invoke('get-selected-printer'),
     setSelectedPrinter: (printerName) => ipcRenderer.invoke('set-selected-printer', printerName),
 

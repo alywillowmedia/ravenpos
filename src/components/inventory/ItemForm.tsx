@@ -15,6 +15,19 @@ interface ItemFormProps {
     defaultConsignorId?: string;
 }
 
+interface ItemFormData {
+    consignor_id: string;
+    sku: string;
+    name: string;
+    variant_summary: string;
+    other_details_1: string;
+    other_details_2: string;
+    category: string;
+    quantity: number | '';
+    price: number | '';
+    image_url: string | null;
+}
+
 export function ItemForm({
     item,
     consignors,
@@ -27,7 +40,7 @@ export function ItemForm({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<ItemFormData>({
         consignor_id: item?.consignor_id || defaultConsignorId || '',
         sku: item?.sku || '',
         name: item?.name || '',
@@ -40,9 +53,24 @@ export function ItemForm({
         image_url: item?.image_url || null,
     });
 
+    const parseIntegerInput = (value: string) => {
+        if (value === '') return '';
+        const parsed = parseInt(value, 10);
+        return Number.isNaN(parsed) ? '' : parsed;
+    };
+
+    const parseDecimalInput = (value: string) => {
+        if (value === '') return '';
+        const parsed = parseFloat(value);
+        return Number.isNaN(parsed) ? '' : parsed;
+    };
+
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
         setError(null);
+
+        const normalizedQuantity = formData.quantity === '' ? 1 : formData.quantity;
+        const normalizedPrice = formData.price === '' ? 0 : formData.price;
 
         if (!formData.consignor_id) {
             setError('Please select a consignor');
@@ -52,13 +80,17 @@ export function ItemForm({
             setError('Name is required');
             return;
         }
-        if (formData.price <= 0) {
+        if (normalizedPrice <= 0) {
             setError('Price must be greater than 0');
             return;
         }
 
         setIsSubmitting(true);
-        const result = await onSubmit(formData);
+        const result = await onSubmit({
+            ...formData,
+            quantity: normalizedQuantity,
+            price: normalizedPrice,
+        });
         setIsSubmitting(false);
 
         if (result.error) {
@@ -66,7 +98,7 @@ export function ItemForm({
         }
     };
 
-    const updateField = (field: string, value: string | number | null) => {
+    const updateField = <K extends keyof ItemFormData>(field: K, value: ItemFormData[K]) => {
         setFormData((prev) => ({ ...prev, [field]: value }));
     };
 
@@ -146,7 +178,12 @@ export function ItemForm({
                             type="number"
                             min="0"
                             value={formData.quantity}
-                            onChange={(e) => updateField('quantity', parseInt(e.target.value) || 0)}
+                            onChange={(e) => updateField('quantity', parseIntegerInput(e.target.value))}
+                            onBlur={() => {
+                                if (formData.quantity === '') {
+                                    updateField('quantity', 1);
+                                }
+                            }}
                         />
                         <Input
                             label="Price"
@@ -154,7 +191,12 @@ export function ItemForm({
                             min="0"
                             step="0.01"
                             value={formData.price}
-                            onChange={(e) => updateField('price', parseFloat(e.target.value) || 0)}
+                            onChange={(e) => updateField('price', parseDecimalInput(e.target.value))}
+                            onBlur={() => {
+                                if (formData.price === '') {
+                                    updateField('price', 0);
+                                }
+                            }}
                             leftIcon={<span className="text-[var(--color-muted)]">$</span>}
                             required
                         />
@@ -195,4 +237,3 @@ export function ItemForm({
         </form>
     );
 }
-

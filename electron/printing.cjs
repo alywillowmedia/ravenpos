@@ -3,6 +3,52 @@ const Store = require('electron-store');
 const { BrowserWindow } = require('electron');
 const RECEIPT_COLUMNS = 32;
 const RECEIPT_PAPER_WIDTH_MM = 58;
+const CODE39_PATTERNS = {
+    '0': 'nnnwwnwnn',
+    '1': 'wnnwnnnnw',
+    '2': 'nnwwnnnnw',
+    '3': 'wnwwnnnnn',
+    '4': 'nnnwwnnnw',
+    '5': 'wnnwwnnnn',
+    '6': 'nnwwwnnnn',
+    '7': 'nnnwnnwnw',
+    '8': 'wnnwnnwnn',
+    '9': 'nnwwnnwnn',
+    A: 'wnnnnwnnw',
+    B: 'nnwnnwnnw',
+    C: 'wnwnnwnnn',
+    D: 'nnnnwwnnw',
+    E: 'wnnnwwnnn',
+    F: 'nnwnwwnnn',
+    G: 'nnnnnwwnw',
+    H: 'wnnnnwwnn',
+    I: 'nnwnnwwnn',
+    J: 'nnnnwwwnn',
+    K: 'wnnnnnnww',
+    L: 'nnwnnnnww',
+    M: 'wnwnnnnwn',
+    N: 'nnnnwnnww',
+    O: 'wnnnwnnwn',
+    P: 'nnwnwnnwn',
+    Q: 'nnnnnnwww',
+    R: 'wnnnnnwwn',
+    S: 'nnwnnnwwn',
+    T: 'nnnnwnwwn',
+    U: 'wwnnnnnnw',
+    V: 'nwwnnnnnw',
+    W: 'wwwnnnnnn',
+    X: 'nwnnwnnnw',
+    Y: 'wwnnwnnnn',
+    Z: 'nwwnwnnnn',
+    '-': 'nwnnnnwnw',
+    '.': 'wwnnnnwnn',
+    ' ': 'nwwnnnwnn',
+    '$': 'nwnwnwnnn',
+    '/': 'nwnwnnnwn',
+    '+': 'nwnnnwnwn',
+    '%': 'nnnwnwnwn',
+    '*': 'nwnnwnwnn',
+};
 
 // Persistent storage for printer settings
 const store = new Store({
@@ -13,6 +59,8 @@ const store = new Store({
 });
 
 let cachedDriver;
+let cachedDriverName = null;
+let cachedDriverError = null;
 
 function getSystemPrinterDriver() {
     if (cachedDriver !== undefined) {
@@ -23,16 +71,31 @@ function getSystemPrinterDriver() {
     for (const moduleName of candidates) {
         try {
             cachedDriver = require(moduleName);
+            cachedDriverName = moduleName;
+            cachedDriverError = null;
             return cachedDriver;
         } catch (error) {
             if (error.code !== 'MODULE_NOT_FOUND') {
                 console.error(`Failed to load printer driver module "${moduleName}":`, error);
+                cachedDriverError = `${moduleName}: ${error.message || 'Unknown module load error'}`;
             }
         }
     }
 
     cachedDriver = null;
+    if (!cachedDriverError) {
+        cachedDriverError = 'No supported printer driver module found (tried: electron-printer, printer)';
+    }
     return null;
+}
+
+function getPrintDiagnostics() {
+    const driver = getSystemPrinterDriver();
+    return {
+        mode: driver ? 'native' : 'fallback',
+        driver: driver ? cachedDriverName : null,
+        reason: driver ? null : cachedDriverError,
+    };
 }
 
 function createThermalPrinter(printerName) {
@@ -262,11 +325,61 @@ function buildRefundReceiptText(receipt) {
     return lines.join('\n');
 }
 
-function buildReceiptHtmlFromText(text) {
+function escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function buildCode39BarcodeHtml(value) {
+    const encodedValue = String(value || '').trim().toUpperCase();
+    if (!encodedValue) return '';
+
+    for (const char of encodedValue) {
+        if (!CODE39_PATTERNS[char]) return '';
+    }
+
+    const fullValue = `*${encodedValue}*`;
+    const narrow = 2;
+    const wide = 5;
+    const quiet = narrow * 10;
+    const height = 56;
+
+    let cells = `<td style="width:${quiet}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+    for (let i = 0; i < fullValue.length; i++) {
+        const pattern = CODE39_PATTERNS[fullValue[i]];
+        for (let j = 0; j < pattern.length; j++) {
+            const isBar = j % 2 === 0;
+            const width = pattern[j] === 'w' ? wide : narrow;
+            cells += `<td style="width:${width}px;height:${height}px;background:${isBar ? '#000' : '#fff'};font-size:0;line-height:0;"></td>`;
+        }
+        if (i < fullValue.length - 1) {
+            cells += `<td style="width:${narrow}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+        }
+    }
+    cells += `<td style="width:${quiet}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+
+    return `
+      <div style="text-align:center; margin-top: 8px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse: collapse; margin: 0 auto; background: #fff;">
+          <tr>${cells}</tr>
+        </table>
+        <div style="font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; letter-spacing: 1px; margin-top: 2px;">
+          ${escapeHtml(encodedValue)}
+        </div>
+      </div>
+    `;
+}
+
+function buildReceiptHtmlFromText(text, barcodeValue) {
     const escaped = text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
+    const barcodeHtml = buildCode39BarcodeHtml(barcodeValue);
 
     return `<!doctype html>
 <html>
@@ -285,20 +398,26 @@ function buildReceiptHtmlFromText(text) {
         line-height: 1.25;
         color: #000;
       }
+      .barcode-wrap {
+        padding: 1mm 1.5mm 1.5mm 1.5mm;
+      }
     </style>
   </head>
-  <body><pre>${escaped}</pre></body>
+  <body>
+    <pre>${escaped}</pre>
+    ${barcodeHtml ? `<div class="barcode-wrap">${barcodeHtml}</div>` : ''}
+  </body>
 </html>`;
 }
 
-async function printViaElectron(printerName, text) {
+async function printViaElectron(printerName, text, barcodeValue) {
     const printWindow = new BrowserWindow({
         show: false,
         webPreferences: { sandbox: false }
     });
 
     try {
-        await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildReceiptHtmlFromText(text))}`);
+        await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildReceiptHtmlFromText(text, barcodeValue))}`);
         const result = await new Promise((resolve) => {
             printWindow.webContents.print(
                 {
@@ -329,8 +448,16 @@ async function printReceipt(receipt) {
             return { success: false, error: 'No printer found. Please connect a receipt printer.' };
         }
 
-        if (!getSystemPrinterDriver()) {
-            return await printViaElectron(printerName, buildSaleReceiptText(receipt));
+        const diagnostics = getPrintDiagnostics();
+        if (diagnostics.mode === 'fallback') {
+            const receiptNumber = String(receipt.transactionId || '').slice(0, 8).toUpperCase();
+            const fallbackResult = await printViaElectron(printerName, buildSaleReceiptText(receipt), receiptNumber);
+            return {
+                ...fallbackResult,
+                mode: 'fallback',
+                driver: null,
+                warning: diagnostics.reason || 'Using Electron print fallback because native driver is unavailable.',
+            };
         }
 
         const printer = createThermalPrinter(printerName);
@@ -462,10 +589,10 @@ async function printReceipt(receipt) {
         // Execute print
         await printer.execute();
 
-        return { success: true };
+        return { success: true, mode: 'native', driver: diagnostics.driver };
     } catch (error) {
         console.error('Print error:', error);
-        return { success: false, error: error.message || 'Print failed' };
+        return { success: false, error: error.message || 'Print failed', mode: 'native', driver: cachedDriverName };
     }
 }
 
@@ -478,8 +605,15 @@ async function printRefundReceipt(receipt) {
             return { success: false, error: 'No printer found. Please connect a receipt printer.' };
         }
 
-        if (!getSystemPrinterDriver()) {
-            return await printViaElectron(printerName, buildRefundReceiptText(receipt));
+        const diagnostics = getPrintDiagnostics();
+        if (diagnostics.mode === 'fallback') {
+            const fallbackResult = await printViaElectron(printerName, buildRefundReceiptText(receipt));
+            return {
+                ...fallbackResult,
+                mode: 'fallback',
+                driver: null,
+                warning: diagnostics.reason || 'Using Electron print fallback because native driver is unavailable.',
+            };
         }
 
         const printer = createThermalPrinter(printerName);
@@ -565,10 +699,10 @@ async function printRefundReceipt(receipt) {
 
         await printer.execute();
 
-        return { success: true };
+        return { success: true, mode: 'native', driver: diagnostics.driver };
     } catch (error) {
         console.error('Print refund error:', error);
-        return { success: false, error: error.message || 'Print failed' };
+        return { success: false, error: error.message || 'Print failed', mode: 'native', driver: cachedDriverName };
     }
 }
 
@@ -576,6 +710,7 @@ module.exports = {
     printReceipt,
     printRefundReceipt,
     getPrinters,
+    getPrintDiagnostics,
     getSelectedPrinter,
     setSelectedPrinter,
 };

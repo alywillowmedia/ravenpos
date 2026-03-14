@@ -19,8 +19,8 @@ interface BatchRow {
     other_details_1: string;
     other_details_2: string;
     category: string;
-    quantity: number;
-    price: number;
+    quantity: number | '';
+    price: number | '';
     image_url: string | null;
 }
 
@@ -49,6 +49,18 @@ export function BatchEntry({ categories, consignorId, onSubmit }: BatchEntryProp
                 row.id === id ? { ...row, [field]: value } : row
             )
         );
+    };
+
+    const parseIntegerInput = (value: string) => {
+        if (value === '') return '';
+        const parsed = parseInt(value, 10);
+        return Number.isNaN(parsed) ? '' : parsed;
+    };
+
+    const parseDecimalInput = (value: string) => {
+        if (value === '') return '';
+        const parsed = parseFloat(value);
+        return Number.isNaN(parsed) ? '' : parsed;
     };
 
     const addRow = () => {
@@ -92,7 +104,12 @@ export function BatchEntry({ categories, consignorId, onSubmit }: BatchEntryProp
     const handleSubmit = async () => {
         setError(null);
 
-        const validRows = rows.filter((row) => row.name.trim() && row.price > 0);
+        const normalizedRows = rows.map((row) => ({
+            ...row,
+            quantity: row.quantity === '' ? 1 : row.quantity,
+            price: row.price === '' ? 0 : row.price,
+        }));
+        const validRows = normalizedRows.filter((row) => row.name.trim() && row.price > 0);
 
         if (validRows.length === 0) {
             setError('Please add at least one item with a name and price');
@@ -115,7 +132,7 @@ export function BatchEntry({ categories, consignorId, onSubmit }: BatchEntryProp
         label: name,
     }));
 
-    const validCount = rows.filter((row) => row.name.trim() && row.price > 0).length;
+    const validCount = rows.filter((row) => row.name.trim() && (row.price === '' ? 0 : row.price) > 0).length;
 
     return (
         <div ref={containerRef}>
@@ -127,7 +144,7 @@ export function BatchEntry({ categories, consignorId, onSubmit }: BatchEntryProp
 
             <div className="space-y-3">
                 {/* Header */}
-                <div className="hidden sm:grid grid-cols-12 gap-2 text-xs font-medium text-[var(--color-muted)] px-1">
+                <div className="hidden sm:grid sm:grid-cols-[repeat(13,minmax(0,1fr))] gap-2 text-xs font-medium text-[var(--color-muted)] px-1">
                     <div className="col-span-1">Image</div>
                     <div className="col-span-2">SKU</div>
                     <div className="col-span-2">Name *</div>
@@ -136,7 +153,7 @@ export function BatchEntry({ categories, consignorId, onSubmit }: BatchEntryProp
                     <div className="col-span-1">Detail 2</div>
                     <div className="col-span-1">Category</div>
                     <div className="col-span-1">Qty</div>
-                    <div className="col-span-1">Price *</div>
+                    <div className="col-span-2">Price *</div>
                     <div className="col-span-1"></div>
                 </div>
 
@@ -144,7 +161,7 @@ export function BatchEntry({ categories, consignorId, onSubmit }: BatchEntryProp
                 {rows.map((row, _index) => (
                     <div
                         key={row.id}
-                        className="grid grid-cols-12 gap-2 items-center p-2 rounded-lg bg-[var(--color-surface-hover)]/50 hover:bg-[var(--color-surface-hover)] transition-colors"
+                        className="grid grid-cols-12 sm:grid-cols-[repeat(13,minmax(0,1fr))] gap-2 items-center p-2 rounded-lg bg-[var(--color-surface-hover)]/50 hover:bg-[var(--color-surface-hover)] transition-colors"
                     >
                         {/* Image Upload */}
                         <div className="col-span-12 sm:col-span-1">
@@ -228,19 +245,29 @@ export function BatchEntry({ categories, consignorId, onSubmit }: BatchEntryProp
                                 min="0"
                                 placeholder="Qty"
                                 value={row.quantity}
-                                onChange={(e) => updateRow(row.id, 'quantity', parseInt(e.target.value) || 0)}
+                                onChange={(e) => updateRow(row.id, 'quantity', parseIntegerInput(e.target.value))}
+                                onBlur={() => {
+                                    if (row.quantity === '') {
+                                        updateRow(row.id, 'quantity', 1);
+                                    }
+                                }}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'quantity')}
                                 inputSize="sm"
                             />
                         </div>
-                        <div className="col-span-6 sm:col-span-1">
+                        <div className="col-span-6 sm:col-span-2">
                             <Input
                                 type="number"
                                 min="0"
                                 step="0.01"
                                 placeholder="0.00"
-                                value={row.price || ''}
-                                onChange={(e) => updateRow(row.id, 'price', parseFloat(e.target.value) || 0)}
+                                value={row.price}
+                                onChange={(e) => updateRow(row.id, 'price', parseDecimalInput(e.target.value))}
+                                onBlur={() => {
+                                    if (row.price === '') {
+                                        updateRow(row.id, 'price', 0);
+                                    }
+                                }}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'price')}
                                 inputSize="sm"
                                 leftIcon={<span className="text-[var(--color-muted)] text-xs">$</span>}
@@ -297,4 +324,3 @@ function XIcon() {
         </svg>
     );
 }
-

@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { printReceipt, printRefundReceipt, getPrinters, getSelectedPrinter, setSelectedPrinter } = require('./printing.cjs');
+const { printReceipt, printRefundReceipt, getPrinters, getPrintDiagnostics, getSelectedPrinter, setSelectedPrinter } = require('./printing.cjs');
 
 // Keep a global reference of the window object
 let mainWindow;
@@ -60,6 +60,10 @@ ipcMain.handle('print-refund-receipt', async (event, receipt) => {
 
 ipcMain.handle('get-printers', async () => {
     return await getPrinters();
+});
+
+ipcMain.handle('get-print-diagnostics', async () => {
+    return getPrintDiagnostics();
 });
 
 ipcMain.handle('get-selected-printer', async () => {

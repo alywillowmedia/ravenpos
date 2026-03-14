@@ -13,12 +13,24 @@ interface VendorItemFormProps {
     onCancel: () => void;
 }
 
+interface VendorItemFormData {
+    sku: string;
+    name: string;
+    variant_summary: string;
+    other_details_1: string;
+    other_details_2: string;
+    category: string;
+    quantity: number | '';
+    price: number | '';
+    image_url: string | null;
+}
+
 export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: VendorItemFormProps) {
     const { categories } = useCategories();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<VendorItemFormData>({
         sku: item?.sku || '',
         name: item?.name || '',
         variant_summary: item?.variant_summary || '',
@@ -30,22 +42,41 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
         image_url: item?.image_url || null,
     });
 
+    const parseIntegerInput = (value: string) => {
+        if (value === '') return '';
+        const parsed = parseInt(value, 10);
+        return Number.isNaN(parsed) ? '' : parsed;
+    };
+
+    const parseDecimalInput = (value: string) => {
+        if (value === '') return '';
+        const parsed = parseFloat(value);
+        return Number.isNaN(parsed) ? '' : parsed;
+    };
+
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
         setError(null);
+
+        const normalizedQuantity = formData.quantity === '' ? 1 : formData.quantity;
+        const normalizedPrice = formData.price === '' ? 0 : formData.price;
 
         if (!formData.name.trim()) {
             setError('Name is required');
             return;
         }
 
-        if (formData.price <= 0) {
+        if (normalizedPrice <= 0) {
             setError('Price must be greater than 0');
             return;
         }
 
         setIsSubmitting(true);
-        const result = await onSubmit(formData);
+        const result = await onSubmit({
+            ...formData,
+            quantity: normalizedQuantity,
+            price: normalizedPrice,
+        });
         setIsSubmitting(false);
 
         if (result.error) {
@@ -53,7 +84,7 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
         }
     };
 
-    const updateField = (field: string, value: string | number | null) => {
+    const updateField = <K extends keyof VendorItemFormData>(field: K, value: VendorItemFormData[K]) => {
         setFormData((prev) => ({ ...prev, [field]: value }));
     };
 
@@ -134,7 +165,12 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
                             type="number"
                             min="1"
                             value={formData.quantity}
-                            onChange={(e) => updateField('quantity', parseInt(e.target.value) || 1)}
+                            onChange={(e) => updateField('quantity', parseIntegerInput(e.target.value))}
+                            onBlur={() => {
+                                if (formData.quantity === '') {
+                                    updateField('quantity', 1);
+                                }
+                            }}
                         />
                         <Input
                             label="Price"
@@ -142,7 +178,12 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
                             min="0.01"
                             step="0.01"
                             value={formData.price}
-                            onChange={(e) => updateField('price', parseFloat(e.target.value) || 0)}
+                            onChange={(e) => updateField('price', parseDecimalInput(e.target.value))}
+                            onBlur={() => {
+                                if (formData.price === '') {
+                                    updateField('price', 0);
+                                }
+                            }}
                         />
                     </div>
                 </div>
@@ -177,4 +218,3 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
         </form>
     );
 }
-

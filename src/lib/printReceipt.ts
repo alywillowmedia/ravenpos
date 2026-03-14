@@ -367,7 +367,14 @@ export async function printReceipt(receipt: ReceiptData): Promise<{ success: boo
     try {
         // Electron desktop app: use native printing
         if (isElectron() && window.electronAPI) {
-            return await window.electronAPI.printReceipt(receipt);
+            const result = await window.electronAPI.printReceipt(receipt);
+            if (result.warning) {
+                console.warn('Receipt printing warning:', result.warning, {
+                    mode: result.mode,
+                    driver: result.driver,
+                });
+            }
+            return result;
         }
 
         if (DEV_MODE) {
@@ -572,7 +579,14 @@ export async function printRefundReceipt(receipt: RefundReceiptData): Promise<{ 
     try {
         // Electron desktop app: use native printing
         if (isElectron() && window.electronAPI) {
-            return await window.electronAPI.printRefundReceipt(receipt);
+            const result = await window.electronAPI.printRefundReceipt(receipt);
+            if (result.warning) {
+                console.warn('Refund printing warning:', result.warning, {
+                    mode: result.mode,
+                    driver: result.driver,
+                });
+            }
+            return result;
         }
 
         if (DEV_MODE) {

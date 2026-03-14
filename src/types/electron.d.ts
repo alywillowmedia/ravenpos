@@ -10,6 +10,15 @@ interface PrinterInfo {
 interface PrintResult {
     success: boolean;
     error?: string;
+    mode?: 'native' | 'fallback';
+    driver?: string | null;
+    warning?: string;
+}
+
+interface PrintDiagnostics {
+    mode: 'native' | 'fallback';
+    driver: string | null;
+    reason: string | null;
 }
 
 interface ElectronAPI {
@@ -19,6 +28,7 @@ interface ElectronAPI {
 
     // Printer management
     getPrinters: () => Promise<PrinterInfo[]>;
+    getPrintDiagnostics: () => Promise<PrintDiagnostics>;
     getSelectedPrinter: () => Promise<string | null>;
     setSelectedPrinter: (printerName: string | null) => Promise<{ success: boolean }>;
 

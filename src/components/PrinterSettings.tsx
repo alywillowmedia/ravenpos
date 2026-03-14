@@ -8,6 +8,12 @@ interface PrinterInfo {
     isDefault: boolean;
 }
 
+interface PrintDiagnostics {
+    mode: 'native' | 'fallback';
+    driver: string | null;
+    reason: string | null;
+}
+
 interface PrinterSettingsProps {
     isOpen: boolean;
     onClose: () => void;
@@ -23,6 +29,7 @@ export function PrinterSettings({ isOpen, onClose }: PrinterSettingsProps) {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [diagnostics, setDiagnostics] = useState<PrintDiagnostics | null>(null);
 
     const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
 
@@ -41,6 +48,8 @@ export function PrinterSettings({ isOpen, onClose }: PrinterSettingsProps) {
             ]);
             setPrinters(printerList);
             setSelectedPrinter(current);
+            const diag = await window.electronAPI!.getPrintDiagnostics();
+            setDiagnostics(diag);
         } catch (error) {
             console.error('Failed to load printers:', error);
             setMessage({ type: 'error', text: 'Failed to load printers' });
@@ -101,6 +110,27 @@ export function PrinterSettings({ isOpen, onClose }: PrinterSettingsProps) {
                             : 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]'
                         }`}>
                         {message.text}
+                    </div>
+                )}
+
+                {diagnostics?.mode === 'fallback' && (
+                    <div className="p-3 rounded-lg text-sm bg-[var(--color-warning-bg)] text-[var(--color-warning)]">
+                        <p className="font-medium">Fallback print mode active</p>
+                        <p className="mt-1">
+                            Native ESC/POS printing is unavailable on this machine.
+                        </p>
+                        {diagnostics.reason && (
+                            <p className="mt-1 font-mono text-xs break-words">
+                                {diagnostics.reason}
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                {diagnostics?.mode === 'native' && (
+                    <div className="p-3 rounded-lg text-sm bg-[var(--color-success-bg)] text-[var(--color-success)]">
+                        Native print driver active
+                        {diagnostics.driver ? ` (${diagnostics.driver})` : ''}.
                     </div>
                 )}
 
