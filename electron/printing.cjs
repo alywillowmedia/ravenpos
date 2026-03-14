@@ -142,6 +142,22 @@ function formatCardLast4(last4) {
     return `**** ${digits}`;
 }
 
+function printTransactionBarcode(printer, transactionId) {
+    const receiptNumber = String(transactionId || '').slice(0, 8).toUpperCase();
+    if (!receiptNumber) return;
+
+    try {
+        if (typeof printer.code128 === 'function') {
+            printer.code128(receiptNumber, { width: 'SMALL', height: 60, text: 1 });
+            return;
+        }
+    } catch (error) {
+        console.warn('CODE128 print failed, falling back to text:', error);
+    }
+
+    printer.println(`Receipt #: ${receiptNumber}`);
+}
+
 function padRight(value, width) {
     const text = String(value ?? '');
     if (text.length >= width) return text.slice(0, width);
@@ -435,6 +451,8 @@ async function printReceipt(receipt) {
         printer.println('Ravenlia.com');
         printer.setTextSize(0, 0);
         printer.println('All sales final. No returns.');
+        printer.newLine();
+        printTransactionBarcode(printer, receipt.transactionId);
 
         // Cut paper
         printer.newLine();

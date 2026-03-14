@@ -16,6 +16,105 @@ const isElectron = (): boolean => {
  */
 const DEV_MODE = true;
 
+const CODE39_PATTERNS: Record<string, string> = {
+    '0': 'nnnwwnwnn',
+    '1': 'wnnwnnnnw',
+    '2': 'nnwwnnnnw',
+    '3': 'wnwwnnnnn',
+    '4': 'nnnwwnnnw',
+    '5': 'wnnwwnnnn',
+    '6': 'nnwwwnnnn',
+    '7': 'nnnwnnwnw',
+    '8': 'wnnwnnwnn',
+    '9': 'nnwwnnwnn',
+    A: 'wnnnnwnnw',
+    B: 'nnwnnwnnw',
+    C: 'wnwnnwnnn',
+    D: 'nnnnwwnnw',
+    E: 'wnnnwwnnn',
+    F: 'nnwnwwnnn',
+    G: 'nnnnnwwnw',
+    H: 'wnnnnwwnn',
+    I: 'nnwnnwwnn',
+    J: 'nnnnwwwnn',
+    K: 'wnnnnnnww',
+    L: 'nnwnnnnww',
+    M: 'wnwnnnnwn',
+    N: 'nnnnwnnww',
+    O: 'wnnnwnnwn',
+    P: 'nnwnwnnwn',
+    Q: 'nnnnnnwww',
+    R: 'wnnnnnwwn',
+    S: 'nnwnnnwwn',
+    T: 'nnnnwnwwn',
+    U: 'wwnnnnnnw',
+    V: 'nwwnnnnnw',
+    W: 'wwwnnnnnn',
+    X: 'nwnnwnnnw',
+    Y: 'wwnnwnnnn',
+    Z: 'nwwnwnnnn',
+    '-': 'nwnnnnwnw',
+    '.': 'wwnnnnwnn',
+    ' ': 'nwwnnnwnn',
+    '$': 'nwnwnwnnn',
+    '/': 'nwnwnnnwn',
+    '+': 'nwnnnwnwn',
+    '%': 'nnnwnwnwn',
+    '*': 'nwnnwnwnn',
+};
+
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function generateCode39BarcodeHTML(value: string): string {
+    const encodedValue = value.trim().toUpperCase();
+    if (!encodedValue) return '';
+
+    for (const char of encodedValue) {
+        if (!CODE39_PATTERNS[char]) return '';
+    }
+
+    const fullValue = `*${encodedValue}*`;
+    const narrow = 2;
+    const wide = 5;
+    const quiet = narrow * 10;
+    const height = 56;
+
+    let cells = `<td style="width:${quiet}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+
+    for (let i = 0; i < fullValue.length; i++) {
+        const pattern = CODE39_PATTERNS[fullValue[i]];
+        for (let j = 0; j < pattern.length; j++) {
+            const isBar = j % 2 === 0;
+            const width = pattern[j] === 'w' ? wide : narrow;
+            cells += `<td style="width:${width}px;height:${height}px;background:${isBar ? '#000' : '#fff'};font-size:0;line-height:0;"></td>`;
+        }
+
+        if (i < fullValue.length - 1) {
+            cells += `<td style="width:${narrow}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+        }
+    }
+
+    cells += `<td style="width:${quiet}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+
+    return `
+        <div style="margin-top: 10px; text-align: center;">
+            <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse: collapse; margin: 0 auto; background: #fff;">
+                <tr>${cells}</tr>
+            </table>
+            <div style="margin-top: 4px; font-size: 10px; letter-spacing: 1px;">
+                ${escapeHtml(encodedValue)}
+            </div>
+        </div>
+    `;
+}
+
 /**
  * Convert cart items and sale data to receipt format
  */
@@ -75,6 +174,8 @@ function generateReceiptHTML(receipt: ReceiptData): string {
         return `•••• ${digits}`;
     };
     const maskedCard = formatCardLast4(receipt.cardLast4);
+    const receiptNumber = receipt.transactionId.slice(0, 8).toUpperCase();
+    const barcodeHTML = generateCode39BarcodeHTML(receiptNumber);
 
     const itemsHTML = receipt.items.map((item, index) => `
         <div style="margin-bottom: 8px; ${index > 0 ? 'border-top: 1px dotted #999; padding-top: 6px;' : ''}">
@@ -160,7 +261,7 @@ function generateReceiptHTML(receipt: ReceiptData): string {
                 ${formatDate(receipt.date)}
             </div>
             <div style="font-size: 10px; margin-top: 4px;">
-                Transaction: #${receipt.transactionId.slice(0, 8).toUpperCase()}
+                Transaction: #${receiptNumber}
             </div>
         </div>
 
@@ -248,6 +349,7 @@ function generateReceiptHTML(receipt: ReceiptData): string {
             <div style="margin-top: 6px; font-size: 10px; color: #666;">
                 All sales final. No returns.
             </div>
+            ${barcodeHTML}
         </div>
     </div>
 </body>

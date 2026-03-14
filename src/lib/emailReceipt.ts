@@ -2,6 +2,103 @@ import { supabase } from './supabase';
 import type { ReceiptData, RefundReceiptData } from '../types/receipt';
 import type { InvoiceEmailData } from '../types/invoice';
 
+const CODE39_PATTERNS: Record<string, string> = {
+    '0': 'nnnwwnwnn',
+    '1': 'wnnwnnnnw',
+    '2': 'nnwwnnnnw',
+    '3': 'wnwwnnnnn',
+    '4': 'nnnwwnnnw',
+    '5': 'wnnwwnnnn',
+    '6': 'nnwwwnnnn',
+    '7': 'nnnwnnwnw',
+    '8': 'wnnwnnwnn',
+    '9': 'nnwwnnwnn',
+    A: 'wnnnnwnnw',
+    B: 'nnwnnwnnw',
+    C: 'wnwnnwnnn',
+    D: 'nnnnwwnnw',
+    E: 'wnnnwwnnn',
+    F: 'nnwnwwnnn',
+    G: 'nnnnnwwnw',
+    H: 'wnnnnwwnn',
+    I: 'nnwnnwwnn',
+    J: 'nnnnwwwnn',
+    K: 'wnnnnnnww',
+    L: 'nnwnnnnww',
+    M: 'wnwnnnnwn',
+    N: 'nnnnwnnww',
+    O: 'wnnnwnnwn',
+    P: 'nnwnwnnwn',
+    Q: 'nnnnnnwww',
+    R: 'wnnnnnwwn',
+    S: 'nnwnnnwwn',
+    T: 'nnnnwnwwn',
+    U: 'wwnnnnnnw',
+    V: 'nwwnnnnnw',
+    W: 'wwwnnnnnn',
+    X: 'nwnnwnnnw',
+    Y: 'wwnnwnnnn',
+    Z: 'nwwnwnnnn',
+    '-': 'nwnnnnwnw',
+    '.': 'wwnnnnwnn',
+    ' ': 'nwwnnnwnn',
+    '$': 'nwnwnwnnn',
+    '/': 'nwnwnnnwn',
+    '+': 'nwnnnwnwn',
+    '%': 'nnnwnwnwn',
+    '*': 'nwnnwnwnn',
+};
+
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function generateCode39BarcodeHTML(value: string): string {
+    const encodedValue = value.trim().toUpperCase();
+    if (!encodedValue) return '';
+
+    for (const char of encodedValue) {
+        if (!CODE39_PATTERNS[char]) return '';
+    }
+
+    const fullValue = `*${encodedValue}*`;
+    const narrow = 2;
+    const wide = 5;
+    const quiet = narrow * 10;
+    const height = 56;
+
+    let cells = `<td style="width:${quiet}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+
+    for (let i = 0; i < fullValue.length; i++) {
+        const pattern = CODE39_PATTERNS[fullValue[i]];
+        for (let j = 0; j < pattern.length; j++) {
+            const isBar = j % 2 === 0;
+            const width = pattern[j] === 'w' ? wide : narrow;
+            cells += `<td style="width:${width}px;height:${height}px;background:${isBar ? '#000' : '#fff'};font-size:0;line-height:0;"></td>`;
+        }
+
+        if (i < fullValue.length - 1) {
+            cells += `<td style="width:${narrow}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+        }
+    }
+
+    cells += `<td style="width:${quiet}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+
+    return `
+        <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse: collapse; margin: 10px auto 0 auto; background: #fff;">
+            <tr>${cells}</tr>
+        </table>
+        <p style="margin: 4px 0 0 0; font-size: 11px; color: #666; letter-spacing: 1px; font-family: 'Courier New', Courier, monospace;">
+            ${escapeHtml(encodedValue)}
+        </p>
+    `;
+}
+
 /**
  * Generate email-safe HTML for receipt
  * Uses inline styles and table layout for email client compatibility
@@ -27,6 +124,8 @@ export function generateEmailHTML(receipt: ReceiptData): string {
         return `•••• ${digits}`;
     };
     const maskedCard = formatCardLast4(receipt.cardLast4);
+    const receiptNumber = receipt.transactionId.slice(0, 8).toUpperCase();
+    const barcodeHTML = generateCode39BarcodeHTML(receiptNumber);
 
     const itemsHTML = receipt.items.map(item => {
         const imageCell = item.imageUrl ? `
@@ -88,7 +187,7 @@ export function generateEmailHTML(receipt: ReceiptData): string {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Receipt #${receipt.transactionId.slice(0, 8).toUpperCase()} - Ravenlia</title>
+    <title>Receipt #${receiptNumber} - Ravenlia</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
     <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; background-color: #f5f5f5;">
@@ -106,7 +205,7 @@ export function generateEmailHTML(receipt: ReceiptData): string {
                                 ${formatDate(receipt.date)}
                             </p>
                             <p style="margin: 4px 0 0 0; font-size: 12px; color: #999; font-family: 'Courier New', Courier, monospace;">
-                                Transaction #${receipt.transactionId.slice(0, 8).toUpperCase()}
+                                Transaction #${receiptNumber}
                             </p>
                         </td>
                     </tr>
@@ -190,6 +289,7 @@ export function generateEmailHTML(receipt: ReceiptData): string {
                             <p style="margin: 8px 0 0 0; font-size: 12px; color: #999;">
                                 Ravenlia.com
                             </p>
+                            ${barcodeHTML}
                         </td>
                     </tr>
                 </table>
