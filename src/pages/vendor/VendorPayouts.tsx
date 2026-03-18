@@ -410,6 +410,14 @@ export function VendorPayouts() {
                                     </span>
                                 </div>
                             )}
+                            {(selectedPayout.ledger_deduction || 0) > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--color-muted)]">Ledger Deductions</span>
+                                    <span className="text-[var(--color-muted)]">
+                                        -{formatCurrency(selectedPayout.ledger_deduction || 0)}
+                                    </span>
+                                </div>
+                            )}
                             <div className="flex justify-between font-semibold pt-2 border-t border-[var(--color-border)]">
                                 <span>Your Payout</span>
                                 <span className="text-[var(--color-success)]">

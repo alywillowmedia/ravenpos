@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Header } from '../components/layout/Header';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
@@ -8,7 +8,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { usePayouts } from '../hooks/usePayouts';
 import { formatCurrency } from '../lib/utils';
 import { getConsignorDisplayName, getConsignorPayToName } from '../lib/consignors';
-import type { ConsignorPayoutSummary, Payout, BalanceDisposition } from '../types';
+import type { ConsignorPayoutSummary, Payout, BalanceDisposition, VendorLedgerEntry } from '../types';
 
 type ViewMode = 'pending' | 'history';
 type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
@@ -37,6 +37,7 @@ export function Payouts() {
         payouts,
         isLoading,
         markAsPaid,
+        createLedgerEntry,
         getConsignorPayoutHistory,
         getTotals,
         refetch,
@@ -57,6 +58,10 @@ export function Payouts() {
     const [customAmount, setCustomAmount] = useState('');
     const [partialReason, setPartialReason] = useState('');
     const [balanceDisposition, setBalanceDisposition] = useState<BalanceDisposition>('deferred');
+    const [ledgerDescription, setLedgerDescription] = useState('');
+    const [ledgerAmount, setLedgerAmount] = useState('');
+    const [ledgerError, setLedgerError] = useState<string | null>(null);
+    const [isAddingLedgerItem, setIsAddingLedgerItem] = useState(false);
 
     const totals = getTotals();
     const dateRange = useMemo(() => {
@@ -149,6 +154,16 @@ export function Payouts() {
         [payouts, dateRange.start, dateRange.end]
     );
 
+    useEffect(() => {
+        if (!selectedConsignor) return;
+        const refreshed = consignorSummaries.find(
+            (summary) => summary.consignor.id === selectedConsignor.consignor.id
+        );
+        if (refreshed) {
+            setSelectedConsignor(refreshed);
+        }
+    }, [consignorSummaries, selectedConsignor]);
+
     const handleMarkAsPaid = async () => {
         if (!selectedConsignor) return;
 
@@ -175,8 +190,43 @@ export function Payouts() {
             setCustomAmount('');
             setPartialReason('');
             setBalanceDisposition('deferred');
+            setLedgerDescription('');
+            setLedgerAmount('');
+            setLedgerError(null);
         }
         setIsProcessing(false);
+    };
+
+    const handleAddLedgerItem = async () => {
+        if (!selectedConsignor || isAddingLedgerItem) return;
+
+        const amount = Number(ledgerAmount);
+        if (!ledgerDescription.trim()) {
+            setLedgerError('Please enter a description.');
+            return;
+        }
+        if (!Number.isFinite(amount) || amount <= 0) {
+            setLedgerError('Please enter a valid amount greater than 0.');
+            return;
+        }
+
+        setIsAddingLedgerItem(true);
+        setLedgerError(null);
+
+        const result = await createLedgerEntry(
+            selectedConsignor.consignor.id,
+            ledgerDescription.trim(),
+            amount
+        );
+
+        if (!result.success) {
+            setLedgerError(result.error || 'Failed to add ledger item.');
+        } else {
+            setLedgerDescription('');
+            setLedgerAmount('');
+        }
+
+        setIsAddingLedgerItem(false);
     };
 
     const openPayModal = (summary: ConsignorPayoutSummary) => {
@@ -185,7 +235,7 @@ export function Payouts() {
     };
 
     const printPayoutReport = (summary: ConsignorPayoutSummary) => {
-        const { consignor, pendingAmount, pendingFromSales, grossSales, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, salesSinceLastPayout, lastPayout } = summary;
+        const { consignor, pendingAmount, pendingFromSales, grossSales, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, ledgerDeduction, salesSinceLastPayout, lastPayout } = summary;
         const periodStart = lastPayout ? new Date(lastPayout.paid_at).toLocaleDateString() : 'Start';
         const periodEnd = new Date().toLocaleDateString();
         const consignorAddress = [
@@ -298,6 +348,12 @@ export function Payouts() {
                     <div class="summary-row deduction">
                         <span>Marketing Fees:</span>
                         <span>-$${marketingFeeDeduction.toFixed(2)}</span>
+                    </div>
+                    ` : ''}
+                    ${ledgerDeduction > 0 ? `
+                    <div class="summary-row deduction">
+                        <span>Ledger Deductions:</span>
+                        <span>-$${ledgerDeduction.toFixed(2)}</span>
                     </div>
                     ` : ''}
                     <div class="summary-row total">
@@ -487,18 +543,44 @@ export function Payouts() {
             {/* Consignor Detail Modal */}
             <Modal
                 isOpen={!!selectedConsignor && !showPayModal}
-                onClose={() => setSelectedConsignor(null)}
+                onClose={() => {
+                    setSelectedConsignor(null);
+                    setLedgerDescription('');
+                    setLedgerAmount('');
+                    setLedgerError(null);
+                }}
                 title={`Payout Details: ${selectedConsignor ? getConsignorDisplayName(selectedConsignor.consignor) : ''}`}
                 size="3xl"
             >
                 {selectedConsignor && (
-                    <ConsignorPayoutDetail
-                        summary={selectedConsignor}
-                        payoutHistory={getConsignorPayoutHistory(selectedConsignor.consignor.id)}
-                    />
+                    <div className="space-y-4">
+                        <ConsignorPayoutDetail
+                            summary={selectedConsignor}
+                            payoutHistory={getConsignorPayoutHistory(selectedConsignor.consignor.id)}
+                        />
+                        <LedgerManager
+                            pendingEntries={selectedConsignor.pendingLedgerEntries}
+                            description={ledgerDescription}
+                            amount={ledgerAmount}
+                            error={ledgerError}
+                            isSubmitting={isAddingLedgerItem}
+                            totalPendingDeduction={selectedConsignor.ledgerDeduction}
+                            onDescriptionChange={setLedgerDescription}
+                            onAmountChange={setLedgerAmount}
+                            onSubmit={handleAddLedgerItem}
+                        />
+                    </div>
                 )}
                 <ModalFooter>
-                    <Button variant="secondary" onClick={() => setSelectedConsignor(null)}>
+                    <Button
+                        variant="secondary"
+                        onClick={() => {
+                            setSelectedConsignor(null);
+                            setLedgerDescription('');
+                            setLedgerAmount('');
+                            setLedgerError(null);
+                        }}
+                    >
                         Close
                     </Button>
                     {selectedConsignor && (
@@ -562,7 +644,7 @@ export function Payouts() {
                                 </p>
                             </div>
                         </div>
-                        {(selectedConsignor.boothRentDeduction > 0 || selectedConsignor.marketingFeeDeduction > 0) && (
+                        {(selectedConsignor.boothRentDeduction > 0 || selectedConsignor.marketingFeeDeduction > 0 || selectedConsignor.ledgerDeduction > 0) && (
                             <div className="rounded-lg p-3 bg-[var(--color-surface)] border border-[var(--color-border)] text-sm space-y-1">
                                 <div className="flex justify-between">
                                     <span className="text-[var(--color-muted)]">Before Deductions</span>
@@ -578,6 +660,12 @@ export function Payouts() {
                                     <div className="flex justify-between text-[var(--color-warning)]">
                                         <span>Marketing Fees</span>
                                         <span>-{formatCurrency(selectedConsignor.marketingFeeDeduction)}</span>
+                                    </div>
+                                )}
+                                {selectedConsignor.ledgerDeduction > 0 && (
+                                    <div className="flex justify-between text-[var(--color-warning)]">
+                                        <span>Ledger Deductions</span>
+                                        <span>-{formatCurrency(selectedConsignor.ledgerDeduction)}</span>
                                     </div>
                                 )}
                             </div>
@@ -822,7 +910,7 @@ function ConsignorPayoutDetail({
     summary: ConsignorPayoutSummary;
     payoutHistory: Payout[];
 }) {
-    const { consignor, pendingAmount, pendingFromSales, grossSales, taxCollected, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, salesCount, itemsSold, salesSinceLastPayout } = summary;
+    const { consignor, pendingAmount, pendingFromSales, grossSales, taxCollected, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, ledgerDeduction, salesCount, itemsSold, salesSinceLastPayout } = summary;
     const consignorAddress = [
         consignor.address,
         consignor.address_line_2,
@@ -878,24 +966,36 @@ function ConsignorPayoutDetail({
                     </p>
                 </div>
             </div>
-            {(boothRentDeduction > 0 || marketingFeeDeduction > 0) && (
-                <div className="grid grid-cols-3 gap-3">
+            {(boothRentDeduction > 0 || marketingFeeDeduction > 0 || ledgerDeduction > 0) && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div className="bg-[var(--color-surface)] rounded-lg p-3">
                         <p className="text-xs text-[var(--color-muted)]">Before Deductions</p>
                         <p className="text-xl font-bold">{formatCurrency(pendingFromSales)}</p>
                     </div>
-                    <div className="bg-[var(--color-warning-bg)] rounded-lg p-3 border border-[var(--color-warning)]">
-                        <p className="text-xs text-[var(--color-warning)]">Booth Rent Deducted</p>
-                        <p className="text-xl font-bold text-[var(--color-warning)]">
-                            -{formatCurrency(boothRentDeduction)}
-                        </p>
-                    </div>
-                    <div className="bg-[var(--color-warning-bg)] rounded-lg p-3 border border-[var(--color-warning)]">
-                        <p className="text-xs text-[var(--color-warning)]">Marketing Deducted</p>
-                        <p className="text-xl font-bold text-[var(--color-warning)]">
-                            -{formatCurrency(marketingFeeDeduction)}
-                        </p>
-                    </div>
+                    {boothRentDeduction > 0 && (
+                        <div className="bg-[var(--color-warning-bg)] rounded-lg p-3 border border-[var(--color-warning)]">
+                            <p className="text-xs text-[var(--color-warning)]">Booth Rent Deducted</p>
+                            <p className="text-xl font-bold text-[var(--color-warning)]">
+                                -{formatCurrency(boothRentDeduction)}
+                            </p>
+                        </div>
+                    )}
+                    {marketingFeeDeduction > 0 && (
+                        <div className="bg-[var(--color-warning-bg)] rounded-lg p-3 border border-[var(--color-warning)]">
+                            <p className="text-xs text-[var(--color-warning)]">Marketing Deducted</p>
+                            <p className="text-xl font-bold text-[var(--color-warning)]">
+                                -{formatCurrency(marketingFeeDeduction)}
+                            </p>
+                        </div>
+                    )}
+                    {ledgerDeduction > 0 && (
+                        <div className="bg-[var(--color-warning-bg)] rounded-lg p-3 border border-[var(--color-warning)]">
+                            <p className="text-xs text-[var(--color-warning)]">Ledger Deducted</p>
+                            <p className="text-xl font-bold text-[var(--color-warning)]">
+                                -{formatCurrency(ledgerDeduction)}
+                            </p>
+                        </div>
+                    )}
                 </div>
             )}
             <div className="grid grid-cols-4 gap-3">
@@ -1055,7 +1155,7 @@ function ConsignorPayoutDetail({
                                         Note: {payout.notes}
                                     </p>
                                 )}
-                                {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0) && (
+                                {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0 || (payout.ledger_deduction || 0) > 0) && (
                                     <div className="text-xs text-[var(--color-muted)] mt-1 space-y-1">
                                         {(payout.booth_rent_deduction || 0) > 0 && (
                                             <p>Booth rent deducted: -{formatCurrency(Number(payout.booth_rent_deduction || 0))}</p>
@@ -1063,12 +1163,114 @@ function ConsignorPayoutDetail({
                                         {(payout.marketing_fee_deduction || 0) > 0 && (
                                             <p>Marketing deducted: -{formatCurrency(Number(payout.marketing_fee_deduction || 0))}</p>
                                         )}
+                                        {(payout.ledger_deduction || 0) > 0 && (
+                                            <p>Ledger deducted: -{formatCurrency(Number(payout.ledger_deduction || 0))}</p>
+                                        )}
                                     </div>
                                 )}
                             </div>
                         ))}
                     </div>
                 </div>
+            )}
+        </div>
+    );
+}
+
+function LedgerManager({
+    pendingEntries,
+    description,
+    amount,
+    error,
+    isSubmitting,
+    totalPendingDeduction,
+    onDescriptionChange,
+    onAmountChange,
+    onSubmit,
+}: {
+    pendingEntries: VendorLedgerEntry[];
+    description: string;
+    amount: string;
+    error: string | null;
+    isSubmitting: boolean;
+    totalPendingDeduction: number;
+    onDescriptionChange: (value: string) => void;
+    onAmountChange: (value: string) => void;
+    onSubmit: () => void;
+}) {
+    return (
+        <div className="rounded-xl border border-[var(--color-border)] bg-white p-4 space-y-3">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h4 className="font-semibold text-sm">Ledger Deductions</h4>
+                    <p className="text-xs text-[var(--color-muted)]">
+                        Add one-off items that reduce this vendor&apos;s payout.
+                    </p>
+                </div>
+                <div className="text-right">
+                    <p className="text-xs text-[var(--color-muted)]">Pending This Payout</p>
+                    <p className="text-sm font-semibold text-[var(--color-warning)]">
+                        -{formatCurrency(totalPendingDeduction)}
+                    </p>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_auto] gap-2">
+                <input
+                    type="text"
+                    value={description}
+                    onChange={(event) => onDescriptionChange(event.target.value)}
+                    placeholder="Ledger item description"
+                    className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)]"
+                />
+                <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]">$</span>
+                    <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={amount}
+                        onChange={(event) => onAmountChange(event.target.value)}
+                        placeholder="0.00"
+                        className="w-full pl-7 pr-3 py-2 border border-[var(--color-border)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)]"
+                    />
+                </div>
+                <Button variant="secondary" onClick={onSubmit} disabled={isSubmitting}>
+                    {isSubmitting ? 'Adding...' : 'Add'}
+                </Button>
+            </div>
+
+            {error && (
+                <p className="text-xs text-[var(--color-danger)]">{error}</p>
+            )}
+
+            {pendingEntries.length > 0 ? (
+                <div className="rounded-lg border border-[var(--color-border)] overflow-hidden">
+                    <table className="w-full text-sm">
+                        <thead className="bg-[var(--color-surface)]">
+                            <tr>
+                                <th className="text-left px-3 py-2 font-medium">Description</th>
+                                <th className="text-left px-3 py-2 font-medium">Created</th>
+                                <th className="text-right px-3 py-2 font-medium">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {pendingEntries.map((entry) => (
+                                <tr key={entry.id} className="border-t border-[var(--color-border)]">
+                                    <td className="px-3 py-2">{entry.description}</td>
+                                    <td className="px-3 py-2 text-[var(--color-muted)]">
+                                        {new Date(entry.created_at).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-[var(--color-warning)]">
+                                        -{formatCurrency(Number(entry.amount))}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            ) : (
+                <p className="text-xs text-[var(--color-muted)]">No pending ledger deductions.</p>
             )}
         </div>
     );
@@ -1190,13 +1392,16 @@ function PayoutHistoryList({
                             Note: {payout.notes}
                         </p>
                     )}
-                    {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0) && (
+                    {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0 || (payout.ledger_deduction || 0) > 0) && (
                         <div className="mt-2 pl-14 text-xs text-[var(--color-muted)] space-y-1">
                             {(payout.booth_rent_deduction || 0) > 0 && (
                                 <p>Booth rent deducted: -{formatCurrency(Number(payout.booth_rent_deduction || 0))}</p>
                             )}
                             {(payout.marketing_fee_deduction || 0) > 0 && (
                                 <p>Marketing fees deducted: -{formatCurrency(Number(payout.marketing_fee_deduction || 0))}</p>
+                            )}
+                            {(payout.ledger_deduction || 0) > 0 && (
+                                <p>Ledger deducted: -{formatCurrency(Number(payout.ledger_deduction || 0))}</p>
                             )}
                         </div>
                     )}

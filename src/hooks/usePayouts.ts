@@ -1,6 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import type { Payout, PayoutInput, ConsignorPayoutSummary, SaleItemDetail, Consignor, BalanceDisposition, PaymentMethod } from '../types';
+import type {
+    Payout,
+    PayoutInput,
+    ConsignorPayoutSummary,
+    SaleItemDetail,
+    Consignor,
+    BalanceDisposition,
+    PaymentMethod,
+    VendorLedgerEntry,
+} from '../types';
 import {
     applyEffectiveConsignorTerms,
     getLocalDateString,
@@ -46,6 +55,17 @@ interface MarketingAllocationRecord {
     consignor_id: string;
     amount: number;
     deducted_payout_id: string | null;
+}
+
+interface VendorLedgerEntryRecord {
+    id: string;
+    consignor_id: string;
+    description: string;
+    amount: number;
+    deducted_payout_id: string | null;
+    deducted_at: string | null;
+    created_by: string | null;
+    created_at: string;
 }
 
 // Stripe Terminal fee constants (2.7% + $0.05 per transaction)
@@ -214,6 +234,12 @@ export function usePayouts() {
 
             if (marketingAllocationsError) throw marketingAllocationsError;
 
+            const { data: vendorLedgerEntries, error: vendorLedgerEntriesError } = await supabase
+                .from('vendor_ledger_entries')
+                .select('id, consignor_id, description, amount, deducted_payout_id, deducted_at, created_by, created_at');
+
+            if (vendorLedgerEntriesError) throw vendorLedgerEntriesError;
+
             // Build a map of refunded sale_item_ids to refunded quantities
             const refundedItemsMap = new Map<string, number>();
             for (const refund of refunds || []) {
@@ -256,6 +282,8 @@ export function usePayouts() {
                 const salesDetails: SaleItemDetail[] = [];
                 const boothRentMonthsToDeduct: Array<{ period_month: number; period_year: number }> = [];
                 const marketingAllocationIdsToDeduct: string[] = [];
+                const ledgerEntryIdsToDeduct: string[] = [];
+                const pendingLedgerEntries: VendorLedgerEntry[] = [];
 
                 // Group items by sale_id to calculate per-sale fees
                 const itemsBySale = new Map<string, SaleItemWithJoins[]>();
@@ -376,7 +404,29 @@ export function usePayouts() {
                     marketingAllocationIdsToDeduct.push(allocation.id);
                 }
 
-                const finalPendingAmount = roundCurrency(Math.max(0, pendingFromSales - marketingFeeDeduction));
+                pendingFromSales = Math.max(0, pendingFromSales - marketingFeeDeduction);
+
+                const unpaidLedgerEntries = (vendorLedgerEntries || [])
+                    .filter((entry: VendorLedgerEntryRecord) =>
+                        entry.consignor_id === consignor.id && !entry.deducted_payout_id
+                    )
+                    .sort((a: VendorLedgerEntryRecord, b: VendorLedgerEntryRecord) => {
+                        if (a.created_at !== b.created_at) return a.created_at.localeCompare(b.created_at);
+                        return a.id.localeCompare(b.id);
+                    });
+
+                let ledgerDeduction = 0;
+                for (const entry of unpaidLedgerEntries) {
+                    const entryAmount = Number(entry.amount);
+                    if ((ledgerDeduction + entryAmount) > pendingFromSales) {
+                        break;
+                    }
+                    ledgerDeduction += entryAmount;
+                    ledgerEntryIdsToDeduct.push(entry.id);
+                    pendingLedgerEntries.push(entry as VendorLedgerEntry);
+                }
+
+                const finalPendingAmount = roundCurrency(Math.max(0, pendingFromSales - ledgerDeduction));
 
                 summaries.push({
                     consignor,
@@ -388,6 +438,7 @@ export function usePayouts() {
                     creditCardFees,
                     boothRentDeduction,
                     marketingFeeDeduction,
+                    ledgerDeduction: roundCurrency(ledgerDeduction),
                     salesCount: salesSet.size,
                     itemsSold,
                     lastPayout,
@@ -396,6 +447,8 @@ export function usePayouts() {
                     ),
                     boothRentMonthsToDeduct,
                     marketingAllocationIdsToDeduct,
+                    ledgerEntryIdsToDeduct,
+                    pendingLedgerEntries,
                 });
             }
 
@@ -436,6 +489,7 @@ export function usePayouts() {
             const isDeferredPartial = isPartial && (balanceDisposition || 'deferred') === 'deferred';
             const appliedBoothRentDeduction = isDeferredPartial ? 0 : summary.boothRentDeduction;
             const appliedMarketingFeeDeduction = isDeferredPartial ? 0 : summary.marketingFeeDeduction;
+            const appliedLedgerDeduction = isDeferredPartial ? 0 : summary.ledgerDeduction;
 
             const payoutData: PayoutInput = {
                 consignor_id: consignorId,
@@ -450,6 +504,7 @@ export function usePayouts() {
                 credit_card_fees: summary.creditCardFees,
                 booth_rent_deduction: appliedBoothRentDeduction,
                 marketing_fee_deduction: appliedMarketingFeeDeduction,
+                ledger_deduction: appliedLedgerDeduction,
                 notes: notes || null,
                 paid_at: new Date().toISOString(),
                 original_amount_due: isPartial ? summary.pendingAmount : null,
@@ -499,6 +554,19 @@ export function usePayouts() {
                 if (marketingUpdateError) throw marketingUpdateError;
             }
 
+            if (!isDeferredPartial && summary.ledgerEntryIdsToDeduct.length > 0) {
+                const { error: ledgerUpdateError } = await supabase
+                    .from('vendor_ledger_entries')
+                    .update({
+                        deducted_payout_id: insertedPayout.id,
+                        deducted_at: new Date().toISOString(),
+                    })
+                    .in('id', summary.ledgerEntryIdsToDeduct)
+                    .is('deducted_payout_id', null);
+
+                if (ledgerUpdateError) throw ledgerUpdateError;
+            }
+
             // Refresh data
             await calculateConsignorSummaries();
 
@@ -538,6 +606,40 @@ export function usePayouts() {
         );
     }, [consignorSummaries]);
 
+    const createLedgerEntry = useCallback(async (
+        consignorId: string,
+        description: string,
+        amount: number
+    ): Promise<{ success: boolean; error?: string }> => {
+        try {
+            const cleanedDescription = description.trim();
+            if (!cleanedDescription) {
+                return { success: false, error: 'Description is required' };
+            }
+
+            const numericAmount = roundCurrency(Number(amount));
+            if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+                return { success: false, error: 'Amount must be greater than 0' };
+            }
+
+            const { error: insertError } = await supabase
+                .from('vendor_ledger_entries')
+                .insert({
+                    consignor_id: consignorId,
+                    description: cleanedDescription,
+                    amount: numericAmount,
+                });
+
+            if (insertError) throw insertError;
+
+            await calculateConsignorSummaries();
+            return { success: true };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to add ledger entry';
+            return { success: false, error: message };
+        }
+    }, [calculateConsignorSummaries]);
+
     useEffect(() => {
         calculateConsignorSummaries();
     }, [calculateConsignorSummaries]);
@@ -549,6 +651,7 @@ export function usePayouts() {
         error,
         refetch: calculateConsignorSummaries,
         markAsPaid,
+        createLedgerEntry,
         getConsignorPayoutHistory,
         getTotals,
     };

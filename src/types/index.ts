@@ -299,6 +299,7 @@ export interface Payout {
     credit_card_fees: number;
     booth_rent_deduction?: number;
     marketing_fee_deduction?: number;
+    ledger_deduction?: number;
     notes: string | null;
     paid_at: string;
     created_at: string;
@@ -338,12 +339,15 @@ export interface ConsignorPayoutSummary {
     creditCardFees: number;
     boothRentDeduction: number;
     marketingFeeDeduction: number;
+    ledgerDeduction: number;
     salesCount: number;
     itemsSold: number;
     lastPayout: Payout | null;
     salesSinceLastPayout: SaleItemDetail[];
     boothRentMonthsToDeduct: Array<{ period_month: number; period_year: number }>;
     marketingAllocationIdsToDeduct: string[];
+    ledgerEntryIdsToDeduct: string[];
+    pendingLedgerEntries: VendorLedgerEntry[];
 }
 
 export interface MarketingFee {
@@ -363,6 +367,17 @@ export interface MarketingFeeAllocation {
     amount: number;
     deducted_payout_id: string | null;
     deducted_at: string | null;
+    created_at: string;
+}
+
+export interface VendorLedgerEntry {
+    id: string;
+    consignor_id: string;
+    description: string;
+    amount: number;
+    deducted_payout_id: string | null;
+    deducted_at: string | null;
+    created_by: string | null;
     created_at: string;
 }
 

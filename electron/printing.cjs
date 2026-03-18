@@ -343,30 +343,35 @@ function buildCode39BarcodeHtml(value) {
     }
 
     const fullValue = `*${encodedValue}*`;
-    const narrow = 2;
-    const wide = 5;
-    const quiet = narrow * 10;
-    const height = 56;
+    const narrow = 1;
+    const wide = 3;
+    const quiet = 10;
+    const height = 60;
 
-    let cells = `<td style="width:${quiet}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+    let x = quiet;
+    let rects = '';
     for (let i = 0; i < fullValue.length; i++) {
         const pattern = CODE39_PATTERNS[fullValue[i]];
         for (let j = 0; j < pattern.length; j++) {
             const isBar = j % 2 === 0;
             const width = pattern[j] === 'w' ? wide : narrow;
-            cells += `<td style="width:${width}px;height:${height}px;background:${isBar ? '#000' : '#fff'};font-size:0;line-height:0;"></td>`;
+            if (isBar) {
+                rects += `<rect x="${x}" y="0" width="${width}" height="${height}" fill="#000" />`;
+            }
+            x += width;
         }
         if (i < fullValue.length - 1) {
-            cells += `<td style="width:${narrow}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+            x += narrow;
         }
     }
-    cells += `<td style="width:${quiet}px;height:${height}px;background:#fff;font-size:0;line-height:0;"></td>`;
+    const totalWidth = x + quiet;
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${height}" preserveAspectRatio="xMidYMid meet"><rect x="0" y="0" width="${totalWidth}" height="${height}" fill="#fff"/>${rects}</svg>`;
+    const svgDataUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 
     return `
-      <div style="text-align:center; margin-top: 8px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse: collapse; margin: 0 auto; background: #fff;">
-          <tr>${cells}</tr>
-        </table>
+      <div style="text-align:center; margin-top: 8px; width: 100%;">
+        <img src="${svgDataUrl}" alt="Receipt barcode ${escapeHtml(encodedValue)}" style="display:block; width:100%; max-width:100%; height:44px; object-fit:contain; margin:0 auto;" />
         <div style="font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; letter-spacing: 1px; margin-top: 2px;">
           ${escapeHtml(encodedValue)}
         </div>
@@ -400,6 +405,10 @@ function buildReceiptHtmlFromText(text, barcodeValue) {
       }
       .barcode-wrap {
         padding: 1mm 1.5mm 1.5mm 1.5mm;
+        box-sizing: border-box;
+        width: 100%;
+        overflow: hidden;
+        min-height: 18mm;
       }
     </style>
   </head>
