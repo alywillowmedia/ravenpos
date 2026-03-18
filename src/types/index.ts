@@ -29,6 +29,7 @@ export interface Consignor {
     notes: string | null;
     commission_split: number;
     consignor_pays_card_fee?: boolean;
+    dealer_discount_percent?: number;
     monthly_booth_rent: number;
     scheduled_active_date?: string | null;
     is_active: boolean;
@@ -256,6 +257,8 @@ export interface CartItem {
     taxAmount: number;
     // Discount data (item-level)
     discount?: Discount;
+    dealerDiscountPercent?: number;
+    dealerDiscountAmount?: number;
     discountedLineTotal: number;
     discountedTaxAmount: number;
 }

@@ -151,7 +151,15 @@ export function POS() {
         return localStorage.getItem(STRIPE_READER_PREFERRED_ID_KEY) || '';
     });
 
-    const { subtotal, taxTotal, total, itemDiscountTotal, discountTotal } = calculateCartTotals(cart, orderDiscounts);
+    const [dealerDiscountEnabled, setDealerDiscountEnabled] = useState(false);
+
+    const getDealerDiscountPercentForItem = (item: Item): number => {
+        if (!dealerDiscountEnabled) return 0;
+        const raw = Number((item.consignor as { dealer_discount_percent?: number } | undefined)?.dealer_discount_percent || 0);
+        return Math.max(0, Math.min(100, raw));
+    };
+
+    const { subtotal, taxTotal, total, itemDiscountTotal, dealerDiscountTotal, discountTotal } = calculateCartTotals(cart, orderDiscounts);
     const cardFeeEligibleSubtotal = cart.reduce((sum, cartItem) => {
         const consignorPays = (cartItem.item.consignor as { consignor_pays_card_fee?: boolean } | undefined)?.consignor_pays_card_fee ?? false;
         return consignorPays ? sum : sum + cartItem.lineTotal;
@@ -189,6 +197,20 @@ export function POS() {
     useEffect(() => {
         sessionStorage.setItem('ravenpos-order-discounts', JSON.stringify(orderDiscounts));
     }, [orderDiscounts]);
+
+    useEffect(() => {
+        setCart((prev) =>
+            prev.map((cartItem) =>
+                createCartItem(
+                    cartItem.item,
+                    cartItem.quantity,
+                    cartItem.discount,
+                    getDealerDiscountPercentForItem(cartItem.item)
+                )
+            )
+        );
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dealerDiscountEnabled]);
 
     useEffect(() => {
         if (customItemForm.consignorId || consignors.length === 0) return;
@@ -333,7 +355,12 @@ export function POS() {
                 setScanInput('');
                 return;
             }
-            const updated = createCartItem(existing.item, existing.quantity + 1, existing.discount);
+            const updated = createCartItem(
+                existing.item,
+                existing.quantity + 1,
+                existing.discount,
+                getDealerDiscountPercentForItem(existing.item)
+            );
             setCart((prev) => prev.map((ci, i) => (i === existingIndex ? updated : ci)));
             setScanInput('');
             return;
@@ -353,7 +380,7 @@ export function POS() {
             return;
         }
 
-        const cartItem = createCartItem(item, 1);
+        const cartItem = createCartItem(item, 1, undefined, getDealerDiscountPercentForItem(item));
         setCart((prev) => [...prev, cartItem]);
         setScanInput('');
     };
@@ -426,7 +453,7 @@ export function POS() {
             consignor,
         };
 
-        const cartItem = createCartItem(customItem, quantity);
+        const cartItem = createCartItem(customItem, quantity, undefined, getDealerDiscountPercentForItem(customItem));
         setCart((prev) => [...prev, cartItem]);
         setShowCustomItemModal(false);
     };
@@ -444,7 +471,12 @@ export function POS() {
         }
 
         // Preserve existing discount (recalculate amount for new quantity)
-        const updated = createCartItem(item.item, newQty, item.discount);
+        const updated = createCartItem(
+            item.item,
+            newQty,
+            item.discount,
+            getDealerDiscountPercentForItem(item.item)
+        );
         setCart((prev) => prev.map((ci, i) => (i === index ? updated : ci)));
     };
 
@@ -712,6 +744,7 @@ export function POS() {
         setCheckNumber('');
         setIsCollectingCard(false);
         setOrderDiscounts([]);
+        setDealerDiscountEnabled(false);
         setDiscountTarget(null);
         setShowCustomItemModal(false);
         scannerRef.current?.focus();
@@ -805,7 +838,12 @@ export function POS() {
             const discount = createDiscount(type, value, 'item', itemIndex, reason, item.lineTotal);
 
             // Update the cart item with the discount
-            const updatedItem = createCartItem(item.item, item.quantity, discount);
+            const updatedItem = createCartItem(
+                item.item,
+                item.quantity,
+                discount,
+                getDealerDiscountPercentForItem(item.item)
+            );
             setCart(prev => prev.map((ci, i) => (i === itemIndex ? updatedItem : ci)));
         }
         setDiscountTarget(null);
@@ -817,11 +855,19 @@ export function POS() {
 
     const handleRemoveItemDiscount = (itemIndex: number) => {
         const item = cart[itemIndex];
-        const updatedItem = createCartItem(item.item, item.quantity);
+        const updatedItem = createCartItem(
+            item.item,
+            item.quantity,
+            undefined,
+            getDealerDiscountPercentForItem(item.item)
+        );
         setCart(prev => prev.map((ci, i) => (i === itemIndex ? updatedItem : ci)));
     };
 
     const quickCashAmounts = [1, 5, 10, 20, 50, 100];
+    const dealerDiscountEligibleItems = cart.filter((cartItem) =>
+        Number((cartItem.item.consignor as { dealer_discount_percent?: number } | undefined)?.dealer_discount_percent || 0) > 0
+    ).length;
 
     // Customer search with debounce
     useEffect(() => {
@@ -1135,6 +1181,12 @@ export function POS() {
                                                         {formatDiscountLabel(item.discount)}
                                                     </span>
                                                 )}
+                                                {(item.dealerDiscountAmount || 0) > 0 && (
+                                                    <span className="inline-flex items-center gap-1 mt-1 ml-1 px-2 py-0.5 text-xs font-medium bg-[var(--color-success-bg)] text-[var(--color-success)] rounded-full">
+                                                        <DiscountIcon />
+                                                        Dealer {Number(item.dealerDiscountPercent || 0).toFixed(2)}%
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 <button
@@ -1258,8 +1310,15 @@ export function POS() {
                             {/* Item-level discounts summary */}
                             {itemDiscountTotal > 0 && (
                                 <div className="flex justify-between text-sm text-[var(--color-success)]">
-                                    <span>Item Discounts</span>
+                                    <span>Manual Item Discounts</span>
                                     <span>-{formatCurrency(itemDiscountTotal)}</span>
+                                </div>
+                            )}
+
+                            {dealerDiscountTotal > 0 && (
+                                <div className="flex justify-between text-sm text-[var(--color-success)]">
+                                    <span>Dealer Discounts</span>
+                                    <span>-{formatCurrency(dealerDiscountTotal)}</span>
                                 </div>
                             )}
 
@@ -1291,13 +1350,34 @@ export function POS() {
 
                             {/* Add Discount Button */}
                             {cart.length > 0 && (
-                                <button
-                                    onClick={handleOpenOrderDiscount}
-                                    className="w-full py-2 px-3 rounded-lg border-2 border-dashed border-[var(--color-border)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 transition-colors text-sm text-[var(--color-muted)] hover:text-[var(--color-primary)] flex items-center justify-center gap-2"
-                                >
-                                    <DiscountIcon />
-                                    Add Order Discount
-                                </button>
+                                <div className="space-y-2">
+                                    <label className="flex items-center justify-between rounded-lg border border-[var(--color-border)] px-3 py-2">
+                                        <div>
+                                            <p className="text-sm font-medium">Dealer Discount</p>
+                                            <p className="text-xs text-[var(--color-muted)]">
+                                                Apply vendor-specific dealer pricing for this sale.
+                                            </p>
+                                            {dealerDiscountEnabled && dealerDiscountEligibleItems === 0 && (
+                                                <p className="text-xs text-[var(--color-warning)] mt-1">
+                                                    No cart items are from vendors with dealer discounts configured.
+                                                </p>
+                                            )}
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={dealerDiscountEnabled}
+                                            onChange={(e) => setDealerDiscountEnabled(e.target.checked)}
+                                            className="h-4 w-4 rounded border-[var(--color-border)]"
+                                        />
+                                    </label>
+                                    <button
+                                        onClick={handleOpenOrderDiscount}
+                                        className="w-full py-2 px-3 rounded-lg border-2 border-dashed border-[var(--color-border)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 transition-colors text-sm text-[var(--color-muted)] hover:text-[var(--color-primary)] flex items-center justify-center gap-2"
+                                    >
+                                        <DiscountIcon />
+                                        Add Order Discount
+                                    </button>
+                                </div>
                             )}
 
                             {/* Total Discount */}
@@ -1966,14 +2046,19 @@ export function POS() {
                             setScanError('No more in stock');
                             return;
                         }
-                        const updated = createCartItem(existing.item, existing.quantity + 1, existing.discount);
+                        const updated = createCartItem(
+                            existing.item,
+                            existing.quantity + 1,
+                            existing.discount,
+                            getDealerDiscountPercentForItem(existing.item)
+                        );
                         setCart((prev) => prev.map((ci, i) => (i === existingIndex ? updated : ci)));
                     } else {
                         if (item.quantity <= 0) {
                             setScanError('Out of stock');
                             return;
                         }
-                        const cartItem = createCartItem(item, 1);
+                        const cartItem = createCartItem(item, 1, undefined, getDealerDiscountPercentForItem(item));
                         setCart((prev) => [...prev, cartItem]);
                     }
                     setScanError(null);

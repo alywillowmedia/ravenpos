@@ -49,6 +49,7 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
         notes: consignor?.notes || '',
         commission_split: consignor?.commission_split ?? 0.6,
         consignor_pays_card_fee: consignor?.consignor_pays_card_fee ?? false,
+        dealer_discount_percent: Number(consignor?.dealer_discount_percent) || 0,
         monthly_booth_rent: calculateBoothRent(
             Number(consignor?.booth_square_feet) || 0,
             Number(consignor?.booth_cost_per_square_foot) || 0
@@ -358,6 +359,17 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                     }}
                 />
             </div>
+
+            <Input
+                label="Dealer Discount (%)"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={formData.dealer_discount_percent}
+                onChange={(e) => updateField('dealer_discount_percent', Number(e.target.value) || 0)}
+                hint="Applied at checkout only when Dealer Discount is toggled on."
+            />
 
             <div className="grid grid-cols-2 gap-4">
                 <Input

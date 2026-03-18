@@ -36,7 +36,8 @@ export function calculateTaxOnAmount(amount: number, category: string): number {
 export function createCartItem(
     item: Item,
     quantity: number = 1,
-    discount?: Discount
+    discount?: Discount,
+    dealerDiscountPercent: number = 0
 ): CartItem {
     const lineTotal = item.price * quantity;
 
@@ -48,8 +49,12 @@ export function createCartItem(
         updatedDiscount = { ...discount, calculatedAmount: discountAmount };
     }
 
+    const normalizedDealerPercent = Math.max(0, Math.min(100, Number(dealerDiscountPercent) || 0));
+    const dealerDiscountBase = Math.max(0, lineTotal - discountAmount);
+    const dealerDiscountAmount = dealerDiscountBase * (normalizedDealerPercent / 100);
+
     // Discounted line total (tax calculated on discounted amount)
-    const discountedLineTotal = Math.max(0, lineTotal - discountAmount);
+    const discountedLineTotal = Math.max(0, lineTotal - discountAmount - dealerDiscountAmount);
     const taxRate = getTaxRate(item.category);
     const discountedTaxAmount = discountedLineTotal * taxRate;
 
@@ -62,6 +67,8 @@ export function createCartItem(
         lineTotal: Math.round(lineTotal * 100) / 100,
         taxAmount: Math.round(taxAmount * 100) / 100,
         discount: updatedDiscount,
+        dealerDiscountPercent: normalizedDealerPercent,
+        dealerDiscountAmount: Math.round(dealerDiscountAmount * 100) / 100,
         discountedLineTotal: Math.round(discountedLineTotal * 100) / 100,
         discountedTaxAmount: Math.round(discountedTaxAmount * 100) / 100,
     };
@@ -76,6 +83,7 @@ export function calculateCartTotals(
     taxTotal: number;
     total: number;
     itemDiscountTotal: number;
+    dealerDiscountTotal: number;
     orderDiscountTotal: number;
     discountTotal: number;
 } {
@@ -85,6 +93,9 @@ export function calculateCartTotals(
     // Item-level discount total
     const itemDiscountTotal = items.reduce(
         (sum, item) => sum + (item.discount?.calculatedAmount ?? 0), 0
+    );
+    const dealerDiscountTotal = items.reduce(
+        (sum, item) => sum + (item.dealerDiscountAmount ?? 0), 0
     );
 
     // Subtotal after item discounts (but before order discounts)
@@ -121,13 +132,14 @@ export function calculateCartTotals(
     }
 
     const total = finalSubtotal + taxTotal;
-    const discountTotal = itemDiscountTotal + orderDiscountTotal;
+    const discountTotal = itemDiscountTotal + dealerDiscountTotal + orderDiscountTotal;
 
     return {
         subtotal: Math.round(originalSubtotal * 100) / 100,
         taxTotal: Math.round(taxTotal * 100) / 100,
         total: Math.round(total * 100) / 100,
         itemDiscountTotal: Math.round(itemDiscountTotal * 100) / 100,
+        dealerDiscountTotal: Math.round(dealerDiscountTotal * 100) / 100,
         orderDiscountTotal: Math.round(orderDiscountTotal * 100) / 100,
         discountTotal: Math.round(discountTotal * 100) / 100,
     };
@@ -139,4 +151,3 @@ export function updateTaxRates(categories: { name: string; tax_rate: number }[])
         TAX_RATES[cat.name] = cat.tax_rate;
     });
 }
-

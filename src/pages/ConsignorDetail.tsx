@@ -400,6 +400,9 @@ export function ConsignorDetail() {
                         <p>
                             <strong>Card Fee Policy:</strong> {consignor.consignor_pays_card_fee ? 'Consignor Pays' : 'Customer Pays'}
                         </p>
+                        <p>
+                            <strong>Dealer Discount:</strong> {Number(consignor.dealer_discount_percent || 0).toFixed(2)}%
+                        </p>
                         {upcomingRateChange && (
                             <p>
                                 <strong>Scheduled Change ({formatDate(upcomingRateChange.effective_date)}):</strong>{' '}

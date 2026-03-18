@@ -25,6 +25,7 @@ export function VendorProfile() {
     const [state, setState] = useState('');
     const [postalCode, setPostalCode] = useState('');
     const [country, setCountry] = useState('');
+    const [dealerDiscountPercent, setDealerDiscountPercent] = useState('0');
 
     // Password change
     const [newPassword, setNewPassword] = useState('');
@@ -51,6 +52,7 @@ export function VendorProfile() {
                 setState(data.state || '');
                 setPostalCode(data.postal_code || '');
                 setCountry(data.country || '');
+                setDealerDiscountPercent(String(Number(data.dealer_discount_percent || 0)));
             }
 
             setIsLoading(false);
@@ -64,6 +66,13 @@ export function VendorProfile() {
         setMessage(null);
         setIsSaving(true);
 
+        const parsedDealerDiscount = Number(dealerDiscountPercent);
+        if (!Number.isFinite(parsedDealerDiscount) || parsedDealerDiscount < 0 || parsedDealerDiscount > 100) {
+            setIsSaving(false);
+            setMessage({ type: 'error', text: 'Dealer discount must be between 0 and 100.' });
+            return;
+        }
+
         const { error } = await supabase
             .from('consignors')
             .update({
@@ -75,6 +84,7 @@ export function VendorProfile() {
                 state: state || null,
                 postal_code: postalCode || null,
                 country: country || null,
+                dealer_discount_percent: Math.round(parsedDealerDiscount * 100) / 100,
             })
             .eq('id', userRecord?.consignor_id);
 
@@ -83,7 +93,19 @@ export function VendorProfile() {
         if (error) {
             setMessage({ type: 'error', text: error.message });
         } else {
-            setMessage({ type: 'success', text: 'Contact info updated!' });
+            setConsignor((prev) => prev ? ({
+                ...prev,
+                email,
+                phone,
+                address,
+                address_line_2: addressLine2 || null,
+                city: city || null,
+                state: state || null,
+                postal_code: postalCode || null,
+                country: country || null,
+                dealer_discount_percent: Math.round(parsedDealerDiscount * 100) / 100,
+            }) : prev);
+            setMessage({ type: 'success', text: 'Profile updated!' });
         }
     };
 
@@ -171,6 +193,10 @@ export function VendorProfile() {
                             <p className="text-xs text-[var(--color-muted)] uppercase">Commission Split</p>
                             <p>{Math.round(Number(consignor?.commission_split || 0) * 100)}%</p>
                         </div>
+                        <div>
+                            <p className="text-xs text-[var(--color-muted)] uppercase">Dealer Discount</p>
+                            <p>{Number(consignor?.dealer_discount_percent || 0).toFixed(2)}%</p>
+                        </div>
                     </div>
                 </CardContent>
             </Card>
@@ -234,9 +260,19 @@ export function VendorProfile() {
                             onChange={(e) => setCountry(e.target.value)}
                             placeholder="USA"
                         />
+                        <Input
+                            label="Dealer Discount (%)"
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            value={dealerDiscountPercent}
+                            onChange={(e) => setDealerDiscountPercent(e.target.value)}
+                            hint="Applied only when POS dealer-discount mode is enabled."
+                        />
                         <div className="pt-2">
                             <Button type="submit" isLoading={isSaving}>
-                                Save Contact Info
+                                Save Profile
                             </Button>
                         </div>
                     </form>

@@ -33,7 +33,7 @@ export function useSales() {
 
             // Calculate total discounts
             const itemDiscountTotal = cartItems.reduce(
-                (sum, item) => sum + (item.discount?.calculatedAmount ?? 0), 0
+                (sum, item) => sum + (item.discount?.calculatedAmount ?? 0) + (item.dealerDiscountAmount ?? 0), 0
             );
             const orderDiscountTotal = orderDiscounts.reduce(
                 (sum, d) => sum + d.calculatedAmount, 0
@@ -107,10 +107,15 @@ export function useSales() {
                 commission_split: (cartItem.item.consignor as { commission_split: number })?.commission_split ?? 0.6,
                 consignor_pays_card_fee: (cartItem.item.consignor as { consignor_pays_card_fee?: boolean })?.consignor_pays_card_fee ?? false,
                 // Discount data
-                discount_type: cartItem.discount?.type,
-                discount_value: cartItem.discount?.value,
-                discount_amount: cartItem.discount?.calculatedAmount ?? 0,
-                discount_reason: cartItem.discount?.reason,
+                discount_type:
+                    cartItem.discount?.type ||
+                    ((cartItem.dealerDiscountAmount || 0) > 0 ? 'percentage' : undefined),
+                discount_value:
+                    cartItem.discount?.value ??
+                    (((cartItem.dealerDiscountAmount || 0) > 0) ? Number(cartItem.dealerDiscountPercent || 0) : undefined),
+                discount_amount: (cartItem.discount?.calculatedAmount ?? 0) + (cartItem.dealerDiscountAmount ?? 0),
+                discount_reason: cartItem.discount?.reason ||
+                    (((cartItem.dealerDiscountAmount || 0) > 0) ? 'Dealer discount' : undefined),
             }));
 
             const { error: itemsError } = await supabase

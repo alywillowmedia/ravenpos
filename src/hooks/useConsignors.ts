@@ -161,6 +161,7 @@ export function useConsignors() {
                     notes: input.notes || null,
                     commission_split: input.commission_split ?? 0.6,
                     consignor_pays_card_fee: input.consignor_pays_card_fee ?? false,
+                    dealer_discount_percent: Math.max(0, Math.min(100, Number(input.dealer_discount_percent) || 0)),
                     monthly_booth_rent: monthlyBoothRent,
                     scheduled_active_date: input.scheduled_active_date || null,
                     is_active: input.is_active ?? true,
@@ -238,6 +239,13 @@ export function useConsignors() {
                 updatePayload.booth_square_feet = boothSquareFeet;
                 updatePayload.booth_cost_per_square_foot = boothCostPerSquareFoot;
                 updatePayload.monthly_booth_rent = calculateBoothRent(boothSquareFeet, boothCostPerSquareFoot);
+            }
+
+            if (baseUpdates.dealer_discount_percent !== undefined) {
+                updatePayload.dealer_discount_percent = Math.max(
+                    0,
+                    Math.min(100, Number(baseUpdates.dealer_discount_percent) || 0)
+                );
             }
 
             const { data, error: updateError } = await supabase
