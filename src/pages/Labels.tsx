@@ -296,9 +296,9 @@ export function Labels() {
         setShowDymoCompletePrompt(true);
     };
 
-    const handleKeepEditingDymo = () => {
+    const handleCloseWithoutMarkingDymo = () => {
         setShowDymoCompletePrompt(false);
-        setShowDymoInfoModal(true);
+        setShowDymoInfoModal(false);
     };
 
     const handleDownloadDymoTemplate = () => {
@@ -727,7 +727,7 @@ export function Labels() {
                 />
                 <DymoCompletePromptModal
                     isOpen={showDymoCompletePrompt}
-                    onClose={handleKeepEditingDymo}
+                    onClose={handleCloseWithoutMarkingDymo}
                     onConfirm={handleConfirmDymoCompleted}
                     itemCount={getDymoCompletionSummary().itemCount}
                     totalQueued={getDymoCompletionSummary().totalQueued}
@@ -1052,7 +1052,7 @@ function DymoCompletePromptModal({
             </div>
             <ModalFooter>
                 <Button variant="secondary" onClick={onClose} disabled={isBusy}>
-                    Keep Editing
+                    Close Without Marking
                 </Button>
                 <Button onClick={onConfirm} disabled={isBusy}>
                     {isBusy ? 'Marking...' : 'Yes, Mark Completed'}
