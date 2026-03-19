@@ -18,8 +18,29 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
         >
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
 
+                {/* Version 1.5 */}
+                <ChangelogSection version="1.5" date="Current" defaultOpen={true}>
+                    <div className="space-y-6">
+                        <div className="space-y-3">
+                            <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
+                                <span className="p-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                    <PlusIcon className="w-4 h-4" />
+                                </span>
+                                New In v1.5
+                            </h3>
+                            <div className="space-y-1">
+                                <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                    <li>Expanded inventory CSV import/export to include the missing fields used in current item records.</li>
+                                    <li>Added created/updated date visibility in the Inventory view so item timelines are easier to audit.</li>
+                                    <li>Added DYMO label support tooling: downloadable `.label` template, quantity-expanded CSV print data, and guided in-app DYMO workflow.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </ChangelogSection>
+
                 {/* Version 0.1.6 */}
-                <ChangelogSection version="0.1.6" date="Current" defaultOpen={true}>
+                <ChangelogSection version="0.1.6" date="Previous">
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">

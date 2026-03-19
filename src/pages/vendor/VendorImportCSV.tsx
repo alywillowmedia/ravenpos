@@ -22,6 +22,8 @@ interface MappedItem {
     sku: string;
     name: string;
     variant: string;
+    other_details_1: string;
+    other_details_2: string;
     category: string;
     quantity: number;
     price: number;
@@ -56,6 +58,8 @@ export function VendorImportCSV() {
     const [skuColumn, setSkuColumn] = useState('');
     const [nameColumn, setNameColumn] = useState('');
     const [variantColumn, setVariantColumn] = useState('');
+    const [detail1Column, setDetail1Column] = useState('');
+    const [detail2Column, setDetail2Column] = useState('');
     const [categoryColumn, setCategoryColumn] = useState('');
     const [quantityColumn, setQuantityColumn] = useState('');
     const [priceColumn, setPriceColumn] = useState('');
@@ -129,6 +133,8 @@ export function VendorImportCSV() {
                 setSkuColumn(findColumn(['sku'], ['sku', 'upc', 'barcode', 'code']));
                 setNameColumn(findColumn(['name', 'item name'], ['name', 'title', 'item', 'description']));
                 setVariantColumn(findColumn(['variant'], ['variant', 'size', 'color', 'option']));
+                setDetail1Column(findColumn(['detail 1', 'other details 1', 'other_details_1'], ['detail 1', 'detail1', 'other details 1', 'other_details_1']));
+                setDetail2Column(findColumn(['detail 2', 'other details 2', 'other_details_2'], ['detail 2', 'detail2', 'other details 2', 'other_details_2']));
                 setCategoryColumn(findColumn(['category'], ['category', 'type', 'cat']));
                 setQuantityColumn(findColumn(['quantity', 'qty'], ['quantity', 'qty', 'stock', 'count']));
                 setPriceColumn(findColumn(['price'], ['price', 'cost', 'amount', 'value']));
@@ -161,6 +167,8 @@ export function VendorImportCSV() {
                 sku: skuColumn ? row[skuColumn]?.trim() || '' : '',
                 name: row[nameColumn] || '',
                 variant: variantColumn ? row[variantColumn] || '' : '',
+                other_details_1: detail1Column ? row[detail1Column] || '' : '',
+                other_details_2: detail2Column ? row[detail2Column] || '' : '',
                 category,
                 quantity,
                 price,
@@ -192,6 +200,8 @@ export function VendorImportCSV() {
             sku: item.sku || undefined,
             name: item.name,
             variant_summary: item.variant,
+            other_details_1: item.other_details_1 || undefined,
+            other_details_2: item.other_details_2 || undefined,
             category: item.category,
             quantity: item.quantity,
             price: item.price,
@@ -282,6 +292,8 @@ export function VendorImportCSV() {
         { key: 'sku', header: 'SKU', width: '120px' },
         { key: 'name', header: 'Name', sortable: true },
         { key: 'variant', header: 'Variant' },
+        { key: 'other_details_1', header: 'Detail 1' },
+        { key: 'other_details_2', header: 'Detail 2' },
         { key: 'category', header: 'Category' },
         { key: 'quantity', header: 'Qty', width: '80px' },
         {
@@ -478,6 +490,18 @@ export function VendorImportCSV() {
                                 options={headerOptions}
                                 value={variantColumn}
                                 onChange={(e) => setVariantColumn(e.target.value)}
+                            />
+                            <Select
+                                label="Detail 1"
+                                options={headerOptions}
+                                value={detail1Column}
+                                onChange={(e) => setDetail1Column(e.target.value)}
+                            />
+                            <Select
+                                label="Detail 2"
+                                options={headerOptions}
+                                value={detail2Column}
+                                onChange={(e) => setDetail2Column(e.target.value)}
                             />
                             <Select
                                 label="Category"

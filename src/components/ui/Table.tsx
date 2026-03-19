@@ -6,6 +6,7 @@ export interface Column<T> {
     key: string;
     header: string;
     width?: string;
+    minWidth?: string;
     sortable?: boolean;
     render?: (item: T) => ReactNode;
 }
@@ -115,7 +116,7 @@ export function Table<T extends Record<string, any>>({
                             {columns.map((col) => (
                                 <th
                                     key={col.key}
-                                    style={{ width: col.width }}
+                                    style={{ width: col.width, minWidth: col.minWidth }}
                                     className={cn(
                                         'px-4 py-3 text-left text-xs font-medium text-[var(--color-muted)] uppercase tracking-wider',
                                         col.sortable && 'cursor-pointer hover:text-[var(--color-foreground)] select-none'
@@ -157,6 +158,7 @@ export function Table<T extends Record<string, any>>({
                                     {columns.map((col) => (
                                         <td
                                             key={col.key}
+                                            style={{ width: col.width, minWidth: col.minWidth }}
                                             className="px-4 py-3 text-sm text-[var(--color-foreground)]"
                                         >
                                             {col.render

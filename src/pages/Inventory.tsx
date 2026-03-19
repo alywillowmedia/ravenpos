@@ -19,6 +19,16 @@ import { useToast } from '../contexts/ToastContext';
 import { formatCurrency } from '../lib/utils';
 import type { Item, ItemInput } from '../types';
 
+function formatAddedDate(value: string): string {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
+}
+
 export function Inventory() {
     const navigate = useNavigate();
     const { items, isLoading, updateItem, updateItems, deleteItem } = useInventory();
@@ -225,7 +235,8 @@ export function Inventory() {
             {
                 key: 'sku',
                 header: 'SKU',
-                width: '160px',
+                width: '140px',
+                minWidth: '140px',
                 sortable: true,
                 render: (item) => (
                     <span className="font-mono text-xs bg-[var(--color-surface)] px-2 py-1 rounded">
@@ -236,6 +247,7 @@ export function Inventory() {
             {
                 key: 'name',
                 header: 'Item',
+                minWidth: '220px',
                 sortable: true,
                 render: (item) => (
                     <div className="flex items-center gap-3">
@@ -262,6 +274,8 @@ export function Inventory() {
             {
                 key: 'consignor',
                 header: 'Consignor',
+                width: '100px',
+                minWidth: '100px',
                 render: (item) => {
                     const c = item.consignor;
                     return c ? (
@@ -274,13 +288,27 @@ export function Inventory() {
             {
                 key: 'category',
                 header: 'Category',
-                width: '120px',
+                width: '110px',
+                minWidth: '110px',
                 sortable: true,
+            },
+            {
+                key: 'created_at',
+                header: 'Added',
+                width: '120px',
+                minWidth: '120px',
+                sortable: true,
+                render: (item) => (
+                    <span className="whitespace-nowrap text-xs text-[var(--color-muted)]">
+                        {formatAddedDate(item.created_at)}
+                    </span>
+                ),
             },
             {
                 key: 'quantity',
                 header: 'Qty',
-                width: '80px',
+                width: '72px',
+                minWidth: '72px',
                 sortable: true,
                 render: (item) => (
                     <Badge variant={item.quantity > 0 ? 'default' : 'danger'}>
@@ -291,7 +319,8 @@ export function Inventory() {
             {
                 key: 'price',
                 header: 'Price',
-                width: '100px',
+                width: '96px',
+                minWidth: '96px',
                 sortable: true,
                 render: (item) => (
                     <span className="font-medium">{formatCurrency(Number(item.price))}</span>
@@ -300,7 +329,8 @@ export function Inventory() {
             {
                 key: 'actions',
                 header: '',
-                width: '100px',
+                width: '88px',
+                minWidth: '88px',
                 render: (item) => (
                     <div className="flex items-center gap-1">
                         <button
