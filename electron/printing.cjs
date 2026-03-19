@@ -279,7 +279,9 @@ function buildSaleReceiptText(receipt) {
     lines.push('-'.repeat(RECEIPT_COLUMNS));
     lines.push('Thank you for shopping at Ravenlia!');
     lines.push('');
-    lines.push('Ravenlia — from the hands of artisans to the heart of community.');
+    lines.push('Ravenlia - from the hands');
+    lines.push('of artisans to the heart');
+    lines.push('of community.');
     lines.push('');
     lines.push('Thanks for keeping it alive!');
     lines.push('-----');
@@ -590,7 +592,9 @@ async function printReceipt(receipt) {
         printer.alignCenter();
         printer.println('Thank you for shopping at Ravenlia!');
         printer.println('');
-        printer.println('Ravenlia — from the hands of artisans to the heart of community.');
+        printer.println('Ravenlia - from the hands');
+        printer.println('of artisans to the heart');
+        printer.println('of community.');
         printer.println('');
         printer.println('Thanks for keeping it alive!');
         printer.println('-----');

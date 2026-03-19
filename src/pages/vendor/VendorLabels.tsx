@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Header } from '../../components/layout/Header';
 import { Button } from '../../components/ui/Button';
+import { Modal, ModalFooter } from '../../components/ui/Modal';
 import { Table, type Column } from '../../components/ui/Table';
 import { EmptyState, TagIcon } from '../../components/ui/EmptyState';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,6 +10,7 @@ import { useInventory } from '../../hooks/useInventory';
 import { useCategories } from '../../hooks/useCategories';
 import { formatCurrency } from '../../lib/utils';
 import { generateLabelsPDF } from '../../lib/generateLabelsPDF';
+import { downloadDymo30252TemplateForItems, downloadDymoPrintDataCsvFile } from '../../lib/dymoLabelTemplate';
 import type { Item } from '../../types';
 
 type PrintMode = 'all' | 'new' | 'custom';
@@ -42,6 +44,8 @@ export function VendorLabels() {
     const [customQuantities, setCustomQuantities] = useState<PrintQuantityOverride>({});
     const [isGenerating, setIsGenerating] = useState(false);
     const [isAwaitingPrintConfirmation, setIsAwaitingPrintConfirmation] = useState(false);
+    const [showDymoInfoModal, setShowDymoInfoModal] = useState(false);
+    const [showDymoCompletePrompt, setShowDymoCompletePrompt] = useState(false);
     const [pendingPrintedItems, setPendingPrintedItems] = useState<Array<{ id: string; printedCount: number }>>([]);
 
     // Filters (no consignor filter for vendors - they only see their own items)
@@ -203,6 +207,30 @@ export function VendorLabels() {
         return selectedItems.reduce((sum, item) => sum + getPrintQuantity(item), 0);
     };
 
+    const getDymoPrintableItems = () => {
+        return getItemsWithPrintQuantities().filter((item) => (item.printQuantity ?? 0) > 0);
+    };
+
+    const getDymoCompletionSummary = () => {
+        const printable = getDymoPrintableItems();
+        let totalQueued = 0;
+        let unlabeledPortion = 0;
+
+        for (const item of printable) {
+            const printCount = item.printQuantity ?? 0;
+            const unlabeled = item.qty_unlabeled || 0;
+            totalQueued += printCount;
+            unlabeledPortion += Math.min(printCount, unlabeled);
+        }
+
+        return {
+            itemCount: printable.length,
+            totalQueued,
+            unlabeledPortion,
+            extraBeyondUnlabeled: Math.max(0, totalQueued - unlabeledPortion),
+        };
+    };
+
     const handleGeneratePDF = async () => {
         setIsGenerating(true);
         try {
@@ -235,6 +263,101 @@ export function VendorLabels() {
             console.error('Failed to generate PDF:', error);
             const message = error instanceof Error ? error.message : 'Failed to generate PDF. Please try again.';
             toast.error('Unable to generate labels', message);
+        }
+        setIsGenerating(false);
+    };
+
+    const handleOpenDymoFilesModal = () => {
+        const itemsWithQuantities = getDymoPrintableItems();
+        if (itemsWithQuantities.length === 0) {
+            toast.warning('No labels queued', 'Set at least one print quantity before generating DYMO files.');
+            return;
+        }
+
+        setShowDymoInfoModal(true);
+    };
+
+    const handleRequestCloseDymoModal = () => {
+        const summary = getDymoCompletionSummary();
+        if (summary.totalQueued === 0) {
+            setShowDymoInfoModal(false);
+            return;
+        }
+        setShowDymoInfoModal(false);
+        setShowDymoCompletePrompt(true);
+    };
+
+    const handleKeepEditingDymo = () => {
+        setShowDymoCompletePrompt(false);
+        setShowDymoInfoModal(true);
+    };
+
+    const handleDownloadDymoTemplate = () => {
+        const itemsWithQuantities = getDymoPrintableItems();
+        if (itemsWithQuantities.length === 0) {
+            toast.warning('No labels queued', 'Set at least one print quantity before generating DYMO files.');
+            return;
+        }
+
+        try {
+            downloadDymo30252TemplateForItems(itemsWithQuantities);
+            toast.success('DYMO template downloaded', 'Next, download the print data CSV and import both in DYMO Connect.');
+        } catch (error) {
+            console.error('Failed to download DYMO template:', error);
+            toast.error('Unable to generate DYMO template', 'Please try again.');
+        }
+    };
+
+    const handleDownloadDymoCsv = () => {
+        const itemsWithQuantities = getDymoPrintableItems();
+        if (itemsWithQuantities.length === 0) {
+            toast.warning('No labels queued', 'Set at least one print quantity before generating DYMO files.');
+            return;
+        }
+
+        try {
+            const result = downloadDymoPrintDataCsvFile(itemsWithQuantities);
+            toast.success(
+                'DYMO print data downloaded',
+                `${result.rowCount} label row${result.rowCount === 1 ? '' : 's'} exported.`
+            );
+        } catch (error) {
+            console.error('Failed to download DYMO print data:', error);
+            toast.error('Unable to generate DYMO print data', 'Please try again.');
+        }
+    };
+
+    const handleConfirmDymoCompleted = async () => {
+        const printable = getDymoPrintableItems();
+        const printedItems = printable
+            .map((item) => ({ id: item.id, printedCount: item.printQuantity ?? 0 }))
+            .filter((item) => item.printedCount > 0);
+
+        if (printedItems.length === 0) {
+            toast.warning('Nothing to confirm', 'No labels are queued to be marked as printed.');
+            setShowDymoCompletePrompt(false);
+            return;
+        }
+
+        const summary = getDymoCompletionSummary();
+
+        setIsGenerating(true);
+        try {
+            await markAsPrinted(printedItems);
+            setShowDymoCompletePrompt(false);
+            setShowDymoInfoModal(false);
+            setShowPrintOptions(false);
+            setSelectedIds(new Set());
+            setCustomQuantities({});
+            setPendingPrintedItems([]);
+            setIsAwaitingPrintConfirmation(false);
+            toast.success(
+                'Labels marked as printed',
+                `${summary.unlabeledPortion} currently unlabeled label${summary.unlabeledPortion === 1 ? '' : 's'} were marked as printed.`
+            );
+        } catch (error) {
+            console.error('Failed to mark DYMO labels as printed:', error);
+            toast.error('Unable to mark labels as printed', 'Please try again.');
         }
         setIsGenerating(false);
     };
@@ -542,6 +665,34 @@ export function VendorLabels() {
                             {isGenerating ? 'Generating...' : (isAwaitingPrintConfirmation ? 'Re-open PDF' : 'Preview PDF')}
                         </Button>
                         <Button
+                            variant="secondary"
+                            onClick={handleOpenDymoFilesModal}
+                            disabled={getTotalLabels() === 0 || isGenerating}
+                        >
+                            Download DYMO Files
+                            <span
+                                role="button"
+                                tabIndex={0}
+                                aria-label="DYMO help"
+                                title="How to use DYMO files"
+                                onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    handleOpenDymoFilesModal();
+                                }}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        handleOpenDymoFilesModal();
+                                    }
+                                }}
+                                className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px] leading-none"
+                            >
+                                i
+                            </span>
+                        </Button>
+                        <Button
                             onClick={isAwaitingPrintConfirmation ? handleConfirmPrinted : handleGenerateAndMark}
                             disabled={getTotalLabels() === 0 || isGenerating}
                         >
@@ -550,6 +701,22 @@ export function VendorLabels() {
                         </Button>
                     </div>
                 </div>
+                <DymoInfoModal
+                    isOpen={showDymoInfoModal}
+                    onClose={handleRequestCloseDymoModal}
+                    onDownloadTemplate={handleDownloadDymoTemplate}
+                    onDownloadCsv={handleDownloadDymoCsv}
+                />
+                <DymoCompletePromptModal
+                    isOpen={showDymoCompletePrompt}
+                    onClose={handleKeepEditingDymo}
+                    onConfirm={handleConfirmDymoCompleted}
+                    itemCount={getDymoCompletionSummary().itemCount}
+                    totalQueued={getDymoCompletionSummary().totalQueued}
+                    unlabeledPortion={getDymoCompletionSummary().unlabeledPortion}
+                    extraBeyondUnlabeled={getDymoCompletionSummary().extraBeyondUnlabeled}
+                    isBusy={isGenerating}
+                />
             </div>
         );
     }
@@ -781,5 +948,102 @@ function FilterIcon() {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
         </svg>
+    );
+}
+
+function DymoInfoModal({
+    isOpen,
+    onClose,
+    onDownloadTemplate,
+    onDownloadCsv,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    onDownloadTemplate: () => void;
+    onDownloadCsv: () => void;
+}) {
+    return (
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="DYMO Export Help"
+            description="Download both files below, then merge them in DYMO Connect."
+            size="lg"
+        >
+            <div className="space-y-3 text-sm text-[var(--color-foreground)]">
+                <p><strong>What each file is for</strong></p>
+                <p><code>ravenpos-30252-template.label</code> is your visual label layout.</p>
+                <p><code>ravenpos-30252-print-data.csv</code> contains one row per label, expanded by print quantity.</p>
+                <p><strong>Steps</strong></p>
+                <p>1. Download the template and CSV using the buttons below.</p>
+                <p>2. Open DYMO Connect and load the <code>.label</code> template.</p>
+                <p>3. Import/link the CSV as data source and map fields: <code>VENDOR</code>, <code>PRICE</code>, <code>NAME</code>, <code>VARIANT</code>, <code>SKU</code>, <code>DETAILS</code>, <code>BARCODE</code>.</p>
+                <p>4. Print all records to output the full quantity.</p>
+            </div>
+            <ModalFooter className="justify-between">
+                <div className="flex items-center gap-2">
+                    <Button variant="secondary" onClick={onDownloadTemplate}>
+                        Download Template (.label)
+                    </Button>
+                    <Button variant="secondary" onClick={onDownloadCsv}>
+                        Download Print Data (.csv)
+                    </Button>
+                </div>
+                <Button onClick={onClose}>Close</Button>
+            </ModalFooter>
+        </Modal>
+    );
+}
+
+function DymoCompletePromptModal({
+    isOpen,
+    onClose,
+    onConfirm,
+    itemCount,
+    totalQueued,
+    unlabeledPortion,
+    extraBeyondUnlabeled,
+    isBusy,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: () => void;
+    itemCount: number;
+    totalQueued: number;
+    unlabeledPortion: number;
+    extraBeyondUnlabeled: number;
+    isBusy: boolean;
+}) {
+    return (
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="Mark DYMO Labels As Printed?"
+            description="Closing the DYMO help modal can also finalize inventory label counts."
+            size="md"
+        >
+            <div className="space-y-3 text-sm text-[var(--color-foreground)]">
+                <p>
+                    You have <strong>{totalQueued}</strong> total label{totalQueued === 1 ? '' : 's'} queued across{' '}
+                    <strong>{itemCount}</strong> selected item{itemCount === 1 ? '' : 's'}.
+                </p>
+                <p>
+                    This will mark <strong>{unlabeledPortion}</strong> currently unlabeled label{unlabeledPortion === 1 ? '' : 's'} as printed.
+                </p>
+                {extraBeyondUnlabeled > 0 && (
+                    <p className="text-[var(--color-muted)]">
+                        {extraBeyondUnlabeled} queued label{extraBeyondUnlabeled === 1 ? '' : 's'} exceed current unlabeled counts and won&apos;t further reduce unlabeled inventory.
+                    </p>
+                )}
+            </div>
+            <ModalFooter>
+                <Button variant="secondary" onClick={onClose} disabled={isBusy}>
+                    Keep Editing
+                </Button>
+                <Button onClick={onConfirm} disabled={isBusy}>
+                    {isBusy ? 'Marking...' : 'Yes, Mark Completed'}
+                </Button>
+            </ModalFooter>
+        </Modal>
     );
 }
