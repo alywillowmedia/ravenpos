@@ -426,7 +426,17 @@ async function printViaElectron(printerName, text, barcodeValue) {
     });
 
     try {
-        await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildReceiptHtmlFromText(text, barcodeValue))}`);
+        const html = buildReceiptHtmlFromText(text, barcodeValue);
+        const encodedHtml = Buffer.from(html, 'utf8').toString('base64');
+
+        // Avoid data: URLs here. Some printer drivers may render parts of the source URL
+        // (including CSS text) in page headers when printing.
+        await printWindow.loadURL('about:blank');
+        await printWindow.webContents.executeJavaScript(
+            `document.open();document.write(atob(${JSON.stringify(encodedHtml)}));document.close();`,
+            true
+        );
+
         const result = await new Promise((resolve) => {
             printWindow.webContents.print(
                 {
