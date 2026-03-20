@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
@@ -55,6 +56,23 @@ export function EmployeeCredentials({ employeeId, employeeName }: EmployeeCreden
         const { data, error } = await supabase.functions.invoke('manage-employee-account', { body });
 
         if (error) {
+            if (error instanceof FunctionsHttpError) {
+                try {
+                    const payload = await error.context.json();
+                    if (payload?.error) {
+                        throw new Error(payload.error);
+                    }
+                } catch {
+                    try {
+                        const text = await error.context.text();
+                        if (text) {
+                            throw new Error(text);
+                        }
+                    } catch {
+                        // Ignore and fall through to default error.
+                    }
+                }
+            }
             throw new Error(error.message || 'Request failed');
         }
 
