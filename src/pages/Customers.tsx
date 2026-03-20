@@ -34,6 +34,7 @@ interface OrderHistoryItem {
 export function Customers() {
     const { customers, isLoading, createCustomer, updateCustomer, deleteCustomer, getCustomerOrderHistory, addStoreCredit } = useCustomers();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isAddCustomerDirty, setIsAddCustomerDirty] = useState(false);
     const [editTarget, setEditTarget] = useState<Customer | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
     const [creditTarget, setCreditTarget] = useState<Customer | null>(null);
@@ -63,8 +64,23 @@ export function Customers() {
         const { error } = await createCustomer(formData);
         if (!error) {
             setIsAddModalOpen(false);
+            setIsAddCustomerDirty(false);
             resetForm();
         }
+    };
+
+    const openAddModal = () => {
+        setIsAddCustomerDirty(false);
+        setIsAddModalOpen(true);
+    };
+
+    const closeAddModal = () => {
+        if (isAddCustomerDirty && !window.confirm('Close this form and discard unsaved changes?')) {
+            return;
+        }
+        setIsAddModalOpen(false);
+        setIsAddCustomerDirty(false);
+        resetForm();
     };
 
     const handleEdit = async () => {
@@ -242,7 +258,7 @@ export function Customers() {
                 title="Customers"
                 description="Manage customer accounts and view order history."
                 actions={
-                    <Button onClick={() => setIsAddModalOpen(true)}>
+                    <Button onClick={openAddModal}>
                         <PlusIcon />
                         Add Customer
                     </Button>
@@ -255,7 +271,7 @@ export function Customers() {
                     title="No customers yet"
                     description="Customers are created when you assign them to a sale at checkout."
                     action={
-                        <Button onClick={() => setIsAddModalOpen(true)}>
+                        <Button onClick={openAddModal}>
                             <PlusIcon />
                             Add Customer
                         </Button>
@@ -278,11 +294,14 @@ export function Customers() {
             {/* Add Modal */}
             <Modal
                 isOpen={isAddModalOpen}
-                onClose={() => { setIsAddModalOpen(false); resetForm(); }}
+                onClose={closeAddModal}
                 title="Add Customer"
                 size="md"
+                closeOnOverlayClick={false}
+                closeOnEscape={false}
+                showCloseButton
             >
-                <div className="space-y-4">
+                <div className="space-y-4" onChangeCapture={() => setIsAddCustomerDirty(true)}>
                     <Input
                         label="Name *"
                         value={formData.name}
@@ -319,7 +338,7 @@ export function Customers() {
                     </label>
                 </div>
                 <ModalFooter>
-                    <Button variant="ghost" onClick={() => { setIsAddModalOpen(false); resetForm(); }}>
+                    <Button variant="ghost" onClick={closeAddModal}>
                         Cancel
                     </Button>
                     <Button onClick={handleAdd} disabled={!formData.name.trim()}>

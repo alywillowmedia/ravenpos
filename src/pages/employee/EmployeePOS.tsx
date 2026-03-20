@@ -42,6 +42,7 @@ export function EmployeePOS() {
     const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
     const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
     const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
+    const [isNewCustomerDirty, setIsNewCustomerDirty] = useState(false);
     const [newCustomerData, setNewCustomerData] = useState<CustomerInput>({
         name: '',
         email: null,
@@ -252,8 +253,23 @@ export function EmployeePOS() {
         if (!error && data) {
             setSelectedCustomer(data);
             setShowNewCustomerModal(false);
+            setIsNewCustomerDirty(false);
             setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
         }
+    };
+
+    const openNewCustomerModal = () => {
+        setIsNewCustomerDirty(false);
+        setShowNewCustomerModal(true);
+    };
+
+    const closeNewCustomerModal = () => {
+        if (isNewCustomerDirty && !window.confirm('Close this form and discard unsaved changes?')) {
+            return;
+        }
+        setShowNewCustomerModal(false);
+        setIsNewCustomerDirty(false);
+        setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
     };
 
     const quickCashAmounts = [1, 5, 10, 20, 50, 100];
@@ -394,7 +410,7 @@ export function EmployeePOS() {
                                     </div>
                                     <Button
                                         variant="secondary"
-                                        onClick={() => setShowNewCustomerModal(true)}
+                                        onClick={openNewCustomerModal}
                                         title="Add Customer"
                                     >
                                         <UserPlusIcon />
@@ -542,11 +558,14 @@ export function EmployeePOS() {
             {/* New Customer Modal */}
             <Modal
                 isOpen={showNewCustomerModal}
-                onClose={() => setShowNewCustomerModal(false)}
+                onClose={closeNewCustomerModal}
                 title="Add New Customer"
                 size="md"
+                closeOnOverlayClick={false}
+                closeOnEscape={false}
+                showCloseButton
             >
-                <div className="space-y-4">
+                <div className="space-y-4" onChangeCapture={() => setIsNewCustomerDirty(true)}>
                     <Input
                         label="Name *"
                         value={newCustomerData.name}
@@ -576,7 +595,7 @@ export function EmployeePOS() {
                         Accepts marketing emails
                     </label>
                     <div className="flex gap-3 pt-4">
-                        <Button variant="ghost" onClick={() => setShowNewCustomerModal(false)} className="flex-1">
+                        <Button variant="ghost" onClick={closeNewCustomerModal} className="flex-1">
                             Cancel
                         </Button>
                         <Button onClick={handleCreateCustomer} className="flex-1" disabled={!newCustomerData.name.trim()}>

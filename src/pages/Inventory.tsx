@@ -37,6 +37,7 @@ export function Inventory() {
     const { getCategoryNames } = useCategories();
 
     const [editItem, setEditItem] = useState<Item | null>(null);
+    const [isEditItemDirty, setIsEditItemDirty] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Item | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [filterConsignor, setFilterConsignor] = useState('');
@@ -57,8 +58,22 @@ export function Inventory() {
         const result = await updateItem(editItem.id, data);
         if (!result.error) {
             setEditItem(null);
+            setIsEditItemDirty(false);
         }
         return result;
+    };
+
+    const openEditItemModal = (item: Item) => {
+        setIsEditItemDirty(false);
+        setEditItem(item);
+    };
+
+    const closeEditItemModal = () => {
+        if (isEditItemDirty && !window.confirm('Close this form and discard unsaved changes?')) {
+            return;
+        }
+        setEditItem(null);
+        setIsEditItemDirty(false);
     };
 
     const handleDelete = async () => {
@@ -336,7 +351,7 @@ export function Inventory() {
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                setEditItem(item);
+                                openEditItemModal(item);
                             }}
                             className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors"
                             title="Edit"
@@ -557,18 +572,23 @@ export function Inventory() {
             {/* Edit Modal */}
             <Modal
                 isOpen={!!editItem}
-                onClose={() => setEditItem(null)}
+                onClose={closeEditItemModal}
                 title="Edit Item"
                 size="4xl"
+                closeOnOverlayClick={false}
+                closeOnEscape={false}
+                showCloseButton
             >
                 {editItem && (
-                    <ItemForm
-                        item={editItem}
-                        consignors={consignors}
-                        categories={getCategoryNames()}
-                        onSubmit={handleUpdate}
-                        onCancel={() => setEditItem(null)}
-                    />
+                    <div onChangeCapture={() => setIsEditItemDirty(true)}>
+                        <ItemForm
+                            item={editItem}
+                            consignors={consignors}
+                            categories={getCategoryNames()}
+                            onSubmit={handleUpdate}
+                            onCancel={closeEditItemModal}
+                        />
+                    </div>
                 )}
             </Modal>
 

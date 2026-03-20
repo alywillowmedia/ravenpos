@@ -18,6 +18,7 @@ export function Consignors() {
     const navigate = useNavigate();
     const { consignors, isLoading, error, createConsignor, deleteConsignor } = useConsignors();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isAddConsignorDirty, setIsAddConsignorDirty] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Consignor | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [itemCount, setItemCount] = useState(0);
@@ -51,8 +52,22 @@ export function Consignors() {
         const { error } = await createConsignor(data);
         if (!error) {
             setIsAddModalOpen(false);
+            setIsAddConsignorDirty(false);
         }
         return { error };
+    };
+
+    const openAddConsignorModal = () => {
+        setIsAddConsignorDirty(false);
+        setIsAddModalOpen(true);
+    };
+
+    const closeAddConsignorModal = () => {
+        if (isAddConsignorDirty && !window.confirm('Close this form and discard unsaved changes?')) {
+            return;
+        }
+        setIsAddModalOpen(false);
+        setIsAddConsignorDirty(false);
     };
 
     const handleDelete = async () => {
@@ -158,7 +173,7 @@ export function Consignors() {
                 title="Consignors"
                 description="Manage your vendors and their commission splits."
                 actions={
-                    <Button onClick={() => setIsAddModalOpen(true)}>
+                    <Button onClick={openAddConsignorModal}>
                         <PlusIcon />
                         Add Consignor
                     </Button>
@@ -177,7 +192,7 @@ export function Consignors() {
                     title="No consignors yet"
                     description="Add your first consignor to start tracking their inventory and sales."
                     action={
-                        <Button onClick={() => setIsAddModalOpen(true)}>
+                        <Button onClick={openAddConsignorModal}>
                             <PlusIcon />
                             Add Consignor
                         </Button>
@@ -200,15 +215,20 @@ export function Consignors() {
             {/* Add Modal */}
             <Modal
                 isOpen={isAddModalOpen}
-                onClose={() => setIsAddModalOpen(false)}
+                onClose={closeAddConsignorModal}
                 title="Add Consignor"
                 description="Enter the consignor's details below."
                 size="md"
+                closeOnOverlayClick={false}
+                closeOnEscape={false}
+                showCloseButton
             >
-                <ConsignorForm
-                    onSubmit={handleAddConsignor}
-                    onCancel={() => setIsAddModalOpen(false)}
-                />
+                <div onChangeCapture={() => setIsAddConsignorDirty(true)}>
+                    <ConsignorForm
+                        onSubmit={handleAddConsignor}
+                        onCancel={closeAddConsignorModal}
+                    />
+                </div>
             </Modal>
 
             {/* Delete Confirmation Modal */}

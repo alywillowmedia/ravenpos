@@ -12,6 +12,7 @@ export interface ModalProps {
     className?: string;
     closeOnOverlayClick?: boolean;
     closeOnEscape?: boolean;
+    showCloseButton?: boolean;
 }
 
 export function Modal({
@@ -24,6 +25,7 @@ export function Modal({
     className,
     closeOnOverlayClick = true,
     closeOnEscape = true,
+    showCloseButton = false,
 }: ModalProps) {
     const overlayRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
@@ -91,22 +93,39 @@ export function Modal({
             >
                 {(title || description) && (
                     <div className="px-6 py-4 border-b border-[var(--color-border)] shrink-0">
-                        {title && (
-                            <h2
-                                id="modal-title"
-                                className="text-lg font-semibold text-[var(--color-foreground)]"
-                            >
-                                {title}
-                            </h2>
-                        )}
-                        {description && (
-                            <p
-                                id="modal-description"
-                                className="mt-1 text-sm text-[var(--color-muted)]"
-                            >
-                                {description}
-                            </p>
-                        )}
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                {title && (
+                                    <h2
+                                        id="modal-title"
+                                        className="text-lg font-semibold text-[var(--color-foreground)]"
+                                    >
+                                        {title}
+                                    </h2>
+                                )}
+                                {description && (
+                                    <p
+                                        id="modal-description"
+                                        className="mt-1 text-sm text-[var(--color-muted)]"
+                                    >
+                                        {description}
+                                    </p>
+                                )}
+                            </div>
+                            {showCloseButton && (
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-foreground)] transition-colors"
+                                    aria-label="Close modal"
+                                    title="Close"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M18 6 6 18M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            )}
+                        </div>
                     </div>
                 )}
                 <div className="px-6 py-4 overflow-y-auto">{children}</div>
