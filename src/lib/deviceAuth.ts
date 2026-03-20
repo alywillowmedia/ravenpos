@@ -21,6 +21,35 @@ function normalizeExpiry(expiresAt: string | null | undefined): string | null {
     return isEffectivelyPermanentExpiry(expiresAt) ? null : (expiresAt ?? null);
 }
 
+async function ensureAnonymousAuthSession(): Promise<void> {
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+        throw sessionError;
+    }
+
+    if (session?.access_token) {
+        return;
+    }
+
+    const { error: signInError } = await supabase.auth.signInAnonymously();
+    if (signInError) {
+        throw signInError;
+    }
+}
+
+async function invokeVerifyDeviceToken(token: string): Promise<{
+    data: { authorized?: boolean; expiresAt?: string | null } | null;
+    error: unknown;
+}> {
+    const { data, error } = await supabase.functions.invoke('verify-device-token', {
+        body: { token },
+    });
+    return {
+        data: (data as { authorized?: boolean; expiresAt?: string | null } | null) ?? null,
+        error,
+    };
+}
+
 export interface DeviceAuthorization {
     id: string;
     device_token: string;
@@ -65,11 +94,27 @@ export async function isDeviceAuthorized(): Promise<{ authorized: boolean; expir
     }
 
     try {
-        const { data, error } = await supabase.functions.invoke('verify-device-token', {
-            body: { token },
-        });
+        let { data, error } = await invokeVerifyDeviceToken(token);
 
-        if (error || !data?.authorized) {
+        if (error) {
+            // Retry once after establishing an anonymous session to tolerate
+            // function deployments that still require JWTs.
+            try {
+                await ensureAnonymousAuthSession();
+                const retryResult = await invokeVerifyDeviceToken(token);
+                data = retryResult.data;
+                error = retryResult.error;
+            } catch (retryErr) {
+                console.error('Error establishing anonymous session for device check:', retryErr);
+            }
+        }
+
+        if (error) {
+            console.error('Device authorization check failed:', error);
+            return { authorized: false, expiresAt: null };
+        }
+
+        if (!data?.authorized) {
             clearDeviceToken();
             return { authorized: false, expiresAt: null };
         }
@@ -91,32 +136,17 @@ export async function authorizeDevice(
         : new Date(Date.now() + durationHours * 60 * 60 * 1000);
 
     try {
-        const firstAttemptExpiresAtIso = requestedExpiresAt?.toISOString() ?? null;
+        const storedExpiresAtIso = requestedExpiresAt?.toISOString() ?? LEGACY_PERMANENT_EXPIRY_ISO;
 
         const { error } = await supabase
             .from('device_authorizations')
             .insert({
                 device_token: token,
-                expires_at: firstAttemptExpiresAtIso,
+                expires_at: storedExpiresAtIso,
                 device_name: deviceName || null,
             });
 
-        // Backward compatibility: older DBs may still enforce NOT NULL on expires_at.
-        // In that case, store a far-future expiration but treat it as permanent in the UI.
-        if (error && durationHours === null && error.code === '23502') {
-            const { error: retryError } = await supabase
-                .from('device_authorizations')
-                .insert({
-                    device_token: token,
-                    expires_at: LEGACY_PERMANENT_EXPIRY_ISO,
-                    device_name: deviceName || null,
-                });
-
-            if (retryError) {
-                console.error('Error authorizing device:', retryError);
-                return { success: false, error: 'Failed to authorize device', expiresAt: null };
-            }
-        } else if (error) {
+        if (error) {
             console.error('Error authorizing device:', error);
             return { success: false, error: 'Failed to authorize device', expiresAt: null };
         }
@@ -124,7 +154,7 @@ export async function authorizeDevice(
         // Store token in localStorage
         setDeviceToken(token);
 
-        return { success: true, error: null, expiresAt: normalizeExpiry(firstAttemptExpiresAtIso) };
+        return { success: true, error: null, expiresAt: normalizeExpiry(storedExpiresAtIso) };
     } catch (err) {
         console.error('Exception authorizing device:', err);
         return { success: false, error: 'Failed to authorize device', expiresAt: null };
