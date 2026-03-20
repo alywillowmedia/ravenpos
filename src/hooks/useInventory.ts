@@ -9,6 +9,8 @@ import {
     type ConsignorRateSchedule,
 } from '../lib/consignorRateSchedules';
 
+const INVENTORY_FETCH_BATCH_SIZE = 1000;
+
 function isMissingRateScheduleTable(error: unknown): boolean {
     const err = error as { code?: string; message?: string; details?: string; hint?: string } | null;
     const text = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`.toLowerCase();
@@ -25,22 +27,39 @@ export function useInventory(consignorId?: string) {
             setIsLoading(true);
             setError(null);
 
-            let query = supabase
-                .from('items')
-                .select(`
+            const allItems: Item[] = [];
+            let offset = 0;
+            let shouldContinue = true;
+
+            while (shouldContinue) {
+                let query = supabase
+                    .from('items')
+                    .select(`
           *,
           consignor:consignors(id, consignor_number, name)
         `)
-                .order('created_at', { ascending: false });
+                    .order('created_at', { ascending: false })
+                    .order('id', { ascending: false })
+                    .range(offset, offset + INVENTORY_FETCH_BATCH_SIZE - 1);
 
-            if (consignorId) {
-                query = query.eq('consignor_id', consignorId);
+                if (consignorId) {
+                    query = query.eq('consignor_id', consignorId);
+                }
+
+                const { data, error: fetchError } = await query;
+                if (fetchError) throw fetchError;
+
+                const batch = data || [];
+                allItems.push(...batch as Item[]);
+
+                if (batch.length < INVENTORY_FETCH_BATCH_SIZE) {
+                    shouldContinue = false;
+                } else {
+                    offset += INVENTORY_FETCH_BATCH_SIZE;
+                }
             }
 
-            const { data, error: fetchError } = await query;
-
-            if (fetchError) throw fetchError;
-            setItems(data || []);
+            setItems(allItems);
         } catch (err) {
             setError(formatSupabaseError(err, 'Failed to fetch items'));
         } finally {

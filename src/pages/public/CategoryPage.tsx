@@ -5,6 +5,8 @@ import { ProductCard } from '../../components/storefront/ProductCard';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import type { Item } from '../../types';
 
+const CATEGORY_PAGE_FETCH_BATCH_SIZE = 1000;
+
 export function CategoryPage() {
     const { category } = useParams<{ category: string }>();
     const decodedCategory = category ? decodeURIComponent(category) : '';
@@ -21,31 +23,49 @@ export function CategoryPage() {
                 setIsLoading(true);
                 setError(null);
 
-                const { data, error: fetchError } = await supabase
-                    .from('items')
-                    .select(`
-                        *,
-                        consignor:consignors!inner(
-                            id,
-                            name,
-                            storefront_slug,
-                            booth_location,
-                            is_active,
-                            storefront_display_name,
-                            storefront_logo_url,
-                            storefront_show_items
-                        )
-                    `)
-                    .eq('category', decodedCategory)
-                    .eq('is_listed', true)
-                    .eq('show_in_public_browse', true)
-                    .gt('quantity', 0)
-                    .eq('consignor.is_active', true)
-                    .eq('consignor.storefront_show_items', true)
-                    .order('created_at', { ascending: false });
+                const allItems: Item[] = [];
+                let offset = 0;
+                let hasMore = true;
 
-                if (fetchError) throw fetchError;
-                setItems(data || []);
+                while (hasMore) {
+                    const { data: batch, error: fetchError } = await supabase
+                        .from('items')
+                        .select(`
+                            *,
+                            consignor:consignors!inner(
+                                id,
+                                name,
+                                storefront_slug,
+                                booth_location,
+                                is_active,
+                                storefront_display_name,
+                                storefront_logo_url,
+                                storefront_show_items
+                            )
+                        `)
+                        .eq('category', decodedCategory)
+                        .eq('is_listed', true)
+                        .eq('show_in_public_browse', true)
+                        .gt('quantity', 0)
+                        .eq('consignor.is_active', true)
+                        .eq('consignor.storefront_show_items', true)
+                        .order('created_at', { ascending: false })
+                        .order('id', { ascending: false })
+                        .range(offset, offset + CATEGORY_PAGE_FETCH_BATCH_SIZE - 1);
+
+                    if (fetchError) throw fetchError;
+
+                    const typedBatch = (batch || []) as Item[];
+                    allItems.push(...typedBatch);
+
+                    if (typedBatch.length < CATEGORY_PAGE_FETCH_BATCH_SIZE) {
+                        hasMore = false;
+                    } else {
+                        offset += CATEGORY_PAGE_FETCH_BATCH_SIZE;
+                    }
+                }
+
+                setItems(allItems);
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Failed to load category');
             } finally {

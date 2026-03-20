@@ -41,6 +41,8 @@ const DEFAULT_SETTINGS: StorefrontSettings = {
     storefront_images_only: false,
 };
 
+const STOREFRONT_ITEMS_FETCH_BATCH_SIZE = 1000;
+
 export function VendorStorefront() {
     const { userRecord } = useAuth();
     const [isLoading, setIsLoading] = useState(true);
@@ -57,7 +59,7 @@ export function VendorStorefront() {
             setIsLoading(true);
             setMessage(null);
 
-            const [{ data: consignorData, error: consignorError }, { data: itemData, error: itemError }] = await Promise.all([
+            const [{ data: consignorData, error: consignorError }] = await Promise.all([
                 supabase
                     .from('consignors')
                     .select(`
@@ -71,11 +73,6 @@ export function VendorStorefront() {
                     `)
                     .eq('id', userRecord.consignor_id)
                     .single(),
-                supabase
-                    .from('items')
-                    .select('id, sku, name, price, quantity, image_url, is_listed, show_in_public_browse, storefront_featured')
-                    .eq('consignor_id', userRecord.consignor_id)
-                    .order('updated_at', { ascending: false }),
             ]);
 
             if (consignorError) {
@@ -92,10 +89,36 @@ export function VendorStorefront() {
                 });
             }
 
-            if (itemError) {
-                setMessage({ type: 'error', text: itemError.message });
-            } else {
-                setItems((itemData || []) as StorefrontItem[]);
+            try {
+                const allItems: StorefrontItem[] = [];
+                let offset = 0;
+                let hasMore = true;
+
+                while (hasMore) {
+                    const { data: itemBatch, error: itemError } = await supabase
+                        .from('items')
+                        .select('id, sku, name, price, quantity, image_url, is_listed, show_in_public_browse, storefront_featured')
+                        .eq('consignor_id', userRecord.consignor_id)
+                        .order('updated_at', { ascending: false })
+                        .order('id', { ascending: false })
+                        .range(offset, offset + STOREFRONT_ITEMS_FETCH_BATCH_SIZE - 1);
+
+                    if (itemError) throw itemError;
+
+                    const batch = (itemBatch || []) as StorefrontItem[];
+                    allItems.push(...batch);
+
+                    if (batch.length < STOREFRONT_ITEMS_FETCH_BATCH_SIZE) {
+                        hasMore = false;
+                    } else {
+                        offset += STOREFRONT_ITEMS_FETCH_BATCH_SIZE;
+                    }
+                }
+
+                setItems(allItems);
+            } catch (itemError) {
+                const messageText = itemError instanceof Error ? itemError.message : 'Failed to load storefront items';
+                setMessage({ type: 'error', text: messageText });
             }
 
             setIsLoading(false);

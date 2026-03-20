@@ -19,6 +19,8 @@ interface Vendor {
     storefront_images_only: boolean;
 }
 
+const VENDOR_PAGE_FETCH_BATCH_SIZE = 1000;
+
 export function VendorPage() {
     const { id } = useParams<{ id: string }>();
     const vendorParam = id || '';
@@ -143,44 +145,61 @@ export function VendorPage() {
                     return;
                 }
 
-                let featuredQuery = supabase
-                    .from('items')
-                    .select(`
-                        *,
-                        consignor:consignors(id, name, storefront_slug, booth_location, storefront_display_name, storefront_logo_url)
-                    `)
-                    .eq('consignor_id', vendorId)
-                    .eq('is_listed', true)
-                    .eq('storefront_featured', true)
-                    .gt('quantity', 0)
-                    .order('updated_at', { ascending: false });
+                const fetchVendorItems = async (featuredOnly: boolean): Promise<Item[]> => {
+                    const allItems: Item[] = [];
+                    let offset = 0;
+                    let hasMore = true;
 
-                let itemsQuery = supabase
-                    .from('items')
-                    .select(`
-                        *,
-                        consignor:consignors(id, name, storefront_slug, booth_location, storefront_display_name, storefront_logo_url)
-                    `)
-                    .eq('consignor_id', vendorId)
-                    .eq('is_listed', true)
-                    .gt('quantity', 0)
-                    .order('created_at', { ascending: false });
+                    while (hasMore) {
+                        let query = supabase
+                            .from('items')
+                            .select(`
+                                *,
+                                consignor:consignors(id, name, storefront_slug, booth_location, storefront_display_name, storefront_logo_url)
+                            `)
+                            .eq('consignor_id', vendorId)
+                            .eq('is_listed', true)
+                            .gt('quantity', 0)
+                            .range(offset, offset + VENDOR_PAGE_FETCH_BATCH_SIZE - 1);
 
-                if ((freshVendorData as Vendor).storefront_images_only) {
-                    featuredQuery = featuredQuery.not('image_url', 'is', null);
-                    itemsQuery = itemsQuery.not('image_url', 'is', null);
-                }
+                        if (featuredOnly) {
+                            query = query
+                                .eq('storefront_featured', true)
+                                .order('updated_at', { ascending: false })
+                                .order('id', { ascending: false });
+                        } else {
+                            query = query
+                                .order('created_at', { ascending: false })
+                                .order('id', { ascending: false });
+                        }
 
-                const [{ data: featuredData, error: featuredError }, { data: itemsData, error: itemsError }] = await Promise.all([
-                    featuredQuery,
-                    itemsQuery,
+                        if ((freshVendorData as Vendor).storefront_images_only) {
+                            query = query.not('image_url', 'is', null);
+                        }
+
+                        const { data: batch, error: batchError } = await query;
+                        if (batchError) throw batchError;
+
+                        const typedBatch = (batch || []) as Item[];
+                        allItems.push(...typedBatch);
+
+                        if (typedBatch.length < VENDOR_PAGE_FETCH_BATCH_SIZE) {
+                            hasMore = false;
+                        } else {
+                            offset += VENDOR_PAGE_FETCH_BATCH_SIZE;
+                        }
+                    }
+
+                    return allItems;
+                };
+
+                const [featuredData, itemsData] = await Promise.all([
+                    fetchVendorItems(true),
+                    fetchVendorItems(false),
                 ]);
 
-                if (featuredError) throw featuredError;
-                if (itemsError) throw itemsError;
-
-                setFeaturedItems(featuredData || []);
-                setItems(itemsData || []);
+                setFeaturedItems(featuredData);
+                setItems(itemsData);
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Failed to load vendor');
             } finally {

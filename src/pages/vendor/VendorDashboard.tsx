@@ -44,6 +44,8 @@ interface SaleItemInsertRow {
     created_at: string;
 }
 
+const DASHBOARD_FETCH_BATCH_SIZE = 1000;
+
 export function VendorDashboard() {
     const { userRecord } = useAuth();
     const toast = useToast();
@@ -97,20 +99,68 @@ export function VendorDashboard() {
 
             setConsignor(consignorData);
 
-            // Fetch items stats
-            const { data: items } = await supabase
-                .from('items')
-                .select('quantity')
-                .eq('consignor_id', consignorId);
+            // Fetch items stats in batches to avoid API row caps.
+            const itemQuantities: Array<{ quantity: number | null }> = [];
+            let itemsOffset = 0;
+            let hasMoreItems = true;
 
-            const totalItems = items?.length || 0;
-            const totalQuantity = items?.reduce((sum, i) => sum + i.quantity, 0) || 0;
+            while (hasMoreItems) {
+                const { data: itemsBatch, error: itemsError } = await supabase
+                    .from('items')
+                    .select('quantity')
+                    .eq('consignor_id', consignorId)
+                    .order('id', { ascending: true })
+                    .range(itemsOffset, itemsOffset + DASHBOARD_FETCH_BATCH_SIZE - 1);
 
-            // Fetch sold items
-            const { data: allSaleItems } = await supabase
-                .from('sale_items')
-                .select('*, sales!inner(completed_at)')
-                .eq('consignor_id', consignorId);
+                if (itemsError) throw itemsError;
+
+                const batch = (itemsBatch || []) as Array<{ quantity: number | null }>;
+                itemQuantities.push(...batch);
+
+                if (batch.length < DASHBOARD_FETCH_BATCH_SIZE) {
+                    hasMoreItems = false;
+                } else {
+                    itemsOffset += DASHBOARD_FETCH_BATCH_SIZE;
+                }
+            }
+
+            const totalItems = itemQuantities.length;
+            const totalQuantity = itemQuantities.reduce((sum, i) => sum + Number(i.quantity || 0), 0);
+
+            // Fetch sold items in batches to keep all-time/monthly tallies accurate.
+            const allSaleItems: Array<{
+                quantity: number;
+                price: number | string;
+                commission_split: number | string;
+                sales: unknown;
+            }> = [];
+            let salesOffset = 0;
+            let hasMoreSales = true;
+
+            while (hasMoreSales) {
+                const { data: salesBatch, error: salesError } = await supabase
+                    .from('sale_items')
+                    .select('quantity, price, commission_split, sales!inner(completed_at)')
+                    .eq('consignor_id', consignorId)
+                    .order('id', { ascending: true })
+                    .range(salesOffset, salesOffset + DASHBOARD_FETCH_BATCH_SIZE - 1);
+
+                if (salesError) throw salesError;
+
+                const batch = (salesBatch || []) as Array<{
+                    quantity: number;
+                    price: number | string;
+                    commission_split: number | string;
+                    sales: unknown;
+                }>;
+                allSaleItems.push(...batch);
+
+                if (batch.length < DASHBOARD_FETCH_BATCH_SIZE) {
+                    hasMoreSales = false;
+                } else {
+                    salesOffset += DASHBOARD_FETCH_BATCH_SIZE;
+                }
+            }
 
             const soldAllTime = allSaleItems?.reduce((sum, si) => sum + si.quantity, 0) || 0;
 

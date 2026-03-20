@@ -17,6 +17,7 @@ type RequestStatusTab = 'pending' | 'approved' | 'denied';
 type ShiftSource = 'one_time' | 'recurring';
 type TimeOffRequestStatus = 'pending' | 'approved' | 'denied';
 type ShiftTimeOffImpact = 'none' | 'partial' | 'full';
+type RepeatCycleOption = 7 | 14 | 28;
 
 type OneTimeShift = {
     id: string;
@@ -31,6 +32,8 @@ type RecurringSchedule = {
     id: string;
     employee_id: string;
     weekday: number;
+    cycle_length_days: number | null;
+    day_offset: number | null;
     start_time: string;
     end_time: string;
     notes: string | null;
@@ -78,6 +81,8 @@ type ShiftFormState = {
 };
 
 type TemplateDay = {
+    offset: number;
+    dateKey: string;
     weekday: number;
     label: string;
     enabled: boolean;
@@ -86,14 +91,11 @@ type TemplateDay = {
     notes: string;
 };
 
-const TEMPLATE_WEEKDAYS: Array<{ weekday: number; label: string }> = [
-    { weekday: 1, label: 'Monday' },
-    { weekday: 2, label: 'Tuesday' },
-    { weekday: 3, label: 'Wednesday' },
-    { weekday: 4, label: 'Thursday' },
-    { weekday: 5, label: 'Friday' },
-    { weekday: 6, label: 'Saturday' },
-    { weekday: 0, label: 'Sunday' },
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TEMPLATE_CYCLE_OPTIONS: Array<{ value: RepeatCycleOption; label: string }> = [
+    { value: 7, label: '1 week repeating' },
+    { value: 14, label: '2 week repeating' },
+    { value: 28, label: '1 month repeating' },
 ];
 
 function addDays(base: Date, days: number) {
@@ -112,6 +114,11 @@ function toDateKey(date: Date) {
 function parseDateKey(value: string) {
     const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10));
     return new Date(year, month - 1, day);
+}
+
+function toDateKeyDayNumber(value: string) {
+    const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10));
+    return Math.floor(Date.UTC(year, month - 1, day) / DAY_MS);
 }
 
 function startOfWeekMonday(date: Date) {
@@ -209,15 +216,101 @@ function previousDateKey(dateKey: string) {
     return toDateKey(addDays(parseDateKey(dateKey), -1));
 }
 
-function defaultTemplateDays(): TemplateDay[] {
-    return TEMPLATE_WEEKDAYS.map((day) => ({
-        weekday: day.weekday,
-        label: day.label,
-        enabled: false,
-        startTime: '09:00',
-        endTime: '17:00',
-        notes: '',
-    }));
+function getDayOffsetFromWeekday(activeFrom: string, weekday: number) {
+    const anchorWeekday = parseDateKey(activeFrom).getDay();
+    return (weekday - anchorWeekday + 7) % 7;
+}
+
+function matchesRecurringOnDate(schedule: RecurringSchedule, day: Date, dayKey: string) {
+    if (dayKey < schedule.active_from) return false;
+    if (schedule.active_until && dayKey > schedule.active_until) return false;
+
+    if (schedule.cycle_length_days && schedule.day_offset !== null && schedule.day_offset !== undefined) {
+        const deltaDays = toDateKeyDayNumber(dayKey) - toDateKeyDayNumber(schedule.active_from);
+        if (deltaDays < 0) return false;
+        return deltaDays % schedule.cycle_length_days === schedule.day_offset;
+    }
+
+    return day.getDay() === schedule.weekday;
+}
+
+function defaultTemplateDays(effectiveFrom: string, cycleLengthDays: RepeatCycleOption): TemplateDay[] {
+    const start = parseDateKey(effectiveFrom);
+    return Array.from({ length: cycleLengthDays }, (_, offset) => {
+        const day = addDays(start, offset);
+        return {
+            offset,
+            dateKey: toDateKey(day),
+            weekday: day.getDay(),
+            label: `Week ${Math.floor(offset / 7) + 1} • ${day.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}`,
+            enabled: false,
+            startTime: '09:00',
+            endTime: '17:00',
+            notes: '',
+        };
+    });
+}
+
+function getCycleLabel(cycleLengthDays: number | null) {
+    if (cycleLengthDays === 14) return 'Repeats every 2 weeks';
+    if (cycleLengthDays === 28) return 'Repeats monthly (4-week cycle)';
+    return 'Repeats weekly';
+}
+
+function normalizeCycleLength(value: number | null | undefined): RepeatCycleOption {
+    if (value === 14 || value === 28) return value;
+    return 7;
+}
+
+function resolveDayOffset(schedule: RecurringSchedule) {
+    if (schedule.day_offset !== null && schedule.day_offset !== undefined) {
+        return schedule.day_offset;
+    }
+    return getDayOffsetFromWeekday(schedule.active_from, schedule.weekday);
+}
+
+function buildTemplateDaysFromSchedules(
+    schedules: RecurringSchedule[],
+    effectiveFrom: string,
+    cycleLengthDays: RepeatCycleOption
+): TemplateDay[] {
+    const nextDays = defaultTemplateDays(effectiveFrom, cycleLengthDays);
+    const byOffset = new Map<number, RecurringSchedule>();
+    for (const schedule of schedules) {
+        const offset = resolveDayOffset(schedule);
+        byOffset.set(offset, schedule);
+    }
+
+    for (const day of nextDays) {
+        const matching = byOffset.get(day.offset);
+        if (!matching) continue;
+        day.enabled = true;
+        day.startTime = matching.start_time.slice(0, 5);
+        day.endTime = matching.end_time.slice(0, 5);
+        day.notes = matching.notes || '';
+    }
+
+    return nextDays;
+}
+
+function remapTemplateDays(
+    templateDays: TemplateDay[],
+    effectiveFrom: string,
+    cycleLengthDays: RepeatCycleOption
+): TemplateDay[] {
+    const nextDays = defaultTemplateDays(effectiveFrom, cycleLengthDays);
+    const byOffset = new Map(templateDays.map((day) => [day.offset, day]));
+
+    for (const day of nextDays) {
+        const existing = byOffset.get(day.offset);
+        if (!existing) continue;
+        day.enabled = existing.enabled;
+        day.startTime = existing.startTime;
+        day.endTime = existing.endTime;
+        day.notes = existing.notes;
+    }
+
+    return nextDays;
 }
 
 export function EmployeeSchedule() {
@@ -241,7 +334,8 @@ export function EmployeeSchedule() {
     const [notice, setNotice] = useState<Notice>(null);
     const [templateEmployeeId, setTemplateEmployeeId] = useState('');
     const [templateEffectiveFrom, setTemplateEffectiveFrom] = useState(toDateKey(new Date()));
-    const [templateDays, setTemplateDays] = useState<TemplateDay[]>(defaultTemplateDays());
+    const [templateCycleLengthDays, setTemplateCycleLengthDays] = useState<RepeatCycleOption>(7);
+    const [templateDays, setTemplateDays] = useState<TemplateDay[]>(() => defaultTemplateDays(toDateKey(new Date()), 7));
     const [formState, setFormState] = useState<ShiftFormState>({
         employeeId: '',
         shiftDate: toDateKey(new Date()),
@@ -295,11 +389,12 @@ export function EmployeeSchedule() {
                 .order('start_time'),
             supabase
                 .from('employee_recurring_schedules')
-                .select('id, employee_id, weekday, start_time, end_time, notes, active_from, active_until')
+                .select('id, employee_id, weekday, cycle_length_days, day_offset, start_time, end_time, notes, active_from, active_until')
                 .lte('active_from', rangeEndKey)
                 .or(`active_until.is.null,active_until.gte.${rangeStartKey}`)
                 .order('employee_id')
-                .order('weekday')
+                .order('cycle_length_days')
+                .order('day_offset')
                 .order('active_from', { ascending: false }),
             supabase
                 .from('employee_time_off_requests')
@@ -344,30 +439,28 @@ export function EmployeeSchedule() {
     }, [activeEmployees, formState.employeeId]);
 
     useEffect(() => {
-        if (!templateEmployeeId) {
-            setTemplateDays(defaultTemplateDays());
+        if (templateEmployeeId) return;
+        setTemplateDays(defaultTemplateDays(templateEffectiveFrom, templateCycleLengthDays));
+    }, [templateCycleLengthDays, templateEffectiveFrom, templateEmployeeId]);
+
+    useEffect(() => {
+        if (!templateEmployeeId) return;
+
+        const activeTemplateSchedules = recurringSchedules.filter((schedule) => (
+            schedule.employee_id === templateEmployeeId
+            && schedule.active_from <= templateEffectiveFrom
+            && (schedule.active_until === null || schedule.active_until >= templateEffectiveFrom)
+        ));
+
+        if (activeTemplateSchedules.length === 0) {
+            setTemplateDays(defaultTemplateDays(templateEffectiveFrom, 7));
+            setTemplateCycleLengthDays(7);
             return;
         }
 
-        const nextDays = defaultTemplateDays();
-
-        for (const day of nextDays) {
-            const matching = recurringSchedules.find((schedule) => (
-                schedule.employee_id === templateEmployeeId
-                && schedule.weekday === day.weekday
-                && schedule.active_from <= templateEffectiveFrom
-                && (schedule.active_until === null || schedule.active_until >= templateEffectiveFrom)
-            ));
-
-            if (matching) {
-                day.enabled = true;
-                day.startTime = matching.start_time.slice(0, 5);
-                day.endTime = matching.end_time.slice(0, 5);
-                day.notes = matching.notes || '';
-            }
-        }
-
-        setTemplateDays(nextDays);
+        const inferredCycle = normalizeCycleLength(activeTemplateSchedules[0].cycle_length_days);
+        setTemplateCycleLengthDays(inferredCycle);
+        setTemplateDays(buildTemplateDaysFromSchedules(activeTemplateSchedules, templateEffectiveFrom, inferredCycle));
     }, [templateEffectiveFrom, templateEmployeeId, recurringSchedules]);
 
     const getTimeOffImpactForShift = useCallback(
@@ -395,9 +488,7 @@ export function EmployeeSchedule() {
         for (const schedule of recurringSchedules) {
             for (const day of visibleDays) {
                 const dayKey = toDateKey(day);
-                if (day.getDay() !== schedule.weekday) continue;
-                if (dayKey < schedule.active_from) continue;
-                if (schedule.active_until && dayKey > schedule.active_until) continue;
+                if (!matchesRecurringOnDate(schedule, day, dayKey)) continue;
                 if (specificDayOverrides.has(shiftKey(schedule.employee_id, dayKey))) continue;
 
                 generatedRecurring.push({
@@ -736,6 +827,8 @@ export function EmployeeSchedule() {
             .map((day) => ({
                 employee_id: templateEmployeeId,
                 weekday: day.weekday,
+                cycle_length_days: templateCycleLengthDays,
+                day_offset: day.offset,
                 start_time: day.startTime,
                 end_time: day.endTime,
                 notes: day.notes.trim() || null,
@@ -756,7 +849,7 @@ export function EmployeeSchedule() {
             }
         }
 
-        setNotice({ type: 'success', message: 'Weekly template saved.' });
+        setNotice({ type: 'success', message: `${getCycleLabel(templateCycleLengthDays)} template saved.` });
         setIsSavingTemplate(false);
         await fetchRangeData();
     };
@@ -807,7 +900,7 @@ export function EmployeeSchedule() {
                 description={activeTab === 'schedule'
                     ? 'Edit one-time calendar shifts. Recurring shifts come from templates.'
                     : activeTab === 'templates'
-                        ? 'Edit weekly templates per employee. Changes repeat from the effective date.'
+                        ? 'Edit repeating templates per employee. Choose a 1-week, 2-week, or 1-month cycle.'
                         : 'Review and approve employee time-off requests.'}
                 actions={(
                     <div className="flex flex-wrap gap-2">
@@ -1053,74 +1146,128 @@ export function EmployeeSchedule() {
                             />
                         </div>
 
+                        <Select
+                            label="Repeating Cycle"
+                            value={String(templateCycleLengthDays)}
+                            onChange={(event) => {
+                                const nextCycle = normalizeCycleLength(Number.parseInt(event.target.value, 10));
+                                setTemplateCycleLengthDays(nextCycle);
+                                setTemplateDays((prev) => remapTemplateDays(prev, templateEffectiveFrom, nextCycle));
+                            }}
+                            options={TEMPLATE_CYCLE_OPTIONS.map((option) => ({
+                                value: String(option.value),
+                                label: option.label,
+                            }))}
+                        />
+
                         <p className="text-xs text-[var(--color-muted)]">
-                            Save a weekly template for the selected employee. This updates recurring shifts from the effective date forward.
+                            Save a repeating template for the selected employee. This updates recurring shifts from the effective date forward.
                             One-time day edits in the calendar remain one-time overrides.
                         </p>
 
                         <div className="space-y-2">
-                            {templateDays.map((day, index) => (
-                                <div key={day.weekday} className="rounded-lg border border-[var(--color-border)] p-3">
-                                    <div className="mb-2 flex items-center justify-between gap-2">
-                                        <label className="flex items-center gap-2 text-sm font-medium text-[var(--color-foreground)]">
-                                            <input
-                                                type="checkbox"
-                                                checked={day.enabled}
-                                                onChange={(event) => {
-                                                    const checked = event.target.checked;
-                                                    setTemplateDays((prev) => prev.map((item, itemIndex) => itemIndex === index
-                                                        ? { ...item, enabled: checked }
-                                                        : item));
-                                                }}
-                                            />
-                                            {day.label}
-                                        </label>
-                                    </div>
-                                    <div className="grid gap-3 sm:grid-cols-3">
-                                        <Input
-                                            label="Start"
-                                            type="time"
-                                            value={day.startTime}
-                                            onChange={(event) => {
-                                                const value = event.target.value;
-                                                setTemplateDays((prev) => prev.map((item, itemIndex) => itemIndex === index
-                                                    ? { ...item, startTime: value }
-                                                    : item));
-                                            }}
-                                            disabled={!day.enabled}
-                                        />
-                                        <Input
-                                            label="End"
-                                            type="time"
-                                            value={day.endTime}
-                                            onChange={(event) => {
-                                                const value = event.target.value;
-                                                setTemplateDays((prev) => prev.map((item, itemIndex) => itemIndex === index
-                                                    ? { ...item, endTime: value }
-                                                    : item));
-                                            }}
-                                            disabled={!day.enabled}
-                                        />
-                                        <Input
-                                            label="Notes"
-                                            value={day.notes}
-                                            onChange={(event) => {
-                                                const value = event.target.value;
-                                                setTemplateDays((prev) => prev.map((item, itemIndex) => itemIndex === index
-                                                    ? { ...item, notes: value }
-                                                    : item));
-                                            }}
-                                            disabled={!day.enabled}
-                                            placeholder="Optional"
-                                        />
-                                    </div>
+                            <div className="hidden min-w-[980px] grid-cols-7 gap-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)] lg:grid">
+                                {Array.from({ length: 7 }, (_, index) => {
+                                    const day = templateDays[index];
+                                    if (!day) return <span key={index}>Day {index + 1}</span>;
+                                    return (
+                                        <span key={day.dateKey}>
+                                            {parseDateKey(day.dateKey).toLocaleDateString([], { weekday: 'short' })}
+                                        </span>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="overflow-x-auto pb-1">
+                                <div className="grid min-w-[980px] grid-cols-7 gap-2">
+                                    {templateDays.map((day, index) => {
+                                        const date = parseDateKey(day.dateKey);
+                                        return (
+                                            <div
+                                                key={`${day.offset}-${day.dateKey}`}
+                                                className={`rounded-lg border border-[var(--color-border)] p-2 lg:aspect-square ${day.enabled ? 'bg-[var(--color-surface)]' : 'bg-white'}`}
+                                            >
+                                                <label className="mb-2 flex items-start gap-2 text-xs font-medium text-[var(--color-foreground)]">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={day.enabled}
+                                                        onChange={(event) => {
+                                                            const checked = event.target.checked;
+                                                            setTemplateDays((prev) => prev.map((item, itemIndex) => itemIndex === index
+                                                                ? { ...item, enabled: checked }
+                                                                : item));
+                                                        }}
+                                                        className="mt-0.5"
+                                                    />
+                                                    <span className="leading-tight">
+                                                        <span className="block text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
+                                                            Week {Math.floor(day.offset / 7) + 1}
+                                                        </span>
+                                                        <span>
+                                                            {date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                                                        </span>
+                                                    </span>
+                                                </label>
+
+                                                <div className="space-y-1.5">
+                                                    <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                                                        Start
+                                                        <input
+                                                            type="time"
+                                                            value={day.startTime}
+                                                            onChange={(event) => {
+                                                                const value = event.target.value;
+                                                                setTemplateDays((prev) => prev.map((item, itemIndex) => itemIndex === index
+                                                                    ? { ...item, startTime: value }
+                                                                    : item));
+                                                            }}
+                                                            disabled={!day.enabled}
+                                                            className="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-white px-2 py-1 text-xs text-[var(--color-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+                                                        />
+                                                    </label>
+
+                                                    <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                                                        End
+                                                        <input
+                                                            type="time"
+                                                            value={day.endTime}
+                                                            onChange={(event) => {
+                                                                const value = event.target.value;
+                                                                setTemplateDays((prev) => prev.map((item, itemIndex) => itemIndex === index
+                                                                    ? { ...item, endTime: value }
+                                                                    : item));
+                                                            }}
+                                                            disabled={!day.enabled}
+                                                            className="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-white px-2 py-1 text-xs text-[var(--color-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+                                                        />
+                                                    </label>
+
+                                                    <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                                                        Notes
+                                                        <input
+                                                            value={day.notes}
+                                                            onChange={(event) => {
+                                                                const value = event.target.value;
+                                                                setTemplateDays((prev) => prev.map((item, itemIndex) => itemIndex === index
+                                                                    ? { ...item, notes: value }
+                                                                    : item));
+                                                            }}
+                                                            disabled={!day.enabled}
+                                                            placeholder="Optional"
+                                                            className="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-white px-2 py-1 text-xs text-[var(--color-foreground)] placeholder:text-[var(--color-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+                                                        />
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                            ))}
+                            </div>
                         </div>
 
                         <div className="flex justify-end">
                             <Button onClick={handleSaveTemplate} isLoading={isSavingTemplate}>
-                                Save Weekly Template
+                                Save Template
                             </Button>
                         </div>
                     </CardContent>
@@ -1213,7 +1360,7 @@ export function EmployeeSchedule() {
                 isOpen={isShiftModalOpen}
                 onClose={closeShiftModal}
                 title={editingShiftId ? 'Edit Day Shift' : 'Add Day Shift'}
-                description="This only affects the selected date. Use Templates tab for recurring weekly changes."
+                description="This only affects the selected date. Use Templates tab for recurring cycle changes."
                 size="lg"
             >
                 <form className="space-y-3" onSubmit={handleSubmit}>

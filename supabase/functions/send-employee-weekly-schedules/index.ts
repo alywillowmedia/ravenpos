@@ -26,6 +26,8 @@ type OneTimeShift = {
 type RecurringShift = {
     employee_id: string
     weekday: number
+    cycle_length_days: number | null
+    day_offset: number | null
     start_time: string
     end_time: string
     notes: string | null
@@ -73,6 +75,11 @@ function parseDateKey(value: string): Date {
     return new Date(`${value}T00:00:00.000Z`)
 }
 
+function toDateKeyDayNumber(value: string): number {
+    const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10))
+    return Math.floor(Date.UTC(year, month - 1, day) / (24 * 60 * 60 * 1000))
+}
+
 function addDays(date: Date, days: number): Date {
     const next = new Date(date)
     next.setUTCDate(next.getUTCDate() + days)
@@ -113,6 +120,19 @@ function getShiftHours(startTime: string, endTime: string): number {
     const start = Number.parseInt(startHour, 10) * 60 + Number.parseInt(startMinute, 10)
     const end = Number.parseInt(endHour, 10) * 60 + Number.parseInt(endMinute, 10)
     return Math.max(0, end - start) / 60
+}
+
+function matchesRecurringOnDate(shift: RecurringShift, date: Date, dateKey: string): boolean {
+    if (dateKey < shift.active_from) return false
+    if (shift.active_until && dateKey > shift.active_until) return false
+
+    if (shift.cycle_length_days && shift.day_offset !== null && shift.day_offset !== undefined) {
+        const deltaDays = toDateKeyDayNumber(dateKey) - toDateKeyDayNumber(shift.active_from)
+        if (deltaDays < 0) return false
+        return deltaDays % shift.cycle_length_days === shift.day_offset
+    }
+
+    return date.getUTCDay() === shift.weekday
 }
 
 function buildEmailHtml(params: {
@@ -194,9 +214,7 @@ function buildShiftMap(
 
         for (const dateKey of dates) {
             const date = parseDateKey(dateKey)
-            if (date.getUTCDay() !== recurring.weekday) continue
-            if (dateKey < recurring.active_from) continue
-            if (recurring.active_until && dateKey > recurring.active_until) continue
+            if (!matchesRecurringOnDate(recurring, date, dateKey)) continue
 
             byEmployee.get(recurring.employee_id)!.push({
                 date: dateKey,
@@ -417,7 +435,7 @@ Deno.serve(async (req) => {
                 .lte('shift_date', sunday),
             adminClient
                 .from('employee_recurring_schedules')
-                .select('employee_id, weekday, start_time, end_time, notes, active_from, active_until')
+                .select('employee_id, weekday, cycle_length_days, day_offset, start_time, end_time, notes, active_from, active_until')
                 .in('employee_id', employeeIds)
                 .lte('active_from', sunday)
                 .or(`active_until.is.null,active_until.gte.${monday}`),

@@ -24,6 +24,8 @@ type OneTimeShift = {
 type RecurringSchedule = {
     id: string;
     weekday: number;
+    cycle_length_days: number | null;
+    day_offset: number | null;
     start_time: string;
     end_time: string;
     notes: string | null;
@@ -38,6 +40,7 @@ type DisplayShift = {
     end_time: string;
     notes: string | null;
     source: 'one_time' | 'recurring';
+    recurring_cycle_length_days: number | null;
 };
 
 type TimeOffRequest = {
@@ -78,6 +81,11 @@ function toDateKey(date: Date) {
 function parseDateKey(value: string) {
     const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10));
     return new Date(year, month - 1, day);
+}
+
+function toDateKeyDayNumber(value: string) {
+    const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10));
+    return Math.floor(Date.UTC(year, month - 1, day) / (24 * 60 * 60 * 1000));
 }
 
 function startOfWeekSunday(date: Date) {
@@ -159,6 +167,25 @@ function getStatusBadgeClass(status: TimeOffRequestStatus) {
     return 'bg-[var(--color-surface)] text-[var(--color-muted)]';
 }
 
+function matchesRecurringOnDate(schedule: RecurringSchedule, day: Date, dayKey: string) {
+    if (dayKey < schedule.active_from) return false;
+    if (schedule.active_until && dayKey > schedule.active_until) return false;
+
+    if (schedule.cycle_length_days && schedule.day_offset !== null && schedule.day_offset !== undefined) {
+        const deltaDays = toDateKeyDayNumber(dayKey) - toDateKeyDayNumber(schedule.active_from);
+        if (deltaDays < 0) return false;
+        return deltaDays % schedule.cycle_length_days === schedule.day_offset;
+    }
+
+    return day.getDay() === schedule.weekday;
+}
+
+function getCycleLabel(cycleLengthDays: number | null) {
+    if (cycleLengthDays === 14) return 'Repeats every 2 weeks';
+    if (cycleLengthDays === 28) return 'Repeats monthly (4-week cycle)';
+    return 'Repeats weekly';
+}
+
 export function EmployeeSchedule() {
     const { employee } = useEmployee();
     const [activeTab, setActiveTab] = useState<EmployeeTab>('schedule');
@@ -214,11 +241,12 @@ export function EmployeeSchedule() {
                 .order('start_time'),
             supabase
                 .from('employee_recurring_schedules')
-                .select('id, weekday, start_time, end_time, notes, active_from, active_until')
+                .select('id, weekday, cycle_length_days, day_offset, start_time, end_time, notes, active_from, active_until')
                 .eq('employee_id', employee.id)
                 .lte('active_from', rangeEndKey)
                 .or(`active_until.is.null,active_until.gte.${rangeStartKey}`)
-                .order('weekday')
+                .order('cycle_length_days')
+                .order('day_offset')
                 .order('start_time'),
         ]);
 
@@ -290,9 +318,7 @@ export function EmployeeSchedule() {
         for (const schedule of recurringSchedules) {
             for (const day of visibleDays) {
                 const dayKey = toDateKey(day);
-                if (day.getDay() !== schedule.weekday) continue;
-                if (dayKey < schedule.active_from) continue;
-                if (schedule.active_until && dayKey > schedule.active_until) continue;
+                if (!matchesRecurringOnDate(schedule, day, dayKey)) continue;
                 if (overrides.has(dayKey)) continue;
 
                 recurringShifts.push({
@@ -302,6 +328,7 @@ export function EmployeeSchedule() {
                     end_time: schedule.end_time,
                     notes: schedule.notes,
                     source: 'recurring',
+                    recurring_cycle_length_days: schedule.cycle_length_days,
                 });
             }
         }
@@ -313,6 +340,7 @@ export function EmployeeSchedule() {
             end_time: shift.end_time,
             notes: shift.notes,
             source: 'one_time',
+            recurring_cycle_length_days: null,
         }));
 
         return [...specificShifts, ...recurringShifts].sort((a, b) => {
@@ -533,7 +561,9 @@ export function EmployeeSchedule() {
                                                                         <span className="ml-1 text-[var(--color-muted)]">({getShiftDurationHours(shift.start_time, shift.end_time).toFixed(2)}h)</span>
                                                                     </p>
                                                                     {shift.source === 'recurring' && (
-                                                                        <p className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">Repeats weekly</p>
+                                                                        <p className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
+                                                                            {getCycleLabel(shift.recurring_cycle_length_days)}
+                                                                        </p>
                                                                     )}
                                                                     {isFullyBlocked && (
                                                                         <p className="text-[10px] font-semibold text-[var(--color-danger)]">Approved time off</p>

@@ -16,6 +16,8 @@ type OneTimeShift = {
 type RecurringShift = {
     id: string;
     weekday: number;
+    cycle_length_days: number | null;
+    day_offset: number | null;
     start_time: string;
     end_time: string;
     notes: string | null;
@@ -63,6 +65,11 @@ function parseDateKey(value: string) {
     return new Date(year, month - 1, day);
 }
 
+function toDateKeyDayNumber(value: string) {
+    const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10));
+    return Math.floor(Date.UTC(year, month - 1, day) / (24 * 60 * 60 * 1000));
+}
+
 function startOfWeekMonday(date: Date) {
     const next = new Date(date);
     next.setHours(0, 0, 0, 0);
@@ -89,6 +96,19 @@ function toHours(start: string, end: string) {
     const startMinutes = Number.parseInt(sh, 10) * 60 + Number.parseInt(sm, 10);
     const endMinutes = Number.parseInt(eh, 10) * 60 + Number.parseInt(em, 10);
     return Math.max(0, endMinutes - startMinutes) / 60;
+}
+
+function matchesRecurringOnDate(shift: RecurringShift, date: Date, dateKey: string) {
+    if (dateKey < shift.active_from) return false;
+    if (shift.active_until && dateKey > shift.active_until) return false;
+
+    if (shift.cycle_length_days && shift.day_offset !== null && shift.day_offset !== undefined) {
+        const deltaDays = toDateKeyDayNumber(dateKey) - toDateKeyDayNumber(shift.active_from);
+        if (deltaDays < 0) return false;
+        return deltaDays % shift.cycle_length_days === shift.day_offset;
+    }
+
+    return date.getDay() === shift.weekday;
 }
 
 export function EmployeePortalDashboard() {
@@ -131,9 +151,7 @@ export function EmployeePortalDashboard() {
         for (const recurring of recurringShifts) {
             for (const dateKey of displayedDays) {
                 const date = parseDateKey(dateKey);
-                if (date.getDay() !== recurring.weekday) continue;
-                if (dateKey < recurring.active_from) continue;
-                if (recurring.active_until && dateKey > recurring.active_until) continue;
+                if (!matchesRecurringOnDate(recurring, date, dateKey)) continue;
 
                 shifts.push({
                     id: `${recurring.id}-${dateKey}`,
@@ -201,11 +219,12 @@ export function EmployeePortalDashboard() {
                 .order('start_time'),
             supabase
                 .from('employee_recurring_schedules')
-                .select('id, weekday, start_time, end_time, notes, active_from, active_until')
+                .select('id, weekday, cycle_length_days, day_offset, start_time, end_time, notes, active_from, active_until')
                 .eq('employee_id', employeeId)
                 .lte('active_from', scheduleRangeEndKey)
                 .or(`active_until.is.null,active_until.gte.${scheduleRangeStartKey}`)
-                .order('weekday')
+                .order('cycle_length_days')
+                .order('day_offset')
                 .order('start_time'),
             supabase
                 .from('time_entries')
