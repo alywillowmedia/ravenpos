@@ -4,6 +4,22 @@
 import { supabase } from './supabase';
 
 const DEVICE_TOKEN_KEY = 'deviceAuthToken';
+const LEGACY_PERMANENT_EXPIRY_ISO = '9999-12-31T23:59:59.999Z';
+
+function isEffectivelyPermanentExpiry(expiresAt: string | null | undefined): boolean {
+    if (!expiresAt) return true;
+
+    const expiryDate = new Date(expiresAt);
+    if (Number.isNaN(expiryDate.getTime())) {
+        return false;
+    }
+
+    return expiryDate.getUTCFullYear() >= 9999;
+}
+
+function normalizeExpiry(expiresAt: string | null | undefined): string | null {
+    return isEffectivelyPermanentExpiry(expiresAt) ? null : (expiresAt ?? null);
+}
 
 export interface DeviceAuthorization {
     id: string;
@@ -57,7 +73,7 @@ export async function isDeviceAuthorized(): Promise<{ authorized: boolean; expir
             clearDeviceToken();
             return { authorized: false, expiresAt: null };
         }
-        return { authorized: true, expiresAt: data.expiresAt ?? null };
+        return { authorized: true, expiresAt: normalizeExpiry(data.expiresAt) };
     } catch (err) {
         console.error('Error checking device authorization:', err);
         return { authorized: false, expiresAt: null };
@@ -70,20 +86,37 @@ export async function authorizeDevice(
     deviceName?: string
 ): Promise<{ success: boolean; error: string | null; expiresAt: string | null }> {
     const token = generateDeviceToken();
-    const expiresAt = durationHours === null
+    const requestedExpiresAt = durationHours === null
         ? null
         : new Date(Date.now() + durationHours * 60 * 60 * 1000);
 
     try {
+        const firstAttemptExpiresAtIso = requestedExpiresAt?.toISOString() ?? null;
+
         const { error } = await supabase
             .from('device_authorizations')
             .insert({
                 device_token: token,
-                expires_at: expiresAt?.toISOString() ?? null,
+                expires_at: firstAttemptExpiresAtIso,
                 device_name: deviceName || null,
             });
 
-        if (error) {
+        // Backward compatibility: older DBs may still enforce NOT NULL on expires_at.
+        // In that case, store a far-future expiration but treat it as permanent in the UI.
+        if (error && durationHours === null && error.code === '23502') {
+            const { error: retryError } = await supabase
+                .from('device_authorizations')
+                .insert({
+                    device_token: token,
+                    expires_at: LEGACY_PERMANENT_EXPIRY_ISO,
+                    device_name: deviceName || null,
+                });
+
+            if (retryError) {
+                console.error('Error authorizing device:', retryError);
+                return { success: false, error: 'Failed to authorize device', expiresAt: null };
+            }
+        } else if (error) {
             console.error('Error authorizing device:', error);
             return { success: false, error: 'Failed to authorize device', expiresAt: null };
         }
@@ -91,7 +124,7 @@ export async function authorizeDevice(
         // Store token in localStorage
         setDeviceToken(token);
 
-        return { success: true, error: null, expiresAt: expiresAt?.toISOString() ?? null };
+        return { success: true, error: null, expiresAt: normalizeExpiry(firstAttemptExpiresAtIso) };
     } catch (err) {
         console.error('Exception authorizing device:', err);
         return { success: false, error: 'Failed to authorize device', expiresAt: null };
@@ -113,7 +146,10 @@ export async function getActiveAuthorizations(): Promise<DeviceAuthorization[]> 
             return [];
         }
 
-        return data || [];
+        return (data || []).map((auth) => ({
+            ...auth,
+            expires_at: normalizeExpiry(auth.expires_at),
+        }));
     } catch (err) {
         console.error('Exception fetching authorizations:', err);
         return [];

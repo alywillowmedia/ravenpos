@@ -53,6 +53,7 @@ Deno.serve(async (req) => {
     }
 
     try {
+        const nowIso = new Date().toISOString();
         const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization');
         if (!authHeader?.startsWith('Bearer ')) {
             return new Response(
