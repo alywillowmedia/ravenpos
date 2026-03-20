@@ -10,7 +10,8 @@ import { useInventory } from '../../hooks/useInventory';
 import { useCategories } from '../../hooks/useCategories';
 import { formatCurrency } from '../../lib/utils';
 import { generateLabelsPDF } from '../../lib/generateLabelsPDF';
-import { downloadDymo30252TemplateForItems, downloadDymoPrintDataCsvFile } from '../../lib/dymoLabelTemplate';
+import { downloadDymo30252PrintPack, downloadDymo30252TemplateForItems, downloadDymoPrintDataCsvFile } from '../../lib/dymoLabelTemplate';
+import { checkDymoWebAvailability, printDymoLabelsDirect, type DymoWebAvailability } from '../../lib/dymoWebPrint';
 import type { Item } from '../../types';
 
 type PrintMode = 'all' | 'new' | 'custom';
@@ -47,6 +48,9 @@ export function VendorLabels() {
     const [showDymoInfoModal, setShowDymoInfoModal] = useState(false);
     const [showDymoCompletePrompt, setShowDymoCompletePrompt] = useState(false);
     const [pendingPrintedItems, setPendingPrintedItems] = useState<Array<{ id: string; printedCount: number }>>([]);
+    const [dymoWebAvailability, setDymoWebAvailability] = useState<DymoWebAvailability | null>(null);
+    const [isCheckingDymoWeb, setIsCheckingDymoWeb] = useState(false);
+    const [selectedDymoPrinter, setSelectedDymoPrinter] = useState('');
 
     // Filters (no consignor filter for vendors - they only see their own items)
     const [filters, setFilters] = useState<Filters>({
@@ -275,6 +279,26 @@ export function VendorLabels() {
         }
 
         setShowDymoInfoModal(true);
+        void refreshDymoWebAvailability();
+    };
+
+    const refreshDymoWebAvailability = async () => {
+        setIsCheckingDymoWeb(true);
+        try {
+            const status = await checkDymoWebAvailability();
+            setDymoWebAvailability(status);
+            setSelectedDymoPrinter((current) => {
+                if (!status.available || status.printers.length === 0) {
+                    return '';
+                }
+                if (current && status.printers.includes(current)) {
+                    return current;
+                }
+                return status.printers[0];
+            });
+        } finally {
+            setIsCheckingDymoWeb(false);
+        }
     };
 
     const handleRequestCloseDymoModal = () => {
@@ -306,6 +330,46 @@ export function VendorLabels() {
             console.error('Failed to download DYMO template:', error);
             toast.error('Unable to generate DYMO template', 'Please try again.');
         }
+    };
+
+    const handleDownloadDymoPack = () => {
+        const itemsWithQuantities = getDymoPrintableItems();
+        if (itemsWithQuantities.length === 0) {
+            toast.warning('No labels queued', 'Set at least one print quantity before generating DYMO files.');
+            return;
+        }
+
+        try {
+            const result = downloadDymo30252PrintPack(itemsWithQuantities);
+            toast.success('DYMO files downloaded', `Template + print data exported for ${result.rowCount} label${result.rowCount === 1 ? '' : 's'}.`);
+        } catch (error) {
+            console.error('Failed to download DYMO print pack:', error);
+            toast.error('Unable to generate DYMO files', 'Please try again.');
+        }
+    };
+
+    const handleDirectDymoPrint = async () => {
+        const printable = getDymoPrintableItems();
+        if (printable.length === 0) {
+            toast.warning('No labels queued', 'Set at least one print quantity before printing.');
+            return;
+        }
+
+        setIsGenerating(true);
+        try {
+            const result = await printDymoLabelsDirect(printable, selectedDymoPrinter || undefined);
+            setShowDymoInfoModal(false);
+            setShowDymoCompletePrompt(true);
+            toast.success(
+                'Sent to DYMO printer',
+                `${result.labelCount} label${result.labelCount === 1 ? '' : 's'} sent to "${result.printerName}".`
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Direct DYMO printing is unavailable.';
+            toast.error('Direct DYMO print failed', `${message} You can still use the file download flow below.`);
+            void refreshDymoWebAvailability();
+        }
+        setIsGenerating(false);
     };
 
     const handleDownloadDymoCsv = () => {
@@ -704,6 +768,14 @@ export function VendorLabels() {
                 <DymoInfoModal
                     isOpen={showDymoInfoModal}
                     onClose={handleRequestCloseDymoModal}
+                    onRefreshAvailability={refreshDymoWebAvailability}
+                    onDirectPrint={handleDirectDymoPrint}
+                    dymoWebAvailability={dymoWebAvailability}
+                    isCheckingDymoWeb={isCheckingDymoWeb}
+                    isBusy={isGenerating}
+                    selectedPrinter={selectedDymoPrinter}
+                    onSelectPrinter={setSelectedDymoPrinter}
+                    onDownloadPack={handleDownloadDymoPack}
                     onDownloadTemplate={handleDownloadDymoTemplate}
                     onDownloadCsv={handleDownloadDymoCsv}
                 />
@@ -954,34 +1026,95 @@ function FilterIcon() {
 function DymoInfoModal({
     isOpen,
     onClose,
+    onRefreshAvailability,
+    onDirectPrint,
+    dymoWebAvailability,
+    isCheckingDymoWeb,
+    isBusy,
+    selectedPrinter,
+    onSelectPrinter,
+    onDownloadPack,
     onDownloadTemplate,
     onDownloadCsv,
 }: {
     isOpen: boolean;
     onClose: () => void;
+    onRefreshAvailability: () => Promise<void>;
+    onDirectPrint: () => Promise<void>;
+    dymoWebAvailability: DymoWebAvailability | null;
+    isCheckingDymoWeb: boolean;
+    isBusy: boolean;
+    selectedPrinter: string;
+    onSelectPrinter: (value: string) => void;
+    onDownloadPack: () => void;
     onDownloadTemplate: () => void;
     onDownloadCsv: () => void;
 }) {
+    const hasPrinters = (dymoWebAvailability?.printers.length ?? 0) > 0;
+    const canDirectPrint = Boolean(dymoWebAvailability?.available && hasPrinters && !isBusy);
+
     return (
         <Modal
             isOpen={isOpen}
             onClose={onClose}
-            title="DYMO Export Help"
-            description="Download both files below, then merge them in DYMO Connect."
+            title="DYMO Printing"
+            description="Use one-click direct print when available, or export files as fallback."
             size="lg"
         >
             <div className="space-y-3 text-sm text-[var(--color-foreground)]">
-                <p><strong>What each file is for</strong></p>
+                <p><strong>Direct print status</strong></p>
+                {isCheckingDymoWeb ? (
+                    <p>Checking DYMO Web Service...</p>
+                ) : dymoWebAvailability?.available ? (
+                    <p>
+                        Ready. Found {dymoWebAvailability.printers.length} DYMO printer{dymoWebAvailability.printers.length === 1 ? '' : 's'}:
+                        {' '}
+                        <strong>{dymoWebAvailability.printers.join(', ')}</strong>
+                    </p>
+                ) : (
+                    <p>
+                        Direct print not ready.
+                        {dymoWebAvailability?.reason ? ` ${dymoWebAvailability.reason}` : ''}
+                    </p>
+                )}
+                {dymoWebAvailability?.available && hasPrinters && (
+                    <div className="space-y-1">
+                        <label className="block font-medium" htmlFor="dymo-printer-select">DYMO Printer</label>
+                        <select
+                            id="dymo-printer-select"
+                            value={selectedPrinter}
+                            onChange={(event) => onSelectPrinter(event.target.value)}
+                            disabled={isBusy || isCheckingDymoWeb}
+                            className="w-full text-sm px-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                        >
+                            {dymoWebAvailability.printers.map((printerName) => (
+                                <option key={printerName} value={printerName}>
+                                    {printerName}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+                <p><strong>Fallback export files</strong></p>
                 <p><code>ravenpos-30252-template.label</code> is your visual label layout.</p>
                 <p><code>ravenpos-30252-print-data.csv</code> contains one row per label, expanded by print quantity.</p>
-                <p><strong>Steps</strong></p>
-                <p>1. Download the template and CSV using the buttons below.</p>
+                <p><strong>Fallback steps (if direct print is unavailable)</strong></p>
+                <p>1. Download the DYMO pack (or template + CSV separately).</p>
                 <p>2. Open DYMO Connect and load the <code>.label</code> template.</p>
                 <p>3. Import/link the CSV as data source and map fields: <code>VENDOR</code>, <code>PRICE</code>, <code>NAME</code>, <code>VARIANT</code>, <code>SKU</code>, <code>DETAILS</code>, <code>BARCODE</code>.</p>
                 <p>4. Print all records to output the full quantity.</p>
             </div>
             <ModalFooter className="justify-between">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <Button onClick={onDirectPrint} disabled={!canDirectPrint}>
+                        {isBusy ? 'Printing...' : 'Direct Print Now'}
+                    </Button>
+                    <Button variant="secondary" onClick={() => void onRefreshAvailability()} disabled={isCheckingDymoWeb || isBusy}>
+                        {isCheckingDymoWeb ? 'Checking...' : 'Re-check DYMO'}
+                    </Button>
+                    <Button variant="secondary" onClick={onDownloadPack} disabled={isBusy}>
+                        Download DYMO Pack
+                    </Button>
                     <Button variant="secondary" onClick={onDownloadTemplate}>
                         Download Template (.label)
                     </Button>
