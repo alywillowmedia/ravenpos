@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -112,7 +113,8 @@ function matchesRecurringOnDate(shift: RecurringShift, date: Date, dateKey: stri
 }
 
 export function EmployeePortalDashboard() {
-    const { userRecord, signOut } = useAuth();
+    const navigate = useNavigate();
+    const { userRecord, portalChoices, setActivePortal, signOut } = useAuth();
     const [profile, setProfile] = useState<EmployeeProfile | null>(null);
     const [oneTimeShifts, setOneTimeShifts] = useState<OneTimeShift[]>([]);
     const [recurringShifts, setRecurringShifts] = useState<RecurringShift[]>([]);
@@ -120,7 +122,8 @@ export function EmployeePortalDashboard() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const employeeId = userRecord?.employee_id || null;
+    const employeeId = userRecord?.employee_id || userRecord?.linked_employee_id || null;
+    const canSwitchViews = portalChoices.length > 1;
 
     const today = useMemo(() => new Date(), []);
     const todayKey = toDateKey(today);
@@ -286,7 +289,20 @@ export function EmployeePortalDashboard() {
                             {profile ? `Welcome, ${profile.name}` : 'Your schedule and time summary'}
                         </p>
                     </div>
-                    <Button variant="ghost" onClick={signOut}>Sign Out</Button>
+                    <div className="flex items-center gap-2">
+                        {canSwitchViews && (
+                            <Button
+                                variant="secondary"
+                                onClick={() => {
+                                    setActivePortal(null);
+                                    navigate('/portal-select');
+                                }}
+                            >
+                                Switch View
+                            </Button>
+                        )}
+                        <Button variant="ghost" onClick={signOut}>Sign Out</Button>
+                    </div>
                 </div>
 
                 {error && (

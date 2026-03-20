@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 
 export type UserRole = 'admin' | 'vendor' | 'employee';
+export type PortalChoice = 'admin' | 'vendor' | 'employee';
 
 export interface UserRecord {
     id: string;
@@ -11,6 +12,7 @@ export interface UserRecord {
     role: UserRole;
     consignor_id: string | null;
     employee_id: string | null;
+    linked_employee_id?: string | null;
     created_at: string;
 }
 
@@ -22,12 +24,18 @@ interface AuthContextValue {
     isAdmin: boolean;
     isVendor: boolean;
     isEmployee: boolean;
+    canAccessEmployeePortal: boolean;
+    portalChoices: PortalChoice[];
+    activePortal: PortalChoice | null;
+    setActivePortal: (portal: PortalChoice | null) => void;
+    resolveHomePath: () => string;
     signIn: (email: string, password: string) => Promise<{ error: string | null }>;
     signOut: () => Promise<void>;
     refreshUserRecord: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const ACTIVE_PORTAL_STORAGE_KEY = 'ravenpos.active-portal';
 
 interface AuthProviderProps {
     children: ReactNode;
@@ -38,6 +46,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const [session, setSession] = useState<Session | null>(null);
     const [userRecord, setUserRecord] = useState<UserRecord | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [activePortal, setActivePortalState] = useState<PortalChoice | null>(null);
 
     // Track if we're currently fetching to prevent duplicate requests
     const fetchingRef = useRef(false);
@@ -139,7 +148,67 @@ export function AuthProvider({ children }: AuthProviderProps) {
         };
     }, [fetchUserRecord, isAnonymousUser]);
 
+    const getPortalChoices = useCallback((record: UserRecord | null): PortalChoice[] => {
+        if (!record) return [];
+
+        const choices: PortalChoice[] = [];
+        if (record.role === 'admin') choices.push('admin');
+        if (record.role === 'vendor') choices.push('vendor');
+        if (record.role === 'employee') choices.push('employee');
+
+        if (record.role !== 'employee' && record.linked_employee_id) {
+            choices.push('employee');
+        }
+
+        return choices;
+    }, []);
+
+    const setActivePortal = useCallback((portal: PortalChoice | null) => {
+        setActivePortalState(portal);
+        if (!portal) {
+            window.sessionStorage.removeItem(ACTIVE_PORTAL_STORAGE_KEY);
+            return;
+        }
+        window.sessionStorage.setItem(ACTIVE_PORTAL_STORAGE_KEY, portal);
+    }, []);
+
+    useEffect(() => {
+        const choices = getPortalChoices(userRecord);
+
+        if (choices.length === 0) {
+            setActivePortalState(null);
+            window.sessionStorage.removeItem(ACTIVE_PORTAL_STORAGE_KEY);
+            return;
+        }
+
+        const saved = window.sessionStorage.getItem(ACTIVE_PORTAL_STORAGE_KEY) as PortalChoice | null;
+        if (saved && choices.includes(saved)) {
+            setActivePortalState(saved);
+            return;
+        }
+
+        if (choices.length === 1) {
+            setActivePortalState(choices[0]);
+            window.sessionStorage.setItem(ACTIVE_PORTAL_STORAGE_KEY, choices[0]);
+            return;
+        }
+
+        setActivePortalState(null);
+    }, [getPortalChoices, userRecord]);
+
+    const resolveHomePath = useCallback(() => {
+        const choices = getPortalChoices(userRecord);
+        if (choices.length === 0) return '/login';
+        if (choices.length > 1 && !activePortal) return '/portal-select';
+
+        const portal = activePortal && choices.includes(activePortal) ? activePortal : choices[0];
+        if (portal === 'admin') return '/admin';
+        if (portal === 'vendor') return '/vendor';
+        return '/employee-portal';
+    }, [activePortal, getPortalChoices, userRecord]);
+
     const signIn = async (email: string, password: string) => {
+        setActivePortal(null);
         const { error } = await supabase.auth.signInWithPassword({
             email,
             password,
@@ -180,6 +249,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser(null);
         setSession(null);
         setUserRecord(null);
+        setActivePortal(null);
         lastUserIdRef.current = null;
         fetchingRef.current = false;
 
@@ -200,6 +270,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
     }, [user?.id, fetchUserRecord]);
 
+    const portalChoices = getPortalChoices(userRecord);
+    const canAccessEmployeePortal = portalChoices.includes('employee');
+
     const value: AuthContextValue = {
         user,
         session,
@@ -208,6 +281,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         isAdmin: userRecord?.role === 'admin',
         isVendor: userRecord?.role === 'vendor',
         isEmployee: userRecord?.role === 'employee',
+        canAccessEmployeePortal,
+        portalChoices,
+        activePortal,
+        setActivePortal,
+        resolveHomePath,
         signIn,
         signOut,
         refreshUserRecord,

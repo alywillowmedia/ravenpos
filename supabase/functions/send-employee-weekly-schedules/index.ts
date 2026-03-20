@@ -6,6 +6,7 @@ type UserRow = {
     email: string
     full_name: string | null
     employee_id: string | null
+    linked_employee_id: string | null
 }
 
 type EmployeeRow = {
@@ -397,10 +398,9 @@ Deno.serve(async (req) => {
 
         const { data: usersData, error: usersError } = await adminClient
             .from('users')
-            .select('id, email, full_name, employee_id')
-            .eq('role', 'employee')
+            .select('id, email, full_name, employee_id, linked_employee_id')
+            .or('and(role.eq.employee,employee_id.not.is.null),and(role.in.(vendor,admin),linked_employee_id.not.is.null)')
             .not('email', 'is', null)
-            .not('employee_id', 'is', null)
 
         if (usersError) {
             return new Response(
@@ -410,7 +410,11 @@ Deno.serve(async (req) => {
         }
 
         const users = ((usersData || []) as UserRow[])
-            .map((user) => ({ ...user, email: normalizeEmail(user.email) }))
+            .map((user) => ({
+                ...user,
+                email: normalizeEmail(user.email),
+                employee_id: user.employee_id || user.linked_employee_id,
+            }))
             .filter((user) => user.employee_id && isValidEmail(user.email))
 
         if (users.length === 0) {

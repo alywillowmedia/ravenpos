@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
+import { Modal } from '../ui/Modal';
 import { supabase } from '../../lib/supabase';
 
 interface EmployeeCredentialsProps {
@@ -14,6 +15,7 @@ interface ExistingEmployeeUser {
     id: string;
     email: string;
     created_at: string;
+    role: 'employee' | 'vendor' | 'admin';
 }
 
 export function EmployeeCredentials({ employeeId, employeeName }: EmployeeCredentialsProps) {
@@ -23,15 +25,15 @@ export function EmployeeCredentials({ employeeId, employeeName }: EmployeeCreden
     const [isLoading, setIsLoading] = useState(true);
     const [isProcessing, setIsProcessing] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [emailConflictChoice, setEmailConflictChoice] = useState<{ id: string; email: string; role: 'vendor' | 'admin' } | null>(null);
 
     useEffect(() => {
         const loadExisting = async () => {
             setIsLoading(true);
             const { data } = await supabase
                 .from('users')
-                .select('id, email, created_at')
-                .eq('role', 'employee')
-                .eq('employee_id', employeeId)
+                .select('id, email, created_at, role')
+                .or(`and(role.eq.employee,employee_id.eq.${employeeId}),and(role.in.(vendor,admin),linked_employee_id.eq.${employeeId})`)
                 .maybeSingle();
 
             if (data) {
@@ -86,16 +88,58 @@ export function EmployeeCredentials({ employeeId, employeeName }: EmployeeCreden
                 password,
             });
 
+            if (result?.requiresChoice && result?.existingUser) {
+                setEmailConflictChoice(result.existingUser);
+                setIsProcessing(false);
+                return;
+            }
+
             setExistingUser({
                 id: result.user.id,
                 email: result.user.email,
                 created_at: result.user.created_at,
+                role: result.user.role ?? 'employee',
             });
             setEmail(result.user.email);
             setPassword('');
-            setMessage({ type: 'success', text: 'Employee portal login created.' });
+            const successText = result.linkedExistingLogin
+                ? 'Employee portal access linked to existing login.'
+                : 'Employee portal login created.';
+            setMessage({ type: 'success', text: successText });
         } catch (err) {
             setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to create login' });
+        }
+
+        setIsProcessing(false);
+    };
+
+    const handleUseExistingLogin = async () => {
+        if (!emailConflictChoice) return;
+
+        setMessage(null);
+        setIsProcessing(true);
+
+        try {
+            const result = await callFunction({
+                action: 'create',
+                employeeId,
+                email,
+                password,
+                useExistingLogin: true,
+            });
+
+            setExistingUser({
+                id: result.user.id,
+                email: result.user.email,
+                created_at: result.user.created_at || new Date().toISOString(),
+                role: result.user.role ?? emailConflictChoice.role,
+            });
+            setEmail(result.user.email);
+            setPassword('');
+            setEmailConflictChoice(null);
+            setMessage({ type: 'success', text: 'Employee portal access linked to existing login.' });
+        } catch (err) {
+            setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to link login' });
         }
 
         setIsProcessing(false);
@@ -138,6 +182,7 @@ export function EmployeeCredentials({ employeeId, employeeName }: EmployeeCreden
             await callFunction({
                 action: 'delete',
                 userId: existingUser.id,
+                employeeId,
             });
             setExistingUser(null);
             setPassword('');
@@ -181,6 +226,11 @@ export function EmployeeCredentials({ employeeId, employeeName }: EmployeeCreden
                         <div className="text-sm">
                             <p className="text-[var(--color-muted)]">Current login email:</p>
                             <p className="font-medium">{existingUser.email}</p>
+                            {existingUser.role !== 'employee' && (
+                                <p className="text-xs text-[var(--color-muted)] mt-1">
+                                    Shared with existing {existingUser.role} login
+                                </p>
+                            )}
                         </div>
 
                         <Input
@@ -189,7 +239,9 @@ export function EmployeeCredentials({ employeeId, employeeName }: EmployeeCreden
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             placeholder="Enter new password"
-                            hint="Visible so you can share with employee"
+                            hint={existingUser.role === 'employee'
+                                ? 'Visible so you can share with employee'
+                                : 'This updates the shared login password for both portals'}
                         />
 
                         <div className="flex gap-3">
@@ -208,7 +260,7 @@ export function EmployeeCredentials({ employeeId, employeeName }: EmployeeCreden
                                 isLoading={isProcessing}
                                 className="text-[var(--color-danger)]"
                             >
-                                Remove Login
+                                {existingUser.role === 'employee' ? 'Remove Login' : 'Remove Employee Access'}
                             </Button>
                         </div>
                     </>
@@ -245,6 +297,37 @@ export function EmployeeCredentials({ employeeId, employeeName }: EmployeeCreden
                     </>
                 )}
             </CardContent>
+            <Modal
+                isOpen={!!emailConflictChoice}
+                onClose={() => setEmailConflictChoice(null)}
+                title="Email Already Exists"
+                size="md"
+            >
+                <div className="space-y-4">
+                    <p className="text-sm text-[var(--color-muted)]">
+                        This email already exists as a {emailConflictChoice?.role}. Do you want to use the same login for this employee portal account, or use a different email?
+                    </p>
+                    <div className="flex gap-3 pt-2">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={handleUseExistingLogin}
+                            isLoading={isProcessing}
+                            className="flex-1"
+                        >
+                            Use Same Login
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => setEmailConflictChoice(null)}
+                            className="flex-1"
+                        >
+                            Use Different Email
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </Card>
     );
 }

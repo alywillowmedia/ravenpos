@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 
 export function EmployeePortalLogin() {
     const navigate = useNavigate();
-    const { signIn, isLoading, user, userRecord } = useAuth();
+    const { signIn, isLoading, user, userRecord, resolveHomePath } = useAuth();
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -16,15 +16,9 @@ export function EmployeePortalLogin() {
 
     useEffect(() => {
         if (!isLoading && user && userRecord) {
-            const redirectPath =
-                userRecord.role === 'employee'
-                    ? '/employee-portal'
-                    : userRecord.role === 'admin'
-                        ? '/admin'
-                        : '/vendor';
-            navigate(redirectPath, { replace: true });
+            navigate(resolveHomePath(), { replace: true });
         }
-    }, [isLoading, user, userRecord, navigate]);
+    }, [isLoading, user, userRecord, navigate, resolveHomePath]);
 
     if (!isLoading && user && userRecord) {
         return null;

@@ -6,6 +6,7 @@ interface CreateEmployeeAccountRequest {
     employeeId: string
     email: string
     password: string
+    useExistingLogin?: boolean
 }
 
 interface UpdateEmployeePasswordRequest {
@@ -17,6 +18,7 @@ interface UpdateEmployeePasswordRequest {
 interface DeleteEmployeeAccountRequest {
     action: 'delete'
     userId: string
+    employeeId?: string
 }
 
 type RequestBody = CreateEmployeeAccountRequest | UpdateEmployeePasswordRequest | DeleteEmployeeAccountRequest
@@ -79,6 +81,7 @@ Deno.serve(async (req) => {
             const employeeId = body.employeeId?.trim()
             const email = normalizeEmail(body.email || '')
             const password = body.password || ''
+            const useExistingLogin = body.useExistingLogin === true
 
             if (!employeeId || !email || !password) {
                 return new Response(
@@ -124,14 +127,84 @@ Deno.serve(async (req) => {
             const { data: existingEmployeeAccount } = await adminClient
                 .from('users')
                 .select('id')
-                .eq('employee_id', employeeId)
-                .eq('role', 'employee')
+                .or(`employee_id.eq.${employeeId},linked_employee_id.eq.${employeeId}`)
                 .maybeSingle()
 
             if (existingEmployeeAccount) {
                 return new Response(
                     JSON.stringify({ error: 'Employee already has a portal account' }),
                     { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            const { data: existingEmailUser, error: existingEmailUserError } = await adminClient
+                .from('users')
+                .select('id, email, role, employee_id, linked_employee_id')
+                .eq('email', email)
+                .maybeSingle()
+
+            if (existingEmailUserError) {
+                return new Response(
+                    JSON.stringify({ error: existingEmailUserError.message }),
+                    { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            if (existingEmailUser) {
+                if (existingEmailUser.role === 'employee') {
+                    return new Response(
+                        JSON.stringify({ error: 'This email is already used by an employee portal account' }),
+                        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                    )
+                }
+
+                if (!useExistingLogin) {
+                    return new Response(
+                        JSON.stringify({
+                            requiresChoice: true,
+                            conflictType: 'existing_vendor_or_admin_login',
+                            message: `This email already exists as a ${existingEmailUser.role}. Use the same login for employee portal access or enter a different email.`,
+                            existingUser: {
+                                id: existingEmailUser.id,
+                                email: existingEmailUser.email,
+                                role: existingEmailUser.role,
+                            },
+                        }),
+                        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                    )
+                }
+
+                if (existingEmailUser.linked_employee_id) {
+                    return new Response(
+                        JSON.stringify({ error: 'This login is already linked to an employee portal account' }),
+                        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                    )
+                }
+
+                const { error: linkError } = await adminClient
+                    .from('users')
+                    .update({ linked_employee_id: employeeId })
+                    .eq('id', existingEmailUser.id)
+
+                if (linkError) {
+                    return new Response(
+                        JSON.stringify({ error: linkError.message }),
+                        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                    )
+                }
+
+                return new Response(
+                    JSON.stringify({
+                        success: true,
+                        linkedExistingLogin: true,
+                        user: {
+                            id: existingEmailUser.id,
+                            email: existingEmailUser.email,
+                            role: existingEmailUser.role,
+                            employee_id: employeeId,
+                        },
+                    }),
+                    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
                 )
             }
 
@@ -173,6 +246,7 @@ Deno.serve(async (req) => {
                     user: {
                         id: authData.user.id,
                         email,
+                        role: 'employee',
                         employee_id: employeeId,
                         created_at: authData.user.created_at,
                     },
@@ -201,11 +275,16 @@ Deno.serve(async (req) => {
 
             const { data: targetUser, error: targetUserError } = await adminClient
                 .from('users')
-                .select('id, role')
+                .select('id, role, employee_id, linked_employee_id')
                 .eq('id', userId)
                 .maybeSingle()
 
-            if (targetUserError || !targetUser || targetUser.role !== 'employee') {
+            if (
+                targetUserError ||
+                !targetUser ||
+                (targetUser.role === 'employee' && !targetUser.employee_id) ||
+                (targetUser.role !== 'employee' && !targetUser.linked_employee_id)
+            ) {
                 return new Response(
                     JSON.stringify({ error: 'Employee account not found' }),
                     { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -228,6 +307,7 @@ Deno.serve(async (req) => {
 
         if (body.action === 'delete') {
             const userId = body.userId?.trim()
+            const employeeId = body.employeeId?.trim() || null
             if (!userId) {
                 return new Response(
                     JSON.stringify({ error: 'Missing userId' }),
@@ -237,14 +317,47 @@ Deno.serve(async (req) => {
 
             const { data: targetUser, error: targetUserError } = await adminClient
                 .from('users')
-                .select('id, role')
+                .select('id, role, employee_id, linked_employee_id')
                 .eq('id', userId)
                 .maybeSingle()
 
-            if (targetUserError || !targetUser || targetUser.role !== 'employee') {
+            if (targetUserError || !targetUser) {
                 return new Response(
                     JSON.stringify({ error: 'Employee account not found' }),
                     { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            if (targetUser.role !== 'employee') {
+                if (!targetUser.linked_employee_id) {
+                    return new Response(
+                        JSON.stringify({ error: 'Employee portal access not found on this login' }),
+                        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                    )
+                }
+
+                if (employeeId && targetUser.linked_employee_id !== employeeId) {
+                    return new Response(
+                        JSON.stringify({ error: 'Employee portal link mismatch' }),
+                        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                    )
+                }
+
+                const { error: unlinkError } = await adminClient
+                    .from('users')
+                    .update({ linked_employee_id: null })
+                    .eq('id', userId)
+
+                if (unlinkError) {
+                    return new Response(
+                        JSON.stringify({ error: unlinkError.message }),
+                        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                    )
+                }
+
+                return new Response(
+                    JSON.stringify({ success: true, unlinkedExistingLogin: true }),
+                    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
                 )
             }
 

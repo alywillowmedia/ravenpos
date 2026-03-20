@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 
 export function Login() {
     const navigate = useNavigate();
-    const { signIn, isLoading, user, userRecord } = useAuth();
+    const { signIn, isLoading, user, userRecord, resolveHomePath } = useAuth();
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -17,15 +17,9 @@ export function Login() {
     // If already logged in, redirect based on role (in useEffect, not during render)
     useEffect(() => {
         if (!isLoading && user && userRecord) {
-            const redirectPath =
-                userRecord.role === 'admin'
-                    ? '/admin'
-                    : userRecord.role === 'vendor'
-                        ? '/vendor'
-                        : '/employee-portal';
-            navigate(redirectPath, { replace: true });
+            navigate(resolveHomePath(), { replace: true });
         }
-    }, [isLoading, user, userRecord, navigate]);
+    }, [isLoading, user, userRecord, navigate, resolveHomePath]);
 
     // Show nothing while redirecting (already logged in)
     if (!isLoading && user && userRecord) {

@@ -8,9 +8,21 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
-    const { user, userRecord, isLoading, isAdmin, isVendor, isEmployee, signOut } = useAuth();
+    const {
+        user,
+        userRecord,
+        isLoading,
+        isAdmin,
+        isVendor,
+        isEmployee,
+        canAccessEmployeePortal,
+        portalChoices,
+        activePortal,
+        signOut,
+    } = useAuth();
     const location = useLocation();
     const loginPath = requiredRole === 'employee' ? '/employee/portal-login' : '/login';
+    const needsPortalSelection = portalChoices.length > 1 && !activePortal;
 
     // Show loading while checking initial auth state
     if (isLoading) {
@@ -24,6 +36,10 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     // Not authenticated - redirect to login
     if (!user) {
         return <Navigate to={loginPath} state={{ from: location }} replace />;
+    }
+
+    if (needsPortalSelection && location.pathname !== '/portal-select') {
+        return <Navigate to="/portal-select" replace />;
     }
 
     // User is logged in but user record is still loading (non-blocking fetch)
@@ -56,12 +72,28 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
             // Vendor trying to access admin area - redirect to vendor dashboard
             return <Navigate to="/vendor" replace />;
         }
+        if (requiredRole === 'admin' && portalChoices.length > 1 && activePortal && activePortal !== 'admin') {
+            return <Navigate to="/portal-select" replace />;
+        }
         if (requiredRole === 'vendor' && !isVendor) {
             // Admin trying to access vendor area - redirect to admin dashboard
             return <Navigate to="/admin" replace />;
         }
+        if (requiredRole === 'vendor' && portalChoices.length > 1 && activePortal && activePortal !== 'vendor') {
+            return <Navigate to="/portal-select" replace />;
+        }
         if (requiredRole === 'employee' && !isEmployee) {
-            // Non-employee users should go to their default area
+            if (!canAccessEmployeePortal) {
+                // Non-employee users should go to their default area
+                if (isAdmin) return <Navigate to="/admin" replace />;
+                if (isVendor) return <Navigate to="/vendor" replace />;
+                return <Navigate to={loginPath} replace />;
+            }
+        }
+        if (requiredRole === 'employee' && portalChoices.length > 1 && activePortal && activePortal !== 'employee') {
+            return <Navigate to="/portal-select" replace />;
+        }
+        if (requiredRole === 'employee' && !canAccessEmployeePortal) {
             if (isAdmin) return <Navigate to="/admin" replace />;
             if (isVendor) return <Navigate to="/vendor" replace />;
             return <Navigate to={loginPath} replace />;
