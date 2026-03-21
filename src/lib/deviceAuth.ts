@@ -61,22 +61,66 @@ export interface DeviceAuthorization {
     created_at: string;
 }
 
-// Get stored device token from localStorage
-export function getDeviceToken(): string | null {
+function isElectronRuntime(): boolean {
+    return typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
+}
+
+// Get stored device token from durable storage.
+// In Electron we use main-process persistence to survive portable restarts.
+export async function getDeviceToken(): Promise<string | null> {
+    if (isElectronRuntime()) {
+        try {
+            const token = await window.electronAPI?.getDeviceAuthToken();
+            if (token) {
+                // Keep localStorage mirrored for compatibility with existing flows.
+                localStorage.setItem(DEVICE_TOKEN_KEY, token);
+                return token;
+            }
+        } catch {
+            // Fall through to localStorage
+        }
+    }
+
     try {
-        return localStorage.getItem(DEVICE_TOKEN_KEY);
+        const legacyToken = localStorage.getItem(DEVICE_TOKEN_KEY);
+
+        // One-time migration path for existing authorized devices that only
+        // have localStorage token from older builds.
+        if (legacyToken && isElectronRuntime()) {
+            try {
+                await window.electronAPI?.setDeviceAuthToken(legacyToken);
+            } catch {
+                // Best effort migration only
+            }
+        }
+
+        return legacyToken;
     } catch {
         return null;
     }
 }
 
-// Store device token in localStorage
-export function setDeviceToken(token: string): void {
+// Store device token.
+export async function setDeviceToken(token: string): Promise<void> {
+    if (isElectronRuntime()) {
+        try {
+            await window.electronAPI?.setDeviceAuthToken(token);
+        } catch {
+            // Continue to localStorage fallback
+        }
+    }
     localStorage.setItem(DEVICE_TOKEN_KEY, token);
 }
 
-// Clear device token from localStorage
-export function clearDeviceToken(): void {
+// Clear device token.
+export async function clearDeviceToken(): Promise<void> {
+    if (isElectronRuntime()) {
+        try {
+            await window.electronAPI?.clearDeviceAuthToken();
+        } catch {
+            // Continue to localStorage fallback
+        }
+    }
     localStorage.removeItem(DEVICE_TOKEN_KEY);
 }
 
@@ -87,7 +131,7 @@ export function generateDeviceToken(): string {
 
 // Check if the current device is authorized
 export async function isDeviceAuthorized(): Promise<{ authorized: boolean; expiresAt: string | null }> {
-    const token = getDeviceToken();
+    const token = await getDeviceToken();
 
     if (!token) {
         return { authorized: false, expiresAt: null };
@@ -115,7 +159,7 @@ export async function isDeviceAuthorized(): Promise<{ authorized: boolean; expir
         }
 
         if (!data?.authorized) {
-            clearDeviceToken();
+            await clearDeviceToken();
             return { authorized: false, expiresAt: null };
         }
         return { authorized: true, expiresAt: normalizeExpiry(data.expiresAt) };
@@ -152,7 +196,7 @@ export async function authorizeDevice(
         }
 
         // Store token in localStorage
-        setDeviceToken(token);
+        await setDeviceToken(token);
 
         return { success: true, error: null, expiresAt: normalizeExpiry(storedExpiresAtIso) };
     } catch (err) {

@@ -84,7 +84,7 @@ export async function verifyEmployeePIN(pin: string): Promise<{ employee: Employ
             }
             return { employee: null, error: 'Unable to start employee session. Please try again.' };
         }
-        const deviceToken = getDeviceToken();
+        const deviceToken = await getDeviceToken();
         if (!deviceToken) {
             return { employee: null, error: 'This device is not authorized for employee login.' };
         }

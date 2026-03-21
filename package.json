@@ -4,6 +4,10 @@
   "private": true,
   "version": "3.6.0",
   "author": "Ravenlia",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alywillowmedia/ravenpos.git"
+  },
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -19,14 +23,17 @@
     "electron:build:base": "tsc -b && vite build --mode electron",
     "electron:build:installer": "npm run electron:build:base && npm run electron:build:installer:only",
     "electron:build:installer:only": "electron-builder --win nsis --x64 --publish never",
+    "electron:build:installer:publish": "electron-builder --win nsis --x64 --publish always",
     "electron:build:portable": "npm run electron:build:base && npm run electron:build:portable:only",
     "electron:build:portable:only": "electron-builder --win portable --x64 --publish never",
+    "electron:release": "npm run electron:build:base && npm run electron:build:installer:publish",
     "electron:verify:artifacts": "node scripts/verify-electron-artifacts.cjs"
   },
   "dependencies": {
     "@radix-ui/react-hover-card": "^1.1.15",
     "@supabase/supabase-js": "^2.49.0",
     "electron-store": "^8.1.0",
+    "electron-updater": "^6.8.3",
     "jsbarcode": "^3.11.6",
     "jspdf": "^4.0.0",
     "lucide-react": "^0.562.0",
@@ -58,8 +65,8 @@
     "tailwindcss": "^4.0.0",
     "typescript": "~5.7.0",
     "typescript-eslint": "^8.20.0",
-    "vitest": "^3.2.4",
     "vite": "^6.0.0",
+    "vitest": "^3.2.4",
     "wait-on": "^7.2.0"
   },
   "build": {
@@ -101,6 +108,13 @@
     },
     "portable": {
       "artifactName": "RavenPOS-Portable-${version}-${arch}.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "alywillowmedia",
+        "repo": "ravenpos"
+      }
+    ]
   }
 }

@@ -83,6 +83,13 @@ interface SendResult {
     sampleFailures: string[];
 }
 
+interface RecipientOption {
+    id: string;
+    name: string;
+    email: string;
+    source: 'customer' | 'consignor';
+}
+
 const DEFAULT_TEMPLATE = {
     templateName: '',
     subject: '',
@@ -269,6 +276,23 @@ function parseManualRecipients(raw: string): string[] {
         .filter(Boolean);
 }
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeEmail(value: string): string | null {
+    const email = value.trim().toLowerCase();
+    if (!EMAIL_REGEX.test(email)) return null;
+    return email;
+}
+
+function dedupeValidEmails(values: string[]): string[] {
+    const unique = new Set<string>();
+    for (const value of values) {
+        const normalized = normalizeEmail(value);
+        if (normalized) unique.add(normalized);
+    }
+    return Array.from(unique);
+}
+
 export function EmailCampaigns() {
     const [templates, setTemplates] = useState<EmailTemplate[]>([]);
     const [campaigns, setCampaigns] = useState<CampaignSend[]>([]);
@@ -285,9 +309,12 @@ export function EmailCampaigns() {
     const [replyTo, setReplyTo] = useState(DEFAULT_TEMPLATE.replyTo);
     const [blocks, setBlocks] = useState<EmailBlock[]>([defaultBlock('text')]);
 
-    const [audienceMode, setAudienceMode] = useState<'customers' | 'manual'>('customers');
+    const [recipientOptions, setRecipientOptions] = useState<RecipientOption[]>([]);
+    const [selectedRecipientEmails, setSelectedRecipientEmails] = useState<string[]>([]);
+    const [recipientSearch, setRecipientSearch] = useState('');
     const [manualRecipientsRaw, setManualRecipientsRaw] = useState('');
     const [customerAudienceCount, setCustomerAudienceCount] = useState(0);
+    const [consignorAudienceCount, setConsignorAudienceCount] = useState(0);
 
     const [templateError, setTemplateError] = useState<string | null>(null);
     const [sendError, setSendError] = useState<string | null>(null);
@@ -297,6 +324,28 @@ export function EmailCampaigns() {
         () => parseManualRecipients(manualRecipientsRaw).length,
         [manualRecipientsRaw]
     );
+
+    const selectedRecipients = useMemo(
+        () => recipientOptions.filter((recipient) => selectedRecipientEmails.includes(recipient.email)),
+        [recipientOptions, selectedRecipientEmails]
+    );
+
+    const filteredRecipients = useMemo(() => {
+        const query = recipientSearch.trim().toLowerCase();
+        const base = query
+            ? recipientOptions.filter((recipient) =>
+                recipient.name.toLowerCase().includes(query) ||
+                recipient.email.toLowerCase().includes(query)
+            )
+            : recipientOptions;
+
+        return base.slice(0, 50);
+    }, [recipientOptions, recipientSearch]);
+
+    const totalRecipientCount = useMemo(() => {
+        const manualRecipients = parseManualRecipients(manualRecipientsRaw);
+        return dedupeValidEmails([...selectedRecipientEmails, ...manualRecipients]).length;
+    }, [selectedRecipientEmails, manualRecipientsRaw]);
 
     const previewHtml = useMemo(() => buildEmailHtml({ subject: subject || 'Preview', previewText, blocks }), [subject, previewText, blocks]);
 
@@ -312,12 +361,15 @@ export function EmailCampaigns() {
         setTemplateError(null);
         setSendError(null);
         setSendSuccess(null);
+        setSelectedRecipientEmails([]);
+        setRecipientSearch('');
+        setManualRecipientsRaw('');
     }, []);
 
     const loadInitialData = useCallback(async () => {
         setIsLoading(true);
 
-        const [templatesRes, campaignsRes, customerCountRes] = await Promise.all([
+        const [templatesRes, campaignsRes, customersRes, consignorsRes] = await Promise.all([
             supabase
                 .from('email_templates')
                 .select('id, name, subject, preview_text, from_name, from_email, reply_to, blocks, created_at, updated_at')
@@ -330,8 +382,12 @@ export function EmailCampaigns() {
                 .limit(10),
             supabase
                 .from('customers')
-                .select('id', { count: 'exact', head: true })
+                .select('id, name, email')
                 .eq('accepts_marketing', true)
+                .not('email', 'is', null),
+            supabase
+                .from('consignors')
+                .select('id, name, email')
                 .not('email', 'is', null),
         ]);
 
@@ -347,9 +403,35 @@ export function EmailCampaigns() {
             setCampaigns((campaignsRes.data ?? []) as CampaignSend[]);
         }
 
-        if (!customerCountRes.error) {
-            setCustomerAudienceCount(customerCountRes.count ?? 0);
-        }
+        const customerRows = customersRes.error
+            ? []
+            : (customersRes.data ?? []) as Array<{ id: string; name: string | null; email: string | null }>;
+        const customerOptions: RecipientOption[] = customerRows
+            .filter((row): row is { id: string; name: string | null; email: string } => Boolean(row.email))
+            .map((row) => ({
+                id: row.id,
+                name: row.name?.trim() || 'Unnamed customer',
+                email: row.email.trim().toLowerCase(),
+                source: 'customer',
+            }));
+
+        const consignorRows = consignorsRes.error
+            ? []
+            : (consignorsRes.data ?? []) as Array<{ id: string; name: string | null; email: string | null }>;
+        const consignorOptions: RecipientOption[] = consignorRows
+            .filter((row): row is { id: string; name: string | null; email: string } => Boolean(row.email))
+            .map((row) => ({
+                id: row.id,
+                name: row.name?.trim() || 'Unnamed consignor',
+                email: row.email.trim().toLowerCase(),
+                source: 'consignor',
+            }));
+
+        setCustomerAudienceCount(customerOptions.length);
+        setConsignorAudienceCount(consignorOptions.length);
+        setRecipientOptions(
+            [...customerOptions, ...consignorOptions].sort((a, b) => a.name.localeCompare(b.name))
+        );
 
         setIsLoading(false);
     }, []);
@@ -498,6 +580,29 @@ export function EmailCampaigns() {
         setBlocks((prev) => (prev.length === 1 ? prev : prev.filter((block) => block.id !== id)));
     };
 
+    const toggleRecipient = (email: string) => {
+        setSelectedRecipientEmails((prev) =>
+            prev.includes(email)
+                ? prev.filter((value) => value !== email)
+                : [...prev, email]
+        );
+    };
+
+    const addRecipientGroup = (group: 'customers' | 'consignors' | 'all') => {
+        const groupEmails = recipientOptions
+            .filter((recipient) => {
+                if (group === 'all') return true;
+                if (group === 'customers') return recipient.source === 'customer';
+                return recipient.source === 'consignor';
+            })
+            .map((recipient) => recipient.email);
+        setSelectedRecipientEmails((prev) => dedupeValidEmails([...prev, ...groupEmails]));
+    };
+
+    const removeSelectedRecipient = (email: string) => {
+        setSelectedRecipientEmails((prev) => prev.filter((value) => value !== email));
+    };
+
     const sendCampaign = async () => {
         setSendError(null);
         setSendSuccess(null);
@@ -513,8 +618,9 @@ export function EmailCampaigns() {
         }
 
         const manualRecipients = parseManualRecipients(manualRecipientsRaw);
-        if (audienceMode === 'manual' && manualRecipients.length === 0) {
-            setSendError('Add at least one email for manual send.');
+        const recipients = dedupeValidEmails([...selectedRecipientEmails, ...manualRecipients]);
+        if (recipients.length === 0) {
+            setSendError('Select at least one recipient by name or email before sending.');
             return;
         }
 
@@ -530,10 +636,12 @@ export function EmailCampaigns() {
                 fromName: fromName.trim() || DEFAULT_TEMPLATE.fromName,
                 fromEmail: fromEmail.trim() || DEFAULT_TEMPLATE.fromEmail,
                 replyTo: replyTo.trim() || null,
-                recipientSource: audienceMode === 'customers' ? 'customers_with_email' : 'manual',
-                manualRecipients,
+                recipientSource: 'manual',
+                manualRecipients: recipients,
                 metadata: {
                     blockCount: blocks.length,
+                    selectedRecipientCount: selectedRecipientEmails.length,
+                    manualRecipientCount: manualRecipients.length,
                 },
             },
         });
@@ -563,7 +671,7 @@ export function EmailCampaigns() {
         <div className="space-y-6">
             <Header
                 title="Email Campaigns"
-                description="Build reusable email templates and send campaigns to customers using Resend."
+                description="Build reusable email templates and send campaigns to selected customers and consignors using Resend."
                 actions={
                     <div className="flex gap-2">
                         <Button variant="secondary" onClick={resetDraft}>New Template</Button>
@@ -597,25 +705,87 @@ export function EmailCampaigns() {
                     <div className="rounded-xl border border-[var(--color-border)] bg-white p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Audience</p>
                         <div className="mt-3 space-y-3">
-                            <Select
-                                label="Send to"
-                                value={audienceMode}
-                                onChange={(event) => setAudienceMode(event.target.value as 'customers' | 'manual')}
-                                options={[
-                                    { value: 'customers', label: `Opted-in customers with email (${customerAudienceCount})` },
-                                    { value: 'manual', label: 'Manual list' },
-                                ]}
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                <Button variant="secondary" size="sm" onClick={() => addRecipientGroup('customers')}>
+                                    Add Customers ({customerAudienceCount})
+                                </Button>
+                                <Button variant="secondary" size="sm" onClick={() => addRecipientGroup('consignors')}>
+                                    Add Consignors ({consignorAudienceCount})
+                                </Button>
+                                <Button variant="secondary" size="sm" onClick={() => addRecipientGroup('all')}>
+                                    Add Both ({customerAudienceCount + consignorAudienceCount})
+                                </Button>
+                            </div>
+
+                            <Input
+                                label="Search customers or consignors"
+                                placeholder="Search by name or email"
+                                value={recipientSearch}
+                                onChange={(event) => setRecipientSearch(event.target.value)}
+                                hint={`${selectedRecipientEmails.length} selected`}
                             />
 
-                            {audienceMode === 'manual' && (
-                                <Textarea
-                                    label="Manual recipients"
-                                    placeholder="one@example.com, two@example.com"
-                                    value={manualRecipientsRaw}
-                                    onChange={(event) => setManualRecipientsRaw(event.target.value)}
-                                    hint={`${manualRecipientCount} emails detected`}
-                                />
-                            )}
+                            <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-[var(--color-border)] p-2">
+                                {filteredRecipients.map((recipient) => {
+                                    const checked = selectedRecipientEmails.includes(recipient.email);
+                                    return (
+                                        <label key={`${recipient.source}-${recipient.id}`} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-surface)]">
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={() => toggleRecipient(recipient.email)}
+                                                className="h-4 w-4"
+                                            />
+                                            <div className="min-w-0">
+                                                <p className="truncate text-sm font-medium text-[var(--color-foreground)]">{recipient.name}</p>
+                                                <p className="truncate text-xs text-[var(--color-muted)]">
+                                                    {recipient.email} • {recipient.source}
+                                                </p>
+                                            </div>
+                                        </label>
+                                    );
+                                })}
+                                {filteredRecipients.length === 0 && (
+                                    <p className="px-2 py-4 text-sm text-[var(--color-muted)]">No matching recipients found.</p>
+                                )}
+                            </div>
+
+                            <div className="rounded-lg border border-[var(--color-border)] p-2">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Selected</p>
+                                    <button
+                                        type="button"
+                                        className="text-xs text-[var(--color-muted)] underline"
+                                        onClick={() => setSelectedRecipientEmails([])}
+                                        disabled={selectedRecipientEmails.length === 0}
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
+                                <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                                    {selectedRecipients.map((recipient) => (
+                                        <button
+                                            key={`selected-${recipient.source}-${recipient.id}`}
+                                            type="button"
+                                            onClick={() => removeSelectedRecipient(recipient.email)}
+                                            className="rounded-full border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-foreground)]"
+                                        >
+                                            {recipient.name} ({recipient.source}) ×
+                                        </button>
+                                    ))}
+                                    {selectedRecipients.length === 0 && (
+                                        <p className="text-sm text-[var(--color-muted)]">No recipients selected yet.</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <Textarea
+                                label="Additional email addresses (optional)"
+                                placeholder="one@example.com, two@example.com"
+                                value={manualRecipientsRaw}
+                                onChange={(event) => setManualRecipientsRaw(event.target.value)}
+                                hint={`${manualRecipientCount} typed • ${totalRecipientCount} total unique recipients`}
+                            />
 
                             <Button onClick={sendCampaign} isLoading={isSending}>
                                 Send Campaign

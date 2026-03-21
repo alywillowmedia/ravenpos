@@ -13,6 +13,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getSelectedPrinter: () => ipcRenderer.invoke('get-selected-printer'),
     setSelectedPrinter: (printerName) => ipcRenderer.invoke('set-selected-printer', printerName),
 
+    // Device auth token persistence
+    getDeviceAuthToken: () => ipcRenderer.invoke('device-auth:get-token'),
+    setDeviceAuthToken: (token) => ipcRenderer.invoke('device-auth:set-token', token),
+    clearDeviceAuthToken: () => ipcRenderer.invoke('device-auth:clear-token'),
+
     // Platform detection
     isElectron: true,
 });

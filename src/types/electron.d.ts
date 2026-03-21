@@ -32,6 +32,11 @@ interface ElectronAPI {
     getSelectedPrinter: () => Promise<string | null>;
     setSelectedPrinter: (printerName: string | null) => Promise<{ success: boolean }>;
 
+    // Device auth token persistence
+    getDeviceAuthToken: () => Promise<string | null>;
+    setDeviceAuthToken: (token: string) => Promise<{ success: boolean }>;
+    clearDeviceAuthToken: () => Promise<{ success: boolean }>;
+
     // Platform detection
     isElectron: boolean;
 }
