@@ -40,6 +40,7 @@ export function Labels() {
     const toast = useToast();
 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
     const [showPrintOptions, setShowPrintOptions] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
     const [printMode, setPrintMode] = useState<PrintMode>('all');
@@ -172,8 +173,45 @@ export function Labels() {
         });
     };
 
-    const toggleSelect = (id: string) => {
+    const itemIndexMap = useMemo(() => {
+        const map = new Map<string, number>();
+        filteredAndSortedItems.forEach((item, index) => {
+            map.set(item.id, index);
+        });
+        return map;
+    }, [filteredAndSortedItems]);
+
+    const toggleSelect = (
+        id: string,
+        options?: { shiftKey?: boolean; itemIndex?: number }
+    ) => {
+        const shiftKey = options?.shiftKey ?? false;
+        const itemIndex = options?.itemIndex;
+
         setSelectedIds((prev) => {
+            if (
+                shiftKey &&
+                typeof itemIndex === 'number' &&
+                lastSelectedIndex !== null
+            ) {
+                const rangeStart = Math.min(lastSelectedIndex, itemIndex);
+                const rangeEnd = Math.max(lastSelectedIndex, itemIndex);
+                const rangeIds = filteredAndSortedItems
+                    .slice(rangeStart, rangeEnd + 1)
+                    .map((item) => item.id);
+
+                const next = new Set(prev);
+                const shouldSelectRange = !prev.has(id);
+                rangeIds.forEach((rangeId) => {
+                    if (shouldSelectRange) {
+                        next.add(rangeId);
+                    } else {
+                        next.delete(rangeId);
+                    }
+                });
+                return next;
+            }
+
             const next = new Set(prev);
             if (next.has(id)) {
                 next.delete(id);
@@ -182,11 +220,16 @@ export function Labels() {
             }
             return next;
         });
+
+        if (typeof itemIndex === 'number') {
+            setLastSelectedIndex(itemIndex);
+        }
     };
 
     const toggleSelectAll = () => {
         if (selectedIds.size === filteredAndSortedItems.length) {
             setSelectedIds(new Set());
+            setLastSelectedIndex(null);
         } else {
             setSelectedIds(new Set(filteredAndSortedItems.map((i) => i.id)));
         }
@@ -486,9 +529,15 @@ export function Labels() {
                 <input
                     type="checkbox"
                     checked={selectedIds.has(item.id)}
-                    onChange={() => toggleSelect(item.id)}
+                    readOnly
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        toggleSelect(item.id, {
+                            shiftKey: event.shiftKey,
+                            itemIndex: itemIndexMap.get(item.id),
+                        });
+                    }}
                     className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
-                    onClick={(e) => e.stopPropagation()}
                 />
             ),
         },
@@ -993,6 +1042,7 @@ export function Labels() {
                                     .filter((i) => (i.qty_unlabeled || 0) > 0)
                                     .map((i) => i.id);
                                 setSelectedIds(new Set(unlabeledIds));
+                                setLastSelectedIndex(null);
                             }}
                         >
                             Select Unlabeled
@@ -1014,7 +1064,10 @@ export function Labels() {
                         searchable
                         searchPlaceholder="Search items..."
                         searchKeys={['name', 'sku', 'variant_summary']}
-                        onRowClick={(item) => toggleSelect(item.id)}
+                        onRowClick={(item, event) => toggleSelect(item.id, {
+                            shiftKey: event.shiftKey,
+                            itemIndex: itemIndexMap.get(item.id),
+                        })}
                         isLoading={isLoading}
                     />
 

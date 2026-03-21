@@ -1,4 +1,4 @@
-import { useState, useMemo, type ReactNode } from 'react';
+import { useState, useMemo, type MouseEvent, type ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 import { Input } from './Input';
 
@@ -18,7 +18,7 @@ export interface TableProps<T> {
     searchable?: boolean;
     searchPlaceholder?: string;
     searchKeys?: string[];
-    onRowClick?: (item: T) => void;
+    onRowClick?: (item: T, event: MouseEvent<HTMLTableRowElement>) => void;
     emptyMessage?: string;
     className?: string;
     isLoading?: boolean;
@@ -149,7 +149,7 @@ export function Table<T extends Record<string, any>>({
                             sortedData.map((item) => (
                                 <tr
                                     key={keyExtractor(item)}
-                                    onClick={() => onRowClick?.(item)}
+                                    onClick={(event) => onRowClick?.(item, event)}
                                     className={cn(
                                         'bg-white',
                                         onRowClick && 'cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors'
