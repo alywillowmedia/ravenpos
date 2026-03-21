@@ -40,7 +40,7 @@ export function Labels() {
     const toast = useToast();
 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
+    const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
     const [showPrintOptions, setShowPrintOptions] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
     const [printMode, setPrintMode] = useState<PrintMode>('all');
@@ -173,43 +173,40 @@ export function Labels() {
         });
     };
 
-    const itemIndexMap = useMemo(() => {
-        const map = new Map<string, number>();
-        filteredAndSortedItems.forEach((item, index) => {
-            map.set(item.id, index);
-        });
-        return map;
-    }, [filteredAndSortedItems]);
-
     const toggleSelect = (
         id: string,
-        options?: { shiftKey?: boolean; itemIndex?: number }
+        options?: { shiftKey?: boolean; visibleIds?: string[] }
     ) => {
         const shiftKey = options?.shiftKey ?? false;
-        const itemIndex = options?.itemIndex;
+        const visibleIds = options?.visibleIds;
 
         setSelectedIds((prev) => {
             if (
                 shiftKey &&
-                typeof itemIndex === 'number' &&
-                lastSelectedIndex !== null
+                lastSelectedId
             ) {
-                const rangeStart = Math.min(lastSelectedIndex, itemIndex);
-                const rangeEnd = Math.max(lastSelectedIndex, itemIndex);
-                const rangeIds = filteredAndSortedItems
-                    .slice(rangeStart, rangeEnd + 1)
-                    .map((item) => item.id);
+                const idsInOrder = visibleIds && visibleIds.length > 0
+                    ? visibleIds
+                    : filteredAndSortedItems.map((item) => item.id);
+                const startIndex = idsInOrder.indexOf(lastSelectedId);
+                const endIndex = idsInOrder.indexOf(id);
 
-                const next = new Set(prev);
-                const shouldSelectRange = !prev.has(id);
-                rangeIds.forEach((rangeId) => {
-                    if (shouldSelectRange) {
-                        next.add(rangeId);
-                    } else {
-                        next.delete(rangeId);
-                    }
-                });
-                return next;
+                if (startIndex !== -1 && endIndex !== -1) {
+                    const rangeStart = Math.min(startIndex, endIndex);
+                    const rangeEnd = Math.max(startIndex, endIndex);
+                    const rangeIds = idsInOrder.slice(rangeStart, rangeEnd + 1);
+
+                    const next = new Set(prev);
+                    const shouldSelectRange = !prev.has(id);
+                    rangeIds.forEach((rangeId) => {
+                        if (shouldSelectRange) {
+                            next.add(rangeId);
+                        } else {
+                            next.delete(rangeId);
+                        }
+                    });
+                    return next;
+                }
             }
 
             const next = new Set(prev);
@@ -220,16 +217,13 @@ export function Labels() {
             }
             return next;
         });
-
-        if (typeof itemIndex === 'number') {
-            setLastSelectedIndex(itemIndex);
-        }
+        setLastSelectedId(id);
     };
 
     const toggleSelectAll = () => {
         if (selectedIds.size === filteredAndSortedItems.length) {
             setSelectedIds(new Set());
-            setLastSelectedIndex(null);
+            setLastSelectedId(null);
         } else {
             setSelectedIds(new Set(filteredAndSortedItems.map((i) => i.id)));
         }
@@ -525,7 +519,7 @@ export function Labels() {
             key: 'select',
             header: '',
             width: '50px',
-            render: (item) => (
+            render: (item, meta) => (
                 <input
                     type="checkbox"
                     checked={selectedIds.has(item.id)}
@@ -534,7 +528,7 @@ export function Labels() {
                         event.stopPropagation();
                         toggleSelect(item.id, {
                             shiftKey: event.shiftKey,
-                            itemIndex: itemIndexMap.get(item.id),
+                            visibleIds: meta?.visibleKeys,
                         });
                     }}
                     className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
@@ -1042,7 +1036,7 @@ export function Labels() {
                                     .filter((i) => (i.qty_unlabeled || 0) > 0)
                                     .map((i) => i.id);
                                 setSelectedIds(new Set(unlabeledIds));
-                                setLastSelectedIndex(null);
+                                setLastSelectedId(null);
                             }}
                         >
                             Select Unlabeled
@@ -1064,9 +1058,9 @@ export function Labels() {
                         searchable
                         searchPlaceholder="Search items..."
                         searchKeys={['name', 'sku', 'variant_summary']}
-                        onRowClick={(item, event) => toggleSelect(item.id, {
+                        onRowClick={(item, event, meta) => toggleSelect(item.id, {
                             shiftKey: event.shiftKey,
-                            itemIndex: itemIndexMap.get(item.id),
+                            visibleIds: meta.visibleKeys,
                         })}
                         isLoading={isLoading}
                     />

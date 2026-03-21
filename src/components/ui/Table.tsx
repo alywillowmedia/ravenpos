@@ -8,7 +8,7 @@ export interface Column<T> {
     width?: string;
     minWidth?: string;
     sortable?: boolean;
-    render?: (item: T) => ReactNode;
+    render?: (item: T, meta?: { visibleIndex: number; visibleKeys: string[] }) => ReactNode;
 }
 
 export interface TableProps<T> {
@@ -18,7 +18,11 @@ export interface TableProps<T> {
     searchable?: boolean;
     searchPlaceholder?: string;
     searchKeys?: string[];
-    onRowClick?: (item: T, event: MouseEvent<HTMLTableRowElement>) => void;
+    onRowClick?: (
+        item: T,
+        event: MouseEvent<HTMLTableRowElement>,
+        meta: { visibleIndex: number; visibleKeys: string[] }
+    ) => void;
     emptyMessage?: string;
     className?: string;
     isLoading?: boolean;
@@ -70,6 +74,11 @@ export function Table<T extends Record<string, any>>({
             return sortDirection === 'asc' ? comparison : -comparison;
         });
     }, [filteredData, sortKey, sortDirection]);
+
+    const visibleKeys = useMemo(
+        () => sortedData.map((item) => keyExtractor(item)),
+        [keyExtractor, sortedData]
+    );
 
     const handleSort = (key: string) => {
         if (sortKey === key) {
@@ -146,10 +155,11 @@ export function Table<T extends Record<string, any>>({
                                 </td>
                             </tr>
                         ) : (
-                            sortedData.map((item) => (
+                            sortedData.map((item, visibleIndex) => {
+                                return (
                                 <tr
                                     key={keyExtractor(item)}
-                                    onClick={(event) => onRowClick?.(item, event)}
+                                    onClick={(event) => onRowClick?.(item, event, { visibleIndex, visibleKeys })}
                                     className={cn(
                                         'bg-white',
                                         onRowClick && 'cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors'
@@ -162,12 +172,13 @@ export function Table<T extends Record<string, any>>({
                                             className="px-4 py-3 text-sm text-[var(--color-foreground)]"
                                         >
                                             {col.render
-                                                ? col.render(item)
+                                                ? col.render(item, { visibleIndex, visibleKeys })
                                                 : String(getNestedValue(item, col.key) ?? '')}
                                         </td>
                                     ))}
                                 </tr>
-                            ))
+                                );
+                            })
                         )}
                     </tbody>
                 </table>
