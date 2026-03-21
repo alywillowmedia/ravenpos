@@ -14,6 +14,7 @@ import { ReceiptDeliveryModal } from '../components/receipt/ReceiptDeliveryModal
 import { InvoiceDeliveryModal } from '../components/invoice/InvoiceDeliveryModal';
 import { StripeReaderSetupModal } from '../components/pos/StripeReaderSetupModal';
 import { SmartSearch } from '../components/pos/SmartSearch';
+import { useAuth } from '../contexts/AuthContext';
 import { useInventory } from '../hooks/useInventory';
 import { useConsignors } from '../hooks/useConsignors';
 import { useSales } from '../hooks/useSales';
@@ -39,6 +40,7 @@ const STRIPE_READER_AUTO_RECONNECT_KEY = 'ravenpos-stripe-reader-auto-reconnect'
 const STRIPE_READER_PREFERRED_ID_KEY = 'ravenpos-stripe-reader-preferred-id';
 
 export function POS() {
+    const { isAdmin } = useAuth();
     const scannerRef = useRef<HTMLInputElement>(null);
     const { getItemBySku } = useInventory();
     const { consignors } = useConsignors();
@@ -146,6 +148,7 @@ export function POS() {
         return localStorage.getItem(STRIPE_READER_AUTO_RECONNECT_KEY) !== 'false';
     });
     const [autoReconnectPaused, setAutoReconnectPaused] = useState(false);
+    const [hasLoadedSharedReaderSettings, setHasLoadedSharedReaderSettings] = useState(false);
     const [preferredReaderId, setPreferredReaderId] = useState(() => {
         if (typeof window === 'undefined') return '';
         return localStorage.getItem(STRIPE_READER_PREFERRED_ID_KEY) || '';
@@ -223,6 +226,69 @@ export function POS() {
         localStorage.setItem(STRIPE_READER_AUTO_RECONNECT_KEY, autoReconnectReader ? 'true' : 'false');
     }, [readerMode, readerLocationId, autoReconnectReader]);
 
+    // Load shared reader setup (store-wide) so employee/admin accounts use the same Stripe location/mode.
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadSharedReaderSettings = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('pos_terminal_settings')
+                    .select('reader_mode, stripe_location_id, auto_reconnect')
+                    .eq('id', true)
+                    .maybeSingle();
+
+                if (error) {
+                    console.error('Failed to load shared POS terminal settings:', error);
+                    return;
+                }
+
+                if (!isMounted || !data) return;
+
+                const nextMode = data.reader_mode === 'live' ? 'live' : 'simulated';
+                const nextLocationId = (data.stripe_location_id || '').trim();
+                const nextAutoReconnect = data.auto_reconnect !== false;
+
+                setReaderMode(nextMode);
+                setReaderLocationId(nextLocationId);
+                setAutoReconnectReader(nextAutoReconnect);
+            } finally {
+                if (isMounted) {
+                    setHasLoadedSharedReaderSettings(true);
+                }
+            }
+        };
+
+        void loadSharedReaderSettings();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    // Persist shared reader setup in DB once an admin has configured it.
+    useEffect(() => {
+        if (!hasLoadedSharedReaderSettings) return;
+        if (!isAdmin) return;
+
+        const syncSharedReaderSettings = async () => {
+            const { error } = await supabase
+                .from('pos_terminal_settings')
+                .upsert({
+                    id: true,
+                    reader_mode: readerMode,
+                    stripe_location_id: readerMode === 'live' ? readerLocationId.trim() : '',
+                    auto_reconnect: autoReconnectReader,
+                }, { onConflict: 'id' });
+
+            if (error) {
+                console.error('Failed to save shared POS terminal settings:', error);
+            }
+        };
+
+        void syncSharedReaderSettings();
+    }, [autoReconnectReader, hasLoadedSharedReaderSettings, isAdmin, readerLocationId, readerMode]);
+
     useEffect(() => {
         if (!preferredReaderId) return;
         localStorage.setItem(STRIPE_READER_PREFERRED_ID_KEY, preferredReaderId);
@@ -235,7 +301,6 @@ export function POS() {
     }, [connectedReader]);
 
     useEffect(() => {
-        if (paymentMethod !== 'card') return;
         if (!autoReconnectReader) return;
         if (autoReconnectPaused) return;
         if (!preferredReaderId.trim()) return;
@@ -255,7 +320,6 @@ export function POS() {
         autoReconnectReader,
         autoReconnectPaused,
         connectedReader,
-        paymentMethod,
         preferredReaderId,
         readerLocationId,
         readerMode,
