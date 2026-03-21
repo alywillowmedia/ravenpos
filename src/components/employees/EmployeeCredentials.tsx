@@ -53,18 +53,31 @@ export function EmployeeCredentials({ employeeId, employeeName }: EmployeeCreden
     }, [employeeId]);
 
     const callFunction = async (body: object) => {
-        const { data, error } = await supabase.functions.invoke('manage-employee-account', { body });
+        const invoke = () => supabase.functions.invoke('manage-employee-account', { body });
+
+        let { data, error } = await invoke();
+
+        // Session can occasionally go stale between account-management calls.
+        // If we receive 401, refresh once and retry.
+        if (error instanceof FunctionsHttpError && error.context.status === 401) {
+            const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+            if (!refreshError && refreshData.session) {
+                const retry = await invoke();
+                data = retry.data;
+                error = retry.error;
+            }
+        }
 
         if (error) {
             if (error instanceof FunctionsHttpError) {
                 try {
-                    const payload = await error.context.json();
+                    const payload = await error.context.clone().json();
                     if (payload?.error) {
                         throw new Error(payload.error);
                     }
                 } catch {
                     try {
-                        const text = await error.context.text();
+                        const text = await error.context.clone().text();
                         if (text) {
                             throw new Error(text);
                         }
