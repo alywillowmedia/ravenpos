@@ -1,18 +1,22 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
+import { isDeviceAuthorized } from '../../lib/deviceAuth';
 
 export function EmployeePortalLogin() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { signIn, isLoading, user, userRecord, resolveHomePath } = useAuth();
+    const [isCheckingDeviceAuth, setIsCheckingDeviceAuth] = useState(true);
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const forceEmailLogin = searchParams.get('email') === '1';
 
     useEffect(() => {
         if (!isLoading && user && userRecord) {
@@ -20,7 +24,26 @@ export function EmployeePortalLogin() {
         }
     }, [isLoading, user, userRecord, navigate, resolveHomePath]);
 
-    if (!isLoading && user && userRecord) {
+    useEffect(() => {
+        const checkDeviceAndRouteDefault = async () => {
+            if (forceEmailLogin || user) {
+                setIsCheckingDeviceAuth(false);
+                return;
+            }
+
+            const authorization = await isDeviceAuthorized();
+            if (authorization.authorized) {
+                navigate('/employee/login', { replace: true });
+                return;
+            }
+
+            setIsCheckingDeviceAuth(false);
+        };
+
+        void checkDeviceAndRouteDefault();
+    }, [forceEmailLogin, navigate, user]);
+
+    if ((!isLoading && user && userRecord) || isCheckingDeviceAuth) {
         return null;
     }
 

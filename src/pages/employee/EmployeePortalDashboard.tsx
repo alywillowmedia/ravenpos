@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { Input, Textarea } from '../../components/ui/Input';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import { Tabs } from '../../components/ui/Tabs';
+import { ProfilePhotoUpload } from '../../components/ui/ProfilePhotoUpload';
 
 type OneTimeShift = {
     id: string;
@@ -47,6 +50,32 @@ type EmployeeProfile = {
     name: string;
     hourly_rate: number;
 };
+
+type TimeOffRequestStatus = 'pending' | 'approved' | 'denied';
+
+type TimeOffRequest = {
+    id: string;
+    start_date: string;
+    end_date: string;
+    is_full_day: boolean;
+    start_time: string | null;
+    end_time: string | null;
+    reason: string | null;
+    status: TimeOffRequestStatus;
+    review_notes: string | null;
+    created_at: string;
+};
+
+type RequestFormState = {
+    startDate: string;
+    endDate: string;
+    isFullDay: boolean;
+    startTime: string;
+    endTime: string;
+    reason: string;
+};
+
+type EmployeeHubTab = 'schedule' | 'requests' | 'profile';
 
 function toDateKey(date: Date) {
     const year = date.getFullYear();
@@ -112,15 +141,61 @@ function matchesRecurringOnDate(shift: RecurringShift, date: Date, dateKey: stri
     return date.getDay() === shift.weekday;
 }
 
+function formatRequestDateTimeRange(request: TimeOffRequest) {
+    if (request.is_full_day) {
+        if (request.start_date === request.end_date) {
+            return `${formatDate(request.start_date)} (Full day)`;
+        }
+        return `${formatDate(request.start_date)} - ${formatDate(request.end_date)} (Full day)`;
+    }
+
+    const startTime = request.start_time ? formatTime(request.start_time) : '--';
+    const endTime = request.end_time ? formatTime(request.end_time) : '--';
+    return `${formatDate(request.start_date)} ${startTime} - ${endTime}`;
+}
+
+function getStatusBadgeClass(status: TimeOffRequestStatus) {
+    if (status === 'approved') {
+        return 'bg-[var(--color-success-bg)] text-[var(--color-success)]';
+    }
+    if (status === 'denied') {
+        return 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]';
+    }
+    return 'bg-[var(--color-surface)] text-[var(--color-muted)]';
+}
+
 export function EmployeePortalDashboard() {
     const navigate = useNavigate();
-    const { userRecord, portalChoices, setActivePortal, signOut } = useAuth();
+    const { user, userRecord, portalChoices, setActivePortal, signOut, refreshUserRecord } = useAuth();
     const [profile, setProfile] = useState<EmployeeProfile | null>(null);
     const [oneTimeShifts, setOneTimeShifts] = useState<OneTimeShift[]>([]);
     const [recurringShifts, setRecurringShifts] = useState<RecurringShift[]>([]);
     const [weekHoursWorked, setWeekHoursWorked] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const [accountEmail, setAccountEmail] = useState('');
+    const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [accountMessage, setAccountMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [isSavingAccount, setIsSavingAccount] = useState(false);
+
+    const [timeOffRequests, setTimeOffRequests] = useState<TimeOffRequest[]>([]);
+    const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+    const [requestError, setRequestError] = useState<string | null>(null);
+    const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
+    const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+    const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
+    const [requestForm, setRequestForm] = useState<RequestFormState>({
+        startDate: toDateKey(new Date()),
+        endDate: toDateKey(new Date()),
+        isFullDay: true,
+        startTime: '09:00',
+        endTime: '17:00',
+        reason: '',
+    });
+    const [activeHubTab, setActiveHubTab] = useState<EmployeeHubTab>('schedule');
 
     const employeeId = userRecord?.employee_id || userRecord?.linked_employee_id || null;
     const canSwitchViews = portalChoices.length > 1;
@@ -136,6 +211,11 @@ export function EmployeePortalDashboard() {
         () => Array.from({ length: 28 }, (_, index) => toDateKey(addDays(scheduleRangeStart, index))),
         [scheduleRangeStart]
     );
+
+    useEffect(() => {
+        setAccountEmail(userRecord?.email || user?.email || '');
+        setProfileImageUrl(userRecord?.profile_image_url ?? null);
+    }, [user?.email, userRecord?.email, userRecord?.profile_image_url]);
 
     const displayShifts = useMemo(() => {
         const shifts: DisplayShift[] = [];
@@ -175,9 +255,30 @@ export function EmployeePortalDashboard() {
         return shifts;
     }, [oneTimeShifts, recurringShifts, displayedDays]);
 
-    const upcomingShifts = useMemo(
-        () => displayShifts.filter((shift) => shift.shift_date >= todayKey),
-        [displayShifts, todayKey]
+    const shiftsByDate = useMemo(() => {
+        const map = new Map<string, DisplayShift[]>();
+        for (const day of displayedDays) {
+            map.set(day, []);
+        }
+
+        for (const shift of displayShifts) {
+            const existing = map.get(shift.shift_date);
+            if (existing) {
+                existing.push(shift);
+            }
+        }
+
+        return map;
+    }, [displayShifts, displayedDays]);
+
+    const weekdayHeaders = useMemo(
+        () => displayedDays.slice(0, 7).map((day) => parseDateKey(day).toLocaleDateString([], { weekday: 'short' })),
+        [displayedDays]
+    );
+
+    const mobileScheduleDays = useMemo(
+        () => displayedDays.filter((day) => day >= todayKey && (shiftsByDate.get(day)?.length || 0) > 0),
+        [displayedDays, shiftsByDate, todayKey]
     );
 
     const scheduledHoursNextWeek = useMemo(() => {
@@ -192,6 +293,31 @@ export function EmployeePortalDashboard() {
         const hourlyRate = profile?.hourly_rate || 0;
         return weekHoursWorked * hourlyRate;
     }, [profile?.hourly_rate, weekHoursWorked]);
+
+    const loadTimeOffRequests = useCallback(async () => {
+        if (!employeeId) {
+            setTimeOffRequests([]);
+            setIsLoadingRequests(false);
+            return;
+        }
+
+        setIsLoadingRequests(true);
+
+        const { data, error: requestsError } = await supabase
+            .from('employee_time_off_requests')
+            .select('id, start_date, end_date, is_full_day, start_time, end_time, reason, status, review_notes, created_at')
+            .eq('employee_id', employeeId)
+            .order('start_date', { ascending: false });
+
+        if (requestsError) {
+            setRequestError(requestsError.message);
+            setIsLoadingRequests(false);
+            return;
+        }
+
+        setTimeOffRequests((data || []) as TimeOffRequest[]);
+        setIsLoadingRequests(false);
+    }, [employeeId]);
 
     const loadDashboard = useCallback(async () => {
         if (!employeeId) {
@@ -269,7 +395,185 @@ export function EmployeePortalDashboard() {
 
     useEffect(() => {
         void loadDashboard();
-    }, [loadDashboard]);
+        void loadTimeOffRequests();
+    }, [loadDashboard, loadTimeOffRequests]);
+
+    const handleProfilePhotoChange = async (url: string | null) => {
+        if (!userRecord?.id) return;
+
+        setAccountMessage(null);
+        const { error: updateError } = await supabase
+            .from('users')
+            .update({ profile_image_url: url })
+            .eq('id', userRecord.id);
+
+        if (updateError) {
+            setAccountMessage({ type: 'error', text: updateError.message });
+            return;
+        }
+
+        setProfileImageUrl(url);
+        await refreshUserRecord();
+        setAccountMessage({ type: 'success', text: 'Profile photo updated.' });
+    };
+
+    const handleSaveAccount = async (event: FormEvent) => {
+        event.preventDefault();
+        if (!userRecord?.id) return;
+
+        setAccountMessage(null);
+
+        const trimmedEmail = accountEmail.trim().toLowerCase();
+        const currentEmail = (userRecord.email || user?.email || '').toLowerCase();
+        const emailChanged = trimmedEmail.length > 0 && trimmedEmail !== currentEmail;
+        const passwordChanged = newPassword.trim().length > 0;
+
+        if (!trimmedEmail) {
+            setAccountMessage({ type: 'error', text: 'Email is required.' });
+            return;
+        }
+
+        if (passwordChanged && newPassword !== confirmPassword) {
+            setAccountMessage({ type: 'error', text: 'Passwords do not match.' });
+            return;
+        }
+
+        if (passwordChanged && newPassword.length < 6) {
+            setAccountMessage({ type: 'error', text: 'Password must be at least 6 characters.' });
+            return;
+        }
+
+        if (!emailChanged && !passwordChanged) {
+            setAccountMessage({ type: 'error', text: 'No account changes to save.' });
+            return;
+        }
+
+        setIsSavingAccount(true);
+
+        if (emailChanged) {
+            const { error: emailAuthError } = await supabase.auth.updateUser({ email: trimmedEmail });
+            if (emailAuthError) {
+                setIsSavingAccount(false);
+                setAccountMessage({ type: 'error', text: emailAuthError.message });
+                return;
+            }
+
+            const { error: emailRecordError } = await supabase
+                .from('users')
+                .update({ email: trimmedEmail })
+                .eq('id', userRecord.id);
+
+            if (emailRecordError) {
+                setIsSavingAccount(false);
+                setAccountMessage({ type: 'error', text: emailRecordError.message });
+                return;
+            }
+        }
+
+        if (passwordChanged) {
+            const { error: passwordError } = await supabase.auth.updateUser({ password: newPassword });
+            if (passwordError) {
+                setIsSavingAccount(false);
+                setAccountMessage({ type: 'error', text: passwordError.message });
+                return;
+            }
+        }
+
+        await refreshUserRecord();
+        setNewPassword('');
+        setConfirmPassword('');
+        setIsSavingAccount(false);
+        setAccountMessage({
+            type: 'success',
+            text: emailChanged
+                ? 'Account updated. Check your inbox if email confirmation is required.'
+                : 'Account updated successfully.',
+        });
+    };
+
+    const handleSubmitTimeOffRequest = async (event: FormEvent) => {
+        event.preventDefault();
+        if (!employeeId || isSubmittingRequest) return;
+
+        setRequestError(null);
+        setRequestSuccess(null);
+
+        if (!requestForm.startDate || !requestForm.endDate) {
+            setRequestError('Start and end dates are required.');
+            return;
+        }
+
+        if (requestForm.endDate < requestForm.startDate) {
+            setRequestError('End date must be on or after start date.');
+            return;
+        }
+
+        if (!requestForm.isFullDay && requestForm.startDate !== requestForm.endDate) {
+            setRequestError('Partial-day requests must start and end on the same day.');
+            return;
+        }
+
+        if (!requestForm.isFullDay && requestForm.endTime <= requestForm.startTime) {
+            setRequestError('End time must be after start time.');
+            return;
+        }
+
+        setIsSubmittingRequest(true);
+
+        const payload = {
+            employee_id: employeeId,
+            start_date: requestForm.startDate,
+            end_date: requestForm.endDate,
+            is_full_day: requestForm.isFullDay,
+            start_time: requestForm.isFullDay ? null : requestForm.startTime,
+            end_time: requestForm.isFullDay ? null : requestForm.endTime,
+            reason: requestForm.reason.trim() || null,
+            status: 'pending' as const,
+        };
+
+        const { error: insertError } = await supabase
+            .from('employee_time_off_requests')
+            .insert(payload);
+
+        setIsSubmittingRequest(false);
+
+        if (insertError) {
+            setRequestError(insertError.message);
+            return;
+        }
+
+        setRequestForm((prev) => ({
+            ...prev,
+            startDate: toDateKey(new Date()),
+            endDate: toDateKey(new Date()),
+            reason: '',
+        }));
+        setRequestSuccess('Time off request submitted.');
+        await loadTimeOffRequests();
+    };
+
+    const handleDeletePendingRequest = async (requestId: string) => {
+        if (deletingRequestId) return;
+
+        setRequestError(null);
+        setRequestSuccess(null);
+        setDeletingRequestId(requestId);
+
+        const { error: deleteError } = await supabase
+            .from('employee_time_off_requests')
+            .delete()
+            .eq('id', requestId);
+
+        setDeletingRequestId(null);
+
+        if (deleteError) {
+            setRequestError(deleteError.message);
+            return;
+        }
+
+        setRequestSuccess('Pending request canceled.');
+        await loadTimeOffRequests();
+    };
 
     if (isLoading) {
         return (
@@ -311,53 +615,324 @@ export function EmployeePortalDashboard() {
                     </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <Card variant="outlined">
-                        <CardContent className="p-4">
-                            <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Hours Worked This Week</p>
-                            <p className="text-2xl font-semibold mt-1">{weekHoursWorked.toFixed(2)}</p>
-                        </CardContent>
-                    </Card>
-                    <Card variant="outlined">
-                        <CardContent className="p-4">
-                            <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Estimated Pay So Far</p>
-                            <p className="text-2xl font-semibold mt-1">${estimatedPay.toFixed(2)}</p>
-                        </CardContent>
-                    </Card>
-                    <Card variant="outlined">
-                        <CardContent className="p-4">
-                            <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Scheduled Next Week</p>
-                            <p className="text-2xl font-semibold mt-1">{scheduledHoursNextWeek.toFixed(2)}h</p>
-                        </CardContent>
-                    </Card>
-                </div>
+                <Tabs
+                    tabs={[
+                        { id: 'schedule', label: 'Schedule' },
+                        { id: 'requests', label: 'Time Off Requests' },
+                        { id: 'profile', label: 'Profile' },
+                    ]}
+                    activeTab={activeHubTab}
+                    onChange={(id) => setActiveHubTab(id as EmployeeHubTab)}
+                />
 
-                <Card variant="outlined">
-                    <CardHeader>
-                        <CardTitle className="text-base">Upcoming Schedule</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        {upcomingShifts.length === 0 ? (
-                            <p className="text-sm text-[var(--color-muted)]">No upcoming shifts in the next 4 weeks.</p>
-                        ) : (
-                            <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-                                {upcomingShifts.map((shift) => (
-                                    <div key={shift.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 p-3 rounded-lg bg-[var(--color-surface)]">
-                                        <div>
-                                            <p className="text-sm font-medium">{formatDate(shift.shift_date)}</p>
-                                            <p className="text-xs text-[var(--color-muted)]">
-                                                {formatTime(shift.start_time)} - {formatTime(shift.end_time)}
-                                            </p>
+                {activeHubTab === 'schedule' && (
+                    <>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <Card variant="outlined">
+                                <CardContent className="p-4">
+                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Hours Worked This Week</p>
+                                    <p className="text-2xl font-semibold mt-1">{weekHoursWorked.toFixed(2)}</p>
+                                </CardContent>
+                            </Card>
+                            <Card variant="outlined">
+                                <CardContent className="p-4">
+                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Estimated Pay So Far</p>
+                                    <p className="text-2xl font-semibold mt-1">${estimatedPay.toFixed(2)}</p>
+                                </CardContent>
+                            </Card>
+                            <Card variant="outlined">
+                                <CardContent className="p-4">
+                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Scheduled Next Week</p>
+                                    <p className="text-2xl font-semibold mt-1">{scheduledHoursNextWeek.toFixed(2)}h</p>
+                                </CardContent>
+                            </Card>
+                        </div>
+
+                        <Card variant="outlined">
+                            <CardHeader>
+                                <CardTitle className="text-base">Upcoming Schedule</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                {displayShifts.length === 0 ? (
+                                    <p className="text-sm text-[var(--color-muted)]">No upcoming shifts in the next 4 weeks.</p>
+                                ) : (
+                                    <>
+                                        <div className="hidden md:block">
+                                            <div className="mb-2 grid grid-cols-7 gap-2">
+                                                {weekdayHeaders.map((label) => (
+                                                    <div key={label} className="px-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                                                        {label}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="grid grid-cols-7 gap-2">
+                                                {displayedDays.map((day) => {
+                                                    const dayShifts = shiftsByDate.get(day) || [];
+                                                    const isToday = day === todayKey;
+                                                    const isPast = day < todayKey;
+                                                    const dayDate = parseDateKey(day);
+                                                    const dayLabel = dayDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+                                                    return (
+                                                        <div
+                                                            key={day}
+                                                            className={`rounded-xl border p-2 min-h-[116px] ${isToday
+                                                                ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/5'
+                                                                : 'border-[var(--color-border)] bg-[var(--color-surface)]'
+                                                                } ${isPast ? 'opacity-65' : ''}`}
+                                                        >
+                                                            <div className="mb-2 flex items-center justify-between">
+                                                                <p className="text-xs font-semibold text-[var(--color-foreground)]">{dayLabel}</p>
+                                                                {dayShifts.length > 0 && (
+                                                                    <span className="rounded-full bg-[var(--color-primary)]/15 px-2 py-0.5 text-[10px] font-semibold text-[var(--color-primary)]">
+                                                                        {dayShifts.length}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                {dayShifts.length === 0 ? (
+                                                                    <p className="text-[11px] text-[var(--color-muted)]">Off</p>
+                                                                ) : (
+                                                                    <>
+                                                                        {dayShifts.slice(0, 2).map((shift) => (
+                                                                            <div key={shift.id} className="rounded-md bg-[var(--color-card)] px-2 py-1 text-[11px]">
+                                                                                {formatTime(shift.start_time)} - {formatTime(shift.end_time)}
+                                                                            </div>
+                                                                        ))}
+                                                                        {dayShifts.length > 2 && (
+                                                                            <p className="text-[11px] text-[var(--color-muted)]">+{dayShifts.length - 2} more</p>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
-                                        <div className="text-xs text-[var(--color-muted)] sm:text-right">
-                                            {shift.notes?.trim() || (shift.source === 'recurring' ? 'Recurring shift' : 'One-time shift')}
+
+                                        <div className="space-y-2 md:hidden">
+                                            {mobileScheduleDays.length === 0 ? (
+                                                <p className="text-sm text-[var(--color-muted)]">No upcoming shifts in the next 4 weeks.</p>
+                                            ) : (
+                                                mobileScheduleDays.map((day) => {
+                                                    const dayShifts = shiftsByDate.get(day) || [];
+                                                    return (
+                                                        <div key={day} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                                                            <div className="mb-2 flex items-center justify-between gap-2">
+                                                                <p className="text-sm font-semibold text-[var(--color-foreground)]">{formatDate(day)}</p>
+                                                                <span className="rounded-full bg-[var(--color-primary)]/15 px-2 py-0.5 text-[10px] font-semibold text-[var(--color-primary)]">
+                                                                    {dayShifts.length} {dayShifts.length === 1 ? 'shift' : 'shifts'}
+                                                                </span>
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                {dayShifts.map((shift) => (
+                                                                    <div key={shift.id} className="flex items-center justify-between rounded-md bg-[var(--color-card)] px-2 py-1.5">
+                                                                        <p className="text-xs font-medium text-[var(--color-foreground)]">
+                                                                            {formatTime(shift.start_time)} - {formatTime(shift.end_time)}
+                                                                        </p>
+                                                                        <p className="text-[11px] text-[var(--color-muted)]">
+                                                                            {shift.source === 'recurring' ? 'Recurring' : 'One-time'}
+                                                                        </p>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })
+                                            )}
                                         </div>
+                                    </>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </>
+                )}
+
+                {activeHubTab === 'requests' && (
+                    <Card variant="outlined">
+                        <CardHeader>
+                            <CardTitle className="text-base">Request Days Off</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <form onSubmit={handleSubmitTimeOffRequest} className="space-y-4">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <Input
+                                        label="Start Date"
+                                        type="date"
+                                        value={requestForm.startDate}
+                                        onChange={(event) => setRequestForm((prev) => ({ ...prev, startDate: event.target.value }))}
+                                        required
+                                    />
+                                    <Input
+                                        label="End Date"
+                                        type="date"
+                                        value={requestForm.endDate}
+                                        onChange={(event) => setRequestForm((prev) => ({ ...prev, endDate: event.target.value }))}
+                                        min={requestForm.startDate}
+                                        required
+                                    />
+                                </div>
+
+                                <label className="inline-flex items-center gap-2 text-sm text-[var(--color-foreground)]">
+                                    <input
+                                        type="checkbox"
+                                        checked={requestForm.isFullDay}
+                                        onChange={(event) => setRequestForm((prev) => ({ ...prev, isFullDay: event.target.checked }))}
+                                    />
+                                    Full day request
+                                </label>
+
+                                {!requestForm.isFullDay && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <Input
+                                            label="Start Time"
+                                            type="time"
+                                            value={requestForm.startTime}
+                                            onChange={(event) => setRequestForm((prev) => ({ ...prev, startTime: event.target.value }))}
+                                            required
+                                        />
+                                        <Input
+                                            label="End Time"
+                                            type="time"
+                                            value={requestForm.endTime}
+                                            onChange={(event) => setRequestForm((prev) => ({ ...prev, endTime: event.target.value }))}
+                                            required
+                                        />
                                     </div>
-                                ))}
+                                )}
+
+                                <Textarea
+                                    label="Reason (optional)"
+                                    value={requestForm.reason}
+                                    onChange={(event) => setRequestForm((prev) => ({ ...prev, reason: event.target.value }))}
+                                    rows={3}
+                                    placeholder="Share context for your manager"
+                                />
+
+                                {requestError && (
+                                    <div className="rounded-lg bg-[var(--color-danger-bg)] p-3 text-sm text-[var(--color-danger)]">
+                                        {requestError}
+                                    </div>
+                                )}
+
+                                {requestSuccess && (
+                                    <div className="rounded-lg bg-[var(--color-success-bg)] p-3 text-sm text-[var(--color-success)]">
+                                        {requestSuccess}
+                                    </div>
+                                )}
+
+                                <Button type="submit" isLoading={isSubmittingRequest}>Submit Request</Button>
+                            </form>
+
+                            <div className="mt-6">
+                                <p className="mb-2 text-sm font-semibold text-[var(--color-foreground)]">My Requests</p>
+                                {isLoadingRequests ? (
+                                    <div className="py-4"><LoadingSpinner size={20} /></div>
+                                ) : timeOffRequests.length === 0 ? (
+                                    <p className="text-sm text-[var(--color-muted)]">No requests yet.</p>
+                                ) : (
+                                    <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                                        {timeOffRequests.map((request) => (
+                                            <div key={request.id} className="rounded-lg border border-[var(--color-border)] p-3">
+                                                <div className="mb-2 flex items-center justify-between gap-2">
+                                                    <p className="text-sm font-medium text-[var(--color-foreground)]">
+                                                        {formatRequestDateTimeRange(request)}
+                                                    </p>
+                                                    <span className={`rounded-full px-2 py-1 text-[11px] font-medium uppercase tracking-wide ${getStatusBadgeClass(request.status)}`}>
+                                                        {request.status}
+                                                    </span>
+                                                </div>
+                                                {request.reason && (
+                                                    <p className="text-sm text-[var(--color-muted)]">{request.reason}</p>
+                                                )}
+                                                {request.review_notes && (
+                                                    <p className="mt-1 text-xs text-[var(--color-muted)]">Manager note: {request.review_notes}</p>
+                                                )}
+                                                {request.status === 'pending' && (
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        className="mt-2 text-[var(--color-danger)]"
+                                                        isLoading={deletingRequestId === request.id}
+                                                        onClick={() => void handleDeletePendingRequest(request.id)}
+                                                    >
+                                                        Cancel Request
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
-                        )}
-                    </CardContent>
-                </Card>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {activeHubTab === 'profile' && (
+                    <Card variant="outlined">
+                        <CardHeader>
+                            <CardTitle className="text-base">My Account</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {accountMessage && (
+                                <div className={`mb-4 rounded-lg p-3 text-sm ${accountMessage.type === 'success'
+                                    ? 'bg-[var(--color-success-bg)] text-[var(--color-success)]'
+                                    : 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]'
+                                    }`}>
+                                    {accountMessage.text}
+                                </div>
+                            )}
+
+                            <form onSubmit={handleSaveAccount} className="space-y-4">
+                                <div>
+                                    <p className="mb-2 text-sm font-medium text-[var(--color-foreground)]">Profile Photo</p>
+                                    <ProfilePhotoUpload
+                                        value={profileImageUrl}
+                                        onChange={handleProfilePhotoChange}
+                                        uploadKey={userRecord?.id || 'employee'}
+                                        disabled={isSavingAccount}
+                                    />
+                                </div>
+
+                                <Input
+                                    label="Name"
+                                    value={profile?.name || ''}
+                                    disabled
+                                />
+
+                                <Input
+                                    label="Email"
+                                    type="email"
+                                    value={accountEmail}
+                                    onChange={(event) => setAccountEmail(event.target.value)}
+                                    placeholder="employee@example.com"
+                                    autoComplete="email"
+                                />
+
+                                <Input
+                                    label="New Password"
+                                    type="password"
+                                    value={newPassword}
+                                    onChange={(event) => setNewPassword(event.target.value)}
+                                    placeholder="Leave blank to keep current password"
+                                    autoComplete="new-password"
+                                />
+
+                                <Input
+                                    label="Confirm New Password"
+                                    type="password"
+                                    value={confirmPassword}
+                                    onChange={(event) => setConfirmPassword(event.target.value)}
+                                    placeholder="Re-enter new password"
+                                    autoComplete="new-password"
+                                />
+
+                                <Button type="submit" isLoading={isSavingAccount}>Save Account</Button>
+                            </form>
+                        </CardContent>
+                    </Card>
+                )}
             </div>
         </div>
     );

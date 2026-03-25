@@ -9,6 +9,7 @@ export interface UserRecord {
     id: string;
     email: string;
     full_name: string | null;
+    profile_image_url?: string | null;
     role: UserRole;
     consignor_id: string | null;
     employee_id: string | null;

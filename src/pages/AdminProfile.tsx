@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Input, Textarea } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { ImageUpload } from '../components/ui/ImageUpload';
+import { ProfilePhotoUpload } from '../components/ui/ProfilePhotoUpload';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import {
@@ -32,6 +33,7 @@ export function AdminProfile() {
 
     const [profileName, setProfileName] = useState('');
     const [profileEmail, setProfileEmail] = useState('');
+    const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
 
@@ -91,7 +93,27 @@ export function AdminProfile() {
     useEffect(() => {
         setProfileName(userRecord?.full_name ?? '');
         setProfileEmail(userRecord?.email ?? user?.email ?? '');
-    }, [userRecord?.full_name, userRecord?.email, user?.email]);
+        setProfileImageUrl(userRecord?.profile_image_url ?? null);
+    }, [userRecord?.full_name, userRecord?.email, userRecord?.profile_image_url, user?.email]);
+
+    const handleProfilePhotoChange = useCallback(async (url: string | null) => {
+        if (!userRecord?.id) return;
+
+        setProfileMessage(null);
+        const { error } = await supabase
+            .from('users')
+            .update({ profile_image_url: url })
+            .eq('id', userRecord.id);
+
+        if (error) {
+            setProfileMessage({ type: 'error', text: error.message });
+            return;
+        }
+
+        setProfileImageUrl(url);
+        await refreshUserRecord();
+        setProfileMessage({ type: 'success', text: 'Profile photo updated.' });
+    }, [refreshUserRecord, userRecord?.id]);
 
     useEffect(() => {
         void fetchAdmins();
@@ -283,6 +305,15 @@ export function AdminProfile() {
                 </CardHeader>
                 <CardContent>
                     <form onSubmit={handleSaveProfile} className="space-y-4">
+                        <div>
+                            <p className="mb-2 text-sm font-medium text-[var(--color-foreground)]">Profile Photo</p>
+                            <ProfilePhotoUpload
+                                value={profileImageUrl}
+                                onChange={handleProfilePhotoChange}
+                                uploadKey={userRecord?.id || 'admin'}
+                                disabled={isSavingProfile}
+                            />
+                        </div>
                         <Input
                             id="profile-name"
                             label="Name"

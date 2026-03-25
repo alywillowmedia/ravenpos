@@ -4,13 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import { ProfilePhotoUpload } from '../../components/ui/ProfilePhotoUpload';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { getConsignorDisplayName, getConsignorPayToName } from '../../lib/consignors';
 import type { Consignor } from '../../types';
 
 export function VendorProfile() {
-    const { userRecord } = useAuth();
+    const { userRecord, refreshUserRecord } = useAuth();
     const [consignor, setConsignor] = useState<Consignor | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -26,6 +27,7 @@ export function VendorProfile() {
     const [postalCode, setPostalCode] = useState('');
     const [country, setCountry] = useState('');
     const [dealerDiscountPercent, setDealerDiscountPercent] = useState('0');
+    const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
 
     // Password change
     const [newPassword, setNewPassword] = useState('');
@@ -60,6 +62,29 @@ export function VendorProfile() {
 
         fetchConsignor();
     }, [userRecord?.consignor_id]);
+
+    useEffect(() => {
+        setProfileImageUrl(userRecord?.profile_image_url ?? null);
+    }, [userRecord?.profile_image_url]);
+
+    const handleProfilePhotoChange = async (url: string | null) => {
+        if (!userRecord?.id) return;
+        setMessage(null);
+
+        const { error } = await supabase
+            .from('users')
+            .update({ profile_image_url: url })
+            .eq('id', userRecord.id);
+
+        if (error) {
+            setMessage({ type: 'error', text: error.message });
+            return;
+        }
+
+        setProfileImageUrl(url);
+        await refreshUserRecord();
+        setMessage({ type: 'success', text: 'Profile photo updated.' });
+    };
 
     const handleSaveContact = async (e: FormEvent) => {
         e.preventDefault();
@@ -165,6 +190,21 @@ export function VendorProfile() {
                     {message.text}
                 </div>
             )}
+
+            {/* Account Info (Read-only) */}
+            <Card variant="outlined" className="mb-6">
+                <CardHeader>
+                    <CardTitle className="text-sm">Profile Photo</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <ProfilePhotoUpload
+                        value={profileImageUrl}
+                        onChange={handleProfilePhotoChange}
+                        uploadKey={userRecord?.id || 'vendor'}
+                        disabled={isSaving || isChangingPassword}
+                    />
+                </CardContent>
+            </Card>
 
             {/* Account Info (Read-only) */}
             <Card variant="outlined" className="mb-6">

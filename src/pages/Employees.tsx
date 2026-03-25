@@ -5,7 +5,8 @@ import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
-import { Modal } from '../components/ui/Modal';
+import { Modal, ModalFooter } from '../components/ui/Modal';
+import { Textarea } from '../components/ui/Input';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { AddEmployeeModal } from '../components/employees/AddEmployeeModal';
 import { AuthorizeDeviceModal } from '../components/employees/AuthorizeDeviceModal';
@@ -19,6 +20,16 @@ import { formatCurrency } from '../lib/utils';
 import { formatDecimalHours } from '../lib/timeCalculations';
 import { supabase } from '../lib/supabase';
 import type { Employee, EmployeeWithStats, TimeEntry, EmployeeInput } from '../types/employee';
+
+type ScheduleWeekOffset = 0 | 1;
+type SchedulePreview = {
+    html: string;
+    subject: string;
+    weekStart: string;
+    weekEnd: string;
+    recipientCount: number;
+    previewRecipient: string | null;
+};
 
 export function Employees() {
     const { user } = useAuth();
@@ -46,6 +57,12 @@ export function Employees() {
     const [showSensitiveNumbers, setShowSensitiveNumbers] = useState(false);
     const [isSendingSchedules, setIsSendingSchedules] = useState(false);
     const [scheduleSendMessage, setScheduleSendMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [isScheduleEmailModalOpen, setIsScheduleEmailModalOpen] = useState(false);
+    const [scheduleWeekOffset, setScheduleWeekOffset] = useState<ScheduleWeekOffset>(1);
+    const [scheduleEmailBody, setScheduleEmailBody] = useState('');
+    const [isLoadingSchedulePreview, setIsLoadingSchedulePreview] = useState(false);
+    const [schedulePreviewError, setSchedulePreviewError] = useState<string | null>(null);
+    const [schedulePreview, setSchedulePreview] = useState<SchedulePreview | null>(null);
 
     const handleAddEmployee = async (input: EmployeeInput): Promise<{ error: string | null }> => {
         const { error } = await createEmployee(input);
@@ -122,12 +139,52 @@ export function Employees() {
         return result;
     };
 
-    const handleSendWeeklySchedules = async () => {
-        setIsSendingSchedules(true);
-        setScheduleSendMessage(null);
+    const fetchSchedulePreview = useCallback(async (weekOffset: ScheduleWeekOffset, customMessage: string) => {
+        setIsLoadingSchedulePreview(true);
+        setSchedulePreviewError(null);
+        setSchedulePreview(null);
 
         const { data, error: invokeError } = await supabase.functions.invoke('send-employee-weekly-schedules', {
-            body: {},
+            body: {
+                previewOnly: true,
+                weekOffset,
+                customMessage: customMessage.trim() || null,
+            },
+        });
+
+        setIsLoadingSchedulePreview(false);
+
+        if (invokeError || data?.error) {
+            setSchedulePreviewError(invokeError?.message || data?.error || 'Failed to load email preview');
+            return;
+        }
+
+        setSchedulePreview({
+            html: data?.previewHtml || '',
+            subject: data?.previewSubject || '',
+            weekStart: data?.weekStart || '',
+            weekEnd: data?.weekEnd || '',
+            recipientCount: data?.recipientCount ?? 0,
+            previewRecipient: data?.previewRecipient || null,
+        });
+    }, []);
+
+    const handleOpenScheduleEmailModal = () => {
+        setScheduleSendMessage(null);
+        setIsScheduleEmailModalOpen(true);
+        void fetchSchedulePreview(scheduleWeekOffset, scheduleEmailBody);
+    };
+
+    const handleSendScheduleEmails = async () => {
+        setIsSendingSchedules(true);
+        setScheduleSendMessage(null);
+        setSchedulePreviewError(null);
+
+        const { data, error: invokeError } = await supabase.functions.invoke('send-employee-weekly-schedules', {
+            body: {
+                weekOffset: scheduleWeekOffset,
+                customMessage: scheduleEmailBody.trim() || null,
+            },
         });
 
         setIsSendingSchedules(false);
@@ -146,8 +203,9 @@ export function Employees() {
         const weekEnd = data?.weekEnd ?? '';
         setScheduleSendMessage({
             type: 'success',
-            text: `Weekly schedules sent: ${sentCount} sent, ${failedCount} failed (${weekStart} to ${weekEnd}).`,
+            text: `Schedule emails sent: ${sentCount} sent, ${failedCount} failed (${weekStart} to ${weekEnd}).`,
         });
+        setIsScheduleEmailModalOpen(false);
     };
 
     return (
@@ -168,10 +226,10 @@ export function Employees() {
                         </Button>
                         <Button
                             variant="secondary"
-                            onClick={handleSendWeeklySchedules}
+                            onClick={handleOpenScheduleEmailModal}
                             isLoading={isSendingSchedules}
                         >
-                            ✉️ Send Weekly Schedules
+                            ✉️ Send Schedule Emails
                         </Button>
                         <Button onClick={() => setShowAddModal(true)}>
                             + Add Employee
@@ -384,6 +442,96 @@ export function Employees() {
                 isOpen={showAuthModal}
                 onClose={() => setShowAuthModal(false)}
             />
+
+            <Modal
+                isOpen={isScheduleEmailModalOpen}
+                onClose={() => setIsScheduleEmailModalOpen(false)}
+                title="Send Schedule Emails"
+                description="Choose this week or next week, add an optional message, preview, then send."
+                size="4xl"
+            >
+                <div className="space-y-4">
+                    <div>
+                        <p className="mb-2 text-sm font-medium text-[var(--color-foreground)]">Week to Send</p>
+                        <div className="flex gap-2">
+                            <Button
+                                variant={scheduleWeekOffset === 0 ? 'primary' : 'secondary'}
+                                size="sm"
+                                onClick={() => {
+                                    setScheduleWeekOffset(0);
+                                    void fetchSchedulePreview(0, scheduleEmailBody);
+                                }}
+                            >
+                                This Week
+                            </Button>
+                            <Button
+                                variant={scheduleWeekOffset === 1 ? 'primary' : 'secondary'}
+                                size="sm"
+                                onClick={() => {
+                                    setScheduleWeekOffset(1);
+                                    void fetchSchedulePreview(1, scheduleEmailBody);
+                                }}
+                            >
+                                Next Week
+                            </Button>
+                        </div>
+                    </div>
+
+                    <Textarea
+                        label="Optional Message in Email Body"
+                        value={scheduleEmailBody}
+                        onChange={(event) => setScheduleEmailBody(event.target.value)}
+                        rows={4}
+                        placeholder="Add a note for the team (e.g. meeting reminders or policy updates)."
+                        maxLength={2000}
+                        hint="This message is added above the schedule table in each email."
+                    />
+
+                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                        <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">Preview</p>
+                        {isLoadingSchedulePreview ? (
+                            <div className="flex items-center justify-center py-10">
+                                <LoadingSpinner size={24} />
+                            </div>
+                        ) : schedulePreviewError ? (
+                            <p className="mt-2 text-sm text-[var(--color-danger)]">{schedulePreviewError}</p>
+                        ) : schedulePreview ? (
+                            <div className="mt-2 space-y-2">
+                                <p className="text-sm text-[var(--color-foreground)]">
+                                    <span className="font-semibold">Subject:</span> {schedulePreview.subject}
+                                </p>
+                                <p className="text-xs text-[var(--color-muted)]">
+                                    Range: {schedulePreview.weekStart} to {schedulePreview.weekEnd} • Recipients with linked employee logins: {schedulePreview.recipientCount}
+                                    {schedulePreview.previewRecipient ? ` • Previewing: ${schedulePreview.previewRecipient}` : ''}
+                                </p>
+                                <iframe
+                                    title="schedule-email-preview"
+                                    srcDoc={schedulePreview.html}
+                                    className="h-[420px] w-full rounded-lg border border-[var(--color-border)] bg-white"
+                                />
+                            </div>
+                        ) : (
+                            <p className="mt-2 text-sm text-[var(--color-muted)]">No preview available yet.</p>
+                        )}
+                    </div>
+                </div>
+
+                <ModalFooter>
+                    <Button
+                        variant="secondary"
+                        onClick={() => void fetchSchedulePreview(scheduleWeekOffset, scheduleEmailBody)}
+                        isLoading={isLoadingSchedulePreview}
+                    >
+                        Refresh Preview
+                    </Button>
+                    <Button variant="ghost" onClick={() => setIsScheduleEmailModalOpen(false)}>
+                        Cancel
+                    </Button>
+                    <Button onClick={handleSendScheduleEmails} isLoading={isSendingSchedules}>
+                        Send Emails
+                    </Button>
+                </ModalFooter>
+            </Modal>
         </div>
     );
 }

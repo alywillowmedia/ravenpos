@@ -85,6 +85,7 @@ export interface Item {
 // Customer types for tracking buyers
 export interface Customer {
     id: string;
+    consignor_id?: string | null;
     name: string;
     email: string | null;
     phone: string | null;

@@ -299,8 +299,18 @@ export function EmployeeLogin() {
                 disabled={isLoading}
             />
 
-            {/* Link to admin/vendor login */}
-            <div style={{ marginTop: '40px' }}>
+            {/* Alternate login links */}
+            <div style={{ marginTop: '40px', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
+                <Link
+                    to="/employee/portal-login?email=1"
+                    style={{
+                        color: 'var(--color-gray-300)',
+                        fontSize: '14px',
+                        textDecoration: 'none',
+                    }}
+                >
+                    Use employee email/password instead →
+                </Link>
                 <Link
                     to="/login"
                     style={{

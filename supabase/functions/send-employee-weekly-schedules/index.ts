@@ -52,10 +52,23 @@ type SendResult = {
     weekEnd: string
 }
 
+type InvocationBody = {
+    previewOnly?: boolean
+    weekOffset?: number
+    customMessage?: string | null
+}
+
+type PreviewResult = {
+    subject: string
+    html: string
+    recipient: string | null
+}
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const DEFAULT_FROM_NAME = 'Ravenlia'
 const DEFAULT_FROM_EMAIL = 'email@ravenlia.com'
 const DEFAULT_LOGIN_URL = 'https://ravenpos.vercel.app/employee/portal-login'
+const MAX_CUSTOM_MESSAGE_LENGTH = 2000
 
 function normalizeEmail(value: string): string {
     return value.trim().toLowerCase()
@@ -87,12 +100,17 @@ function addDays(date: Date, days: number): Date {
     return next
 }
 
-function getNextWeekRange(): { monday: string; sunday: string; dates: string[] } {
+function startOfWeekMondayUtc(date: Date): Date {
+    const day = date.getUTCDay()
+    const diff = day === 0 ? -6 : 1 - day
+    return addDays(date, diff)
+}
+
+function getWeekRange(weekOffset: number): { monday: string; sunday: string; dates: string[] } {
     const now = new Date()
     const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-    const day = todayUtc.getUTCDay()
-    const daysUntilNextMonday = ((8 - day) % 7) || 7
-    const monday = addDays(todayUtc, daysUntilNextMonday)
+    const thisWeekMonday = startOfWeekMondayUtc(todayUtc)
+    const monday = addDays(thisWeekMonday, weekOffset * 7)
     const sunday = addDays(monday, 6)
     const dates = Array.from({ length: 7 }, (_, index) => toDateKey(addDays(monday, index)))
 
@@ -101,6 +119,24 @@ function getNextWeekRange(): { monday: string; sunday: string; dates: string[] }
         sunday: toDateKey(sunday),
         dates,
     }
+}
+
+function normalizeWeekOffset(value: unknown): number {
+    return value === 0 ? 0 : 1
+}
+
+function normalizeCustomMessage(value: unknown): string {
+    if (typeof value !== 'string') return ''
+    return value.trim().slice(0, MAX_CUSTOM_MESSAGE_LENGTH)
+}
+
+function escapeHtml(value: string): string {
+    return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;')
 }
 
 function formatTimeLabel(time: string): string {
@@ -123,6 +159,10 @@ function getShiftHours(startTime: string, endTime: string): number {
     return Math.max(0, end - start) / 60
 }
 
+function buildSubject(weekStart: string, weekEnd: string): string {
+    return `Your work schedule for ${formatDateLabel(weekStart)} - ${formatDateLabel(weekEnd)}`
+}
+
 function matchesRecurringOnDate(shift: RecurringShift, date: Date, dateKey: string): boolean {
     if (dateKey < shift.active_from) return false
     if (shift.active_until && dateKey > shift.active_until) return false
@@ -138,22 +178,28 @@ function matchesRecurringOnDate(shift: RecurringShift, date: Date, dateKey: stri
 
 function buildEmailHtml(params: {
     employeeName: string
+    weekTitle: string
     weekStart: string
     weekEnd: string
     shifts: DisplayShift[]
     totalHours: number
     loginUrl: string
+    customMessage: string
 }) {
-    const { employeeName, weekStart, weekEnd, shifts, totalHours, loginUrl } = params
+    const { employeeName, weekTitle, weekStart, weekEnd, shifts, totalHours, loginUrl, customMessage } = params
+    const safeEmployeeName = escapeHtml(employeeName)
+    const customMessageHtml = customMessage
+        ? `<p style="margin:0 0 16px;padding:12px;border:1px solid #ddd;border-radius:8px;background:#fafafa;">${escapeHtml(customMessage).replaceAll('\n', '<br />')}</p>`
+        : ''
 
     const rows = shifts.length === 0
-        ? '<tr><td colspan="3" style="padding:12px;border:1px solid #ddd;">No shifts scheduled for next week.</td></tr>'
+        ? `<tr><td colspan="3" style="padding:12px;border:1px solid #ddd;">No shifts scheduled for ${weekTitle.toLowerCase()}.</td></tr>`
         : shifts.map((shift) => {
             const notes = shift.notes?.trim() ? ` (${shift.notes.trim()})` : ''
             return `<tr>
 <td style="padding:12px;border:1px solid #ddd;">${formatDateLabel(shift.date)}</td>
 <td style="padding:12px;border:1px solid #ddd;">${formatTimeLabel(shift.start_time)} - ${formatTimeLabel(shift.end_time)}</td>
-<td style="padding:12px;border:1px solid #ddd;">${notes || '-'}</td>
+<td style="padding:12px;border:1px solid #ddd;">${notes ? escapeHtml(notes) : '-'}</td>
 </tr>`
         }).join('')
 
@@ -161,8 +207,9 @@ function buildEmailHtml(params: {
 <!doctype html>
 <html>
   <body style="font-family:Arial,sans-serif;line-height:1.4;color:#111;">
-    <h2 style="margin:0 0 12px;">Your Schedule for Next Week</h2>
-    <p style="margin:0 0 16px;">Hi ${employeeName}, here is your schedule for <strong>${formatDateLabel(weekStart)}</strong> through <strong>${formatDateLabel(weekEnd)}</strong>.</p>
+    <h2 style="margin:0 0 12px;">Your Schedule for ${weekTitle}</h2>
+    <p style="margin:0 0 16px;">Hi ${safeEmployeeName}, here is your schedule for <strong>${formatDateLabel(weekStart)}</strong> through <strong>${formatDateLabel(weekEnd)}</strong>.</p>
+    ${customMessageHtml}
 
     <table style="width:100%;border-collapse:collapse;margin:0 0 16px;">
       <thead>
@@ -275,13 +322,15 @@ async function sendEmails(params: {
     fromName: string
     fromEmail: string
     loginUrl: string
+    weekTitle: string
     weekStart: string
     weekEnd: string
+    customMessage: string
     users: UserRow[]
     employeesById: Map<string, EmployeeRow>
     shiftsByEmployeeId: Map<string, DisplayShift[]>
 }): Promise<SendResult> {
-    const { resendApiKey, fromName, fromEmail, loginUrl, weekStart, weekEnd, users, employeesById, shiftsByEmployeeId } = params
+    const { resendApiKey, fromName, fromEmail, loginUrl, weekTitle, weekStart, weekEnd, customMessage, users, employeesById, shiftsByEmployeeId } = params
 
     let sentCount = 0
     let failedCount = 0
@@ -297,12 +346,15 @@ async function sendEmails(params: {
         const totalHours = shifts.reduce((sum, shift) => sum + getShiftHours(shift.start_time, shift.end_time), 0)
         const html = buildEmailHtml({
             employeeName: user.full_name?.trim() || employee.name,
+            weekTitle,
             weekStart,
             weekEnd,
             shifts,
             totalHours,
             loginUrl,
+            customMessage,
         })
+        const subject = buildSubject(weekStart, weekEnd)
 
         const response = await fetch('https://api.resend.com/emails', {
             method: 'POST',
@@ -313,7 +365,7 @@ async function sendEmails(params: {
             body: JSON.stringify({
                 from: `${fromName} <${fromEmail}>`,
                 to: [user.email],
-                subject: `Your work schedule for ${formatDateLabel(weekStart)} - ${formatDateLabel(weekEnd)}`,
+                subject,
                 html,
             }),
         })
@@ -344,6 +396,57 @@ async function sendEmails(params: {
         failures,
         weekStart,
         weekEnd,
+    }
+}
+
+function buildPreview(params: {
+    users: UserRow[]
+    employeesById: Map<string, EmployeeRow>
+    shiftsByEmployeeId: Map<string, DisplayShift[]>
+    loginUrl: string
+    weekTitle: string
+    weekStart: string
+    weekEnd: string
+    customMessage: string
+}): PreviewResult {
+    const { users, employeesById, shiftsByEmployeeId, loginUrl, weekTitle, weekStart, weekEnd, customMessage } = params
+    const subject = buildSubject(weekStart, weekEnd)
+
+    for (const user of users) {
+        if (!user.employee_id) continue
+        const employee = employeesById.get(user.employee_id)
+        if (!employee || !employee.is_active) continue
+        const shifts = shiftsByEmployeeId.get(user.employee_id) || []
+        const totalHours = shifts.reduce((sum, shift) => sum + getShiftHours(shift.start_time, shift.end_time), 0)
+        return {
+            subject,
+            recipient: user.email,
+            html: buildEmailHtml({
+                employeeName: user.full_name?.trim() || employee.name,
+                weekTitle,
+                weekStart,
+                weekEnd,
+                shifts,
+                totalHours,
+                loginUrl,
+                customMessage,
+            }),
+        }
+    }
+
+    return {
+        subject,
+        recipient: null,
+        html: buildEmailHtml({
+            employeeName: 'Team Member',
+            weekTitle,
+            weekStart,
+            weekEnd,
+            shifts: [],
+            totalHours: 0,
+            loginUrl,
+            customMessage,
+        }),
     }
 }
 
@@ -384,7 +487,18 @@ Deno.serve(async (req) => {
             )
         }
 
-        const { monday, sunday, dates } = getNextWeekRange()
+        let payload: InvocationBody = {}
+        try {
+            payload = await req.json() as InvocationBody
+        } catch {
+            payload = {}
+        }
+
+        const previewOnly = payload.previewOnly === true
+        const weekOffset = normalizeWeekOffset(payload.weekOffset)
+        const customMessage = normalizeCustomMessage(payload.customMessage)
+        const weekTitle = weekOffset === 0 ? 'This Week' : 'Next Week'
+        const { monday, sunday, dates } = getWeekRange(weekOffset)
         const loginUrl = Deno.env.get('EMPLOYEE_PORTAL_LOGIN_URL') || DEFAULT_LOGIN_URL
         const fromEmail = normalizeEmail(Deno.env.get('EMPLOYEE_SCHEDULE_FROM_EMAIL') || DEFAULT_FROM_EMAIL)
         const fromName = (Deno.env.get('EMPLOYEE_SCHEDULE_FROM_NAME') || DEFAULT_FROM_NAME).trim()
@@ -418,6 +532,35 @@ Deno.serve(async (req) => {
             .filter((user) => user.employee_id && isValidEmail(user.email))
 
         if (users.length === 0) {
+            if (previewOnly) {
+                const preview = buildPreview({
+                    users,
+                    employeesById: new Map<string, EmployeeRow>(),
+                    shiftsByEmployeeId: new Map<string, DisplayShift[]>(),
+                    loginUrl,
+                    weekTitle,
+                    weekStart: monday,
+                    weekEnd: sunday,
+                    customMessage,
+                })
+
+                return new Response(
+                    JSON.stringify({
+                        success: true,
+                        previewOnly: true,
+                        recipientCount: 0,
+                        sentCount: 0,
+                        failedCount: 0,
+                        weekStart: monday,
+                        weekEnd: sunday,
+                        previewSubject: preview.subject,
+                        previewHtml: preview.html,
+                        previewRecipient: preview.recipient,
+                    }),
+                    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
             return new Response(
                 JSON.stringify({ success: true, recipientCount: 0, sentCount: 0, failedCount: 0, weekStart: monday, weekEnd: sunday }),
                 { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -461,13 +604,44 @@ Deno.serve(async (req) => {
             (recurringData || []) as RecurringShift[]
         )
 
+        if (previewOnly) {
+            const preview = buildPreview({
+                users,
+                employeesById,
+                shiftsByEmployeeId,
+                loginUrl,
+                weekTitle,
+                weekStart: monday,
+                weekEnd: sunday,
+                customMessage,
+            })
+
+            return new Response(
+                JSON.stringify({
+                    success: true,
+                    previewOnly: true,
+                    recipientCount: users.length,
+                    sentCount: 0,
+                    failedCount: 0,
+                    weekStart: monday,
+                    weekEnd: sunday,
+                    previewSubject: preview.subject,
+                    previewHtml: preview.html,
+                    previewRecipient: preview.recipient,
+                }),
+                { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+        }
+
         const result = await sendEmails({
             resendApiKey,
             fromName,
             fromEmail,
             loginUrl,
+            weekTitle,
             weekStart: monday,
             weekEnd: sunday,
+            customMessage,
             users,
             employeesById,
             shiftsByEmployeeId,
