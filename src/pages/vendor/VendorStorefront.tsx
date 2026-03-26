@@ -234,9 +234,9 @@ export function VendorStorefront() {
                         <Textarea
                             label="Description"
                             value={settings.storefront_description}
-                            onChange={(e) => setSettings((prev) => ({ ...prev, storefront_description: e.target.value.slice(0, 500) }))}
+                            onChange={(e) => setSettings((prev) => ({ ...prev, storefront_description: e.target.value.slice(0, 5000) }))}
                             placeholder="Tell shoppers what makes your booth unique."
-                            maxLength={500}
+                            maxLength={5000}
                             rows={4}
                         />
 
