@@ -150,6 +150,11 @@ function setSelectedPrinter(printerName) {
     return { success: true };
 }
 
+function isVirtualPrinter(printer) {
+    const text = `${printer?.name || ''} ${printer?.displayName || ''}`.toLowerCase();
+    return /print to pdf|save as pdf|pdf|xps|onenote|fax/.test(text);
+}
+
 // Find the best printer to use
 async function findPrinter() {
     const selected = getSelectedPrinter();
@@ -165,18 +170,24 @@ async function findPrinter() {
         if (found) return found.name;
     }
 
-    // Auto-detect: prefer printers with "receipt", "thermal", "pos" in name
-    const receiptPrinter = printers.find(p =>
-        /receipt|thermal|pos|star|epson|citizen/i.test(p.name)
+    // Prefer real hardware printers over virtual outputs (PDF/XPS/OneNote/Fax).
+    const physicalPrinters = printers.filter((printer) => !isVirtualPrinter(printer));
+
+    // Auto-detect: prefer common receipt printer names.
+    const receiptPrinter = physicalPrinters.find(p =>
+        /receipt|thermal|pos|star|epson|citizen|bixolon|zebra|tm-t/i.test(`${p.name} ${p.displayName || ''}`)
     );
     if (receiptPrinter) return receiptPrinter.name;
 
-    // Fall back to default printer
-    const defaultPrinter = printers.find(p => p.isDefault);
+    // Fall back to default physical printer
+    const defaultPrinter = physicalPrinters.find(p => p.isDefault);
     if (defaultPrinter) return defaultPrinter.name;
 
-    // Last resort: first available printer
-    return printers[0]?.name || null;
+    // Last resort: first physical printer
+    if (physicalPrinters.length > 0) return physicalPrinters[0].name;
+
+    // If only virtual printers exist, surface as "no printer".
+    return null;
 }
 
 // Format currency

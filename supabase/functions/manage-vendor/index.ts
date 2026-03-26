@@ -23,7 +23,22 @@ interface DeleteVendorRequest {
     userId: string
 }
 
-type RequestBody = CreateVendorRequest | UpdatePasswordRequest | DeleteVendorRequest
+interface ImpersonateVendorRequest {
+    action: 'impersonate'
+    consignorId: string
+    redirectTo?: string
+}
+
+type RequestBody = CreateVendorRequest | UpdatePasswordRequest | DeleteVendorRequest | ImpersonateVendorRequest
+
+function isValidImpersonationRedirect(value: string): boolean {
+    try {
+        const parsed = new URL(value)
+        return parsed.protocol === 'https:' || parsed.protocol === 'http:' || parsed.protocol === 'file:'
+    } catch {
+        return false
+    }
+}
 
 Deno.serve(async (req) => {
     // Handle CORS preflight
@@ -205,6 +220,84 @@ Deno.serve(async (req) => {
 
             return new Response(
                 JSON.stringify({ success: true }),
+                { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+
+        } else if (body.action === 'impersonate') {
+            const { consignorId, redirectTo } = body as ImpersonateVendorRequest
+
+            if (!consignorId) {
+                return new Response(
+                    JSON.stringify({ error: 'Missing consignorId' }),
+                    { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            const { data: vendorUser, error: vendorLookupError } = await adminClient
+                .from('users')
+                .select('id, email, role, consignor_id')
+                .eq('role', 'vendor')
+                .eq('consignor_id', consignorId)
+                .maybeSingle()
+
+            if (vendorLookupError) {
+                console.error('Vendor lookup error:', vendorLookupError)
+                return new Response(
+                    JSON.stringify({ error: vendorLookupError.message }),
+                    { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            if (!vendorUser?.email) {
+                return new Response(
+                    JSON.stringify({ error: 'No vendor login exists for this consignor yet' }),
+                    { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            const appUrl = Deno.env.get('APP_URL')
+            const fallbackRedirectTo = appUrl ? `${appUrl.replace(/\/+$/, '')}/vendor` : null
+            const requestedRedirect = typeof redirectTo === 'string' ? redirectTo.trim() : ''
+            const finalRedirectTo = isValidImpersonationRedirect(requestedRedirect)
+                ? requestedRedirect
+                : fallbackRedirectTo
+
+            if (!finalRedirectTo) {
+                return new Response(
+                    JSON.stringify({ error: 'No valid redirect URL available for impersonation' }),
+                    { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
+                type: 'magiclink',
+                email: vendorUser.email,
+                options: { redirectTo: finalRedirectTo },
+            })
+
+            if (linkError) {
+                console.error('Generate link error:', linkError)
+                return new Response(
+                    JSON.stringify({ error: linkError.message }),
+                    { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            const actionLink = linkData?.properties?.action_link
+
+            if (!actionLink) {
+                return new Response(
+                    JSON.stringify({ error: 'Unable to create impersonation link' }),
+                    { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+
+            return new Response(
+                JSON.stringify({
+                    success: true,
+                    actionLink,
+                    vendorEmail: vendorUser.email,
+                }),
                 { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             )
 
