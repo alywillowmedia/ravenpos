@@ -5,6 +5,7 @@ interface PrinterInfo {
     displayName: string;
     isDefault: boolean;
     status: number;
+    isVirtual?: boolean;
 }
 
 interface PrintResult {

@@ -6,6 +6,7 @@ interface PrinterInfo {
     name: string;
     displayName: string;
     isDefault: boolean;
+    isVirtual?: boolean;
 }
 
 interface PrintDiagnostics {
@@ -57,6 +58,8 @@ export function PrinterSettings({ isOpen, onClose }: PrinterSettingsProps) {
             setLoading(false);
         }
     }
+
+    const printablePrinters = printers.filter((printer) => !printer.isVirtual);
 
     async function handleSave() {
         setSaving(true);
@@ -167,13 +170,13 @@ export function PrinterSettings({ isOpen, onClose }: PrinterSettingsProps) {
                         </div>
 
                         {/* Printer list */}
-                        {printers.length > 0 && (
+                        {printablePrinters.length > 0 && (
                             <div>
                                 <p className="text-sm font-medium mb-3 text-[var(--color-muted)]">
                                     Or select a specific printer:
                                 </p>
                                 <div className="space-y-2 max-h-48 overflow-y-auto">
-                                    {printers.map((printer) => (
+                                    {printablePrinters.map((printer) => (
                                         <div
                                             key={printer.name}
                                             onClick={() => setSelectedPrinter(printer.name)}
@@ -208,10 +211,10 @@ export function PrinterSettings({ isOpen, onClose }: PrinterSettingsProps) {
                             </div>
                         )}
 
-                        {printers.length === 0 && (
+                        {printablePrinters.length === 0 && (
                             <div className="text-center py-4">
                                 <p className="text-[var(--color-muted)]">
-                                    No printers found. Please connect a receipt printer.
+                                    No physical receipt printers found. Connect a printer and retry.
                                 </p>
                             </div>
                         )}

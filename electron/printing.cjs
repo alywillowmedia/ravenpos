@@ -130,6 +130,7 @@ async function getPrinters() {
                 displayName: p.displayName || p.name,
                 isDefault: p.isDefault,
                 status: p.status,
+                isVirtual: isVirtualPrinter(p),
             }));
         }
         return [];
@@ -155,6 +156,10 @@ function isVirtualPrinter(printer) {
     return /print to pdf|save as pdf|pdf|xps|onenote|fax/.test(text);
 }
 
+function normalizePrinterId(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
 // Find the best printer to use
 async function findPrinter() {
     const selected = getSelectedPrinter();
@@ -166,8 +171,15 @@ async function findPrinter() {
 
     // If a printer is selected and exists, use it
     if (selected) {
-        const found = printers.find(p => p.name === selected);
-        if (found) return found.name;
+        const selectedId = normalizePrinterId(selected);
+        const found = printers.find((printer) => {
+            return (
+                normalizePrinterId(printer.name) === selectedId ||
+                normalizePrinterId(printer.displayName) === selectedId
+            );
+        });
+        // Never use a virtual destination (Save as PDF / XPS / OneNote / Fax) for receipts.
+        if (found && !isVirtualPrinter(found)) return found.name;
     }
 
     // Prefer real hardware printers over virtual outputs (PDF/XPS/OneNote/Fax).
@@ -449,6 +461,23 @@ async function printViaElectron(printerName, text, barcodeValue) {
             `document.open();document.write(atob(${JSON.stringify(encodedHtml)}));document.close();`,
             true
         );
+
+        const availablePrinters = await printWindow.webContents.getPrintersAsync();
+        const target = availablePrinters.find((printer) => {
+            return normalizePrinterId(printer.name) === normalizePrinterId(printerName);
+        });
+        if (!target) {
+            return {
+                success: false,
+                error: `Receipt printer "${printerName}" is unavailable. Please select a connected printer in Printer Settings.`,
+            };
+        }
+        if (isVirtualPrinter(target)) {
+            return {
+                success: false,
+                error: `Selected printer "${target.displayName || target.name}" is a virtual printer. Choose a physical receipt printer.`,
+            };
+        }
 
         const result = await new Promise((resolve) => {
             printWindow.webContents.print(
