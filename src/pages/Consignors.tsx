@@ -21,6 +21,7 @@ export function Consignors() {
     const [isAddConsignorDirty, setIsAddConsignorDirty] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Consignor | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
     const [itemCount, setItemCount] = useState(0);
 
     // Fetch item count when deleteTarget changes
@@ -72,9 +73,16 @@ export function Consignors() {
 
     const handleDelete = async () => {
         if (!deleteTarget) return;
+        setDeleteError(null);
         setIsDeleting(true);
-        await deleteConsignor(deleteTarget.id);
+        const { error: deleteErrorMessage } = await deleteConsignor(deleteTarget.id);
         setIsDeleting(false);
+
+        if (deleteErrorMessage) {
+            setDeleteError(deleteErrorMessage);
+            return;
+        }
+
         setDeleteTarget(null);
     };
 
@@ -156,6 +164,7 @@ export function Consignors() {
                 <button
                     onClick={(e) => {
                         e.stopPropagation();
+                        setDeleteError(null);
                         setDeleteTarget(c);
                     }}
                     className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-danger)] transition-colors"
@@ -234,11 +243,15 @@ export function Consignors() {
             {/* Delete Confirmation Modal */}
             <DeleteConfirmationModal
                 isOpen={!!deleteTarget}
-                onClose={() => setDeleteTarget(null)}
+                onClose={() => {
+                    setDeleteTarget(null);
+                    setDeleteError(null);
+                }}
                 onConfirm={handleDelete}
                 isLoading={isDeleting}
                 targetName={deleteTarget?.name || ''}
                 itemCount={itemCount}
+                description={deleteError || undefined}
             />
         </div>
     );

@@ -285,6 +285,15 @@ export function useConsignors() {
 
     const deleteConsignor = useCallback(async (id: string) => {
         try {
+            // Historical sale_items rows can still reference this consignor and block delete.
+            // Clear them first to honor the UI's destructive delete warning.
+            const { error: deleteSaleItemsError } = await supabase
+                .from('sale_items')
+                .delete()
+                .eq('consignor_id', id);
+
+            if (deleteSaleItemsError) throw deleteSaleItemsError;
+
             const { error: deleteError } = await supabase
                 .from('consignors')
                 .delete()
