@@ -31,3 +31,16 @@ INVOICE_FEATURE.md
 stripe example.md
 stripe-sample-code_1/
 Screenshot*.png
+
+# Generated media/assets
+*.gif
+
+# Local Alywillow barcode/import working files
+BARCODE Notebook/
+alywillow_barcode_*.md
+alywillow_barcode_notebook.pdf
+alywillow_products.csv
+alywillow_products_clean_variants.csv
+alywillow_products_clean_variants_strict.csv
+alywillow_products_import_ready.csv
+alywillow_products_import_ready_notes.md
