@@ -184,7 +184,7 @@ export function EmployeePOS() {
                 name: ci.item.name,
                 price: ci.item.price,
                 quantity: ci.quantity,
-                commission_split: ci.item.consignor?.commission_split || 0.6,
+                commission_split: ci.item.consignor?.commission_split ?? 0.6,
             }));
 
             const { error: itemsError } = await supabase

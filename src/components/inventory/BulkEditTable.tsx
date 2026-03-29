@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback, useMemo, useState } from 'react';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Badge } from '../ui/Badge';
@@ -20,6 +20,8 @@ export function BulkEditTable({
     onStageChange,
     onEscapePressed,
 }: BulkEditTableProps) {
+    const [bulkQuantity, setBulkQuantity] = useState('');
+
     // Handle escape key
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -54,6 +56,15 @@ export function BulkEditTable({
         return !!changes && changes.size > 0;
     }, [stagedChanges]);
 
+    const applyQuantityToAll = useCallback(() => {
+        const parsedQuantity = Number.parseInt(bulkQuantity, 10);
+        if (Number.isNaN(parsedQuantity) || parsedQuantity < 0) return;
+
+        items.forEach((item) => {
+            onStageChange(item.id, 'quantity', parsedQuantity, item.quantity);
+        });
+    }, [bulkQuantity, items, onStageChange]);
+
     return (
         <div className="rounded-xl border border-[var(--color-border)] overflow-hidden bg-white">
             {/* Header info */}
@@ -64,9 +75,31 @@ export function BulkEditTable({
                         Editing {items.length} items
                     </span>
                 </div>
-                <span className="text-xs text-[var(--color-muted)]">
-                    Press <kbd className="px-1.5 py-0.5 bg-[var(--color-border)] rounded text-[10px] font-mono">Esc</kbd> to exit
-                </span>
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-[var(--color-muted)] whitespace-nowrap">Set qty for all:</span>
+                        <Input
+                            type="number"
+                            min="0"
+                            value={bulkQuantity}
+                            onChange={(e) => setBulkQuantity(e.target.value)}
+                            inputSize="sm"
+                            className="w-24"
+                            placeholder="0"
+                        />
+                        <button
+                            type="button"
+                            onClick={applyQuantityToAll}
+                            disabled={bulkQuantity.trim() === '' || Number.parseInt(bulkQuantity, 10) < 0}
+                            className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-[var(--color-border)] bg-white text-[var(--color-foreground)] hover:bg-[var(--color-surface)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Apply
+                        </button>
+                    </div>
+                    <span className="text-xs text-[var(--color-muted)]">
+                        Press <kbd className="px-1.5 py-0.5 bg-[var(--color-border)] rounded text-[10px] font-mono">Esc</kbd> to exit
+                    </span>
+                </div>
             </div>
 
             {/* Spreadsheet table */}

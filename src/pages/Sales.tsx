@@ -20,6 +20,19 @@ import type { Customer, CustomerInput } from '../types';
 
 type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
 
+const CASH_DENOMINATIONS = [
+    { key: '100', label: '$100', value: 100 },
+    { key: '50', label: '$50', value: 50 },
+    { key: '20', label: '$20', value: 20 },
+    { key: '10', label: '$10', value: 10 },
+    { key: '5', label: '$5', value: 5 },
+    { key: '1', label: '$1', value: 1 },
+    { key: '0.25', label: '25¢', value: 0.25 },
+    { key: '0.10', label: '10¢', value: 0.10 },
+    { key: '0.05', label: '5¢', value: 0.05 },
+    { key: '0.01', label: '1¢', value: 0.01 },
+] as const;
+
 function toLocalDateInput(date: Date): string {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -69,6 +82,15 @@ export function Sales() {
         notes: null,
         accepts_marketing: false,
     });
+    const [showCashReconciliation, setShowCashReconciliation] = useState(false);
+    const [openingFloatInput, setOpeningFloatInput] = useState('');
+    const [manualCashAdjustmentInput, setManualCashAdjustmentInput] = useState('');
+    const [denominationCounts, setDenominationCounts] = useState<Record<string, string>>(() =>
+        CASH_DENOMINATIONS.reduce<Record<string, string>>((acc, denomination) => {
+            acc[denomination.key] = '';
+            return acc;
+        }, {})
+    );
 
     const dateRange = useMemo(() => {
         const now = new Date();
@@ -153,6 +175,51 @@ export function Sales() {
         () => refunds.filter((refund) => matchesDateRange(refund.created_at)),
         [refunds, dateRange.start, dateRange.end]
     );
+
+    const cashReconciliation = useMemo(() => {
+        const cashSales = filteredSales.filter((sale) => sale.payment_method === 'cash');
+        const cashSalesCount = cashSales.length;
+        const cashReceivedGross = cashSales.reduce(
+            (sum, sale) => sum + Number(sale.cash_tendered ?? 0),
+            0
+        );
+        const changeGiven = cashSales.reduce(
+            (sum, sale) => sum + Number(sale.change_given ?? 0),
+            0
+        );
+        const cashSalesNet = cashSales.reduce((sum, sale) => {
+            const tendered = Number(sale.cash_tendered ?? 0);
+            const change = Number(sale.change_given ?? 0);
+            const fallback = Number(sale.total ?? 0);
+            return sum + (tendered > 0 ? (tendered - change) : fallback);
+        }, 0);
+        const cashRefunds = filteredRefunds
+            .filter((refund) => refund.payment_method === 'cash')
+            .reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0);
+        const expectedCashFromSales = cashSalesNet - cashRefunds;
+        const openingFloat = Number.parseFloat(openingFloatInput) || 0;
+        const manualAdjustment = Number.parseFloat(manualCashAdjustmentInput) || 0;
+        const expectedDrawerTotal = openingFloat + expectedCashFromSales + manualAdjustment;
+        const countedTotal = CASH_DENOMINATIONS.reduce((sum, denomination) => {
+            const quantity = Math.max(0, Number.parseInt(denominationCounts[denomination.key] || '0', 10) || 0);
+            return sum + (quantity * denomination.value);
+        }, 0);
+        const variance = countedTotal - expectedDrawerTotal;
+
+        return {
+            cashSalesCount,
+            cashReceivedGross,
+            changeGiven,
+            cashSalesNet,
+            cashRefunds,
+            expectedCashFromSales,
+            openingFloat,
+            manualAdjustment,
+            expectedDrawerTotal,
+            countedTotal,
+            variance,
+        };
+    }, [filteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, denominationCounts]);
 
     // Calculate totals (subtracting refunds)
     const totals = useMemo(() => {
@@ -352,6 +419,20 @@ export function Sales() {
         await attachCustomerToSelectedSale(data);
     };
 
+    const updateDenominationCount = (key: string, value: string) => {
+        if (value !== '' && !/^\d+$/.test(value)) return;
+        setDenominationCounts((prev) => ({ ...prev, [key]: value }));
+    };
+
+    const resetCashCount = () => {
+        setDenominationCounts(
+            CASH_DENOMINATIONS.reduce<Record<string, string>>((acc, denomination) => {
+                acc[denomination.key] = '';
+                return acc;
+            }, {})
+        );
+    };
+
     return (
         <div className="animate-fadeIn">
             <Header
@@ -374,14 +455,30 @@ export function Sales() {
 
             {/* Summary Cards - Only show for sales tab */}
             {activeTab === 'sales' && (
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-                    <SummaryCard label="Net Sales" value={formatCurrency(totals.total)} />
-                    <SummaryCard label="Refunded" value={`-${formatCurrency(totals.totalRefunded)}`} variant="danger" />
-                    <SummaryCard label="Tax Collected" value={formatCurrency(totals.tax)} />
-                    <SummaryCard label="Consignor Payouts" value={formatCurrency(totals.consignorShare)} variant="success" />
-                    <SummaryCard label="Store Revenue" value={formatCurrency(totals.storeShare)} variant="primary" />
-                    <SummaryCard label="Gross Sales" value={formatCurrency(totals.subtotal)} />
-                </div>
+                <>
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-4">
+                        <SummaryCard label="Net Sales" value={formatCurrency(totals.total)} />
+                        <SummaryCard label="Refunded" value={`-${formatCurrency(totals.totalRefunded)}`} variant="danger" />
+                        <SummaryCard label="Tax Collected" value={formatCurrency(totals.tax)} />
+                        <SummaryCard label="Consignor Payouts" value={formatCurrency(totals.consignorShare)} variant="success" />
+                        <SummaryCard label="Store Revenue" value={formatCurrency(totals.storeShare)} variant="primary" />
+                        <SummaryCard label="Gross Sales" value={formatCurrency(totals.subtotal)} />
+                    </div>
+                    <div className="bg-white rounded-xl border border-[var(--color-border)] p-4 mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div>
+                            <p className="text-xs text-[var(--color-muted)] mb-1">Cash Reconciliation</p>
+                            <p className="text-lg font-semibold">
+                                Expected From Sales: {formatCurrency(cashReconciliation.expectedCashFromSales)}
+                            </p>
+                            <p className="text-xs text-[var(--color-muted)]">
+                                {cashReconciliation.cashSalesCount} cash sale{cashReconciliation.cashSalesCount !== 1 ? 's' : ''} in current filter
+                            </p>
+                        </div>
+                        <Button variant="secondary" onClick={() => setShowCashReconciliation(true)}>
+                            Count Drawer
+                        </Button>
+                    </div>
+                </>
             )}
 
             {/* Filters */}
@@ -885,6 +982,121 @@ export function Sales() {
                         setPrintError(null);
                         resetCustomerAttachState();
                     }}>
+                        Close
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
+            <Modal
+                isOpen={showCashReconciliation}
+                onClose={() => setShowCashReconciliation(false)}
+                title="Cash Drawer Reconciliation"
+                size="lg"
+            >
+                <div className="space-y-4">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <SummaryCard
+                            label="Expected Cash From Sales"
+                            value={formatCurrency(cashReconciliation.expectedCashFromSales)}
+                        />
+                        <SummaryCard
+                            label="Cash Refunds"
+                            value={`-${formatCurrency(cashReconciliation.cashRefunds)}`}
+                            variant="danger"
+                        />
+                        <SummaryCard
+                            label="Cash Sales (Count)"
+                            value={String(cashReconciliation.cashSalesCount)}
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Input
+                            label="Opening Float"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={openingFloatInput}
+                            onChange={(e) => setOpeningFloatInput(e.target.value)}
+                            placeholder="0.00"
+                        />
+                        <Input
+                            label="Manual Adjustment (+/-)"
+                            type="number"
+                            step="0.01"
+                            value={manualCashAdjustmentInput}
+                            onChange={(e) => setManualCashAdjustmentInput(e.target.value)}
+                            placeholder="0.00"
+                        />
+                    </div>
+
+                    <div className="rounded-lg border border-[var(--color-border)] overflow-hidden">
+                        <table className="w-full text-sm">
+                            <thead className="bg-[var(--color-surface)]">
+                                <tr>
+                                    <th className="text-left px-3 py-2 font-medium">Denomination</th>
+                                    <th className="text-right px-3 py-2 font-medium">Qty</th>
+                                    <th className="text-right px-3 py-2 font-medium">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {CASH_DENOMINATIONS.map((denomination) => {
+                                    const quantity = Math.max(0, Number.parseInt(denominationCounts[denomination.key] || '0', 10) || 0);
+                                    const amount = quantity * denomination.value;
+
+                                    return (
+                                        <tr key={denomination.key} className="border-t border-[var(--color-border)]">
+                                            <td className="px-3 py-2">{denomination.label}</td>
+                                            <td className="px-3 py-2 text-right">
+                                                <input
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    pattern="[0-9]*"
+                                                    value={denominationCounts[denomination.key]}
+                                                    onChange={(e) => updateDenominationCount(denomination.key, e.target.value)}
+                                                    placeholder="0"
+                                                    className="w-20 ml-auto px-2 py-1 rounded border border-[var(--color-border)] text-right"
+                                                />
+                                            </td>
+                                            <td className="px-3 py-2 text-right font-medium">{formatCurrency(amount)}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="rounded-lg border border-[var(--color-border)] p-3 bg-[var(--color-surface)]">
+                        <div className="flex justify-between text-sm">
+                            <span className="text-[var(--color-muted)]">Expected Drawer Total</span>
+                            <span className="font-medium">{formatCurrency(cashReconciliation.expectedDrawerTotal)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm mt-1">
+                            <span className="text-[var(--color-muted)]">Counted Drawer Total</span>
+                            <span className="font-medium">{formatCurrency(cashReconciliation.countedTotal)}</span>
+                        </div>
+                        <div className="flex justify-between text-base mt-2 pt-2 border-t border-[var(--color-border)]">
+                            <span className="font-medium">Over / Short</span>
+                            <span
+                                className={`font-semibold ${
+                                    cashReconciliation.variance > 0
+                                        ? 'text-[var(--color-success)]'
+                                        : cashReconciliation.variance < 0
+                                            ? 'text-[var(--color-danger)]'
+                                            : 'text-[var(--color-foreground)]'
+                                }`}
+                            >
+                                {cashReconciliation.variance > 0 ? '+' : ''}
+                                {formatCurrency(cashReconciliation.variance)}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <ModalFooter>
+                    <Button variant="ghost" onClick={resetCashCount}>
+                        Clear Counts
+                    </Button>
+                    <Button variant="secondary" onClick={() => setShowCashReconciliation(false)}>
                         Close
                     </Button>
                 </ModalFooter>

@@ -109,6 +109,10 @@ export function Inventory() {
         { value: '', label: 'All Categories' },
         ...getCategoryNames().map((name) => ({ value: name, label: name })),
     ];
+    const filteredItemIds = useMemo(
+        () => filteredItems.map((item) => item.id),
+        [filteredItems]
+    );
 
     // Bulk edit handlers
     const handleSelectAll = useCallback(() => {
@@ -236,7 +240,10 @@ export function Inventory() {
                         <input
                             type="checkbox"
                             checked={bulkEdit.isSelected(item.id)}
-                            onChange={() => bulkEdit.toggleSelection(item.id)}
+                            onChange={(e) => bulkEdit.toggleSelection(item.id, {
+                                shiftKey: (e.nativeEvent as MouseEvent).shiftKey,
+                                visibleIds: filteredItemIds,
+                            })}
                             className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)] cursor-pointer"
                             onClick={(e) => e.stopPropagation()}
                         />
@@ -372,7 +379,7 @@ export function Inventory() {
                 ),
             },
         ];
-    }, [bulkEdit]);
+    }, [bulkEdit, filteredItemIds]);
 
     return (
         <div className="animate-fadeIn">

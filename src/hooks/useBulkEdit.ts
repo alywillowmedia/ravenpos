@@ -10,6 +10,7 @@ export interface StagedChange {
 export interface BulkEditState {
     isActive: boolean;
     selectedIds: Set<string>;
+    lastSelectedId: string | null;
     stagedChanges: Map<string, Map<string, StagedChange>>;
 }
 
@@ -27,7 +28,7 @@ export interface UseBulkEditReturn {
     // Selection controls
     selectItem: (id: string) => void;
     deselectItem: (id: string) => void;
-    toggleSelection: (id: string) => void;
+    toggleSelection: (id: string, options?: { shiftKey?: boolean; visibleIds?: string[] }) => void;
     selectAll: (ids: string[]) => void;
     deselectAll: () => void;
     isSelected: (id: string) => boolean;
@@ -52,6 +53,7 @@ export function useBulkEdit(): UseBulkEditReturn {
     const [state, setState] = useState<BulkEditState>({
         isActive: false,
         selectedIds: new Set(),
+        lastSelectedId: null,
         stagedChanges: new Map(),
     });
 
@@ -66,6 +68,7 @@ export function useBulkEdit(): UseBulkEditReturn {
             isActive: !prev.isActive,
             // Clear selection when exiting
             selectedIds: prev.isActive ? new Set() : prev.selectedIds,
+            lastSelectedId: prev.isActive ? null : prev.lastSelectedId,
             stagedChanges: prev.isActive ? new Map() : prev.stagedChanges,
         }));
     }, []);
@@ -78,6 +81,7 @@ export function useBulkEdit(): UseBulkEditReturn {
         setState({
             isActive: false,
             selectedIds: new Set(),
+            lastSelectedId: null,
             stagedChanges: new Map(),
         });
         return true;
@@ -88,7 +92,7 @@ export function useBulkEdit(): UseBulkEditReturn {
         setState((prev) => {
             const newSelected = new Set(prev.selectedIds);
             newSelected.add(id);
-            return { ...prev, selectedIds: newSelected };
+            return { ...prev, selectedIds: newSelected, lastSelectedId: id };
         });
     }, []);
 
@@ -99,22 +103,49 @@ export function useBulkEdit(): UseBulkEditReturn {
             // Also clear staged changes for this item
             const newChanges = new Map(prev.stagedChanges);
             newChanges.delete(id);
-            return { ...prev, selectedIds: newSelected, stagedChanges: newChanges };
+            return { ...prev, selectedIds: newSelected, stagedChanges: newChanges, lastSelectedId: id };
         });
     }, []);
 
-    const toggleSelection = useCallback((id: string) => {
+    const toggleSelection = useCallback((id: string, options?: { shiftKey?: boolean; visibleIds?: string[] }) => {
         setState((prev) => {
+            const shiftKey = options?.shiftKey ?? false;
+            const visibleIds = options?.visibleIds ?? [];
             const newSelected = new Set(prev.selectedIds);
+            const newChanges = new Map(prev.stagedChanges);
+
+            if (shiftKey && prev.lastSelectedId && visibleIds.length > 0) {
+                const startIndex = visibleIds.indexOf(prev.lastSelectedId);
+                const endIndex = visibleIds.indexOf(id);
+
+                if (startIndex !== -1 && endIndex !== -1) {
+                    const rangeStart = Math.min(startIndex, endIndex);
+                    const rangeEnd = Math.max(startIndex, endIndex);
+                    const rangeIds = visibleIds.slice(rangeStart, rangeEnd + 1);
+                    const shouldSelectRange = !prev.selectedIds.has(id);
+
+                    rangeIds.forEach((rangeId) => {
+                        if (shouldSelectRange) {
+                            newSelected.add(rangeId);
+                            return;
+                        }
+
+                        newSelected.delete(rangeId);
+                        newChanges.delete(rangeId);
+                    });
+
+                    return { ...prev, selectedIds: newSelected, stagedChanges: newChanges, lastSelectedId: id };
+                }
+            }
+
             if (newSelected.has(id)) {
                 newSelected.delete(id);
                 // Also clear staged changes for this item
-                const newChanges = new Map(prev.stagedChanges);
                 newChanges.delete(id);
-                return { ...prev, selectedIds: newSelected, stagedChanges: newChanges };
+                return { ...prev, selectedIds: newSelected, stagedChanges: newChanges, lastSelectedId: id };
             } else {
                 newSelected.add(id);
-                return { ...prev, selectedIds: newSelected };
+                return { ...prev, selectedIds: newSelected, lastSelectedId: id };
             }
         });
     }, []);
@@ -123,6 +154,7 @@ export function useBulkEdit(): UseBulkEditReturn {
         setState((prev) => ({
             ...prev,
             selectedIds: new Set(ids),
+            lastSelectedId: null,
         }));
     }, []);
 
@@ -130,6 +162,7 @@ export function useBulkEdit(): UseBulkEditReturn {
         setState((prev) => ({
             ...prev,
             selectedIds: new Set(),
+            lastSelectedId: null,
             stagedChanges: new Map(),
         }));
     }, []);

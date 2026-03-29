@@ -35,12 +35,18 @@ Screenshot*.png
 # Generated media/assets
 *.gif
 
+# Local database backups
+backups/
+
 # Local Alywillow barcode/import working files
 BARCODE Notebook/
 alywillow_barcode_*.md
+alywillow_unmapped_manual_review.md
 alywillow_barcode_notebook.pdf
 alywillow_products.csv
 alywillow_products_clean_variants.csv
 alywillow_products_clean_variants_strict.csv
 alywillow_products_import_ready.csv
 alywillow_products_import_ready_notes.md
+scripts/generate_alywillow_barcode_notebook.py
+scripts/__pycache__/

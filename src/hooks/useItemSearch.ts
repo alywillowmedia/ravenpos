@@ -1,6 +1,11 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Item } from '../types';
+import {
+    applyEffectiveConsignorTerms,
+    getLocalDateString,
+    type ConsignorRateSchedule,
+} from '../lib/consignorRateSchedules';
 
 export function useItemSearch() {
     const [searchResults, setSearchResults] = useState<Item[]>([]);
@@ -23,7 +28,7 @@ export function useItemSearch() {
                 .from('items')
                 .select(`
           *,
-          consignor:consignors(id, consignor_number, name, consignor_number)
+          consignor:consignors(id, consignor_number, name, commission_split, consignor_pays_card_fee, dealer_discount_percent)
         `)
                 .gt('quantity', 0)
                 .order('name', { ascending: true });
@@ -57,7 +62,48 @@ export function useItemSearch() {
 
             if (itemSearchError) throw itemSearchError;
 
-            setSearchResults(data || []);
+            const rows = (data || []) as Item[];
+            const consignorIds = rows
+                .map((row) => row.consignor?.id)
+                .filter((id): id is string => Boolean(id));
+
+            if (consignorIds.length === 0) {
+                setSearchResults(rows);
+                return;
+            }
+
+            const today = getLocalDateString();
+            const { data: scheduleData, error: scheduleError } = await supabase
+                .from('consignor_rate_schedules')
+                .select('id, consignor_id, effective_date, commission_split, booth_square_feet, booth_cost_per_square_foot, monthly_booth_rent, created_at, updated_at')
+                .in('consignor_id', consignorIds)
+                .lte('effective_date', today);
+
+            if (scheduleError) {
+                setSearchResults(rows);
+                return;
+            }
+
+            const schedulesByConsignor = new Map<string, ConsignorRateSchedule[]>();
+            for (const schedule of ((scheduleData || []) as ConsignorRateSchedule[])) {
+                const existing = schedulesByConsignor.get(schedule.consignor_id) || [];
+                existing.push(schedule);
+                schedulesByConsignor.set(schedule.consignor_id, existing);
+            }
+
+            const hydratedRows = rows.map((row) => {
+                if (!row.consignor?.id) return row;
+                return {
+                    ...row,
+                    consignor: applyEffectiveConsignorTerms(
+                        row.consignor,
+                        schedulesByConsignor.get(row.consignor.id) || [],
+                        today
+                    ),
+                };
+            });
+
+            setSearchResults(hydratedRows);
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to search items';
             setSearchError(message);

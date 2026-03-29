@@ -180,7 +180,7 @@ export function VendorPayouts() {
                         <div className="text-right">
                             <p className="text-xs text-[var(--color-muted)]">Commission Rate</p>
                             <p className="text-lg font-semibold">
-                                {Math.round((consignor?.commission_split || 0.6) * 100)}%
+                                {Math.round((consignor?.commission_split ?? 0.6) * 100)}%
                             </p>
                         </div>
                     </div>
