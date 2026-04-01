@@ -53,6 +53,7 @@ import { EmployeeLogin } from './pages/employee/EmployeeLogin';
 import { EmployeeActionSelection } from './pages/employee/EmployeeActionSelection';
 import { EmployeeSchedule as EmployeeSelfSchedule } from './pages/employee/EmployeeSchedule';
 import { EmployeePortalDashboard } from './pages/employee/EmployeePortalDashboard';
+import { EmployeeTillCount } from './pages/employee/EmployeeTillCount';
 
 // Public Pages
 import { BrowsePage } from './pages/public/BrowsePage';
@@ -95,6 +96,7 @@ export default function App() {
                     <Route path="/employee" element={<EmployeeLayout />}>
                         <Route index element={<Navigate to="/employee/action-selection" replace />} />
                         <Route path="pos" element={<POS />} />
+                        <Route path="till-count" element={<EmployeeTillCount />} />
                         <Route path="schedule" element={<EmployeeSelfSchedule />} />
                         <Route path="customers" element={<Customers />} />
                         <Route path="labels" element={<Labels />} />

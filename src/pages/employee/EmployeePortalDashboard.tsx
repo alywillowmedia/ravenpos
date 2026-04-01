@@ -29,6 +29,12 @@ type RecurringShift = {
     active_until: string | null;
 };
 
+type DayOffOverride = {
+    id: string;
+    shift_date: string;
+    is_day_off: boolean;
+};
+
 type TimeEntry = {
     id: string;
     clock_in: string;
@@ -170,6 +176,7 @@ export function EmployeePortalDashboard() {
     const [profile, setProfile] = useState<EmployeeProfile | null>(null);
     const [oneTimeShifts, setOneTimeShifts] = useState<OneTimeShift[]>([]);
     const [recurringShifts, setRecurringShifts] = useState<RecurringShift[]>([]);
+    const [dayOffOverrides, setDayOffOverrides] = useState<DayOffOverride[]>([]);
     const [weekHoursWorked, setWeekHoursWorked] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -219,8 +226,12 @@ export function EmployeePortalDashboard() {
 
     const displayShifts = useMemo(() => {
         const shifts: DisplayShift[] = [];
+        const dayOffOverrideDates = new Set(
+            dayOffOverrides.filter((override) => override.is_day_off).map((override) => override.shift_date)
+        );
 
         for (const shift of oneTimeShifts) {
+            if (dayOffOverrideDates.has(shift.shift_date)) continue;
             shifts.push({
                 id: shift.id,
                 shift_date: shift.shift_date,
@@ -235,6 +246,7 @@ export function EmployeePortalDashboard() {
             for (const dateKey of displayedDays) {
                 const date = parseDateKey(dateKey);
                 if (!matchesRecurringOnDate(recurring, date, dateKey)) continue;
+                if (dayOffOverrideDates.has(dateKey)) continue;
 
                 shifts.push({
                     id: `${recurring.id}-${dateKey}`,
@@ -253,7 +265,7 @@ export function EmployeePortalDashboard() {
         });
 
         return shifts;
-    }, [oneTimeShifts, recurringShifts, displayedDays]);
+    }, [dayOffOverrides, oneTimeShifts, recurringShifts, displayedDays]);
 
     const shiftsByDate = useMemo(() => {
         const map = new Map<string, DisplayShift[]>();
@@ -332,7 +344,7 @@ export function EmployeePortalDashboard() {
         const weekStart = startOfWeekMonday(new Date());
         const nowIso = new Date().toISOString();
 
-        const [profileResult, oneTimeResult, recurringResult, timeEntriesResult] = await Promise.all([
+        const [profileResult, oneTimeResult, recurringResult, dayOffOverridesResult, timeEntriesResult] = await Promise.all([
             supabase
                 .from('employees')
                 .select('id, name, hourly_rate')
@@ -356,6 +368,14 @@ export function EmployeePortalDashboard() {
                 .order('day_offset')
                 .order('start_time'),
             supabase
+                .from('employee_schedule_day_overrides')
+                .select('id, shift_date, is_day_off')
+                .eq('employee_id', employeeId)
+                .eq('is_day_off', true)
+                .gte('shift_date', scheduleRangeStartKey)
+                .lte('shift_date', scheduleRangeEndKey)
+                .order('shift_date'),
+            supabase
                 .from('time_entries')
                 .select('id, clock_in, clock_out, total_hours')
                 .eq('employee_id', employeeId)
@@ -363,8 +383,8 @@ export function EmployeePortalDashboard() {
                 .lte('clock_in', nowIso),
         ]);
 
-        if (profileResult.error || oneTimeResult.error || recurringResult.error || timeEntriesResult.error) {
-            const firstError = profileResult.error || oneTimeResult.error || recurringResult.error || timeEntriesResult.error;
+        if (profileResult.error || oneTimeResult.error || recurringResult.error || dayOffOverridesResult.error || timeEntriesResult.error) {
+            const firstError = profileResult.error || oneTimeResult.error || recurringResult.error || dayOffOverridesResult.error || timeEntriesResult.error;
             setError(firstError?.message || 'Failed to load dashboard');
             setIsLoading(false);
             return;
@@ -373,6 +393,7 @@ export function EmployeePortalDashboard() {
         setProfile(profileResult.data as EmployeeProfile);
         setOneTimeShifts((oneTimeResult.data || []) as OneTimeShift[]);
         setRecurringShifts((recurringResult.data || []) as RecurringShift[]);
+        setDayOffOverrides((dayOffOverridesResult.data || []) as DayOffOverride[]);
 
         const entries = (timeEntriesResult.data || []) as TimeEntry[];
         const hours = entries.reduce((sum, entry) => {

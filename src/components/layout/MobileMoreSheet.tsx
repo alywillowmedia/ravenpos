@@ -37,6 +37,7 @@ const adminMoreItems: MoreNavItem[] = [
 ];
 
 const employeeMoreItems: MoreNavItem[] = [
+    { name: 'Till Count', href: '/employee/till-count', icon: CashIcon },
     { name: 'Labels', href: '/employee/labels', icon: TagIcon },
     { name: 'Messages', href: '/employee/messages', icon: MessageIcon },
 ];
@@ -191,6 +192,15 @@ function EmployeesIcon() {
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="8" r="5" />
             <path d="M20 21a8 8 0 0 0-16 0" />
+        </svg>
+    );
+}
+
+function CashIcon() {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2v20" />
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14.5a3.5 3.5 0 0 1 0 7H7" />
         </svg>
     );
 }

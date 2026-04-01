@@ -33,6 +33,12 @@ type RecurringSchedule = {
     active_until: string | null;
 };
 
+type DayOffOverride = {
+    id: string;
+    shift_date: string;
+    is_day_off: boolean;
+};
+
 type DisplayShift = {
     id: string;
     shift_date: string;
@@ -193,6 +199,7 @@ export function EmployeeSchedule() {
     const [anchorDate, setAnchorDate] = useState(() => new Date());
     const [oneTimeShifts, setOneTimeShifts] = useState<OneTimeShift[]>([]);
     const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
+    const [dayOffOverrides, setDayOffOverrides] = useState<DayOffOverride[]>([]);
     const [timeOffRequests, setTimeOffRequests] = useState<TimeOffRequest[]>([]);
     const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
     const [isLoadingRequests, setIsLoadingRequests] = useState(true);
@@ -230,7 +237,7 @@ export function EmployeeSchedule() {
         setIsLoadingSchedule(true);
         setError(null);
 
-        const [oneTimeResult, recurringResult] = await Promise.all([
+        const [oneTimeResult, recurringResult, dayOffOverridesResult] = await Promise.all([
             supabase
                 .from('employee_schedules')
                 .select('id, shift_date, start_time, end_time, notes')
@@ -248,6 +255,14 @@ export function EmployeeSchedule() {
                 .order('cycle_length_days')
                 .order('day_offset')
                 .order('start_time'),
+            supabase
+                .from('employee_schedule_day_overrides')
+                .select('id, shift_date, is_day_off')
+                .eq('employee_id', employee.id)
+                .eq('is_day_off', true)
+                .gte('shift_date', rangeStartKey)
+                .lte('shift_date', rangeEndKey)
+                .order('shift_date'),
         ]);
 
         if (oneTimeResult.error) {
@@ -262,6 +277,13 @@ export function EmployeeSchedule() {
             setRecurringSchedules([]);
         } else {
             setRecurringSchedules((recurringResult.data || []) as RecurringSchedule[]);
+        }
+
+        if (dayOffOverridesResult.error) {
+            setError(dayOffOverridesResult.error.message);
+            setDayOffOverrides([]);
+        } else {
+            setDayOffOverrides((dayOffOverridesResult.data || []) as DayOffOverride[]);
         }
 
         setIsLoadingSchedule(false);
@@ -313,6 +335,12 @@ export function EmployeeSchedule() {
 
     const displayShifts = useMemo(() => {
         const overrides = new Set(oneTimeShifts.map((shift) => shift.shift_date));
+        const dayOffOverrideDates = new Set<string>();
+        for (const dayOff of dayOffOverrides) {
+            if (!dayOff.is_day_off) continue;
+            overrides.add(dayOff.shift_date);
+            dayOffOverrideDates.add(dayOff.shift_date);
+        }
 
         const recurringShifts: DisplayShift[] = [];
         for (const schedule of recurringSchedules) {
@@ -333,21 +361,23 @@ export function EmployeeSchedule() {
             }
         }
 
-        const specificShifts: DisplayShift[] = oneTimeShifts.map((shift) => ({
-            id: shift.id,
-            shift_date: shift.shift_date,
-            start_time: shift.start_time,
-            end_time: shift.end_time,
-            notes: shift.notes,
-            source: 'one_time',
-            recurring_cycle_length_days: null,
-        }));
+        const specificShifts: DisplayShift[] = oneTimeShifts
+            .filter((shift) => !dayOffOverrideDates.has(shift.shift_date))
+            .map((shift) => ({
+                id: shift.id,
+                shift_date: shift.shift_date,
+                start_time: shift.start_time,
+                end_time: shift.end_time,
+                notes: shift.notes,
+                source: 'one_time',
+                recurring_cycle_length_days: null,
+            }));
 
         return [...specificShifts, ...recurringShifts].sort((a, b) => {
             if (a.shift_date !== b.shift_date) return a.shift_date.localeCompare(b.shift_date);
             return a.start_time.localeCompare(b.start_time);
         });
-    }, [oneTimeShifts, recurringSchedules, visibleDays]);
+    }, [dayOffOverrides, oneTimeShifts, recurringSchedules, visibleDays]);
 
     const shiftsByDate = useMemo(() => {
         const map = new Map<string, DisplayShift[]>();

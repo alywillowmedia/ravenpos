@@ -33,6 +33,15 @@ const CASH_DENOMINATIONS = [
     { key: '0.01', label: '1¢', value: 0.01 },
 ] as const;
 
+function escapeCsvValue(value: string | number | null | undefined): string {
+    if (value === null || value === undefined) return '';
+    const stringValue = String(value);
+    if (/[",\n]/.test(stringValue)) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    return stringValue;
+}
+
 function toLocalDateInput(date: Date): string {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -83,6 +92,7 @@ export function Sales() {
         accepts_marketing: false,
     });
     const [showCashReconciliation, setShowCashReconciliation] = useState(false);
+    const [showExportModal, setShowExportModal] = useState(false);
     const [openingFloatInput, setOpeningFloatInput] = useState('');
     const [manualCashAdjustmentInput, setManualCashAdjustmentInput] = useState('');
     const [denominationCounts, setDenominationCounts] = useState<Record<string, string>>(() =>
@@ -433,6 +443,174 @@ export function Sales() {
         );
     };
 
+    const buildExportFilename = (mode: 'itemized' | 'summary') => {
+        const dateFilterLabel = filterDatePreset === 'custom'
+            ? `${customDateFrom}_to_${customDateTo}`
+            : filterDatePreset;
+        const generatedOn = toLocalDateInput(new Date());
+        return `sales-export-${mode}-${dateFilterLabel}-${generatedOn}.csv`;
+    };
+
+    const downloadCsv = (filename: string, rows: string[]) => {
+        const csvContent = `\uFEFF${rows.join('\n')}`;
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    const handleExportSalesCsvItemized = () => {
+        if (filteredSales.length === 0) return;
+
+        const headers = [
+            'Sale Date',
+            'Sale Time',
+            'Receipt #',
+            'Sale ID',
+            'Payment Method',
+            'Check Number',
+            'Customer Name',
+            'Customer Email',
+            'Customer Phone',
+            'Refund Status',
+            'Sale Subtotal',
+            'Sale Tax',
+            'Sale Total',
+            'Item SKU',
+            'Item Name',
+            'Item Quantity',
+            'Item Unit Price',
+            'Item Line Total',
+            'Consignor Number',
+            'Consignor Name',
+            'Commission %',
+            'Consignor Share',
+            'Store Share',
+        ];
+
+        const rows: string[] = [headers.map(escapeCsvValue).join(',')];
+
+        for (const sale of filteredSales) {
+            const saleDate = new Date(sale.completed_at);
+            const saleDateLabel = saleDate.toLocaleDateString();
+            const saleTimeLabel = saleDate.toLocaleTimeString();
+            const receiptNumber = sale.id.slice(0, 8);
+            const paymentMethod = formatPaymentMethod(sale.payment_method);
+            const refundStatus = sale.refund_status ?? 'none';
+            const saleItems = sale.items.length > 0 ? sale.items : [null];
+
+            for (const item of saleItems) {
+                const quantity = item ? item.quantity : 0;
+                const unitPrice = item ? Number(item.price) : 0;
+                const lineTotal = quantity * unitPrice;
+                const commissionSplit = item ? Number(item.commission_split) : 0;
+                const consignorShare = lineTotal * commissionSplit;
+                const storeShare = lineTotal - consignorShare;
+
+                const rowValues = [
+                    saleDateLabel,
+                    saleTimeLabel,
+                    receiptNumber,
+                    sale.id,
+                    paymentMethod,
+                    sale.check_number ?? '',
+                    sale.customer?.name ?? '',
+                    sale.customer?.email ?? '',
+                    sale.customer?.phone ?? '',
+                    refundStatus,
+                    Number(sale.subtotal).toFixed(2),
+                    Number(sale.tax_amount).toFixed(2),
+                    Number(sale.total).toFixed(2),
+                    item?.sku ?? '',
+                    item?.name ?? '',
+                    quantity,
+                    item ? unitPrice.toFixed(2) : '',
+                    item ? lineTotal.toFixed(2) : '',
+                    item?.consignor?.consignor_number ?? '',
+                    item?.consignor?.name ?? '',
+                    item ? (commissionSplit * 100).toFixed(2) : '',
+                    item ? consignorShare.toFixed(2) : '',
+                    item ? storeShare.toFixed(2) : '',
+                ];
+
+                rows.push(rowValues.map(escapeCsvValue).join(','));
+            }
+        }
+
+        downloadCsv(buildExportFilename('itemized'), rows);
+        setShowExportModal(false);
+    };
+
+    const handleExportSalesCsvSummary = () => {
+        if (filteredSales.length === 0) return;
+
+        const headers = [
+            'Sale Date',
+            'Sale Time',
+            'Receipt #',
+            'Sale ID',
+            'Payment Method',
+            'Check Number',
+            'Customer Name',
+            'Customer Email',
+            'Customer Phone',
+            'Refund Status',
+            'Item Count',
+            'Total Quantity',
+            'Sale Subtotal',
+            'Sale Tax',
+            'Sale Total',
+            'Consignor Share',
+            'Store Share',
+            'Consignors',
+        ];
+
+        const rows: string[] = [headers.map(escapeCsvValue).join(',')];
+
+        for (const sale of filteredSales) {
+            const saleDate = new Date(sale.completed_at);
+            const saleDateLabel = saleDate.toLocaleDateString();
+            const saleTimeLabel = saleDate.toLocaleTimeString();
+            const receiptNumber = sale.id.slice(0, 8);
+            const paymentMethod = formatPaymentMethod(sale.payment_method);
+            const refundStatus = sale.refund_status ?? 'none';
+            const itemCount = sale.items.length;
+            const totalQuantity = sale.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+            const summary = calculateSalesSummary(sale);
+
+            const rowValues = [
+                saleDateLabel,
+                saleTimeLabel,
+                receiptNumber,
+                sale.id,
+                paymentMethod,
+                sale.check_number ?? '',
+                sale.customer?.name ?? '',
+                sale.customer?.email ?? '',
+                sale.customer?.phone ?? '',
+                refundStatus,
+                itemCount,
+                totalQuantity,
+                Number(sale.subtotal).toFixed(2),
+                Number(sale.tax_amount).toFixed(2),
+                Number(sale.total).toFixed(2),
+                Number(summary.consignorShare).toFixed(2),
+                Number(summary.storeShare).toFixed(2),
+                summary.consignorNames.join(' | '),
+            ];
+
+            rows.push(rowValues.map(escapeCsvValue).join(','));
+        }
+
+        downloadCsv(buildExportFilename('summary'), rows);
+        setShowExportModal(false);
+    };
+
     return (
         <div className="animate-fadeIn">
             <Header
@@ -522,6 +700,16 @@ export function Sales() {
                             selectSize="sm"
                         />
                     </div>
+                )}
+                {activeTab === 'sales' && (
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setShowExportModal(true)}
+                        disabled={isLoading || filteredSales.length === 0}
+                    >
+                        Export CSV
+                    </Button>
                 )}
                 {(filterConsignor || filterDatePreset !== 'all') && (
                     <Button
@@ -983,6 +1171,44 @@ export function Sales() {
                         resetCustomerAttachState();
                     }}>
                         Close
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
+            <Modal
+                isOpen={showExportModal}
+                onClose={() => setShowExportModal(false)}
+                title="Export Sales CSV"
+                size="md"
+            >
+                <div className="space-y-3">
+                    <p className="text-sm text-[var(--color-muted)]">
+                        Choose export format:
+                    </p>
+                    <button
+                        type="button"
+                        onClick={handleExportSalesCsvItemized}
+                        className="w-full text-left rounded-lg border border-[var(--color-border)] p-3 hover:bg-[var(--color-surface)] transition-colors"
+                    >
+                        <p className="font-medium text-sm">Itemized (Current)</p>
+                        <p className="text-xs text-[var(--color-muted)] mt-1">
+                            One row per sale item, including SKU, item name, quantity, and commission splits.
+                        </p>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleExportSalesCsvSummary}
+                        className="w-full text-left rounded-lg border border-[var(--color-border)] p-3 hover:bg-[var(--color-surface)] transition-colors"
+                    >
+                        <p className="font-medium text-sm">One Row Per Sale (New)</p>
+                        <p className="text-xs text-[var(--color-muted)] mt-1">
+                            One row per sale with totals, payment method, customer, item count, and consignor summary.
+                        </p>
+                    </button>
+                </div>
+                <ModalFooter>
+                    <Button variant="secondary" onClick={() => setShowExportModal(false)}>
+                        Cancel
                     </Button>
                 </ModalFooter>
             </Modal>

@@ -80,6 +80,16 @@ type ShiftFormState = {
     notes: string;
 };
 
+type DayOffOverride = {
+    id: string;
+    employee_id: string;
+    shift_date: string;
+    is_day_off: boolean;
+    notes: string | null;
+};
+
+type ShiftModalMode = 'add' | 'edit' | 'override';
+
 type TemplateDay = {
     offset: number;
     dateKey: string;
@@ -269,6 +279,33 @@ function resolveDayOffset(schedule: RecurringSchedule) {
     return getDayOffsetFromWeekday(schedule.active_from, schedule.weekday);
 }
 
+function getWeekIndexFromOffset(offset: number) {
+    return Math.floor(offset / 7);
+}
+
+function getOffsetFromWeekdayAndWeekIndex(
+    effectiveFrom: string,
+    weekday: number,
+    weekIndex: number
+) {
+    const anchorWeekday = parseDateKey(effectiveFrom).getDay();
+    return weekIndex * 7 + ((weekday - anchorWeekday + 7) % 7);
+}
+
+function resolveDisplayOffsetForSchedule(
+    schedule: RecurringSchedule,
+    effectiveFrom: string
+) {
+    const normalizedCycle = normalizeCycleLength(schedule.cycle_length_days);
+    if (normalizedCycle === 7) {
+        return getOffsetFromWeekdayAndWeekIndex(effectiveFrom, schedule.weekday, 0);
+    }
+
+    const sourceOffset = resolveDayOffset(schedule);
+    const sourceWeekIndex = getWeekIndexFromOffset(sourceOffset);
+    return getOffsetFromWeekdayAndWeekIndex(effectiveFrom, schedule.weekday, sourceWeekIndex);
+}
+
 function buildTemplateDaysFromSchedules(
     schedules: RecurringSchedule[],
     effectiveFrom: string,
@@ -277,8 +314,11 @@ function buildTemplateDaysFromSchedules(
     const nextDays = defaultTemplateDays(effectiveFrom, cycleLengthDays);
     const byOffset = new Map<number, RecurringSchedule>();
     for (const schedule of schedules) {
-        const offset = resolveDayOffset(schedule);
-        byOffset.set(offset, schedule);
+        const offset = resolveDisplayOffsetForSchedule(schedule, effectiveFrom);
+        if (offset < 0 || offset >= cycleLengthDays) continue;
+        if (!byOffset.has(offset)) {
+            byOffset.set(offset, schedule);
+        }
     }
 
     for (const day of nextDays) {
@@ -299,10 +339,13 @@ function remapTemplateDays(
     cycleLengthDays: RepeatCycleOption
 ): TemplateDay[] {
     const nextDays = defaultTemplateDays(effectiveFrom, cycleLengthDays);
-    const byOffset = new Map(templateDays.map((day) => [day.offset, day]));
+    const byWeekAndWeekday = new Map<string, TemplateDay>(
+        templateDays.map((day) => [`${getWeekIndexFromOffset(day.offset)}|${day.weekday}`, day] as const)
+    );
 
     for (const day of nextDays) {
-        const existing = byOffset.get(day.offset);
+        const key = `${getWeekIndexFromOffset(day.offset)}|${day.weekday}`;
+        const existing = byWeekAndWeekday.get(key);
         if (!existing) continue;
         day.enabled = existing.enabled;
         day.startTime = existing.startTime;
@@ -322,6 +365,7 @@ export function EmployeeSchedule() {
     const [anchorDate, setAnchorDate] = useState(() => new Date());
     const [oneTimeShifts, setOneTimeShifts] = useState<OneTimeShift[]>([]);
     const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
+    const [dayOffOverrides, setDayOffOverrides] = useState<DayOffOverride[]>([]);
     const [timeOffRequests, setTimeOffRequests] = useState<TimeOffRequest[]>([]);
     const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
     const [isLoadingRequests, setIsLoadingRequests] = useState(true);
@@ -330,6 +374,8 @@ export function EmployeeSchedule() {
     const [deletingShiftId, setDeletingShiftId] = useState<string | null>(null);
     const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
     const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
+    const [shiftModalMode, setShiftModalMode] = useState<ShiftModalMode>('add');
+    const [processingOverrideId, setProcessingOverrideId] = useState<string | null>(null);
     const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
     const [notice, setNotice] = useState<Notice>(null);
     const [templateEmployeeId, setTemplateEmployeeId] = useState('');
@@ -379,7 +425,7 @@ export function EmployeeSchedule() {
         setIsLoadingRequests(true);
         setNotice(null);
 
-        const [oneTimeResult, recurringResult, requestsResult] = await Promise.all([
+        const [oneTimeResult, recurringResult, dayOffOverridesResult, requestsResult] = await Promise.all([
             supabase
                 .from('employee_schedules')
                 .select('id, employee_id, shift_date, start_time, end_time, notes')
@@ -396,6 +442,13 @@ export function EmployeeSchedule() {
                 .order('cycle_length_days')
                 .order('day_offset')
                 .order('active_from', { ascending: false }),
+            supabase
+                .from('employee_schedule_day_overrides')
+                .select('id, employee_id, shift_date, is_day_off, notes')
+                .eq('is_day_off', true)
+                .gte('shift_date', rangeStartKey)
+                .lte('shift_date', rangeEndKey)
+                .order('shift_date'),
             supabase
                 .from('employee_time_off_requests')
                 .select('id, employee_id, start_date, end_date, is_full_day, start_time, end_time, reason, status, reviewed_by, reviewed_at, review_notes, created_at')
@@ -415,6 +468,13 @@ export function EmployeeSchedule() {
             setRecurringSchedules([]);
         } else {
             setRecurringSchedules((recurringResult.data || []) as RecurringSchedule[]);
+        }
+
+        if (dayOffOverridesResult.error) {
+            setNotice({ type: 'error', message: dayOffOverridesResult.error.message });
+            setDayOffOverrides([]);
+        } else {
+            setDayOffOverrides((dayOffOverridesResult.data || []) as DayOffOverride[]);
         }
 
         if (requestsResult.error) {
@@ -482,6 +542,13 @@ export function EmployeeSchedule() {
 
     const displayShifts = useMemo(() => {
         const specificDayOverrides = new Set(oneTimeShifts.map((shift) => shiftKey(shift.employee_id, shift.shift_date)));
+        const dayOffOverrideKeys = new Set<string>();
+        for (const dayOff of dayOffOverrides) {
+            if (!dayOff.is_day_off) continue;
+            const key = shiftKey(dayOff.employee_id, dayOff.shift_date);
+            dayOffOverrideKeys.add(key);
+            specificDayOverrides.add(key);
+        }
 
         const generatedRecurring: DisplayShift[] = [];
 
@@ -503,21 +570,23 @@ export function EmployeeSchedule() {
             }
         }
 
-        const specificShifts: DisplayShift[] = oneTimeShifts.map((shift) => ({
-            id: shift.id,
-            source: 'one_time',
-            employee_id: shift.employee_id,
-            shift_date: shift.shift_date,
-            start_time: shift.start_time,
-            end_time: shift.end_time,
-            notes: shift.notes,
-        }));
+        const specificShifts: DisplayShift[] = oneTimeShifts
+            .filter((shift) => !dayOffOverrideKeys.has(shiftKey(shift.employee_id, shift.shift_date)))
+            .map((shift) => ({
+                id: shift.id,
+                source: 'one_time',
+                employee_id: shift.employee_id,
+                shift_date: shift.shift_date,
+                start_time: shift.start_time,
+                end_time: shift.end_time,
+                notes: shift.notes,
+            }));
 
         return [...specificShifts, ...generatedRecurring].sort((a, b) => {
             if (a.shift_date !== b.shift_date) return a.shift_date.localeCompare(b.shift_date);
             return a.start_time.localeCompare(b.start_time);
         });
-    }, [oneTimeShifts, recurringSchedules, visibleDays]);
+    }, [dayOffOverrides, oneTimeShifts, recurringSchedules, visibleDays]);
 
     const shiftsByDate = useMemo(() => {
         const map = new Map<string, DisplayShift[]>();
@@ -595,6 +664,17 @@ export function EmployeeSchedule() {
         return map;
     }, [employeeNameById, timeOffRequests, visibleDays]);
 
+    const dayOffOverridesByDate = useMemo(() => {
+        const map = new Map<string, DayOffOverride[]>();
+        for (const override of dayOffOverrides) {
+            if (!override.is_day_off) continue;
+            const list = map.get(override.shift_date) || [];
+            list.push(override);
+            map.set(override.shift_date, list);
+        }
+        return map;
+    }, [dayOffOverrides]);
+
     const blockedEmployeesForFormDate = useMemo(() => {
         const blocked = new Set<string>();
 
@@ -610,9 +690,14 @@ export function EmployeeSchedule() {
                 blocked.add(request.employee_id);
             }
         }
+        for (const override of dayOffOverrides) {
+            if (!override.is_day_off) continue;
+            if (override.shift_date !== formState.shiftDate) continue;
+            blocked.add(override.employee_id);
+        }
 
         return blocked;
-    }, [formState.endTime, formState.shiftDate, formState.startTime, timeOffRequests]);
+    }, [dayOffOverrides, formState.endTime, formState.shiftDate, formState.startTime, timeOffRequests]);
 
     useEffect(() => {
         if (!isShiftModalOpen || editingShiftId) return;
@@ -628,10 +713,12 @@ export function EmployeeSchedule() {
     const closeShiftModal = () => {
         setIsShiftModalOpen(false);
         setEditingShiftId(null);
+        setShiftModalMode('add');
     };
 
     const openAddModalForDay = (dateKey: string) => {
         setEditingShiftId(null);
+        setShiftModalMode('add');
         setFormState((prev) => ({
             employeeId: prev.employeeId || (activeEmployees[0]?.id ?? ''),
             shiftDate: dateKey,
@@ -646,6 +733,22 @@ export function EmployeeSchedule() {
         if (shift.source !== 'one_time') return;
 
         setEditingShiftId(shift.id);
+        setShiftModalMode('edit');
+        setFormState({
+            employeeId: shift.employee_id,
+            shiftDate: shift.shift_date,
+            startTime: shift.start_time.slice(0, 5),
+            endTime: shift.end_time.slice(0, 5),
+            notes: shift.notes || '',
+        });
+        setIsShiftModalOpen(true);
+    };
+
+    const openOverrideModalFromRecurring = (shift: DisplayShift) => {
+        if (shift.source !== 'recurring') return;
+
+        setEditingShiftId(null);
+        setShiftModalMode('override');
         setFormState({
             employeeId: shift.employee_id,
             shiftDate: shift.shift_date,
@@ -668,6 +771,58 @@ export function EmployeeSchedule() {
         setNotice({ type: 'success', message: 'Opened template editor for this recurring shift.' });
     };
 
+    const handleMarkDayOffForEmployeeDate = async (employeeId: string, shiftDate: string, loadingKey: string) => {
+        setNotice(null);
+        setProcessingOverrideId(loadingKey);
+
+        const { error: upsertError } = await supabase
+            .from('employee_schedule_day_overrides')
+            .upsert({
+                employee_id: employeeId,
+                shift_date: shiftDate,
+                is_day_off: true,
+                notes: 'Day-level override from recurring template',
+                created_by: user?.id ?? null,
+            }, { onConflict: 'employee_id,shift_date' });
+
+        if (upsertError) {
+            setNotice({ type: 'error', message: upsertError.message });
+            setProcessingOverrideId(null);
+            return false;
+        }
+
+        await supabase
+            .from('employee_schedules')
+            .delete()
+            .eq('employee_id', employeeId)
+            .eq('shift_date', shiftDate);
+
+        setNotice({ type: 'success', message: 'Recurring shift removed for this date only.' });
+        setProcessingOverrideId(null);
+        await fetchRangeData();
+        return true;
+    };
+
+    const handleRestoreDayOffOverride = async (overrideId: string) => {
+        setNotice(null);
+        setProcessingOverrideId(overrideId);
+
+        const { error } = await supabase
+            .from('employee_schedule_day_overrides')
+            .delete()
+            .eq('id', overrideId);
+
+        if (error) {
+            setNotice({ type: 'error', message: error.message });
+            setProcessingOverrideId(null);
+            return;
+        }
+
+        setNotice({ type: 'success', message: 'Day override removed. Template shift will show again.' });
+        setProcessingOverrideId(null);
+        await fetchRangeData();
+    };
+
     const handleSubmit = async (event: FormEvent) => {
         event.preventDefault();
         setNotice(null);
@@ -688,6 +843,12 @@ export function EmployeeSchedule() {
         }
 
         setIsSaving(true);
+
+        await supabase
+            .from('employee_schedule_day_overrides')
+            .delete()
+            .eq('employee_id', formState.employeeId)
+            .eq('shift_date', formState.shiftDate);
 
         if (editingShiftId) {
             const { error } = await supabase
@@ -726,7 +887,7 @@ export function EmployeeSchedule() {
                 return;
             }
 
-            setNotice({ type: 'success', message: 'Shift added.' });
+            setNotice({ type: 'success', message: shiftModalMode === 'override' ? 'Day override saved.' : 'Shift added.' });
         }
 
         setIsSaving(false);
@@ -1006,6 +1167,7 @@ export function EmployeeSchedule() {
                                     const dayKey = toDateKey(day);
                                     const dayShifts = shiftsByDate.get(dayKey) || [];
                                     const approvedEntries = approvedTimeOffByDate.get(dayKey);
+                                    const dayOffEntries = dayOffOverridesByDate.get(dayKey) || [];
                                     const totalDayHours = dayShifts.reduce(
                                         (sum, shift) => sum + getShiftDurationHours(shift.start_time, shift.end_time),
                                         0
@@ -1044,6 +1206,29 @@ export function EmployeeSchedule() {
                                                     <div className="rounded-lg bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-muted)]">
                                                         <span className="font-semibold text-[var(--color-danger)]">Approved time off:</span>{' '}
                                                         {Array.from(approvedEntries).join(', ')}
+                                                    </div>
+                                                )}
+
+                                                {dayOffEntries.length > 0 && (
+                                                    <div className="space-y-1">
+                                                        {dayOffEntries.map((override) => (
+                                                            <div key={override.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-xs">
+                                                                <p className="font-semibold text-[var(--color-muted)]">
+                                                                    {employeeNameById.get(override.employee_id) || 'Unknown employee'}: day-level off override
+                                                                </p>
+                                                                <div className="mt-1">
+                                                                    <Button
+                                                                        type="button"
+                                                                        size="sm"
+                                                                        variant="ghost"
+                                                                        onClick={() => handleRestoreDayOffOverride(override.id)}
+                                                                        isLoading={processingOverrideId === override.id}
+                                                                    >
+                                                                        Restore Template Day
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
                                                     </div>
                                                 )}
 
@@ -1094,16 +1279,32 @@ export function EmployeeSchedule() {
                                                                         <p className={`mt-2 text-xs text-[var(--color-muted)] ${isFullyBlocked ? 'line-through' : ''}`}>{shift.notes}</p>
                                                                     )}
 
-                                                                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
-                                                                        <Button
-                                                                            type="button"
-                                                                            size="sm"
-                                                                            className="pointer-events-auto"
-                                                                            onClick={() => handleEditFromCalendar(shift)}
-                                                                        >
-                                                                            {shift.source === 'one_time' ? 'Edit Shift' : 'Edit Template'}
-                                                                        </Button>
-                                                                    </div>
+                                                                    {shift.source === 'recurring' && (
+                                                                        <div className="mt-2">
+                                                                            <Button
+                                                                                type="button"
+                                                                                size="sm"
+                                                                                variant="ghost"
+                                                                                className="h-7 px-2 text-[11px]"
+                                                                                onClick={() => openOverrideModalFromRecurring(shift)}
+                                                                            >
+                                                                                Edit This Day
+                                                                            </Button>
+                                                                        </div>
+                                                                    )}
+
+                                                                    {shift.source === 'one_time' && (
+                                                                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
+                                                                            <Button
+                                                                                type="button"
+                                                                                size="sm"
+                                                                                className="pointer-events-auto"
+                                                                                onClick={() => handleEditFromCalendar(shift)}
+                                                                            >
+                                                                                Edit Shift
+                                                                            </Button>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             );
                                                         })}
@@ -1359,8 +1560,10 @@ export function EmployeeSchedule() {
             <Modal
                 isOpen={isShiftModalOpen}
                 onClose={closeShiftModal}
-                title={editingShiftId ? 'Edit Day Shift' : 'Add Day Shift'}
-                description="This only affects the selected date. Use Templates tab for recurring cycle changes."
+                title={editingShiftId ? 'Edit Day Shift' : shiftModalMode === 'override' ? 'Override Template Day' : 'Add Day Shift'}
+                description={shiftModalMode === 'override'
+                    ? 'This changes only this date and leaves the recurring template untouched.'
+                    : 'This only affects the selected date. Use Templates tab for recurring cycle changes.'}
                 size="lg"
             >
                 <form className="space-y-3" onSubmit={handleSubmit}>
@@ -1411,6 +1614,36 @@ export function EmployeeSchedule() {
                     />
 
                     <ModalFooter>
+                        {shiftModalMode === 'override' && (
+                            <>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    className="mr-auto"
+                                    onClick={async () => {
+                                        const loadingKey = shiftKey(formState.employeeId, formState.shiftDate);
+                                        const success = await handleMarkDayOffForEmployeeDate(formState.employeeId, formState.shiftDate, loadingKey);
+                                        if (success) closeShiftModal();
+                                    }}
+                                    isLoading={processingOverrideId === shiftKey(formState.employeeId, formState.shiftDate)}
+                                >
+                                    Off This Day
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    onClick={() => {
+                                        setTemplateEmployeeId(formState.employeeId);
+                                        setTemplateEffectiveFrom(formState.shiftDate);
+                                        closeShiftModal();
+                                        setActiveTab('templates');
+                                        setNotice({ type: 'success', message: 'Opened template editor for this recurring shift.' });
+                                    }}
+                                >
+                                    Edit Template
+                                </Button>
+                            </>
+                        )}
                         {editingShiftId && (
                             <Button
                                 type="button"
