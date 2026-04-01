@@ -15,6 +15,7 @@ import {
     getLocalDateString,
     type ConsignorRateSchedule,
 } from '../lib/consignorRateSchedules';
+import { calculateStripeTerminalProcessingFee } from '../lib/cardFees';
 
 function isMissingRateScheduleTable(error: unknown): boolean {
     const err = error as { code?: string; message?: string; details?: string; hint?: string } | null;
@@ -32,12 +33,15 @@ interface SaleItemWithJoins {
     price: number;
     quantity: number;
     commission_split: number;
+    discount_amount?: number;
     consignor_pays_card_fee?: boolean;
     sale: {
         id: string;
         completed_at: string;
         tax_amount: number;
         subtotal: number;
+        total: number;
+        discount_total?: number;
         payment_method: PaymentMethod;
     };
     consignor: Consignor;
@@ -67,10 +71,6 @@ interface VendorLedgerEntryRecord {
     created_by: string | null;
     created_at: string;
 }
-
-// Stripe Terminal fee constants (2.7% + $0.05 per transaction)
-const STRIPE_FEE_PERCENT = 0.027;
-const STRIPE_FEE_FIXED = 0.05;
 
 function roundCurrency(value: number): number {
     return Number(value.toFixed(2));
@@ -210,7 +210,7 @@ export function usePayouts() {
                 .from('sale_items')
                 .select(`
                     *,
-                    sale:sales(id, completed_at, tax_amount, subtotal, payment_method)
+                    sale:sales(id, completed_at, tax_amount, subtotal, total, discount_total, payment_method)
                 `);
 
             if (saleItemsError) throw saleItemsError;
@@ -285,36 +285,66 @@ export function usePayouts() {
                 const ledgerEntryIdsToDeduct: string[] = [];
                 const pendingLedgerEntries: VendorLedgerEntry[] = [];
 
-                // Group items by sale_id to calculate per-sale fees
+                // Group all items by sale_id so per-sale discount/tax/fee allocation is accurate.
                 const itemsBySale = new Map<string, SaleItemWithJoins[]>();
-                for (const item of consignorSaleItems as SaleItemWithJoins[]) {
+                for (const item of (saleItems || []) as SaleItemWithJoins[]) {
                     const existing = itemsBySale.get(item.sale_id) || [];
                     existing.push(item);
                     itemsBySale.set(item.sale_id, existing);
                 }
+                const saleFinancialContext = new Map<string, { orderDiscountRatio: number; netSubtotal: number }>();
+
+                for (const [saleId, itemsForSale] of itemsBySale) {
+                    let subtotalAfterItemDiscounts = 0;
+                    let totalItemDiscounts = 0;
+
+                    for (const saleItem of itemsForSale) {
+                        const rawLineTotal = Number(saleItem.price) * saleItem.quantity;
+                        const itemDiscount = Math.max(0, Math.min(Number(saleItem.discount_amount || 0), rawLineTotal));
+                        subtotalAfterItemDiscounts += Math.max(0, rawLineTotal - itemDiscount);
+                        totalItemDiscounts += itemDiscount;
+                    }
+
+                    const saleDiscountTotal = Math.max(0, Number(itemsForSale[0]?.sale?.discount_total || 0));
+                    const orderDiscountTotal = Math.max(
+                        0,
+                        Math.min(saleDiscountTotal - totalItemDiscounts, subtotalAfterItemDiscounts)
+                    );
+                    const orderDiscountRatio = subtotalAfterItemDiscounts > 0
+                        ? orderDiscountTotal / subtotalAfterItemDiscounts
+                        : 0;
+                    const netSubtotal = Math.max(0, subtotalAfterItemDiscounts - orderDiscountTotal);
+
+                    saleFinancialContext.set(saleId, { orderDiscountRatio, netSubtotal });
+                }
 
                 for (const item of consignorSaleItems as SaleItemWithJoins[]) {
-                    const lineTotal = Number(item.price) * item.quantity;
+                    const rawLineTotal = Number(item.price) * item.quantity;
+                    const itemDiscount = Math.max(0, Math.min(Number(item.discount_amount || 0), rawLineTotal));
+                    const lineAfterItemDiscount = Math.max(0, rawLineTotal - itemDiscount);
+                    const saleContext = saleFinancialContext.get(item.sale_id);
+                    const orderDiscountRatio = saleContext?.orderDiscountRatio || 0;
+                    const netLineTotal = lineAfterItemDiscount * (1 - orderDiscountRatio);
+                    const saleNetSubtotal = saleContext?.netSubtotal || netLineTotal;
 
                     // Calculate proportional credit card fee for this item
                     let itemCreditCardFee = 0;
                     if (item.sale.payment_method === 'card' && item.consignor_pays_card_fee) {
-                        const saleSubtotal = item.sale.subtotal || lineTotal;
+                        const saleTotal = item.sale.total || saleNetSubtotal;
                         // Total fee for the entire sale
-                        const totalSaleFee = (saleSubtotal * STRIPE_FEE_PERCENT) + STRIPE_FEE_FIXED;
+                        const totalSaleFee = calculateStripeTerminalProcessingFee(saleTotal);
                         // This item's proportional share of the fee
-                        itemCreditCardFee = saleSubtotal > 0 ? totalSaleFee * (lineTotal / saleSubtotal) : 0;
+                        itemCreditCardFee = saleNetSubtotal > 0 ? totalSaleFee * (netLineTotal / saleNetSubtotal) : 0;
                     }
 
                     // Consignor share is reduced by the credit card fee
-                    const consignorShareBeforeFee = lineTotal * item.commission_split;
+                    const consignorShareBeforeFee = netLineTotal * item.commission_split;
                     const consignorShare = consignorShareBeforeFee - itemCreditCardFee;
-                    const itemStoreShare = lineTotal - consignorShareBeforeFee; // Store share unaffected by fee
+                    const itemStoreShare = netLineTotal - consignorShareBeforeFee; // Store share unaffected by fee
 
                     // Calculate proportional tax for this item
-                    const saleSubtotal = item.sale.subtotal || lineTotal;
                     const saleTax = item.sale.tax_amount || 0;
-                    const itemTaxPortion = saleSubtotal > 0 ? (lineTotal / saleSubtotal) * saleTax : 0;
+                    const itemTaxPortion = saleNetSubtotal > 0 ? (netLineTotal / saleNetSubtotal) * saleTax : 0;
 
                     // Check if this item has been refunded
                     const refundedQty = refundedItemsMap.get(item.id) || 0;
@@ -323,7 +353,7 @@ export function usePayouts() {
                     // Only count non-refunded items toward pending payout
                     const effectiveQuantity = Math.max(0, item.quantity - refundedQty);
                     const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
-                    const effectiveLineTotal = Number(item.price) * effectiveQuantity;
+                    const effectiveLineTotal = netLineTotal * effectiveRatio;
                     const effectiveCreditCardFee = itemCreditCardFee * effectiveRatio;
                     const effectiveConsignorShare = (effectiveLineTotal * item.commission_split) - effectiveCreditCardFee;
                     const effectiveStoreShare = effectiveLineTotal - (effectiveLineTotal * item.commission_split);
@@ -343,7 +373,7 @@ export function usePayouts() {
                         sku: item.sku,
                         quantity: item.quantity,
                         price: Number(item.price),
-                        lineTotal,
+                        lineTotal: netLineTotal,
                         commissionSplit: item.commission_split,
                         consignorShare,
                         storeShare: itemStoreShare,

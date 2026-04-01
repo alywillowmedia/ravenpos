@@ -147,6 +147,7 @@ export function useConsignors() {
                     last_name: input.last_name || null,
                     business_name: input.business_name || null,
                     pay_to_type: input.pay_to_type || 'business',
+                    has_w9_filled_out: input.has_w9_filled_out ?? false,
                     booth_location: input.booth_location || null,
                     booth_square_feet: boothSquareFeet,
                     booth_cost_per_square_foot: boothCostPerSquareFoot,
@@ -224,6 +225,9 @@ export function useConsignors() {
             }
             if (baseUpdates.pay_to_type !== undefined) {
                 updatePayload.pay_to_type = baseUpdates.pay_to_type || 'business';
+            }
+            if (baseUpdates.has_w9_filled_out !== undefined) {
+                updatePayload.has_w9_filled_out = !!baseUpdates.has_w9_filled_out;
             }
 
             if (

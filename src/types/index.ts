@@ -15,6 +15,7 @@ export interface Consignor {
     last_name?: string | null;
     business_name?: string | null;
     pay_to_type?: 'business' | 'individual';
+    has_w9_filled_out?: boolean;
     booth_location: string | null;
     booth_square_feet?: number | null;
     booth_cost_per_square_foot?: number | null;

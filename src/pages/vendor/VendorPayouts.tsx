@@ -8,6 +8,7 @@ import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { calculateStripeTerminalProcessingFee } from '../../lib/cardFees';
 import { formatCurrency } from '../../lib/utils';
 import type { Payout, Consignor, PaymentMethod } from '../../types';
 
@@ -22,12 +23,9 @@ interface SaleItemForPayout {
     completed_at: string;
     payment_method: PaymentMethod;
     sale_subtotal: number;
+    sale_total: number;
     consignor_pays_card_fee: boolean;
 }
-
-// Stripe Terminal fee constants (2.7% + $0.05 per transaction)
-const STRIPE_FEE_PERCENT = 0.027;
-const STRIPE_FEE_FIXED = 0.05;
 
 export function VendorPayouts() {
     const { userRecord } = useAuth();
@@ -66,7 +64,7 @@ export function VendorPayouts() {
             // Fetch sales since last payout (including payment_method for fee calc)
             const { data: saleItems } = await supabase
                 .from('sale_items')
-                .select('id, sale_id, name, sku, price, quantity, commission_split, consignor_pays_card_fee, sales!inner(completed_at, payment_method, subtotal)')
+                .select('id, sale_id, name, sku, price, quantity, commission_split, consignor_pays_card_fee, sales!inner(completed_at, payment_method, subtotal, total)')
                 .eq('consignor_id', userRecord.consignor_id);
 
             // Filter to items since last payout
@@ -76,16 +74,19 @@ export function VendorPayouts() {
                     let completedAt = '';
                     let paymentMethod: PaymentMethod = 'cash';
                     let saleSubtotal = Number(item.price) * item.quantity;
+                    let saleTotal = saleSubtotal;
                     if (Array.isArray(salesData) && salesData.length > 0) {
-                        const sale = salesData[0] as { completed_at: string; payment_method: string; subtotal: number };
+                        const sale = salesData[0] as { completed_at: string; payment_method: string; subtotal: number; total: number };
                         completedAt = sale.completed_at;
                         paymentMethod = sale.payment_method as PaymentMethod;
                         saleSubtotal = sale.subtotal || saleSubtotal;
+                        saleTotal = sale.total || saleSubtotal;
                     } else if (salesData && typeof salesData === 'object' && 'completed_at' in salesData) {
-                        const sale = salesData as { completed_at: string; payment_method: string; subtotal: number };
+                        const sale = salesData as { completed_at: string; payment_method: string; subtotal: number; total: number };
                         completedAt = sale.completed_at;
                         paymentMethod = sale.payment_method as PaymentMethod;
                         saleSubtotal = sale.subtotal || saleSubtotal;
+                        saleTotal = sale.total || saleSubtotal;
                     }
                     return {
                         id: item.id,
@@ -98,6 +99,7 @@ export function VendorPayouts() {
                         completed_at: completedAt,
                         payment_method: paymentMethod,
                         sale_subtotal: saleSubtotal,
+                        sale_total: saleTotal,
                         consignor_pays_card_fee: Boolean(item.consignor_pays_card_fee),
                     };
                 })
@@ -116,7 +118,7 @@ export function VendorPayouts() {
         const lineTotal = item.price * item.quantity;
         let fee = 0;
         if (item.payment_method === 'card' && item.consignor_pays_card_fee) {
-            const totalSaleFee = (item.sale_subtotal * STRIPE_FEE_PERCENT) + STRIPE_FEE_FIXED;
+            const totalSaleFee = calculateStripeTerminalProcessingFee(item.sale_total || item.sale_subtotal);
             fee = item.sale_subtotal > 0 ? totalSaleFee * (lineTotal / item.sale_subtotal) : 0;
         }
         return (lineTotal * item.commission_split) - fee;
@@ -131,7 +133,7 @@ export function VendorPayouts() {
         (sum, item) => {
             if (item.payment_method === 'card' && item.consignor_pays_card_fee) {
                 const lineTotal = item.price * item.quantity;
-                const totalSaleFee = (item.sale_subtotal * STRIPE_FEE_PERCENT) + STRIPE_FEE_FIXED;
+                const totalSaleFee = calculateStripeTerminalProcessingFee(item.sale_total || item.sale_subtotal);
                 return sum + (item.sale_subtotal > 0 ? totalSaleFee * (lineTotal / item.sale_subtotal) : 0);
             }
             return sum;

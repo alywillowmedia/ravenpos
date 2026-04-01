@@ -12,6 +12,8 @@ interface TillBreakdownLine {
 interface TillReport {
   countedAt: string
   expectedFromSales: number
+  checkCount?: number
+  checkTotal?: number
   openingFloat: number
   expectedDrawerTotal: number
   countedTotal: number
@@ -103,6 +105,10 @@ function buildEmailHtml(payload: RequestBody): string {
             <tr>
               <td style="padding:6px 0;font-family:'Courier New',Courier,monospace;font-size:13px;">Expected From Sales</td>
               <td style="padding:6px 0;text-align:right;font-family:'Courier New',Courier,monospace;font-size:13px;">${formatCurrency(report.expectedFromSales)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;font-family:'Courier New',Courier,monospace;font-size:13px;">Checks (${Number(report.checkCount || 0)})</td>
+              <td style="padding:6px 0;text-align:right;font-family:'Courier New',Courier,monospace;font-size:13px;">${formatCurrency(Number(report.checkTotal || 0))}</td>
             </tr>
             <tr>
               <td style="padding:6px 0;font-family:'Courier New',Courier,monospace;font-size:13px;">Opening Float</td>

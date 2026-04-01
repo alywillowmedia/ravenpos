@@ -624,6 +624,12 @@ export function Payouts() {
                             <p className="text-sm text-[var(--color-muted)]">
                                 {selectedConsignor.consignor.consignor_number}
                             </p>
+                            <p className="text-sm text-[var(--color-muted)]">
+                                Check Payable To: {getConsignorPayToName(selectedConsignor.consignor)}
+                            </p>
+                            <p className="text-sm text-[var(--color-muted)]">
+                                W-9 On File: {selectedConsignor.consignor.has_w9_filled_out ? 'Yes' : 'No'}
+                            </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
@@ -848,6 +854,9 @@ function ConsignorPayoutRow({
                             {consignor.consignor_number}
                             {consignor.booth_location && ` - ${consignor.booth_location}`}
                         </p>
+                        <p className="text-xs text-[var(--color-muted)]">
+                            Check Payable To: {getConsignorPayToName(consignor)}
+                        </p>
                     </div>
                 </div>
 
@@ -939,13 +948,17 @@ function ConsignorPayoutDetail({
             </div>
 
             {/* Contact info - inline */}
-            {(consignor.email || consignorAddress) && (
-                <div className="text-xs text-[var(--color-muted)]">
-                    {consignor.email && <span>{consignor.email}</span>}
-                    {consignor.email && consignorAddress && <span> • </span>}
-                    {consignorAddress && <span>{consignorAddress}</span>}
-                </div>
-            )}
+            <div className="text-xs text-[var(--color-muted)] space-y-1">
+                <p>Check Payable To: {getConsignorPayToName(consignor)}</p>
+                <p>W-9 On File: {consignor.has_w9_filled_out ? 'Yes' : 'No'}</p>
+                {(consignor.email || consignorAddress) && (
+                    <p>
+                        {consignor.email && <span>{consignor.email}</span>}
+                        {consignor.email && consignorAddress && <span> • </span>}
+                        {consignorAddress && <span>{consignorAddress}</span>}
+                    </p>
+                )}
+            </div>
 
             {/* Financial Summary - More compact grid */}
             <div className="grid grid-cols-3 gap-3">

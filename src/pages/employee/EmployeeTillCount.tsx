@@ -15,6 +15,11 @@ interface AdminContact {
     full_name: string | null;
 }
 
+interface CheckSaleSummary {
+    checkCount: number;
+    checkTotal: number;
+}
+
 const CASH_DENOMINATIONS = [
     { key: '100', label: '$100', value: 100 },
     { key: '50', label: '$50', value: 50 },
@@ -45,6 +50,7 @@ export function EmployeeTillCount() {
     const [isSendingEmail, setIsSendingEmail] = useState(false);
     const [openingFloatInput, setOpeningFloatInput] = useState('');
     const [expectedCashFromSales, setExpectedCashFromSales] = useState(0);
+    const [checkSummary, setCheckSummary] = useState<CheckSaleSummary>({ checkCount: 0, checkTotal: 0 });
     const [admins, setAdmins] = useState<AdminContact[]>([]);
     const [selectedAdminId, setSelectedAdminId] = useState('');
     const [denominationCounts, setDenominationCounts] = useState<Record<string, string>>(() =>
@@ -59,7 +65,7 @@ export function EmployeeTillCount() {
             setIsLoading(true);
             const { startIso, endIso } = getTodayRangeIso();
 
-            const [adminsResult, cashSalesResult, cashRefundsResult] = await Promise.all([
+            const [adminsResult, cashSalesResult, cashRefundsResult, checkSalesResult, checkRefundsResult] = await Promise.all([
                 supabase.rpc('get_chat_admin_contacts'),
                 supabase
                     .from('sales')
@@ -73,6 +79,18 @@ export function EmployeeTillCount() {
                     .eq('payment_method', 'cash')
                     .gte('created_at', startIso)
                     .lte('created_at', endIso),
+                supabase
+                    .from('sales')
+                    .select('id, total')
+                    .eq('payment_method', 'check')
+                    .gte('completed_at', startIso)
+                    .lte('completed_at', endIso),
+                supabase
+                    .from('refunds')
+                    .select('refund_amount')
+                    .eq('payment_method', 'check')
+                    .gte('created_at', startIso)
+                    .lte('created_at', endIso),
             ]);
 
             if (adminsResult.error) {
@@ -81,12 +99,17 @@ export function EmployeeTillCount() {
                 setAdmins((adminsResult.data || []) as AdminContact[]);
             }
 
-            if (cashSalesResult.error || cashRefundsResult.error) {
+            if (cashSalesResult.error || cashRefundsResult.error || checkSalesResult.error || checkRefundsResult.error) {
                 toast.error(
-                    'Failed to load cash totals',
-                    cashSalesResult.error?.message || cashRefundsResult.error?.message || 'Please refresh and try again.'
+                    'Failed to load till totals',
+                    cashSalesResult.error?.message
+                    || cashRefundsResult.error?.message
+                    || checkSalesResult.error?.message
+                    || checkRefundsResult.error?.message
+                    || 'Please refresh and try again.'
                 );
                 setExpectedCashFromSales(0);
+                setCheckSummary({ checkCount: 0, checkTotal: 0 });
                 setIsLoading(false);
                 return;
             }
@@ -103,7 +126,22 @@ export function EmployeeTillCount() {
                 0
             );
 
+            const checkSales = checkSalesResult.data || [];
+            const checkCount = checkSales.length;
+            const checkTotalGross = checkSales.reduce(
+                (sum, sale) => sum + Number(sale.total || 0),
+                0
+            );
+            const checkRefunds = (checkRefundsResult.data || []).reduce(
+                (sum, refund) => sum + Number(refund.refund_amount || 0),
+                0
+            );
+
             setExpectedCashFromSales(cashSalesNet - cashRefunds);
+            setCheckSummary({
+                checkCount,
+                checkTotal: checkTotalGross - checkRefunds,
+            });
             setIsLoading(false);
         };
 
@@ -173,6 +211,8 @@ export function EmployeeTillCount() {
                 report: {
                     countedAt: new Date().toISOString(),
                     expectedFromSales: expectedCashFromSales,
+                    checkCount: checkSummary.checkCount,
+                    checkTotal: checkSummary.checkTotal,
                     openingFloat,
                     expectedDrawerTotal,
                     countedTotal,
@@ -209,6 +249,15 @@ export function EmployeeTillCount() {
                             <p className="text-xs text-[var(--color-muted)]">From Today&apos;s Cash Sales</p>
                             <p className="text-2xl font-bold">
                                 {isLoading ? 'Loading...' : formatCurrency(expectedCashFromSales)}
+                            </p>
+                        </div>
+                        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                            <p className="text-xs text-[var(--color-muted)]">Checks Received Today</p>
+                            <p className="text-lg font-semibold">
+                                {isLoading ? 'Loading...' : formatCurrency(checkSummary.checkTotal)}
+                            </p>
+                            <p className="text-xs text-[var(--color-muted)]">
+                                {isLoading ? '' : `${checkSummary.checkCount} check${checkSummary.checkCount === 1 ? '' : 's'}`}
                             </p>
                         </div>
                         <Input

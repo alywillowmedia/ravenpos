@@ -24,6 +24,7 @@ import { useCustomers } from '../hooks/useCustomers';
 import { useStripeTerminal } from '../hooks/useStripeTerminal';
 import { createCartItem, calculateCartTotals } from '../lib/tax';
 import { createDiscount, formatDiscountLabel } from '../lib/discounts';
+import { calculateCardSurchargeAmount } from '../lib/cardFees';
 import { formatCurrency } from '../lib/utils';
 import { createReceiptData } from '../lib/printReceipt';
 import { createInvoiceEmailDataFromCart } from '../lib/invoice';
@@ -32,8 +33,6 @@ import type { CartItem, Item, Sale, Customer, CustomerInput, PaymentMethod, Disc
 import type { ReceiptData } from '../types/receipt';
 import type { InvoiceEmailData } from '../types/invoice';
 
-const STRIPE_FEE_PERCENT = 0.027;
-const STRIPE_FEE_FIXED = 0.05;
 const STRIPE_READER_MODE_KEY = 'ravenpos-stripe-reader-mode';
 const STRIPE_READER_LOCATION_KEY = 'ravenpos-stripe-reader-location-id';
 const STRIPE_READER_AUTO_RECONNECT_KEY = 'ravenpos-stripe-reader-auto-reconnect';
@@ -163,11 +162,12 @@ export function POS() {
     };
 
     const { subtotal, taxTotal, total, itemDiscountTotal, dealerDiscountTotal, discountTotal } = calculateCartTotals(cart, orderDiscounts);
-    const cardFeeEligibleSubtotal = cart.reduce((sum, cartItem) => {
+    const eligibleSubtotalAfterDiscounts = cart.reduce((sum, cartItem) => {
         const consignorPays = (cartItem.item.consignor as { consignor_pays_card_fee?: boolean } | undefined)?.consignor_pays_card_fee ?? false;
-        return consignorPays ? sum : sum + cartItem.lineTotal;
+        return consignorPays ? sum : sum + cartItem.discountedLineTotal;
     }, 0);
-    const cardFeeRatio = subtotal > 0 ? cardFeeEligibleSubtotal / subtotal : 0;
+    const subtotalAfterItemDiscounts = cart.reduce((sum, cartItem) => sum + cartItem.discountedLineTotal, 0);
+    const cardFeeRatio = subtotalAfterItemDiscounts > 0 ? eligibleSubtotalAfterDiscounts / subtotalAfterItemDiscounts : 0;
     const appliedGiftCardAmount = appliedGiftCard
         ? Math.min(Math.max(0, appliedGiftCard.balance), total)
         : 0;
@@ -177,9 +177,7 @@ export function POS() {
         ? Math.min(availableStoreCredit, remainingAfterGiftCard)
         : 0;
     const cashPrice = Math.max(0, Math.round((total - appliedGiftCardAmount - appliedStoreCredit) * 100) / 100);
-    const cardFeeAmount = cashPrice > 0
-        ? Math.round((((subtotal * STRIPE_FEE_PERCENT) + STRIPE_FEE_FIXED) * cardFeeRatio) * 100) / 100
-        : 0;
+    const cardFeeAmount = calculateCardSurchargeAmount(cashPrice, cardFeeRatio);
     const cardPrice = Math.max(0, Math.round((cashPrice + cardFeeAmount) * 100) / 100);
     const amountDue = paymentMethod === 'card' ? cardPrice : cashPrice;
     const cardFeeDifference = Math.max(0, Math.round((cardPrice - cashPrice) * 100) / 100);

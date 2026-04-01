@@ -401,6 +401,9 @@ export function ConsignorDetail() {
                             <strong>Card Fee Policy:</strong> {consignor.consignor_pays_card_fee ? 'Consignor Pays' : 'Customer Pays'}
                         </p>
                         <p>
+                            <strong>W-9 On File:</strong> {consignor.has_w9_filled_out ? 'Yes' : 'No'}
+                        </p>
+                        <p>
                             <strong>Dealer Discount:</strong> {Number(consignor.dealer_discount_percent || 0).toFixed(2)}%
                         </p>
                         {upcomingRateChange && (

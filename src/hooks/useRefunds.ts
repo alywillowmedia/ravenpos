@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { calculateProRatedRefundAmount } from '../lib/refundCalculations';
 import type { Sale, SaleItem, RefundItem, Refund, PaymentMethod } from '../types';
 
 interface SaleWithItems {
@@ -131,28 +132,76 @@ export function useRefunds() {
             setError(null);
 
             const { sale_id, customer_id, refund_amount, payment_method, items } = params;
+            let effectiveRefundAmount = refund_amount;
 
             let stripe_refund_id: string | undefined;
 
+            const { data: sale, error: saleError } = await supabase
+                .from('sales')
+                .select('stripe_payment_intent_id, total, discount_total')
+                .eq('id', sale_id)
+                .single();
+            if (saleError) throw saleError;
+
+            const { data: saleItems, error: saleItemsError } = await supabase
+                .from('sale_items')
+                .select('id, price, quantity, discount_amount')
+                .eq('sale_id', sale_id);
+            if (saleItemsError) throw saleItemsError;
+
+            const { data: existingRefunds, error: existingRefundsError } = await supabase
+                .from('refunds')
+                .select('refund_amount, items')
+                .eq('sale_id', sale_id);
+            if (existingRefundsError) throw existingRefundsError;
+
+            const alreadyRefundedQuantityBySaleItemId: Record<string, number> = {};
+            for (const existingRefund of existingRefunds || []) {
+                const refundedItems = existingRefund.items as Array<{ sale_item_id: string; quantity: number }>;
+                for (const refundedItem of refundedItems || []) {
+                    alreadyRefundedQuantityBySaleItemId[refundedItem.sale_item_id] =
+                        (alreadyRefundedQuantityBySaleItemId[refundedItem.sale_item_id] || 0) + refundedItem.quantity;
+                }
+            }
+
+            const selectedRefundQuantityBySaleItemId: Record<string, number> = {};
+            for (const selectedItem of items) {
+                selectedRefundQuantityBySaleItemId[selectedItem.sale_item_id] =
+                    (selectedRefundQuantityBySaleItemId[selectedItem.sale_item_id] || 0) + selectedItem.quantity;
+            }
+
+            const existingRefundAmount = (existingRefunds || []).reduce(
+                (sum, existingRefund) => sum + Number(existingRefund.refund_amount || 0),
+                0
+            );
+            effectiveRefundAmount = calculateProRatedRefundAmount({
+                saleItems: (saleItems || []).map((saleItem) => ({
+                    id: saleItem.id,
+                    price: Number(saleItem.price),
+                    quantity: saleItem.quantity,
+                    discount_amount: Number(saleItem.discount_amount || 0),
+                })),
+                saleTotal: Number(sale?.total || 0),
+                saleDiscountTotal: Number(sale?.discount_total || 0),
+                existingRefundAmount,
+                alreadyRefundedQuantityBySaleItemId,
+                selectedRefundQuantityBySaleItemId,
+            });
+
+            if (effectiveRefundAmount <= 0) {
+                throw new Error('Refund amount is zero after accounting for prior refunds');
+            }
+
             // For card payments, call Stripe refund API
             if (payment_method === 'card') {
-                // Get the original payment intent ID from the sale
-                const { data: sale, error: saleError } = await supabase
-                    .from('sales')
-                    .select('stripe_payment_intent_id')
-                    .eq('id', sale_id)
-                    .single();
-
-                if (saleError) throw saleError;
                 if (!sale?.stripe_payment_intent_id) {
                     throw new Error('No Stripe payment found for this sale');
                 }
 
-                // Call the Stripe refund edge function
                 const { data: refundResult, error: stripeError } = await supabase.functions.invoke('process-stripe-refund', {
                     body: {
                         payment_intent_id: sale.stripe_payment_intent_id,
-                        amount: Math.round(refund_amount * 100), // Convert to cents
+                        amount: Math.round(effectiveRefundAmount * 100), // Convert to cents
                     },
                 });
 
@@ -166,7 +215,7 @@ export function useRefunds() {
             const refundData = {
                 sale_id,
                 customer_id,
-                refund_amount,
+                refund_amount: effectiveRefundAmount,
                 payment_method,
                 stripe_refund_id: stripe_refund_id || null,
                 items: items.map(item => ({
@@ -238,7 +287,7 @@ export function useRefunds() {
             }
 
             // Calculate if this is a partial or full refund
-            const { data: saleItems } = await supabase
+            const { data: saleItemQuantities } = await supabase
                 .from('sale_items')
                 .select('quantity')
                 .eq('sale_id', sale_id);
@@ -252,8 +301,8 @@ export function useRefunds() {
             let totalOriginalQty = 0;
             let totalRefundedQty = 0;
 
-            if (saleItems) {
-                totalOriginalQty = saleItems.reduce((sum, item) => sum + item.quantity, 0);
+            if (saleItemQuantities) {
+                totalOriginalQty = saleItemQuantities.reduce((sum, item) => sum + item.quantity, 0);
             }
 
             if (allRefunds) {

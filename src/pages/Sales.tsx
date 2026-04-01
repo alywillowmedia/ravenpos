@@ -231,6 +231,37 @@ export function Sales() {
         };
     }, [filteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, denominationCounts]);
 
+    const paymentTotals = useMemo(() => {
+        const cashSalesTotal = filteredSales
+            .filter((sale) => sale.payment_method === 'cash')
+            .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+        const cardSalesTotal = filteredSales
+            .filter((sale) => sale.payment_method === 'card')
+            .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+        const checkSalesTotal = filteredSales
+            .filter((sale) => sale.payment_method === 'check')
+            .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+
+        const cashRefundTotal = filteredRefunds
+            .filter((refund) => refund.payment_method === 'cash')
+            .reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0);
+        const cardRefundTotal = filteredRefunds
+            .filter((refund) => refund.payment_method === 'card')
+            .reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0);
+        const checkRefundTotal = filteredRefunds
+            .filter((refund) => refund.payment_method === 'check')
+            .reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0);
+
+        const cardFeeTotal = filteredSales.reduce((sum, sale) => sum + Number(sale.card_fee_amount || 0), 0);
+
+        return {
+            cashNetTotal: cashSalesTotal - cashRefundTotal,
+            cardNetTotal: cardSalesTotal - cardRefundTotal,
+            checkNetTotal: checkSalesTotal - checkRefundTotal,
+            cardFeeTotal,
+        };
+    }, [filteredSales, filteredRefunds]);
+
     // Calculate totals (subtracting refunds)
     const totals = useMemo(() => {
         // Sum up all refunds
@@ -641,6 +672,12 @@ export function Sales() {
                         <SummaryCard label="Consignor Payouts" value={formatCurrency(totals.consignorShare)} variant="success" />
                         <SummaryCard label="Store Revenue" value={formatCurrency(totals.storeShare)} variant="primary" />
                         <SummaryCard label="Gross Sales" value={formatCurrency(totals.subtotal)} />
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                        <SummaryCard label="Cash Total" value={formatCurrency(paymentTotals.cashNetTotal)} />
+                        <SummaryCard label="Card Total" value={formatCurrency(paymentTotals.cardNetTotal)} />
+                        <SummaryCard label="Card Fees" value={`-${formatCurrency(paymentTotals.cardFeeTotal)}`} variant="warning" />
+                        <SummaryCard label="Check Total" value={formatCurrency(paymentTotals.checkNetTotal)} />
                     </div>
                     <div className="bg-white rounded-xl border border-[var(--color-border)] p-4 mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                         <div>
@@ -1128,6 +1165,11 @@ export function Sales() {
                                 <div>
                                     Payment Method: <span className="font-medium text-[var(--color-foreground)]">{formatPaymentMethod(selectedSale.payment_method)}</span>
                                 </div>
+                                {selectedSale.payment_method === 'card' && (
+                                    <div>
+                                        Card Fee: {formatCurrency(Number(selectedSale.card_fee_amount || 0))}
+                                    </div>
+                                )}
                                 {selectedSale.cash_tendered !== null && (
                                     <div className="flex gap-4">
                                         <span>Cash Tendered: {formatCurrency(selectedSale.cash_tendered)}</span>
@@ -1549,6 +1591,9 @@ function SaleRow({
                             <div>
                                 Payment: {sale.payment_method === 'cash' ? 'Cash' : sale.payment_method === 'check' ? 'Check' : 'Card'}
                             </div>
+                            {sale.payment_method === 'card' && (
+                                <div>Card Fee: {formatCurrency(Number(sale.card_fee_amount || 0))}</div>
+                            )}
                             {sale.cash_tendered !== null && (
                                 <div className="flex gap-4">
                                     <span>Cash Tendered: {formatCurrency(sale.cash_tendered)}</span>
@@ -1582,7 +1627,7 @@ function SummaryCard({
 }: {
     label: string;
     value: string;
-    variant?: 'default' | 'success' | 'primary' | 'danger';
+    variant?: 'default' | 'success' | 'primary' | 'danger' | 'warning';
 }) {
     const valueColor =
         variant === 'success'
@@ -1591,6 +1636,8 @@ function SummaryCard({
                 ? 'text-[var(--color-primary)]'
                 : variant === 'danger'
                     ? 'text-[var(--color-danger)]'
+                    : variant === 'warning'
+                        ? 'text-[var(--color-warning)]'
                     : 'text-[var(--color-foreground)]';
 
     return (

@@ -4,6 +4,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { useRefunds } from '../../hooks/useRefunds';
+import { calculateProRatedRefundAmount } from '../../lib/refundCalculations';
 import { formatCurrency, formatDateTime } from '../../lib/utils';
 import { printRefundReceipt } from '../../lib/printReceipt';
 import { sendRefundReceiptEmail } from '../../lib/emailReceipt';
@@ -19,6 +20,9 @@ type RefundStep = 'search' | 'select' | 'confirm' | 'success';
 
 interface RefundFormItem extends RefundItem {
     selected: boolean;
+    discount_amount: number;
+    original_quantity: number;
+    already_refunded_quantity: number;
 }
 
 export function RefundModal({ isOpen, onClose }: RefundModalProps) {
@@ -43,6 +47,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
     const [emailInput, setEmailInput] = useState('');
     const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
     const [emailError, setEmailError] = useState<string | null>(null);
+    const [existingRefundAmount, setExistingRefundAmount] = useState(0);
 
     // Reset state when modal closes
     useEffect(() => {
@@ -56,6 +61,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
             setEmailInput('');
             setEmailSuccess(null);
             setEmailError(null);
+            setExistingRefundAmount(0);
         }
     }, [isOpen]);
 
@@ -77,6 +83,9 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
                 refundedQty[item.sale_item_id] = (refundedQty[item.sale_item_id] || 0) + item.quantity;
             }
         }
+        setExistingRefundAmount(
+            data.existingRefunds.reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0)
+        );
 
         setSale(data.sale);
 
@@ -92,6 +101,9 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
                 quantity: remaining > 0 ? remaining : 0,
                 max_quantity: remaining > 0 ? remaining : 0,
                 price: Number(item.price),
+                discount_amount: Number(item.discount_amount || 0),
+                original_quantity: item.quantity,
+                already_refunded_quantity: alreadyRefunded,
                 restocked: canRestock,
                 selected: remaining > 0,
             };
@@ -125,7 +137,27 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
     };
 
     const selectedItems = refundItems.filter(item => item.selected);
-    const refundAmount = selectedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const selectedRefundQuantityBySaleItemId = selectedItems.reduce<Record<string, number>>((acc, item) => {
+        acc[item.sale_item_id] = item.quantity;
+        return acc;
+    }, {});
+    const alreadyRefundedQuantityBySaleItemId = refundItems.reduce<Record<string, number>>((acc, item) => {
+        acc[item.sale_item_id] = item.already_refunded_quantity;
+        return acc;
+    }, {});
+    const refundAmount = sale ? calculateProRatedRefundAmount({
+        saleItems: refundItems.map((item) => ({
+            id: item.sale_item_id,
+            price: item.price,
+            quantity: item.original_quantity,
+            discount_amount: item.discount_amount,
+        })),
+        saleTotal: Number(sale.total || 0),
+        saleDiscountTotal: Number(sale.discount_total || 0),
+        existingRefundAmount,
+        alreadyRefundedQuantityBySaleItemId,
+        selectedRefundQuantityBySaleItemId,
+    }) : 0;
 
     const handleConfirm = () => {
         if (selectedItems.length === 0) return;
@@ -150,7 +182,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
 
         setCompletedRefund({
             refund_id: data.refund.id,
-            refund_amount: refundAmount,
+            refund_amount: Number(data.refund.refund_amount || refundAmount),
             payment_method: sale.payment_method,
             stripe_refund_id: data.stripe_refund_id,
             items: selectedItems,

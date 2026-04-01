@@ -34,6 +34,7 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
         last_name: consignor?.last_name || '',
         business_name: consignor?.business_name || '',
         pay_to_type: consignor?.pay_to_type || 'business',
+        has_w9_filled_out: consignor?.has_w9_filled_out ?? false,
         consignor_number: consignor?.consignor_number || '',
         booth_location: consignor?.booth_location || '',
         booth_square_feet: Number(consignor?.booth_square_feet) || 0,
@@ -500,7 +501,7 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                 )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="flex items-end pb-1">
                     <label className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -510,6 +511,17 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                             className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
                         />
                         <span className="text-sm font-medium">Consignor Pays Card Fee</span>
+                    </label>
+                </div>
+                <div className="flex items-end pb-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={!!formData.has_w9_filled_out}
+                            onChange={(e) => updateField('has_w9_filled_out', e.target.checked)}
+                            className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
+                        />
+                        <span className="text-sm font-medium">W-9 On File</span>
                     </label>
                 </div>
                 <div className="flex items-end pb-1">
