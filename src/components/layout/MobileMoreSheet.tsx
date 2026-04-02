@@ -23,7 +23,7 @@ const adminMoreItems: MoreNavItem[] = [
     { name: 'Timecards', href: '/admin/employees', icon: TimecardIcon },
     { name: 'Roles', href: '/admin/employees/roles', icon: EmployeesIcon },
     { name: 'Schedule', href: '/admin/employees/schedule', icon: ScheduleIcon },
-    { name: 'Add Items', href: '/admin/add-items', icon: PlusIcon },
+    { name: 'Add Products', href: '/admin/add-items', icon: PlusIcon },
     { name: 'Scan In/Out', href: '/admin/scan', icon: BarcodeIcon },
     { name: 'Import CSV', href: '/admin/import', icon: UploadIcon },
     { name: 'Labels', href: '/admin/labels', icon: TagIcon },
@@ -37,6 +37,7 @@ const adminMoreItems: MoreNavItem[] = [
 ];
 
 const employeeMoreItems: MoreNavItem[] = [
+    { name: 'My Sales', href: '/employee/sales', icon: ReceiptIcon },
     { name: 'Till Count', href: '/employee/till-count', icon: CashIcon },
     { name: 'Labels', href: '/employee/labels', icon: TagIcon },
     { name: 'Messages', href: '/employee/messages', icon: MessageIcon },
@@ -201,6 +202,15 @@ function CashIcon() {
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2v20" />
             <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14.5a3.5 3.5 0 0 1 0 7H7" />
+        </svg>
+    );
+}
+
+function ReceiptIcon() {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z" />
+            <path d="M8 10h8M8 14h4" />
         </svg>
     );
 }

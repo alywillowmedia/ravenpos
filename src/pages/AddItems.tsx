@@ -71,8 +71,8 @@ export function AddItems() {
     return (
         <div className="animate-fadeIn">
             <Header
-                title="Add Items"
-                description="Add single items or multiple items at once."
+                title="Add Products"
+                description="Add single products or multiple products at once."
             />
 
             {/* Consignor Selection */}
@@ -108,7 +108,7 @@ export function AddItems() {
                                 : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
                                 }`}
                         >
-                            Single Item
+                            Single Product
                         </button>
                         <button
                             onClick={() => setMode('batch')}
@@ -117,7 +117,7 @@ export function AddItems() {
                                 : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
                                 }`}
                         >
-                            Multiple Items
+                            Multiple Products
                         </button>
                     </div>
 
@@ -125,7 +125,7 @@ export function AddItems() {
                     <Card variant="outlined">
                         <CardHeader>
                             <CardTitle>
-                                {mode === 'single' ? 'Add Single Item' : 'Add Multiple Items'}
+                                {mode === 'single' ? 'Add Single Product' : 'Add Multiple Products'}
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
@@ -154,7 +154,7 @@ export function AddItems() {
             <Modal
                 isOpen={!!successModal}
                 onClose={() => setSuccessModal(null)}
-                title="Items Added"
+                title="Products Added"
                 size="sm"
             >
                 <div className="text-center py-4">
@@ -163,8 +163,8 @@ export function AddItems() {
                     </div>
                     <p className="text-lg font-medium text-[var(--color-foreground)]">
                         {successModal?.count === 1
-                            ? '1 item added successfully!'
-                            : `${successModal?.count} items added successfully!`}
+                            ? '1 product added successfully!'
+                            : `${successModal?.count} products added successfully!`}
                     </p>
                 </div>
                 <div className="flex items-center justify-center gap-3 pt-4">

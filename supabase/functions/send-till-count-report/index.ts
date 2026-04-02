@@ -14,6 +14,7 @@ interface TillReport {
   expectedFromSales: number
   checkCount?: number
   checkTotal?: number
+  manualAdjustment?: number
   openingFloat: number
   expectedDrawerTotal: number
   countedTotal: number
@@ -96,7 +97,7 @@ function buildEmailHtml(payload: RequestBody): string {
       <tr>
         <td style="padding:16px 24px;border-bottom:1px dashed #d1d5db;">
           <p style="margin:0 0 4px 0;font-size:13px;color:#4b5563;">To: ${sanitizeName(adminName) || payload.adminEmail}</p>
-          <p style="margin:0;font-size:13px;color:#4b5563;">From Employee: ${sanitizeName(employeeName) || 'Employee'}</p>
+          <p style="margin:0;font-size:13px;color:#4b5563;">Submitted By: ${sanitizeName(employeeName) || 'Employee'}</p>
         </td>
       </tr>
       <tr>
@@ -107,13 +108,23 @@ function buildEmailHtml(payload: RequestBody): string {
               <td style="padding:6px 0;text-align:right;font-family:'Courier New',Courier,monospace;font-size:13px;">${formatCurrency(report.expectedFromSales)}</td>
             </tr>
             <tr>
-              <td style="padding:6px 0;font-family:'Courier New',Courier,monospace;font-size:13px;">Checks (${Number(report.checkCount || 0)})</td>
+              <td style="padding:6px 0;font-family:'Courier New',Courier,monospace;font-size:13px;">Check Qty</td>
+              <td style="padding:6px 0;text-align:right;font-family:'Courier New',Courier,monospace;font-size:13px;">${Number(report.checkCount || 0)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;font-family:'Courier New',Courier,monospace;font-size:13px;">Check Amt</td>
               <td style="padding:6px 0;text-align:right;font-family:'Courier New',Courier,monospace;font-size:13px;">${formatCurrency(Number(report.checkTotal || 0))}</td>
             </tr>
             <tr>
               <td style="padding:6px 0;font-family:'Courier New',Courier,monospace;font-size:13px;">Opening Float</td>
               <td style="padding:6px 0;text-align:right;font-family:'Courier New',Courier,monospace;font-size:13px;">${formatCurrency(report.openingFloat)}</td>
             </tr>
+            ${Math.abs(Number(report.manualAdjustment || 0)) > 0.0001 ? `
+            <tr>
+              <td style="padding:6px 0;font-family:'Courier New',Courier,monospace;font-size:13px;">Manual Adjustment</td>
+              <td style="padding:6px 0;text-align:right;font-family:'Courier New',Courier,monospace;font-size:13px;">${formatCurrency(Number(report.manualAdjustment || 0))}</td>
+            </tr>
+            ` : ''}
             <tr>
               <td style="padding:6px 0;font-family:'Courier New',Courier,monospace;font-size:13px;font-weight:700;">Expected Drawer</td>
               <td style="padding:6px 0;text-align:right;font-family:'Courier New',Courier,monospace;font-size:13px;font-weight:700;">${formatCurrency(report.expectedDrawerTotal)}</td>

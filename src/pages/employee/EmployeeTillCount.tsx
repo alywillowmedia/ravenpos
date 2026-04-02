@@ -8,16 +8,12 @@ import { useToast } from '../../contexts/ToastContext';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { formatCurrency } from '../../lib/utils';
 import { supabase } from '../../lib/supabase';
+import { printTillCountReceipt } from '../../lib/printTillCountReceipt';
 
 interface AdminContact {
     id: string;
     email: string;
     full_name: string | null;
-}
-
-interface CheckSaleSummary {
-    checkCount: number;
-    checkTotal: number;
 }
 
 const CASH_DENOMINATIONS = [
@@ -50,7 +46,8 @@ export function EmployeeTillCount() {
     const [isSendingEmail, setIsSendingEmail] = useState(false);
     const [openingFloatInput, setOpeningFloatInput] = useState('');
     const [expectedCashFromSales, setExpectedCashFromSales] = useState(0);
-    const [checkSummary, setCheckSummary] = useState<CheckSaleSummary>({ checkCount: 0, checkTotal: 0 });
+    const [checkCountInput, setCheckCountInput] = useState('');
+    const [checkAmountInput, setCheckAmountInput] = useState('');
     const [admins, setAdmins] = useState<AdminContact[]>([]);
     const [selectedAdminId, setSelectedAdminId] = useState('');
     const [denominationCounts, setDenominationCounts] = useState<Record<string, string>>(() =>
@@ -65,7 +62,7 @@ export function EmployeeTillCount() {
             setIsLoading(true);
             const { startIso, endIso } = getTodayRangeIso();
 
-            const [adminsResult, cashSalesResult, cashRefundsResult, checkSalesResult, checkRefundsResult] = await Promise.all([
+            const [adminsResult, cashSalesResult, cashRefundsResult] = await Promise.all([
                 supabase.rpc('get_chat_admin_contacts'),
                 supabase
                     .from('sales')
@@ -79,18 +76,6 @@ export function EmployeeTillCount() {
                     .eq('payment_method', 'cash')
                     .gte('created_at', startIso)
                     .lte('created_at', endIso),
-                supabase
-                    .from('sales')
-                    .select('id, total')
-                    .eq('payment_method', 'check')
-                    .gte('completed_at', startIso)
-                    .lte('completed_at', endIso),
-                supabase
-                    .from('refunds')
-                    .select('refund_amount')
-                    .eq('payment_method', 'check')
-                    .gte('created_at', startIso)
-                    .lte('created_at', endIso),
             ]);
 
             if (adminsResult.error) {
@@ -99,17 +84,14 @@ export function EmployeeTillCount() {
                 setAdmins((adminsResult.data || []) as AdminContact[]);
             }
 
-            if (cashSalesResult.error || cashRefundsResult.error || checkSalesResult.error || checkRefundsResult.error) {
+            if (cashSalesResult.error || cashRefundsResult.error) {
                 toast.error(
                     'Failed to load till totals',
                     cashSalesResult.error?.message
                     || cashRefundsResult.error?.message
-                    || checkSalesResult.error?.message
-                    || checkRefundsResult.error?.message
                     || 'Please refresh and try again.'
                 );
                 setExpectedCashFromSales(0);
-                setCheckSummary({ checkCount: 0, checkTotal: 0 });
                 setIsLoading(false);
                 return;
             }
@@ -126,22 +108,7 @@ export function EmployeeTillCount() {
                 0
             );
 
-            const checkSales = checkSalesResult.data || [];
-            const checkCount = checkSales.length;
-            const checkTotalGross = checkSales.reduce(
-                (sum, sale) => sum + Number(sale.total || 0),
-                0
-            );
-            const checkRefunds = (checkRefundsResult.data || []).reduce(
-                (sum, refund) => sum + Number(refund.refund_amount || 0),
-                0
-            );
-
             setExpectedCashFromSales(cashSalesNet - cashRefunds);
-            setCheckSummary({
-                checkCount,
-                checkTotal: checkTotalGross - checkRefunds,
-            });
             setIsLoading(false);
         };
 
@@ -160,6 +127,8 @@ export function EmployeeTillCount() {
     );
 
     const openingFloat = Number.parseFloat(openingFloatInput) || 0;
+    const checkCount = Math.max(0, Number.parseInt(checkCountInput || '0', 10) || 0);
+    const checkTotal = Math.max(0, Number.parseFloat(checkAmountInput) || 0);
     const expectedDrawerTotal = openingFloat + expectedCashFromSales;
     const variance = countedTotal - expectedDrawerTotal;
 
@@ -183,6 +152,8 @@ export function EmployeeTillCount() {
                 return acc;
             }, {})
         );
+        setCheckCountInput('');
+        setCheckAmountInput('');
     };
 
     const handleSendEmail = async () => {
@@ -202,6 +173,7 @@ export function EmployeeTillCount() {
                 amount: quantity * denomination.value,
             };
         });
+        const countedAt = new Date().toISOString();
 
         const { error } = await supabase.functions.invoke('send-till-count-report', {
             body: {
@@ -209,10 +181,10 @@ export function EmployeeTillCount() {
                 adminName: selectedAdmin.full_name || selectedAdmin.email,
                 employeeName: employee?.name || 'Employee',
                 report: {
-                    countedAt: new Date().toISOString(),
+                    countedAt,
                     expectedFromSales: expectedCashFromSales,
-                    checkCount: checkSummary.checkCount,
-                    checkTotal: checkSummary.checkTotal,
+                    checkCount,
+                    checkTotal,
                     openingFloat,
                     expectedDrawerTotal,
                     countedTotal,
@@ -230,6 +202,43 @@ export function EmployeeTillCount() {
         }
 
         toast.success('Till report sent', `Sent to ${selectedAdmin.full_name || selectedAdmin.email}`);
+    };
+
+    const handlePrintReceipt = async () => {
+        const selectedAdmin = admins.find((admin) => admin.id === selectedAdminId);
+        const denominationBreakdown = CASH_DENOMINATIONS.map((denomination) => {
+            const quantity = Math.max(0, Number.parseInt(denominationCounts[denomination.key] || '0', 10) || 0);
+            return {
+                label: denomination.label,
+                quantity,
+                amount: quantity * denomination.value,
+            };
+        });
+
+        const result = await printTillCountReceipt(
+            {
+                submittedBy: employee?.name || 'Employee',
+                recipientName: selectedAdmin?.full_name || selectedAdmin?.email,
+            },
+            {
+                countedAt: new Date().toISOString(),
+                expectedFromSales: expectedCashFromSales,
+                checkCount,
+                checkTotal,
+                openingFloat,
+                expectedDrawerTotal,
+                countedTotal,
+                variance,
+                denominationBreakdown,
+            }
+        );
+
+        if (!result.success) {
+            toast.error('Failed to print till receipt', result.error || 'Please try again.');
+            return;
+        }
+
+        toast.success('Print dialog opened');
     };
 
     return (
@@ -252,13 +261,27 @@ export function EmployeeTillCount() {
                             </p>
                         </div>
                         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-                            <p className="text-xs text-[var(--color-muted)]">Checks Received Today</p>
-                            <p className="text-lg font-semibold">
-                                {isLoading ? 'Loading...' : formatCurrency(checkSummary.checkTotal)}
-                            </p>
-                            <p className="text-xs text-[var(--color-muted)]">
-                                {isLoading ? '' : `${checkSummary.checkCount} check${checkSummary.checkCount === 1 ? '' : 's'}`}
-                            </p>
+                            <p className="text-xs text-[var(--color-muted)]">Checks (Manual Entry)</p>
+                            <div className="mt-2 grid grid-cols-1 gap-2">
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    label="Check Qty"
+                                    value={checkCountInput}
+                                    onChange={(event) => setCheckCountInput(event.target.value)}
+                                    placeholder="0"
+                                />
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    label="Check Amount"
+                                    value={checkAmountInput}
+                                    onChange={(event) => setCheckAmountInput(event.target.value)}
+                                    placeholder="0.00"
+                                />
+                            </div>
                         </div>
                         <Input
                             type="number"
@@ -331,6 +354,13 @@ export function EmployeeTillCount() {
                                 disabled={isLoading || isSendingEmail || !selectedAdminId}
                             >
                                 {isSendingEmail ? 'Sending...' : 'Email Till Receipt'}
+                            </Button>
+                            <Button
+                                variant="secondary"
+                                onClick={handlePrintReceipt}
+                                disabled={isLoading}
+                            >
+                                Print Till Receipt
                             </Button>
                             <Button variant="secondary" onClick={resetCount}>
                                 Reset Counter

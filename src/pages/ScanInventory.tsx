@@ -62,7 +62,7 @@ export function ScanInventory() {
         const { data: item, error: lookupError } = await getItemBySku(sku);
 
         if (lookupError || !item) {
-            setError(`Item not found: ${sku}`);
+            setError(`Product not found: ${sku}`);
             return;
         }
 
@@ -114,9 +114,9 @@ export function ScanInventory() {
                 }
             }
 
-            const totalItems = scannedItems.reduce((sum, si) => sum + si.quantityChange, 0);
+            const totalUnits = scannedItems.reduce((sum, si) => sum + si.quantityChange, 0);
             setSuccessMessage(
-                `Successfully ${mode === 'add' ? 'added' : 'removed'} ${totalItems} item${totalItems !== 1 ? 's' : ''} across ${scannedItems.length} SKU${scannedItems.length !== 1 ? 's' : ''}`
+                `Successfully ${mode === 'add' ? 'added' : 'removed'} ${totalUnits} unit${totalUnits !== 1 ? 's' : ''} across ${scannedItems.length} SKU${scannedItems.length !== 1 ? 's' : ''}`
             );
             setScannedItems([]);
         } catch (err) {
@@ -133,7 +133,7 @@ export function ScanInventory() {
         <>
             <Header
                 title="Scan Inventory"
-                description="Scan items by SKU to add or remove stock in bulk"
+                description="Scan products by SKU to add or remove stock in bulk"
             />
 
             <div className="space-y-6">
@@ -205,15 +205,15 @@ export function ScanInventory() {
                     )}
                 </div>
 
-                {/* Scanned Items List */}
+                {/* Scanned Products List */}
                 <div className="card">
                     <div className="p-4 border-b border-[var(--color-border)] flex items-center justify-between">
                         <h2 className="text-lg font-semibold text-[var(--color-foreground)]">
-                            Scanned Items ({scannedItems.length})
+                            Scanned Products ({scannedItems.length})
                         </h2>
                         {scannedItems.length > 0 && (
                             <span className="text-sm text-[var(--color-muted)]">
-                                Total quantity: {totalQuantityChange}
+                                Total units: {totalQuantityChange}
                             </span>
                         )}
                     </div>
@@ -221,7 +221,7 @@ export function ScanInventory() {
                     {scannedItems.length === 0 ? (
                         <div className="p-12 text-center text-[var(--color-muted)]">
                             <BarcodeIcon className="w-12 h-12 mx-auto mb-4 opacity-30" />
-                            <p>No items scanned yet</p>
+                            <p>No products scanned yet</p>
                             <p className="text-sm mt-1">Scan a barcode or enter a SKU to get started</p>
                         </div>
                     ) : (
@@ -229,13 +229,13 @@ export function ScanInventory() {
                             <table className="w-full">
                                 <thead className="bg-[var(--color-surface)]">
                                     <tr>
-                                        <th className="text-left px-4 py-3 text-sm font-medium text-[var(--color-muted)]">Item</th>
+                                        <th className="text-left px-4 py-3 text-sm font-medium text-[var(--color-muted)]">Product</th>
                                         <th className="text-left px-4 py-3 text-sm font-medium text-[var(--color-muted)]">SKU</th>
-                                        <th className="text-right px-4 py-3 text-sm font-medium text-[var(--color-muted)]">Current Qty</th>
+                                        <th className="text-right px-4 py-3 text-sm font-medium text-[var(--color-muted)]">Current Units</th>
                                         <th className="text-right px-4 py-3 text-sm font-medium text-[var(--color-muted)]">
                                             {mode === 'add' ? 'Add' : 'Remove'}
                                         </th>
-                                        <th className="text-right px-4 py-3 text-sm font-medium text-[var(--color-muted)]">New Qty</th>
+                                        <th className="text-right px-4 py-3 text-sm font-medium text-[var(--color-muted)]">New Units</th>
                                         <th className="w-12"></th>
                                     </tr>
                                 </thead>
@@ -330,7 +330,7 @@ export function ScanInventory() {
                                 disabled={isSubmitting}
                                 variant={mode === 'add' ? 'primary' : 'danger'}
                             >
-                                {isSubmitting ? 'Updating...' : `${mode === 'add' ? 'Add' : 'Remove'} ${totalQuantityChange} Item${totalQuantityChange !== 1 ? 's' : ''}`}
+                                {isSubmitting ? 'Updating...' : `${mode === 'add' ? 'Add' : 'Remove'} ${totalQuantityChange} Unit${totalQuantityChange !== 1 ? 's' : ''}`}
                             </Button>
                         </div>
                     )}

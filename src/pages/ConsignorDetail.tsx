@@ -307,6 +307,7 @@ export function ConsignorDetail() {
         (sum, item) => sum + Number(item.price) * item.quantity,
         0
     );
+    const totalUnits = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
     const monthlyRent = Number(consignor.monthly_booth_rent) || 0;
     const currentYear = new Date().getFullYear();
@@ -425,7 +426,11 @@ export function ConsignorDetail() {
                     <CardContent className="space-y-2">
                         <p className="text-3xl font-bold text-[var(--color-foreground)]">
                             {items.length}
-                            <span className="text-sm font-normal text-[var(--color-muted)] ml-2">items</span>
+                            <span className="text-base font-medium text-[var(--color-muted)] ml-2">products</span>
+                        </p>
+                        <p className="text-lg font-medium text-[var(--color-foreground)]">
+                            {totalUnits}
+                            <span className="text-sm font-normal text-[var(--color-muted)] ml-2">total units</span>
                         </p>
                         <p className="text-lg font-medium text-[var(--color-primary)]">
                             {formatCurrency(totalValue)}

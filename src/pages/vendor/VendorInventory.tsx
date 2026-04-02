@@ -95,7 +95,7 @@ export function VendorInventory() {
         },
         {
             key: 'name',
-            header: 'Item',
+            header: 'Product',
             sortable: true,
             render: (item) => (
                 <div className="flex items-center gap-3">
@@ -126,7 +126,7 @@ export function VendorInventory() {
         },
         {
             key: 'quantity',
-            header: 'Qty',
+            header: 'Units',
             width: '80px',
             sortable: true,
             render: (item) => (
@@ -166,9 +166,9 @@ export function VendorInventory() {
     ];
 
     const tabs = [
-        { id: 'list', label: 'View All Items' },
-        { id: 'single', label: 'Add Single Item' },
-        { id: 'batch', label: 'Multiple Items' },
+        { id: 'list', label: 'View All Products' },
+        { id: 'single', label: 'Add Single Product' },
+        { id: 'batch', label: 'Multiple Products' },
     ];
 
     const totalItems = items.length;
@@ -179,7 +179,7 @@ export function VendorInventory() {
         <div className="animate-fadeIn space-y-6">
             <Header
                 title="My Inventory"
-                description="Manage your consigned items"
+                description="Manage your consigned products"
             />
 
             <Tabs
@@ -199,14 +199,14 @@ export function VendorInventory() {
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                             <Card variant="outlined">
                                 <CardContent className="p-4">
-                                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Total Items</p>
+                                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Total Products</p>
                                     <p className="text-2xl font-bold text-[var(--color-foreground)]">{totalItems}</p>
                                 </CardContent>
                             </Card>
 
                             <Card variant="outlined">
                                 <CardContent className="p-4">
-                                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Total Qty</p>
+                                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Total Units</p>
                                     <p className="text-2xl font-bold text-[var(--color-foreground)]">{totalQuantity}</p>
                                 </CardContent>
                             </Card>
@@ -223,11 +223,11 @@ export function VendorInventory() {
                             <div className="py-12">
                                 <EmptyState
                                     icon={<PackageIcon />}
-                                    title="No items yet"
-                                    description="Start adding items to your inventory"
+                                    title="No products yet"
+                                    description="Start adding products to your inventory"
                                     action={
                                         <Button onClick={() => setView('single')}>
-                                            Add Your First Item
+                                            Add Your First Product
                                         </Button>
                                     }
                                 />
@@ -238,7 +238,7 @@ export function VendorInventory() {
                                 columns={columns}
                                 keyExtractor={(item) => item.id}
                                 searchable
-                                searchPlaceholder="Search items..."
+                                searchPlaceholder="Search products..."
                                 searchKeys={['name', 'sku', 'category', 'variant']}
                                 isLoading={isLoading}
                             />
@@ -249,9 +249,9 @@ export function VendorInventory() {
                 {view === 'single' && (
                     <div className="max-w-3xl mx-auto">
                         <div className="mb-6">
-                            <h2 className="text-lg font-semibold">Add New Item</h2>
+                            <h2 className="text-lg font-semibold">Add New Product</h2>
                             <p className="text-sm text-[var(--color-muted)]">
-                                Add a single item to your inventory with detailed information.
+                                Add a single product to your inventory with detailed information.
                             </p>
                         </div>
                         <VendorItemForm
@@ -265,9 +265,9 @@ export function VendorInventory() {
                 {view === 'batch' && (
                     <div>
                         <div className="mb-6">
-                            <h2 className="text-lg font-semibold">Add Multiple Items</h2>
+                            <h2 className="text-lg font-semibold">Add Multiple Products</h2>
                             <p className="text-sm text-[var(--color-muted)]">
-                                Quickly add multiple items at once.
+                                Quickly add multiple products at once.
                             </p>
                         </div>
                         <VendorBatchEntry
@@ -283,7 +283,7 @@ export function VendorInventory() {
             <Modal
                 isOpen={!!editingItem}
                 onClose={() => setEditingItem(null)}
-                title="Edit Item"
+                title="Edit Product"
                 size="3xl"
             >
                 {editingItem && (
@@ -300,7 +300,7 @@ export function VendorInventory() {
             <Modal
                 isOpen={!!deletingItem}
                 onClose={() => setDeletingItem(null)}
-                title="Delete Item"
+                title="Delete Product"
                 size="sm"
             >
                 <div className="space-y-4">

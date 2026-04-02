@@ -1,6 +1,6 @@
 // Admin Employees Page - Manage employees and view time clock data
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
@@ -8,6 +8,7 @@ import { Badge } from '../components/ui/Badge';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Textarea } from '../components/ui/Input';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
+import { DeleteConfirmationModal } from '../components/ui/DeleteConfirmationModal';
 import { AddEmployeeModal } from '../components/employees/AddEmployeeModal';
 import { AuthorizeDeviceModal } from '../components/employees/AuthorizeDeviceModal';
 import { EmployeeCredentials } from '../components/employees/EmployeeCredentials';
@@ -39,6 +40,7 @@ export function Employees() {
         error,
         createEmployee,
         updateEmployee,
+        deleteEmployee,
         getTimeEntries,
         manualClockOut,
         getEmployeeSales,
@@ -53,6 +55,10 @@ export function Employees() {
     const [viewingEntries, setViewingEntries] = useState<TimeEntry[]>([]);
     const [isLoadingEntries, setIsLoadingEntries] = useState(false);
     const [salesCount, setSalesCount] = useState(0);
+    const [deleteTarget, setDeleteTarget] = useState<EmployeeWithStats | null>(null);
+    const [isDeletingEmployee, setIsDeletingEmployee] = useState(false);
+    const [deleteEmployeeError, setDeleteEmployeeError] = useState<string | null>(null);
+    const [timeEntryCount, setTimeEntryCount] = useState(0);
     const [editingTimeEntry, setEditingTimeEntry] = useState<TimeEntry | null>(null);
     const [showSensitiveNumbers, setShowSensitiveNumbers] = useState(false);
     const [isSendingSchedules, setIsSendingSchedules] = useState(false);
@@ -118,6 +124,43 @@ export function Employees() {
     const handleManualClockOut = async (emp: EmployeeWithStats) => {
         if (!emp.currentEntryId) return;
         await manualClockOut(emp.currentEntryId);
+    };
+
+    useEffect(() => {
+        if (!deleteTarget) {
+            setTimeEntryCount(0);
+            return;
+        }
+
+        const fetchTimeEntryCount = async () => {
+            const { count } = await supabase
+                .from('time_entries')
+                .select('id', { count: 'exact', head: true })
+                .eq('employee_id', deleteTarget.id);
+            setTimeEntryCount(count || 0);
+        };
+
+        void fetchTimeEntryCount();
+    }, [deleteTarget]);
+
+    const handleDeleteEmployee = async () => {
+        if (!deleteTarget) return;
+        setDeleteEmployeeError(null);
+        setIsDeletingEmployee(true);
+
+        const { error: deletionError } = await deleteEmployee(deleteTarget.id);
+
+        setIsDeletingEmployee(false);
+        if (deletionError) {
+            setDeleteEmployeeError(deletionError);
+            return;
+        }
+
+        if (viewingEmployee?.id === deleteTarget.id) {
+            setViewingEmployee(null);
+        }
+        setDeleteTarget(null);
+        setTimeEntryCount(0);
     };
 
     const handleEditTimeEntry = async (updates: TimeEntryUpdate): Promise<{ error: string | null }> => {
@@ -334,6 +377,16 @@ export function Employees() {
                                                 >
                                                     Edit
                                                 </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        setDeleteEmployeeError(null);
+                                                        setDeleteTarget(emp);
+                                                    }}
+                                                >
+                                                    Delete
+                                                </Button>
                                                 {emp.clockStatus === 'clocked_in' && (
                                                     <Button
                                                         variant="secondary"
@@ -441,6 +494,27 @@ export function Employees() {
             <AuthorizeDeviceModal
                 isOpen={showAuthModal}
                 onClose={() => setShowAuthModal(false)}
+            />
+
+            <DeleteConfirmationModal
+                isOpen={!!deleteTarget}
+                onClose={() => {
+                    setDeleteTarget(null);
+                    setDeleteEmployeeError(null);
+                }}
+                onConfirm={handleDeleteEmployee}
+                isLoading={isDeletingEmployee}
+                targetName={deleteTarget?.name || ''}
+                itemCount={timeEntryCount}
+                title="⚠️ Delete Employee"
+                warningIntro={`Deleting ${deleteTarget?.name || 'this employee'} will permanently remove:`}
+                consequences={[
+                    'Their employee profile and PIN access',
+                    `${timeEntryCount} saved time entr${timeEntryCount === 1 ? 'y' : 'ies'} and schedule records`,
+                    'Employee portal links and active sessions',
+                    'Sales history remains, but employee attribution will be cleared',
+                ]}
+                description={deleteEmployeeError || undefined}
             />
 
             <Modal

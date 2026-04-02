@@ -142,6 +142,35 @@ export function useEmployees() {
         }
     };
 
+    // Delete employee and keep historical sales rows by nulling attribution first
+    const deleteEmployee = async (id: string): Promise<{ error: string | null }> => {
+        try {
+            const { error: clearSalesError } = await supabase
+                .from('sales')
+                .update({ processed_by_employee: null })
+                .eq('processed_by_employee', id);
+
+            if (clearSalesError) {
+                return { error: clearSalesError.message };
+            }
+
+            const { error: deleteError } = await supabase
+                .from('employees')
+                .delete()
+                .eq('id', id);
+
+            if (deleteError) {
+                return { error: deleteError.message };
+            }
+
+            setEmployees((prev) => prev.filter((employee) => employee.id !== id));
+            return { error: null };
+        } catch (err) {
+            console.error(err);
+            return { error: 'Failed to delete employee' };
+        }
+    };
+
     // Get single employee with full details
     const getEmployee = async (id: string): Promise<{ data: Employee | null; error: string | null }> => {
         const { data, error } = await supabase
@@ -311,6 +340,7 @@ export function useEmployees() {
         fetchEmployees,
         createEmployee,
         updateEmployee,
+        deleteEmployee,
         getEmployee,
         getTimeEntries,
         manualClockOut,

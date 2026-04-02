@@ -15,6 +15,7 @@ import { InvoiceDeliveryModal } from '../components/invoice/InvoiceDeliveryModal
 import { StripeReaderSetupModal } from '../components/pos/StripeReaderSetupModal';
 import { SmartSearch } from '../components/pos/SmartSearch';
 import { useAuth } from '../contexts/AuthContext';
+import { useEmployee } from '../contexts/EmployeeContext';
 import { useInventory } from '../hooks/useInventory';
 import { useConsignors } from '../hooks/useConsignors';
 import { useSales } from '../hooks/useSales';
@@ -39,7 +40,8 @@ const STRIPE_READER_AUTO_RECONNECT_KEY = 'ravenpos-stripe-reader-auto-reconnect'
 const STRIPE_READER_PREFERRED_ID_KEY = 'ravenpos-stripe-reader-preferred-id';
 
 export function POS() {
-    const { isAdmin } = useAuth();
+    const { isAdmin, userRecord } = useAuth();
+    const { employee } = useEmployee();
     const scannerRef = useRef<HTMLInputElement>(null);
     const { getItemBySku } = useInventory();
     const { consignors } = useConsignors();
@@ -568,7 +570,9 @@ export function POS() {
             0,
             appliedGiftCard?.code,
             appliedGiftCardAmount,
-            undefined
+            undefined,
+            userRecord?.id,
+            employee?.id
         );
 
         if (error) {
@@ -638,7 +642,9 @@ export function POS() {
             cardFeeAmount,
             appliedGiftCard?.code,
             appliedGiftCardAmount,
-            undefined
+            undefined,
+            userRecord?.id,
+            employee?.id
         );
 
         if (amountDue > 0) {
@@ -755,7 +761,9 @@ export function POS() {
             0,
             appliedGiftCard?.code,
             appliedGiftCardAmount,
-            checkNumber.trim() || undefined
+            checkNumber.trim() || undefined,
+            userRecord?.id,
+            employee?.id
         );
 
         if (error) {

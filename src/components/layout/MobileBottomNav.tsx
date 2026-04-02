@@ -10,7 +10,7 @@ interface MobileBottomNavProps {
 // Admin navigation items for bottom nav
 const adminNavItems = [
     { name: 'POS', href: '/admin/pos', icon: RegisterIcon },
-    { name: 'Items', href: '/admin/inventory', icon: PackageIcon },
+    { name: 'Products', href: '/admin/inventory', icon: PackageIcon },
     { name: 'Customers', href: '/admin/customers', icon: UsersIcon },
     { name: 'Sales', href: '/admin/sales', icon: ReceiptIcon },
     { name: 'More', href: null, icon: MenuIcon, isMenu: true },

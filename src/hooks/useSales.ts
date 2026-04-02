@@ -22,7 +22,9 @@ export function useSales() {
         cardFeeAmount = 0,
         giftCardCode?: string,
         giftCardUsed = 0,
-        checkNumber?: string
+        checkNumber?: string,
+        processedByUserId?: string | null,
+        processedByEmployeeId?: string | null
     ) => {
         let creditDeducted = false;
         let giftCardDeducted = false;
@@ -88,6 +90,8 @@ export function useSales() {
                     store_credit_used: roundedStoreCreditUsed,
                     gift_card_used: roundedGiftCardUsed,
                     card_fee_amount: roundedCardFeeAmount,
+                    processed_by_user: processedByUserId || null,
+                    processed_by_employee: processedByEmployeeId || null,
                     ...(paymentMethod === 'check' ? { check_number: checkNumber?.trim() || null } : {}),
                 })
                 .select()

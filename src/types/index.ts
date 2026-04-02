@@ -118,6 +118,8 @@ export interface Discount {
 export interface Sale {
     id: string;
     customer_id: string | null;
+    processed_by_employee?: string | null;
+    processed_by_user?: string | null;
     completed_at: string;
     subtotal: number;
     tax_amount: number;

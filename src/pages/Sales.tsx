@@ -12,13 +12,17 @@ import { useSalesHistory, type SaleWithItems } from '../hooks/useSalesHistory';
 import { useRefundHistory, type RefundWithDetails } from '../hooks/useRefundHistory';
 import { useConsignors } from '../hooks/useConsignors';
 import { useCustomers } from '../hooks/useCustomers';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { formatCurrency } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { printReceipt } from '../lib/printReceipt';
+import { printTillCountReceipt } from '../lib/printTillCountReceipt';
 import type { ReceiptData } from '../types/receipt';
 import type { Customer, CustomerInput } from '../types';
 
 type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
+type SalesTab = 'sales' | 'refunds' | 'employeeAttribution';
 
 const CASH_DENOMINATIONS = [
     { key: '100', label: '$100', value: 100 },
@@ -32,6 +36,27 @@ const CASH_DENOMINATIONS = [
     { key: '0.05', label: '5¢', value: 0.05 },
     { key: '0.01', label: '1¢', value: 0.01 },
 ] as const;
+
+interface AdminContact {
+    id: string;
+    email: string;
+    full_name: string | null;
+}
+
+interface EmployeeDirectoryEntry {
+    id: string;
+    name: string;
+}
+
+interface EmployeeAttributionRow {
+    actorType: 'employee' | 'admin';
+    employeeId: string | null;
+    userId: string | null;
+    employeeName: string;
+    salesCount: number;
+    grossSales: number;
+    averageTicket: number;
+}
 
 function escapeCsvValue(value: string | number | null | undefined): string {
     if (value === null || value === undefined) return '';
@@ -61,12 +86,14 @@ function parseLocalDateInput(value: string, endOfDay = false): Date {
 }
 
 export function Sales() {
+    const { userRecord } = useAuth();
+    const toast = useToast();
     const { sales, isLoading, calculateSalesSummary, refetch } = useSalesHistory();
     const { refunds, isLoading: isLoadingRefunds } = useRefundHistory();
     const { consignors } = useConsignors();
     const { searchCustomers, createCustomer } = useCustomers();
 
-    const [activeTab, setActiveTab] = useState<'sales' | 'refunds'>('sales');
+    const [activeTab, setActiveTab] = useState<SalesTab>('sales');
     const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
     const [selectedSale, setSelectedSale] = useState<SaleWithItems | null>(null);
     const [filterConsignor, setFilterConsignor] = useState('');
@@ -93,8 +120,14 @@ export function Sales() {
     });
     const [showCashReconciliation, setShowCashReconciliation] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
+    const [employeeDirectory, setEmployeeDirectory] = useState<EmployeeDirectoryEntry[]>([]);
+    const [admins, setAdmins] = useState<AdminContact[]>([]);
+    const [selectedAdminId, setSelectedAdminId] = useState('');
+    const [isSendingTillEmail, setIsSendingTillEmail] = useState(false);
     const [openingFloatInput, setOpeningFloatInput] = useState('');
     const [manualCashAdjustmentInput, setManualCashAdjustmentInput] = useState('');
+    const [checkCountInput, setCheckCountInput] = useState('');
+    const [checkAmountInput, setCheckAmountInput] = useState('');
     const [denominationCounts, setDenominationCounts] = useState<Record<string, string>>(() =>
         CASH_DENOMINATIONS.reduce<Record<string, string>>((acc, denomination) => {
             acc[denomination.key] = '';
@@ -209,6 +242,8 @@ export function Sales() {
         const expectedCashFromSales = cashSalesNet - cashRefunds;
         const openingFloat = Number.parseFloat(openingFloatInput) || 0;
         const manualAdjustment = Number.parseFloat(manualCashAdjustmentInput) || 0;
+        const checkCount = Math.max(0, Number.parseInt(checkCountInput || '0', 10) || 0);
+        const checkTotal = Math.max(0, Number.parseFloat(checkAmountInput) || 0);
         const expectedDrawerTotal = openingFloat + expectedCashFromSales + manualAdjustment;
         const countedTotal = CASH_DENOMINATIONS.reduce((sum, denomination) => {
             const quantity = Math.max(0, Number.parseInt(denominationCounts[denomination.key] || '0', 10) || 0);
@@ -222,6 +257,8 @@ export function Sales() {
             changeGiven,
             cashSalesNet,
             cashRefunds,
+            checkCount,
+            checkTotal,
             expectedCashFromSales,
             openingFloat,
             manualAdjustment,
@@ -229,7 +266,44 @@ export function Sales() {
             countedTotal,
             variance,
         };
-    }, [filteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, denominationCounts]);
+    }, [filteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts]);
+
+    useEffect(() => {
+        const loadAdmins = async () => {
+            const { data, error: adminsError } = await supabase.rpc('get_chat_admin_contacts');
+            if (adminsError) {
+                toast.error('Failed to load admins', adminsError.message);
+                return;
+            }
+
+            const adminList = (data || []) as AdminContact[];
+            setAdmins(adminList);
+            if (!selectedAdminId && adminList.length > 0) {
+                const currentUserAdmin = adminList.find((admin) => admin.email === userRecord?.email);
+                setSelectedAdminId(currentUserAdmin?.id || adminList[0].id);
+            }
+        };
+
+        void loadAdmins();
+    }, [toast, userRecord?.email]);
+
+    useEffect(() => {
+        const loadEmployees = async () => {
+            const { data, error: employeeError } = await supabase
+                .from('employees')
+                .select('id, name')
+                .order('name', { ascending: true });
+
+            if (employeeError) {
+                toast.error('Failed to load employees', employeeError.message);
+                return;
+            }
+
+            setEmployeeDirectory((data || []) as EmployeeDirectoryEntry[]);
+        };
+
+        void loadEmployees();
+    }, [toast]);
 
     const paymentTotals = useMemo(() => {
         const cashSalesTotal = filteredSales
@@ -261,6 +335,71 @@ export function Sales() {
             cardFeeTotal,
         };
     }, [filteredSales, filteredRefunds]);
+
+    const employeeAttribution = useMemo(() => {
+        const employeeNameById = new Map(employeeDirectory.map((employee) => [employee.id, employee.name]));
+        const adminNameById = new Map(
+            admins.map((admin) => [admin.id, admin.full_name?.trim() || admin.email || 'Admin User'])
+        );
+        const rollup = new Map<string, {
+            actorType: 'employee' | 'admin';
+            employeeId: string | null;
+            userId: string | null;
+            employeeName: string;
+            salesCount: number;
+            grossSales: number;
+        }>();
+
+        for (const sale of filteredSales) {
+            const employeeId = sale.processed_by_employee ?? null;
+            const userId = sale.processed_by_user ?? null;
+            const key = employeeId
+                ? `emp:${employeeId}`
+                : userId
+                    ? `admin:${userId}`
+                    : 'admin:legacy';
+            const existing = rollup.get(key);
+            const saleTotal = Number(sale.total || 0);
+            const actorType = employeeId ? 'employee' : 'admin';
+            const employeeName = employeeId
+                ? (employeeNameById.get(employeeId) || 'Unknown Employee')
+                : userId
+                    ? (adminNameById.get(userId) || 'Admin User')
+                    : 'Admin';
+
+            if (existing) {
+                existing.salesCount += 1;
+                existing.grossSales += saleTotal;
+                continue;
+            }
+
+            rollup.set(key, {
+                actorType,
+                employeeId,
+                userId,
+                employeeName,
+                salesCount: 1,
+                grossSales: saleTotal,
+            });
+        }
+
+        const rows: EmployeeAttributionRow[] = Array.from(rollup.values())
+            .map((row) => ({
+                actorType: row.actorType,
+                employeeId: row.employeeId,
+                userId: row.userId,
+                employeeName: row.employeeName,
+                salesCount: row.salesCount,
+                grossSales: row.grossSales,
+                averageTicket: row.salesCount > 0 ? row.grossSales / row.salesCount : 0,
+            }))
+            .sort((a, b) => b.grossSales - a.grossSales);
+
+        const attributedEmployees = rows.filter((row) => row.actorType === 'employee');
+        const attributedAdmins = rows.filter((row) => row.actorType === 'admin');
+
+        return { rows, attributedEmployees, attributedAdmins };
+    }, [employeeDirectory, admins, filteredSales]);
 
     // Calculate totals (subtracting refunds)
     const totals = useMemo(() => {
@@ -472,6 +611,87 @@ export function Sales() {
                 return acc;
             }, {})
         );
+        setCheckCountInput('');
+        setCheckAmountInput('');
+    };
+
+    const buildDenominationBreakdown = () =>
+        CASH_DENOMINATIONS.map((denomination) => {
+            const quantity = Math.max(0, Number.parseInt(denominationCounts[denomination.key] || '0', 10) || 0);
+            return {
+                label: denomination.label,
+                quantity,
+                amount: quantity * denomination.value,
+            };
+        });
+
+    const handleSendTillEmail = async () => {
+        const selectedAdmin = admins.find((admin) => admin.id === selectedAdminId);
+        if (!selectedAdmin) {
+            toast.error('Select an admin first');
+            return;
+        }
+
+        setIsSendingTillEmail(true);
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const countedAt = new Date().toISOString();
+        const { error: invokeError } = await supabase.functions.invoke('send-till-count-report', {
+            body: {
+                adminEmail: selectedAdmin.email,
+                adminName: selectedAdmin.full_name || selectedAdmin.email,
+                employeeName: userRecord?.full_name || userRecord?.email || 'Admin',
+                report: {
+                    countedAt,
+                    expectedFromSales: cashReconciliation.expectedCashFromSales,
+                    checkCount: cashReconciliation.checkCount,
+                    checkTotal: cashReconciliation.checkTotal,
+                    openingFloat: cashReconciliation.openingFloat,
+                    manualAdjustment: cashReconciliation.manualAdjustment,
+                    expectedDrawerTotal: cashReconciliation.expectedDrawerTotal,
+                    countedTotal: cashReconciliation.countedTotal,
+                    variance: cashReconciliation.variance,
+                    denominationBreakdown: buildDenominationBreakdown(),
+                },
+                timezone,
+            },
+        });
+        setIsSendingTillEmail(false);
+
+        if (invokeError) {
+            toast.error('Failed to send till report', invokeError.message);
+            return;
+        }
+
+        toast.success('Till report sent', `Sent to ${selectedAdmin.full_name || selectedAdmin.email}`);
+    };
+
+    const handlePrintTillReceipt = async () => {
+        const selectedAdmin = admins.find((admin) => admin.id === selectedAdminId);
+        const result = await printTillCountReceipt(
+            {
+                submittedBy: userRecord?.full_name || userRecord?.email || 'Admin',
+                recipientName: selectedAdmin?.full_name || selectedAdmin?.email,
+            },
+            {
+                countedAt: new Date().toISOString(),
+                expectedFromSales: cashReconciliation.expectedCashFromSales,
+                checkCount: cashReconciliation.checkCount,
+                checkTotal: cashReconciliation.checkTotal,
+                openingFloat: cashReconciliation.openingFloat,
+                manualAdjustment: cashReconciliation.manualAdjustment,
+                expectedDrawerTotal: cashReconciliation.expectedDrawerTotal,
+                countedTotal: cashReconciliation.countedTotal,
+                variance: cashReconciliation.variance,
+                denominationBreakdown: buildDenominationBreakdown(),
+            }
+        );
+
+        if (!result.success) {
+            toast.error('Failed to print till receipt', result.error || 'Please try again.');
+            return;
+        }
+
+        toast.success('Print dialog opened');
     };
 
     const buildExportFilename = (mode: 'itemized' | 'summary') => {
@@ -646,7 +866,13 @@ export function Sales() {
         <div className="animate-fadeIn">
             <Header
                 title="Sales History"
-                description={`${filteredSales.length} transaction${filteredSales.length !== 1 ? 's' : ''}${activeTab === 'refunds' ? ` | ${filteredRefunds.length} refund${filteredRefunds.length !== 1 ? 's' : ''}` : ''}`}
+                description={
+                    activeTab === 'refunds'
+                        ? `${filteredRefunds.length} refund${filteredRefunds.length !== 1 ? 's' : ''}`
+                        : activeTab === 'employeeAttribution'
+                            ? `${filteredSales.length} transaction${filteredSales.length !== 1 ? 's' : ''} in selected period`
+                            : `${filteredSales.length} transaction${filteredSales.length !== 1 ? 's' : ''}`
+                }
             />
 
             {/* Tabs */}
@@ -655,10 +881,11 @@ export function Sales() {
                     tabs={[
                         { id: 'sales', label: 'Sales', icon: <ReceiptSmallIcon /> },
                         { id: 'refunds', label: 'Refunds', icon: <RefundTabIcon /> },
+                        { id: 'employeeAttribution', label: 'By Employee', icon: <EmployeesAttributionIcon /> },
                     ]}
                     activeTab={activeTab}
-                    onChange={(id) => setActiveTab(id as 'sales' | 'refunds')}
-                    className="max-w-xs"
+                    onChange={(id) => setActiveTab(id as SalesTab)}
+                    className="max-w-md"
                 />
             </div>
 
@@ -842,6 +1069,87 @@ export function Sales() {
                             {filteredRefunds.map((refund) => (
                                 <RefundRow key={refund.id} refund={refund} />
                             ))}
+                        </div>
+                    )}
+                </>
+            )}
+
+            {/* Employee Attribution Tab Content */}
+            {activeTab === 'employeeAttribution' && (
+                <>
+                    {sales.length === 0 && !isLoading ? (
+                        <EmptyState
+                            icon={<EmployeesAttributionIcon />}
+                            title="No sales yet"
+                            description="Complete sales in the POS to view employee attribution."
+                        />
+                    ) : isLoading ? (
+                        <div className="flex justify-center py-12">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
+                        </div>
+                    ) : employeeAttribution.rows.length === 0 ? (
+                        <div className="text-center py-12 text-[var(--color-muted)]">
+                            No sales match your date filter
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <SummaryCard
+                                    label="Employees"
+                                    value={String(employeeAttribution.attributedEmployees.length)}
+                                />
+                                <SummaryCard
+                                    label="Admin Users"
+                                    value={String(employeeAttribution.attributedAdmins.length)}
+                                />
+                                <SummaryCard
+                                    label="Attributed Sales"
+                                    value={String(
+                                        employeeAttribution.rows.reduce((sum, row) => sum + row.salesCount, 0)
+                                    )}
+                                />
+                                <SummaryCard
+                                    label="Attributed Revenue"
+                                    value={formatCurrency(
+                                        employeeAttribution.rows.reduce((sum, row) => sum + row.grossSales, 0)
+                                    )}
+                                />
+                            </div>
+
+                            <div className="rounded-xl border border-[var(--color-border)] overflow-hidden bg-white">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-[var(--color-surface)]">
+                                        <tr>
+                                            <th className="text-left px-4 py-2 font-medium text-[var(--color-muted)]">Team Member</th>
+                                            <th className="text-right px-4 py-2 font-medium text-[var(--color-muted)]">Sales Count</th>
+                                            <th className="text-right px-4 py-2 font-medium text-[var(--color-muted)]">Gross Sales</th>
+                                            <th className="text-right px-4 py-2 font-medium text-[var(--color-muted)]">Avg Ticket</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {employeeAttribution.rows.map((row) => (
+                                            <tr key={row.employeeId || row.userId || 'unattributed'} className="border-t border-[var(--color-border)]">
+                                                <td className="px-4 py-3">
+                                                    <div className="inline-flex items-center gap-2">
+                                                        <span className={
+                                                        row.actorType === 'admin'
+                                                                ? 'text-[var(--color-primary)] font-medium'
+                                                                : ''
+                                                        }>
+                                                            {row.employeeName}
+                                                        </span>
+                                                        {row.actorType === 'admin' && <Badge variant="info">Admin</Badge>}
+                                                        {row.actorType === 'employee' && <Badge variant="default">Employee</Badge>}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3 text-right">{row.salesCount}</td>
+                                                <td className="px-4 py-3 text-right font-medium">{formatCurrency(row.grossSales)}</td>
+                                                <td className="px-4 py-3 text-right">{formatCurrency(row.averageTicket)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
                 </>
@@ -1262,7 +1570,7 @@ export function Sales() {
                 size="lg"
             >
                 <div className="space-y-4">
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                         <SummaryCard
                             label="Expected Cash From Sales"
                             value={formatCurrency(cashReconciliation.expectedCashFromSales)}
@@ -1275,6 +1583,14 @@ export function Sales() {
                         <SummaryCard
                             label="Cash Sales (Count)"
                             value={String(cashReconciliation.cashSalesCount)}
+                        />
+                        <SummaryCard
+                            label="Check Qty"
+                            value={String(cashReconciliation.checkCount)}
+                        />
+                        <SummaryCard
+                            label="Check Amount"
+                            value={formatCurrency(cashReconciliation.checkTotal)}
                         />
                     </div>
 
@@ -1294,6 +1610,24 @@ export function Sales() {
                             step="0.01"
                             value={manualCashAdjustmentInput}
                             onChange={(e) => setManualCashAdjustmentInput(e.target.value)}
+                            placeholder="0.00"
+                        />
+                        <Input
+                            label="Check Qty (Manual)"
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={checkCountInput}
+                            onChange={(e) => setCheckCountInput(e.target.value)}
+                            placeholder="0"
+                        />
+                        <Input
+                            label="Check Amount (Manual)"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={checkAmountInput}
+                            onChange={(e) => setCheckAmountInput(e.target.value)}
                             placeholder="0.00"
                         />
                     </div>
@@ -1357,6 +1691,37 @@ export function Sales() {
                                 {cashReconciliation.variance > 0 ? '+' : ''}
                                 {formatCurrency(cashReconciliation.variance)}
                             </span>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                        <Select
+                            label="Email Till Report To"
+                            options={[
+                                { value: '', label: admins.length > 0 ? 'Select admin' : 'No admins available' },
+                                ...admins.map((admin) => ({
+                                    value: admin.id,
+                                    label: admin.full_name?.trim() || admin.email,
+                                })),
+                            ]}
+                            value={selectedAdminId}
+                            onChange={(event) => setSelectedAdminId(event.target.value)}
+                            disabled={admins.length === 0}
+                        />
+                        <div className="flex gap-2 justify-start md:justify-end">
+                            <Button
+                                variant="secondary"
+                                onClick={handlePrintTillReceipt}
+                            >
+                                Print Till Receipt
+                            </Button>
+                            <Button
+                                onClick={handleSendTillEmail}
+                                isLoading={isSendingTillEmail}
+                                disabled={!selectedAdminId || isSendingTillEmail}
+                            >
+                                Email Till Receipt
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -1833,6 +2198,17 @@ function SearchIcon() {
         >
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.35-4.35" />
+        </svg>
+    );
+}
+
+function EmployeesAttributionIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
         </svg>
     );
 }

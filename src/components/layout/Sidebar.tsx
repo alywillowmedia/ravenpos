@@ -23,8 +23,8 @@ const navigation = [
         name: 'Inventory',
         icon: PackageIcon,
         children: [
-            { name: 'Items', href: '/admin/inventory', icon: ListIcon },
-            { name: 'Add Items', href: '/admin/add-items', icon: PlusIcon },
+            { name: 'Products', href: '/admin/inventory', icon: ListIcon },
+            { name: 'Add Products', href: '/admin/add-items', icon: PlusIcon },
             { name: 'Scan In/Out', href: '/admin/scan', icon: BarcodeIcon },
             { name: 'Import CSV', href: '/admin/import', icon: UploadIcon },
             { name: 'Integrations', href: '/admin/integrations', icon: IntegrationsIcon },

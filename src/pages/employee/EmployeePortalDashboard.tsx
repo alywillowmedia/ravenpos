@@ -8,6 +8,7 @@ import { Input, Textarea } from '../../components/ui/Input';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { Tabs } from '../../components/ui/Tabs';
 import { ProfilePhotoUpload } from '../../components/ui/ProfilePhotoUpload';
+import { EmployeeSalesSummary } from '../../components/employee/EmployeeSalesSummary';
 
 type OneTimeShift = {
     id: string;
@@ -81,7 +82,7 @@ type RequestFormState = {
     reason: string;
 };
 
-type EmployeeHubTab = 'schedule' | 'requests' | 'profile';
+type EmployeeHubTab = 'schedule' | 'sales' | 'requests' | 'profile';
 
 function toDateKey(date: Date) {
     const year = date.getFullYear();
@@ -639,6 +640,7 @@ export function EmployeePortalDashboard() {
                 <Tabs
                     tabs={[
                         { id: 'schedule', label: 'Schedule' },
+                        { id: 'sales', label: 'My Sales' },
                         { id: 'requests', label: 'Time Off Requests' },
                         { id: 'profile', label: 'Profile' },
                     ]}
@@ -888,6 +890,14 @@ export function EmployeePortalDashboard() {
                             </div>
                         </CardContent>
                     </Card>
+                )}
+
+                {activeHubTab === 'sales' && (
+                    <EmployeeSalesSummary
+                        employeeId={employeeId}
+                        employeeName={profile?.name}
+                        days={7}
+                    />
                 )}
 
                 {activeHubTab === 'profile' && (

@@ -11,6 +11,11 @@ interface DeleteConfirmationModalProps {
     targetName: string;
     itemCount?: number;
     description?: string;
+    title?: string;
+    warningIntro?: string;
+    consequences?: string[];
+    confirmActionLabel?: string;
+    confirmButtonLabel?: string;
 }
 
 export function DeleteConfirmationModal({
@@ -21,10 +26,21 @@ export function DeleteConfirmationModal({
     targetName,
     itemCount = 0,
     description,
+    title = '⚠️ Delete Vendor',
+    warningIntro,
+    consequences,
+    confirmActionLabel = 'Delete',
+    confirmButtonLabel = 'Permanently Delete',
 }: DeleteConfirmationModalProps) {
     const [confirmText, setConfirmText] = useState('');
-    const requiredText = `Delete ${targetName}`;
+    const requiredText = `${confirmActionLabel} ${targetName}`;
     const isConfirmed = confirmText.trim() === requiredText;
+    const warningLines = consequences || [
+        'Their vendor profile and account',
+        `All ${itemCount} item${itemCount !== 1 ? 's' : ''} in their inventory`,
+        'All associated transaction history',
+    ];
+    const warningHeading = warningIntro || `Deleting ${targetName}'s information will permanently remove:`;
 
     const handleConfirm = () => {
         if (isConfirmed) {
@@ -42,7 +58,7 @@ export function DeleteConfirmationModal({
         <Modal
             isOpen={isOpen}
             onClose={handleClose}
-            title="⚠️ Delete Vendor"
+            title={title}
             size="md"
         >
             <div className="space-y-4">
@@ -52,12 +68,12 @@ export function DeleteConfirmationModal({
                         WARNING: This action cannot be undone
                     </p>
                     <p className="text-sm text-[var(--color-danger)]">
-                        Deleting <strong>{targetName}</strong>'s information will permanently remove:
+                        {warningHeading}
                     </p>
                     <ul className="list-disc list-inside text-sm text-[var(--color-danger)] mt-2 space-y-1">
-                        <li>Their vendor profile and account</li>
-                        <li>All {itemCount} item{itemCount !== 1 ? 's' : ''} in their inventory</li>
-                        <li>All associated transaction history</li>
+                        {warningLines.map((line) => (
+                            <li key={line}>{line}</li>
+                        ))}
                     </ul>
                 </div>
 
@@ -70,12 +86,12 @@ export function DeleteConfirmationModal({
                 {/* Confirmation Input */}
                 <div className="space-y-2">
                     <label className="block text-sm font-medium text-[var(--color-foreground)]">
-                        To confirm, type <code className="bg-[var(--color-surface)] px-2 py-1 rounded text-xs font-mono">Delete {targetName}</code> below
+                        To confirm, type <code className="bg-[var(--color-surface)] px-2 py-1 rounded text-xs font-mono">{confirmActionLabel} {targetName}</code> below
                     </label>
                     <Input
                         value={confirmText}
                         onChange={(e) => setConfirmText(e.target.value)}
-                        placeholder={`Type "Delete ${targetName}" to confirm`}
+                        placeholder={`Type "${confirmActionLabel} ${targetName}" to confirm`}
                         type="text"
                         autoFocus
                     />
@@ -96,7 +112,7 @@ export function DeleteConfirmationModal({
                         disabled={!isConfirmed || isLoading}
                         isLoading={isLoading}
                     >
-                        Permanently Delete
+                        {confirmButtonLabel}
                     </Button>
                 </div>
             </div>

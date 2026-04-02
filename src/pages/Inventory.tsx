@@ -143,7 +143,7 @@ export function Inventory() {
             }));
 
         if (updates.length === 0) {
-            toast.error('No eligible items', 'Selected items are already assigned to that vendor.');
+            toast.error('No eligible products', 'Selected products are already assigned to that vendor.');
             return;
         }
 
@@ -159,8 +159,8 @@ export function Inventory() {
             bulkEdit.clearChanges();
             bulkEdit.deselectAll();
             toast.success(
-                'Items transferred',
-                `${updates.length} item${updates.length === 1 ? '' : 's'} moved to ${targetLabel}.`
+                'Products transferred',
+                `${updates.length} product${updates.length === 1 ? '' : 's'} moved to ${targetLabel}.`
             );
         } else {
             toast.error('Some transfers failed', result.errors.slice(0, 2).join(' • '));
@@ -183,7 +183,7 @@ export function Inventory() {
             bulkEdit.clearChanges();
             bulkEdit.deselectAll();
             bulkEdit.toggleBulkEditMode();
-            toast.success('Bulk changes saved', `${updates.length} item update${updates.length === 1 ? '' : 's'} applied.`);
+            toast.success('Bulk changes saved', `${updates.length} product update${updates.length === 1 ? '' : 's'} applied.`);
         } else {
             console.error('Bulk update errors:', result.errors);
             toast.error('Some updates failed', result.errors.slice(0, 2).join(' • '));
@@ -268,7 +268,7 @@ export function Inventory() {
             },
             {
                 key: 'name',
-                header: 'Item',
+                header: 'Product',
                 minWidth: '220px',
                 sortable: true,
                 render: (item) => (
@@ -328,7 +328,7 @@ export function Inventory() {
             },
             {
                 key: 'quantity',
-                header: 'Qty',
+                header: 'Units',
                 width: '72px',
                 minWidth: '72px',
                 sortable: true,
@@ -385,7 +385,7 @@ export function Inventory() {
         <div className="animate-fadeIn">
             <Header
                 title="Inventory"
-                description={`${filteredItems.length} items in stock`}
+                description={`${filteredItems.length} products in stock`}
                 actions={
                     <div className="flex items-center gap-3">
                         {!bulkEdit.isActive ? (
@@ -403,7 +403,7 @@ export function Inventory() {
                                 </Button>
                                 <Button onClick={() => navigate('/admin/add-items')}>
                                     <PlusIcon />
-                                    Add Items
+                                    Add Products
                                 </Button>
                             </>
                         ) : (
@@ -460,11 +460,11 @@ export function Inventory() {
                 <EmptyState
                     icon={<PackageIcon />}
                     title="No inventory yet"
-                    description="Add items to your inventory to get started."
+                    description="Add products to your inventory to get started."
                     action={
                         <Button onClick={() => navigate('/admin/add-items')}>
                             <PlusIcon />
-                            Add Items
+                            Add Products
                         </Button>
                     }
                 />
@@ -477,7 +477,7 @@ export function Inventory() {
                     searchPlaceholder="Search by name, SKU, or category..."
                     searchKeys={['name', 'sku', 'category', 'variant']}
                     isLoading={isLoading}
-                    emptyMessage="No items match your filters"
+                    emptyMessage="No products match your filters"
                 />
             )}
 
@@ -536,12 +536,12 @@ export function Inventory() {
                     setShowTransferModal(false);
                     setTransferTargetConsignor('');
                 }}
-                title={`Transfer ${selectedItems.length} Item${selectedItems.length === 1 ? '' : 's'}`}
+                title={`Transfer ${selectedItems.length} Product${selectedItems.length === 1 ? '' : 's'}`}
                 size="sm"
             >
                 <div className="space-y-4">
                     <p className="text-sm text-[var(--color-muted)]">
-                        Move selected items to a different vendor.
+                        Move selected products to a different vendor.
                     </p>
                     <Select
                         label="Destination Vendor"
@@ -571,7 +571,7 @@ export function Inventory() {
                         isLoading={isTransferring}
                         disabled={!transferTargetConsignor}
                     >
-                        Transfer Items
+                        Transfer Products
                     </Button>
                 </ModalFooter>
             </Modal>
@@ -580,7 +580,7 @@ export function Inventory() {
             <Modal
                 isOpen={!!editItem}
                 onClose={closeEditItemModal}
-                title="Edit Item"
+                title="Edit Product"
                 size="4xl"
                 closeOnOverlayClick={false}
                 closeOnEscape={false}
@@ -603,7 +603,7 @@ export function Inventory() {
             <Modal
                 isOpen={!!deleteTarget}
                 onClose={() => setDeleteTarget(null)}
-                title="Delete Item"
+                title="Delete Product"
                 size="sm"
             >
                 <p className="text-sm text-[var(--color-muted)]">
