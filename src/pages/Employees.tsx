@@ -20,6 +20,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../lib/utils';
 import { formatDecimalHours } from '../lib/timeCalculations';
 import { supabase } from '../lib/supabase';
+import { Lock, Mail, UserRound, UserRoundPlus } from 'lucide-react';
 import type { Employee, EmployeeWithStats, TimeEntry, EmployeeInput } from '../types/employee';
 
 type ScheduleWeekOffset = 0 | 1;
@@ -265,17 +266,20 @@ export function Employees() {
                             {showSensitiveNumbers ? 'Hide Numbers' : 'Unhide Numbers'}
                         </Button>
                         <Button variant="secondary" onClick={() => setShowAuthModal(true)}>
-                            🔒 Authorize Device
+                            <Lock size={16} />
+                            Authorize Device
                         </Button>
                         <Button
                             variant="secondary"
                             onClick={handleOpenScheduleEmailModal}
                             isLoading={isSendingSchedules}
                         >
-                            ✉️ Send Schedule Emails
+                            <Mail size={16} />
+                            Send Schedule Emails
                         </Button>
                         <Button onClick={() => setShowAddModal(true)}>
-                            + Add Employee
+                            <UserRoundPlus size={16} />
+                            Add Employee
                         </Button>
                     </div>
                 }
@@ -303,13 +307,16 @@ export function Employees() {
             ) : employees.length === 0 ? (
                 <Card variant="outlined">
                     <CardContent className="py-12 text-center">
-                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>👤</div>
+                        <div className="mb-4 flex justify-center text-[var(--color-muted)]">
+                            <UserRound size={44} />
+                        </div>
                         <h3 className="text-lg font-medium mb-2">No Employees Yet</h3>
                         <p className="text-[var(--color-muted)] mb-4">
                             Add your first employee to enable PIN-based clock-in
                         </p>
                         <Button onClick={() => setShowAddModal(true)}>
-                            + Add Employee
+                            <UserRoundPlus size={16} />
+                            Add Employee
                         </Button>
                     </CardContent>
                 </Card>
@@ -336,11 +343,17 @@ export function Employees() {
                                         <td className="px-4 py-3">
                                             {emp.clockStatus === 'clocked_in' ? (
                                                 <Badge variant="success">
-                                                    🟢 Clocked In
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        <span className="h-2 w-2 rounded-full bg-current" />
+                                                        Clocked In
+                                                    </span>
                                                 </Badge>
                                             ) : (
                                                 <Badge variant="secondary">
-                                                    ⚪ Clocked Out
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        <span className="h-2 w-2 rounded-full border border-current" />
+                                                        Clocked Out
+                                                    </span>
                                                 </Badge>
                                             )}
                                         </td>
@@ -456,9 +469,19 @@ export function Employees() {
                         <div className="flex items-center gap-3">
                             <span className="text-sm text-[var(--color-muted)]">Current Status:</span>
                             {viewingEmployee.clockStatus === 'clocked_in' ? (
-                                <Badge variant="success">🟢 Clocked In</Badge>
+                                <Badge variant="success">
+                                    <span className="inline-flex items-center gap-1.5">
+                                        <span className="h-2 w-2 rounded-full bg-current" />
+                                        Clocked In
+                                    </span>
+                                </Badge>
                             ) : (
-                                <Badge variant="secondary">⚪ Clocked Out</Badge>
+                                <Badge variant="secondary">
+                                    <span className="inline-flex items-center gap-1.5">
+                                        <span className="h-2 w-2 rounded-full border border-current" />
+                                        Clocked Out
+                                    </span>
+                                </Badge>
                             )}
                             {!viewingEmployee.is_active && (
                                 <Badge variant="warning">Account Inactive</Badge>
@@ -506,7 +529,7 @@ export function Employees() {
                 isLoading={isDeletingEmployee}
                 targetName={deleteTarget?.name || ''}
                 itemCount={timeEntryCount}
-                title="⚠️ Delete Employee"
+                title="Delete Employee"
                 warningIntro={`Deleting ${deleteTarget?.name || 'this employee'} will permanently remove:`}
                 consequences={[
                     'Their employee profile and PIN access',

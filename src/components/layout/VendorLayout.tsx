@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { NavLink, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
+import { getCachedAvatarUrl } from '../../lib/avatar';
 import { PortalTopBar } from './PortalTopBar';
 import { useMessaging } from '../../hooks/useMessaging';
 
@@ -27,6 +28,8 @@ export function VendorLayout() {
     const location = useLocation();
     const { userRecord, portalChoices, setActivePortal, signOut } = useAuth();
     const messaging = useMessaging({ portalBasePath: '/vendor' });
+    const profileName = userRecord?.full_name || userRecord?.email || 'Vendor';
+    const profileAvatarUrl = getCachedAvatarUrl(userRecord?.profile_image_url, { size: 96, quality: 70 });
 
     useEffect(() => {
         localStorage.setItem('sidebar-collapsed-vendor', isCollapsed.toString());
@@ -101,10 +104,27 @@ export function VendorLayout() {
                 {/* User Info */}
                 {!isCollapsed && (
                     <div className="px-4 py-4 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-                        <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Vendor Portal</p>
-                        <p className="font-medium text-[var(--color-foreground)] truncate">
-                            {userRecord?.email}
-                        </p>
+                        <div className="flex items-center gap-2.5">
+                            {profileAvatarUrl ? (
+                                <img
+                                    src={profileAvatarUrl}
+                                    alt={profileName}
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="h-9 w-9 shrink-0 rounded-full border border-[var(--color-border)] object-cover"
+                                />
+                            ) : (
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-xs font-semibold text-white">
+                                    {getInitials(profileName)}
+                                </div>
+                            )}
+                            <div className="min-w-0">
+                                <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Vendor Portal</p>
+                                <p className="font-medium text-[var(--color-foreground)] truncate">
+                                    {userRecord?.full_name || userRecord?.email}
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 )}
 
@@ -181,6 +201,13 @@ export function VendorLayout() {
             </main>
         </div>
     );
+}
+
+function getInitials(value: string) {
+    const words = value.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return 'U';
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return `${words[0][0] || ''}${words[1][0] || ''}`.toUpperCase();
 }
 
 // Icons

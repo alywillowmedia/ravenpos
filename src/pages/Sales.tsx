@@ -23,6 +23,7 @@ import type { Customer, CustomerInput } from '../types';
 
 type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
 type SalesTab = 'sales' | 'refunds' | 'employeeAttribution';
+const SALES_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
 const CASH_DENOMINATIONS = [
     { key: '100', label: '$100', value: 100 },
@@ -88,12 +89,13 @@ function parseLocalDateInput(value: string, endOfDay = false): Date {
 export function Sales() {
     const { userRecord } = useAuth();
     const toast = useToast();
-    const { sales, isLoading, calculateSalesSummary, refetch } = useSalesHistory();
     const { refunds, isLoading: isLoadingRefunds } = useRefundHistory();
     const { consignors } = useConsignors();
     const { searchCustomers, createCustomer } = useCustomers();
 
     const [activeTab, setActiveTab] = useState<SalesTab>('sales');
+    const [salesPage, setSalesPage] = useState(1);
+    const [salesPageSize, setSalesPageSize] = useState<number>(50);
     const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
     const [selectedSale, setSelectedSale] = useState<SaleWithItems | null>(null);
     const [filterConsignor, setFilterConsignor] = useState('');
@@ -189,6 +191,17 @@ export function Sales() {
         }
     }, [filterDatePreset, customDateFrom, customDateTo]);
 
+    const dateStartIso = dateRange.start ? dateRange.start.toISOString() : null;
+    const dateEndIso = dateRange.end ? dateRange.end.toISOString() : null;
+
+    const { sales, totalCount: filteredSalesTotalCount, isLoading, calculateSalesSummary, refetch } = useSalesHistory({
+        page: salesPage,
+        pageSize: salesPageSize,
+        dateStart: dateStartIso,
+        dateEnd: dateEndIso,
+        consignorId: filterConsignor || undefined,
+    });
+
     const matchesDateRange = (dateValue: string) => {
         const targetDate = new Date(dateValue);
         if (dateRange.start && targetDate < dateRange.start) return false;
@@ -196,28 +209,27 @@ export function Sales() {
         return true;
     };
 
-    // Filter sales
-    const filteredSales = useMemo(() => {
-        let result = sales;
-
-        // Filter by consignor
-        if (filterConsignor) {
-            result = result.filter((sale) =>
-                sale.items.some((item) => item.consignor_id === filterConsignor)
-            );
-        }
-
-        if (dateRange.start || dateRange.end) {
-            result = result.filter((sale) => matchesDateRange(sale.completed_at));
-        }
-
-        return result;
-    }, [sales, filterConsignor, dateRange.start, dateRange.end]);
+    const filteredSales = sales;
 
     const filteredRefunds = useMemo(
         () => refunds.filter((refund) => matchesDateRange(refund.created_at)),
         [refunds, dateRange.start, dateRange.end]
     );
+
+    const salesTotalPages = useMemo(
+        () => Math.max(1, Math.ceil(filteredSalesTotalCount / salesPageSize)),
+        [filteredSalesTotalCount, salesPageSize]
+    );
+
+    useEffect(() => {
+        if (activeTab !== 'sales') return;
+        setSalesPage(1);
+        setExpandedSaleId(null);
+    }, [activeTab, filterConsignor, filterDatePreset, customDateFrom, customDateTo]);
+
+    useEffect(() => {
+        setSalesPage((prev) => Math.min(prev, salesTotalPages));
+    }, [salesTotalPages]);
 
     const cashReconciliation = useMemo(() => {
         const cashSales = filteredSales.filter((sale) => sale.payment_method === 'cash');
@@ -870,8 +882,8 @@ export function Sales() {
                     activeTab === 'refunds'
                         ? `${filteredRefunds.length} refund${filteredRefunds.length !== 1 ? 's' : ''}`
                         : activeTab === 'employeeAttribution'
-                            ? `${filteredSales.length} transaction${filteredSales.length !== 1 ? 's' : ''} in selected period`
-                            : `${filteredSales.length} transaction${filteredSales.length !== 1 ? 's' : ''}`
+                            ? `${filteredSalesTotalCount} transaction${filteredSalesTotalCount !== 1 ? 's' : ''} in selected period`
+                            : `${filteredSalesTotalCount} transaction${filteredSalesTotalCount !== 1 ? 's' : ''}`
                 }
             />
 
@@ -970,7 +982,7 @@ export function Sales() {
                         variant="secondary"
                         size="sm"
                         onClick={() => setShowExportModal(true)}
-                        disabled={isLoading || filteredSales.length === 0}
+                        disabled={isLoading || filteredSalesTotalCount === 0}
                     >
                         Export CSV
                     </Button>
@@ -1046,6 +1058,60 @@ export function Sales() {
                                     />
                                 ))}
                             </div>
+                            {filteredSalesTotalCount > 0 && (
+                                <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                    <div className="text-xs text-[var(--color-muted)]">
+                                        Showing {(salesPage - 1) * salesPageSize + 1}-{Math.min(salesPage * salesPageSize, filteredSalesTotalCount)} of {filteredSalesTotalCount}
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <label className="text-xs text-[var(--color-muted)] flex items-center gap-2">
+                                            Rows
+                                            <select
+                                                value={salesPageSize}
+                                                onChange={(e) => {
+                                                    setSalesPageSize(Number(e.target.value));
+                                                    setSalesPage(1);
+                                                    setExpandedSaleId(null);
+                                                }}
+                                                className="px-2 py-1 rounded border border-[var(--color-border)] bg-white text-xs"
+                                            >
+                                                {SALES_PAGE_SIZE_OPTIONS.map((size) => (
+                                                    <option key={size} value={size}>
+                                                        {size}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                variant="secondary"
+                                                size="sm"
+                                                onClick={() => {
+                                                    setSalesPage((prev) => Math.max(1, prev - 1));
+                                                    setExpandedSaleId(null);
+                                                }}
+                                                disabled={salesPage === 1}
+                                            >
+                                                Previous
+                                            </Button>
+                                            <span className="text-xs text-[var(--color-muted)] min-w-[80px] text-center">
+                                                Page {salesPage} of {salesTotalPages}
+                                            </span>
+                                            <Button
+                                                variant="secondary"
+                                                size="sm"
+                                                onClick={() => {
+                                                    setSalesPage((prev) => Math.min(salesTotalPages, prev + 1));
+                                                    setExpandedSaleId(null);
+                                                }}
+                                                disabled={salesPage === salesTotalPages}
+                                            >
+                                                Next
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </>

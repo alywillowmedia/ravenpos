@@ -1,8 +1,9 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Table, type Column } from '../components/ui/Table';
+import { Input } from '../components/ui/Input';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Select';
@@ -31,7 +32,22 @@ function formatAddedDate(value: string): string {
 
 export function Inventory() {
     const navigate = useNavigate();
-    const { items, isLoading, updateItem, updateItems, deleteItem } = useInventory();
+    const [inventoryPage, setInventoryPage] = useState(1);
+    const [inventoryPageSize, setInventoryPageSize] = useState(50);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+    const [filterConsignor, setFilterConsignor] = useState('');
+    const [filterCategory, setFilterCategory] = useState('');
+
+    const { items, totalCount, isLoading, updateItem, updateItems, deleteItem } = useInventory({
+        paginated: true,
+        page: inventoryPage,
+        pageSize: inventoryPageSize,
+        searchQuery: debouncedSearchQuery,
+        consignorId: filterConsignor || undefined,
+        category: filterCategory || undefined,
+    });
+
     const toast = useToast();
     const { consignors } = useConsignors();
     const { getCategoryNames } = useCategories();
@@ -40,8 +56,6 @@ export function Inventory() {
     const [isEditItemDirty, setIsEditItemDirty] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Item | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
-    const [filterConsignor, setFilterConsignor] = useState('');
-    const [filterCategory, setFilterCategory] = useState('');
 
     // Bulk edit state
     const bulkEdit = useBulkEdit();
@@ -52,6 +66,17 @@ export function Inventory() {
     const [showTransferModal, setShowTransferModal] = useState(false);
     const [transferTargetConsignor, setTransferTargetConsignor] = useState('');
     const [isTransferring, setIsTransferring] = useState(false);
+
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            setDebouncedSearchQuery(searchQuery);
+        }, 250);
+        return () => clearTimeout(timeout);
+    }, [searchQuery]);
+
+    useEffect(() => {
+        setInventoryPage(1);
+    }, [debouncedSearchQuery, filterConsignor, filterCategory, inventoryPageSize]);
 
     const handleUpdate = async (data: Partial<Item>) => {
         if (!editItem) return { error: 'No item' };
@@ -84,15 +109,7 @@ export function Inventory() {
         setDeleteTarget(null);
     };
 
-    // Filter items
-    const filteredItems = useMemo(() =>
-        items.filter((item) => {
-            if (filterConsignor && item.consignor_id !== filterConsignor) return false;
-            if (filterCategory && item.category !== filterCategory) return false;
-            return true;
-        }),
-        [items, filterConsignor, filterCategory]
-    );
+    const filteredItems = items;
 
     // Get selected items for bulk edit
     const selectedItems = useMemo(() =>
@@ -113,6 +130,7 @@ export function Inventory() {
         () => filteredItems.map((item) => item.id),
         [filteredItems]
     );
+    const totalPages = Math.max(1, Math.ceil(totalCount / inventoryPageSize));
 
     // Bulk edit handlers
     const handleSelectAll = useCallback(() => {
@@ -385,7 +403,7 @@ export function Inventory() {
         <div className="animate-fadeIn">
             <Header
                 title="Inventory"
-                description={`${filteredItems.length} products in stock`}
+                description={`${totalCount} products in stock`}
                 actions={
                     <div className="flex items-center gap-3">
                         {!bulkEdit.isActive ? (
@@ -417,6 +435,15 @@ export function Inventory() {
 
             {/* Filters */}
             <div className="flex flex-wrap gap-4 mb-6">
+                <div className="min-w-[260px] flex-1 max-w-xl">
+                    <Input
+                        type="search"
+                        placeholder="Search by name, SKU, category, or variant..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        inputSize="sm"
+                    />
+                </div>
                 <div className="w-48">
                     <Select
                         options={consignorOptions}
@@ -433,13 +460,16 @@ export function Inventory() {
                         selectSize="sm"
                     />
                 </div>
-                {(filterConsignor || filterCategory) && (
+                {(filterConsignor || filterCategory || searchQuery) && (
                     <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => {
                             setFilterConsignor('');
                             setFilterCategory('');
+                            setSearchQuery('');
+                            setDebouncedSearchQuery('');
+                            setInventoryPage(1);
                         }}
                     >
                         Clear Filters
@@ -473,12 +503,54 @@ export function Inventory() {
                     data={filteredItems}
                     columns={columns}
                     keyExtractor={(item) => item.id}
-                    searchable
-                    searchPlaceholder="Search by name, SKU, or category..."
-                    searchKeys={['name', 'sku', 'category', 'variant']}
                     isLoading={isLoading}
                     emptyMessage="No products match your filters"
                 />
+            )}
+
+            {!isSpreadsheetOpen && totalCount > 0 && (
+                <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="text-xs text-[var(--color-muted)]">
+                        Showing {(inventoryPage - 1) * inventoryPageSize + 1}-{Math.min(inventoryPage * inventoryPageSize, totalCount)} of {totalCount}
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <label className="text-xs text-[var(--color-muted)] flex items-center gap-2">
+                            Rows
+                            <select
+                                value={inventoryPageSize}
+                                onChange={(e) => setInventoryPageSize(Number(e.target.value))}
+                                className="px-2 py-1 rounded border border-[var(--color-border)] bg-white text-xs"
+                            >
+                                {[25, 50, 100, 200].map((size) => (
+                                    <option key={size} value={size}>
+                                        {size}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setInventoryPage((prev) => Math.max(1, prev - 1))}
+                                disabled={inventoryPage === 1}
+                            >
+                                Previous
+                            </Button>
+                            <span className="text-xs text-[var(--color-muted)] min-w-[100px] text-center">
+                                Page {inventoryPage} of {totalPages}
+                            </span>
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setInventoryPage((prev) => Math.min(totalPages, prev + 1))}
+                                disabled={inventoryPage === totalPages}
+                            >
+                                Next
+                            </Button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Bulk edit toolbar */}

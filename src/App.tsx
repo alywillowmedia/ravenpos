@@ -55,6 +55,7 @@ import { EmployeeSchedule as EmployeeSelfSchedule } from './pages/employee/Emplo
 import { EmployeeSales } from './pages/employee/EmployeeSales';
 import { EmployeePortalDashboard } from './pages/employee/EmployeePortalDashboard';
 import { EmployeeTillCount } from './pages/employee/EmployeeTillCount';
+import { EmployeePinProfile } from './pages/employee/EmployeePinProfile';
 
 // Public Pages
 import { BrowsePage } from './pages/public/BrowsePage';
@@ -103,6 +104,7 @@ export default function App() {
                         <Route path="customers" element={<Customers />} />
                         <Route path="labels" element={<Labels />} />
                         <Route path="messages" element={<Messages />} />
+                        <Route path="profile" element={<EmployeePinProfile />} />
                     </Route>
 
                     {/* Employee Portal Routes - email/password auth */}

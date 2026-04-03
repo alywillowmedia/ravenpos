@@ -56,12 +56,14 @@ export interface ChatParticipantOption {
 
 export interface ChatMessageView extends ChatMessage {
     senderLabel: string;
+    senderAvatarUrl: string | null;
     isOwn: boolean;
 }
 
 export interface ChatThreadSummary {
     thread: ChatThread;
     title: string;
+    avatarUrl: string | null;
     unreadCount: number;
     lastMessagePreview: string;
     lastMessageAt: string | null;

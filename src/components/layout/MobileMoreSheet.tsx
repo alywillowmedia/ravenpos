@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { cn } from '../../lib/utils';
+import { Circle, CircleDot } from 'lucide-react';
 
 interface MobileMoreSheetProps {
     isOpen: boolean;
@@ -41,6 +42,7 @@ const employeeMoreItems: MoreNavItem[] = [
     { name: 'Till Count', href: '/employee/till-count', icon: CashIcon },
     { name: 'Labels', href: '/employee/labels', icon: TagIcon },
     { name: 'Messages', href: '/employee/messages', icon: MessageIcon },
+    { name: 'Profile', href: '/employee/profile', icon: ProfileIcon },
 ];
 
 export function MobileMoreSheet({ isOpen, onClose, variant }: MobileMoreSheetProps) {
@@ -109,7 +111,10 @@ export function MobileMoreSheet({ isOpen, onClose, variant }: MobileMoreSheetPro
                     </h2>
                     {variant === 'employee' && clockStatus && (
                         <p className="text-sm text-[var(--color-muted)] mt-1">
-                            {clockStatus.isClockedIn ? '🟢 Clocked In' : '⚪ Clocked Out'}
+                            <span className="inline-flex items-center gap-1.5">
+                                {clockStatus.isClockedIn ? <CircleDot size={14} /> : <Circle size={14} />}
+                                {clockStatus.isClockedIn ? 'Clocked In' : 'Clocked Out'}
+                            </span>
                             {clockStatus.isClockedIn && clockStatus.startTime && (
                                 <span className="ml-2">
                                     since {new Date(clockStatus.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

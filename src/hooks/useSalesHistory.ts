@@ -13,34 +13,93 @@ export interface SalesSummary {
     storeShare: number;
 }
 
-export function useSalesHistory() {
+interface UseSalesHistoryOptions {
+    page?: number;
+    pageSize?: number;
+    dateStart?: string | null;
+    dateEnd?: string | null;
+    consignorId?: string;
+}
+
+export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
+    const {
+        page = 1,
+        pageSize = 50,
+        dateStart = null,
+        dateEnd = null,
+        consignorId = '',
+    } = options;
+
     const [sales, setSales] = useState<SaleWithItems[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [totalCount, setTotalCount] = useState(0);
 
     const fetchSales = useCallback(async () => {
         try {
             setIsLoading(true);
             setError(null);
 
-            // Fetch all sales with customer data, ordered by date descending
-            const { data: salesData, error: salesError } = await supabase
+            // Fetch one page of sales with customer data, ordered by date descending
+            let salesQuery = supabase
                 .from('sales')
-                .select(`
-                    *,
-                    customer:customers(*)
-                `)
-                .order('completed_at', { ascending: false });
+                .select('*,customer:customers(*)', { count: 'exact' })
+                .order('completed_at', { ascending: false })
+                .order('id', { ascending: false });
+
+            if (dateStart) {
+                salesQuery = salesQuery.gte('completed_at', dateStart);
+            }
+
+            if (dateEnd) {
+                salesQuery = salesQuery.lte('completed_at', dateEnd);
+            }
+
+            if (consignorId) {
+                const { data: saleIdRows, error: saleIdError } = await supabase
+                    .from('sale_items')
+                    .select('sale_id')
+                    .eq('consignor_id', consignorId);
+
+                if (saleIdError) throw saleIdError;
+
+                const saleIdsForConsignor = Array.from(
+                    new Set((saleIdRows || []).map((row) => row.sale_id).filter(Boolean))
+                );
+
+                if (saleIdsForConsignor.length === 0) {
+                    setSales([]);
+                    setTotalCount(0);
+                    return;
+                }
+
+                salesQuery = salesQuery.in('id', saleIdsForConsignor);
+            }
+
+            const from = (page - 1) * pageSize;
+            const to = from + pageSize - 1;
+
+            const { data: salesData, error: salesError, count } = await salesQuery.range(from, to);
 
             if (salesError) throw salesError;
+            setTotalCount(count || 0);
 
-            // Fetch all sale items with consignor data
+            const salesRows = (salesData || []) as (Sale & { customer?: Customer })[];
+            const saleIds = salesRows.map((sale) => sale.id);
+
+            if (saleIds.length === 0) {
+                setSales([]);
+                return;
+            }
+
+            // Fetch sale items only for the current page sales
             const { data: itemsData, error: itemsError } = await supabase
                 .from('sale_items')
                 .select(`
                     *,
                     consignor:consignors(*)
-                `);
+                `)
+                .in('sale_id', saleIds);
 
             if (itemsError) throw itemsError;
 
@@ -54,7 +113,7 @@ export function useSalesHistory() {
             }
 
             // Combine sales with their items and customer
-            const salesWithItems: SaleWithItems[] = (salesData || []).map((sale) => ({
+            const salesWithItems: SaleWithItems[] = salesRows.map((sale) => ({
                 ...sale,
                 items: itemsBySale[sale.id] || [],
                 customer: sale.customer || undefined,
@@ -67,7 +126,7 @@ export function useSalesHistory() {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [consignorId, dateEnd, dateStart, page, pageSize]);
 
     useEffect(() => {
         fetchSales();
@@ -130,6 +189,7 @@ export function useSalesHistory() {
 
     return {
         sales,
+        totalCount,
         isLoading,
         error,
         refetch: fetchSales,

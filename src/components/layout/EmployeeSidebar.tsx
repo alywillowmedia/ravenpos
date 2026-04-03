@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useEmployee } from '../../contexts/EmployeeContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { ClockStatusWidget } from '../employee/ClockStatusWidget';
 import { cn } from '../../lib/utils';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
+import { supabase } from '../../lib/supabase';
+import { getCachedAvatarUrl } from '../../lib/avatar';
 
 // Icons need to be defined or imported. 
 // Since we want to be strict about not modifying un-related files, 
@@ -54,6 +57,15 @@ function MessageIcon() {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M7 10h10M7 14h6" />
             <path d="M21 12a8 8 0 0 1-8 8H4l-1 1v-9a8 8 0 1 1 18 0Z" />
+        </svg>
+    );
+}
+
+function UserIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="8" r="5" />
+            <path d="M20 21a8 8 0 1 0-16 0" />
         </svg>
     );
 }
@@ -119,6 +131,7 @@ const navigation = [
     { name: 'Customers', href: '/employee/customers', icon: CustomersIcon },
     { name: 'Labels', href: '/employee/labels', icon: TagIcon },
     { name: 'Messages', href: '/employee/messages', icon: MessageIcon },
+    { name: 'Profile', href: '/employee/profile', icon: UserIcon },
 ];
 
 export function EmployeeSidebar() {
@@ -131,6 +144,31 @@ export function EmployeeSidebar() {
     const location = useLocation();
     const navigate = useNavigate();
     const { employee, logout, clockStatus } = useEmployee();
+    const { userRecord } = useAuth();
+    const [employeeProfileUrl, setEmployeeProfileUrl] = useState<string | null>(null);
+    const profileName = employee?.name || userRecord?.full_name || 'Employee';
+    const profileAvatarUrl = getCachedAvatarUrl(userRecord?.profile_image_url || employeeProfileUrl, { size: 96, quality: 70 });
+
+    useEffect(() => {
+        const loadEmployeeProfileImage = async () => {
+            if (!employee?.id || userRecord?.profile_image_url) {
+                setEmployeeProfileUrl(null);
+                return;
+            }
+
+            const { data } = await supabase
+                .from('users')
+                .select('profile_image_url')
+                .or(`employee_id.eq.${employee.id},linked_employee_id.eq.${employee.id}`)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            setEmployeeProfileUrl((data as { profile_image_url?: string | null } | null)?.profile_image_url ?? null);
+        };
+
+        void loadEmployeeProfileImage();
+    }, [employee?.id, userRecord?.profile_image_url]);
 
     useEffect(() => {
         localStorage.setItem('sidebar-collapsed-employee', isCollapsed.toString());
@@ -211,10 +249,27 @@ export function EmployeeSidebar() {
                 {/* User Info */}
                 {!isCollapsed && (
                     <div className="px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-                        <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Employee</p>
-                        <p className="text-sm font-medium text-[var(--color-foreground)] truncate">
-                            {employee?.name}
-                        </p>
+                        <div className="flex items-center gap-2.5">
+                            {profileAvatarUrl ? (
+                                <img
+                                    src={profileAvatarUrl}
+                                    alt={profileName}
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="h-9 w-9 shrink-0 rounded-full border border-[var(--color-border)] object-cover"
+                                />
+                            ) : (
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-xs font-semibold text-white">
+                                    {getInitials(profileName)}
+                                </div>
+                            )}
+                            <div className="min-w-0">
+                                <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Employee</p>
+                                <p className="text-sm font-medium text-[var(--color-foreground)] truncate">
+                                    {employee?.name}
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 )}
 
@@ -290,4 +345,11 @@ export function EmployeeSidebar() {
             </Modal>
         </>
     );
+}
+
+function getInitials(value: string) {
+    const words = value.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return 'U';
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return `${words[0][0] || ''}${words[1][0] || ''}`.toUpperCase();
 }

@@ -19,6 +19,7 @@ type UserRow = {
     id: string;
     email: string;
     full_name: string | null;
+    profile_image_url: string | null;
     role: 'admin' | 'vendor';
     consignor_id: string | null;
 };
@@ -26,6 +27,12 @@ type UserRow = {
 type EmployeeRow = {
     id: string;
     name: string;
+};
+
+type EmployeeUserAvatarRow = {
+    employee_id: string | null;
+    linked_employee_id: string | null;
+    profile_image_url: string | null;
 };
 
 type ConsignorRow = {
@@ -37,6 +44,7 @@ type AdminContactRow = {
     id: string;
     email: string;
     full_name: string | null;
+    profile_image_url: string | null;
 };
 
 interface UseMessagingOptions {
@@ -132,7 +140,7 @@ export function useMessaging({ portalBasePath }: UseMessagingOptions) {
         }));
     }, []);
 
-    const resolveUserLabels = useCallback(async (users: UserRow[]) => {
+    const resolveUserDirectory = useCallback(async (users: UserRow[]) => {
         const consignorIds = Array.from(new Set(users.map((user) => user.consignor_id).filter((id): id is string => Boolean(id))));
 
         const consignorNameMap = new Map<string, string>();
@@ -148,6 +156,7 @@ export function useMessaging({ portalBasePath }: UseMessagingOptions) {
         }
 
         const userLabelMap = new Map<string, string>();
+        const userAvatarMap = new Map<string, string | null>();
         users.forEach((user) => {
             if (user.role === 'admin') {
                 userLabelMap.set(user.id, user.full_name?.trim() || user.email || 'Admin');
@@ -155,9 +164,10 @@ export function useMessaging({ portalBasePath }: UseMessagingOptions) {
                 const consignorName = user.consignor_id ? consignorNameMap.get(user.consignor_id) : null;
                 userLabelMap.set(user.id, consignorName || user.full_name?.trim() || user.email || 'Consignor');
             }
+            userAvatarMap.set(user.id, user.profile_image_url ?? null);
         });
 
-        return userLabelMap;
+        return { userLabelMap, userAvatarMap };
     }, []);
 
     const loadAdminContacts = useCallback(async (): Promise<AdminContactRow[]> => {
@@ -187,38 +197,60 @@ export function useMessaging({ portalBasePath }: UseMessagingOptions) {
         });
 
         const userLabelMap = new Map<string, string>();
+        const userAvatarMap = new Map<string, string | null>();
         if (userIds.size > 0) {
             const [{ data: users }, adminContacts] = await Promise.all([
                 supabase
                     .from('users')
-                    .select('id, email, full_name, role, consignor_id')
+                    .select('id, email, full_name, profile_image_url, role, consignor_id')
                     .in('id', Array.from(userIds)),
                 loadAdminContacts(),
             ]);
 
-            const labels = await resolveUserLabels((users ?? []) as UserRow[]);
-            labels.forEach((value, key) => userLabelMap.set(key, value));
+            const directory = await resolveUserDirectory((users ?? []) as UserRow[]);
+            directory.userLabelMap.forEach((value, key) => userLabelMap.set(key, value));
+            directory.userAvatarMap.forEach((value, key) => userAvatarMap.set(key, value));
 
             adminContacts.forEach((admin) => {
                 if (!userIds.has(admin.id)) return;
                 userLabelMap.set(admin.id, admin.full_name?.trim() || admin.email || 'Admin');
+                userAvatarMap.set(admin.id, admin.profile_image_url ?? null);
             });
         }
 
         const employeeLabelMap = new Map<string, string>();
+        const employeeAvatarMap = new Map<string, string | null>();
         if (employeeIds.size > 0) {
-            const { data: employeesData } = await supabase
-                .from('employees')
-                .select('id, name')
-                .in('id', Array.from(employeeIds));
+            const employeeIdList = Array.from(employeeIds);
+            const employeeIdCsv = employeeIdList.join(',');
+
+            const [{ data: employeesData }, { data: employeeUsers }] = await Promise.all([
+                supabase
+                    .from('employees')
+                    .select('id, name')
+                    .in('id', employeeIdList),
+                supabase
+                    .from('users')
+                    .select('employee_id, linked_employee_id, profile_image_url')
+                    .or(`employee_id.in.(${employeeIdCsv}),linked_employee_id.in.(${employeeIdCsv})`),
+            ]);
 
             ((employeesData ?? []) as EmployeeRow[]).forEach((employeeRow) => {
                 employeeLabelMap.set(employeeRow.id, employeeRow.name);
             });
+
+            ((employeeUsers ?? []) as EmployeeUserAvatarRow[]).forEach((row) => {
+                if (row.employee_id && employeeIds.has(row.employee_id)) {
+                    employeeAvatarMap.set(row.employee_id, row.profile_image_url ?? null);
+                }
+                if (row.linked_employee_id && employeeIds.has(row.linked_employee_id)) {
+                    employeeAvatarMap.set(row.linked_employee_id, row.profile_image_url ?? null);
+                }
+            });
         }
 
-        return { userLabelMap, employeeLabelMap };
-    }, [loadAdminContacts, resolveUserLabels]);
+        return { userLabelMap, userAvatarMap, employeeLabelMap, employeeAvatarMap };
+    }, [loadAdminContacts, resolveUserDirectory]);
 
     const loadDirectOptions = useCallback(async (currentActor: ChatActor) => {
         if (currentActor.type === 'employee') {
@@ -238,7 +270,7 @@ export function useMessaging({ portalBasePath }: UseMessagingOptions) {
             const [{ data: users }, { data: employeesData }, { data: consignors }] = await Promise.all([
                 supabase
                     .from('users')
-                    .select('id, role, email, full_name, consignor_id')
+                    .select('id, role, email, full_name, profile_image_url, consignor_id')
                     .neq('id', currentActor.id)
                     .order('email'),
                 supabase
@@ -357,7 +389,7 @@ export function useMessaging({ portalBasePath }: UseMessagingOptions) {
             }
         });
 
-        const { userLabelMap, employeeLabelMap } = await buildParticipantDirectory(allMembers, messages);
+        const { userLabelMap, userAvatarMap, employeeLabelMap, employeeAvatarMap } = await buildParticipantDirectory(allMembers, messages);
 
         const membersByThread = new Map<string, ChatThreadMember[]>();
         allMembers.forEach((member) => {
@@ -410,9 +442,32 @@ export function useMessaging({ portalBasePath }: UseMessagingOptions) {
                 return null;
             })();
 
+            const avatarUrl = (() => {
+                if (thread.thread_type === 'group') return null;
+                const peer = threadMembers.find((member) => {
+                    if (currentActor.type === 'user' && member.member_type === 'user' && member.user_id === currentActor.id) {
+                        return false;
+                    }
+                    if (currentActor.type === 'employee' && member.member_type === 'employee' && member.employee_id === currentActor.id) {
+                        return false;
+                    }
+                    return true;
+                });
+
+                if (!peer) return null;
+                if (peer.member_type === 'user' && peer.user_id) {
+                    return userAvatarMap.get(peer.user_id) ?? null;
+                }
+                if (peer.member_type === 'employee' && peer.employee_id) {
+                    return employeeAvatarMap.get(peer.employee_id) ?? null;
+                }
+                return null;
+            })();
+
             return {
                 thread,
                 title,
+                avatarUrl,
                 unreadCount: myMembership?.unread_count ?? 0,
                 lastMessagePreview: lastMessage?.body ?? '',
                 lastMessageAt: lastMessage?.created_at ?? thread.last_message_at,
@@ -473,7 +528,7 @@ export function useMessaging({ portalBasePath }: UseMessagingOptions) {
             .eq('thread_id', threadId);
 
         const members = (rawMembers ?? []) as ChatThreadMember[];
-        const { userLabelMap, employeeLabelMap } = await buildParticipantDirectory(members, messages);
+        const { userLabelMap, userAvatarMap, employeeLabelMap, employeeAvatarMap } = await buildParticipantDirectory(members, messages);
 
         const messageViews: ChatMessageView[] = messages.map((message) => {
             let senderLabel = 'Unknown';
@@ -488,6 +543,11 @@ export function useMessaging({ portalBasePath }: UseMessagingOptions) {
             return {
                 ...message,
                 senderLabel,
+                senderAvatarUrl: message.sender_type === 'user' && message.sender_user_id
+                    ? (userAvatarMap.get(message.sender_user_id) ?? null)
+                    : message.sender_type === 'employee' && message.sender_employee_id
+                        ? (employeeAvatarMap.get(message.sender_employee_id) ?? null)
+                    : null,
                 isOwn: messageIsOwn(currentActor, message),
             };
         });

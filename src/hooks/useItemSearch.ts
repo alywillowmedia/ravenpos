@@ -7,6 +7,58 @@ import {
     type ConsignorRateSchedule,
 } from '../lib/consignorRateSchedules';
 
+function normalize(value: string) {
+    return value.toLowerCase().trim();
+}
+
+function compact(value: string) {
+    return normalize(value).replace(/[^a-z0-9]/g, '');
+}
+
+function isSubsequence(needle: string, haystack: string) {
+    if (!needle) return false;
+    let needleIndex = 0;
+    for (let i = 0; i < haystack.length && needleIndex < needle.length; i += 1) {
+        if (haystack[i] === needle[needleIndex]) needleIndex += 1;
+    }
+    return needleIndex === needle.length;
+}
+
+function getFuzzyScore(item: Item, query: string) {
+    const q = normalize(query);
+    const qCompact = compact(query);
+    if (!q) return 0;
+
+    const name = normalize(item.name || '');
+    const sku = normalize(item.sku || '');
+    const nameCompact = compact(item.name || '');
+    const skuCompact = compact(item.sku || '');
+    const tokens = q.split(/\s+/).filter(Boolean);
+
+    let score = 0;
+
+    if (name === q) score = Math.max(score, 120);
+    if (sku === q) score = Math.max(score, 125);
+
+    if (name.startsWith(q)) score = Math.max(score, 105);
+    if (sku.startsWith(q)) score = Math.max(score, 115);
+
+    if (name.includes(q)) score = Math.max(score, 85);
+    if (sku.includes(q)) score = Math.max(score, 100);
+
+    if (qCompact && nameCompact.includes(qCompact)) score = Math.max(score, 90);
+    if (qCompact && skuCompact.includes(qCompact)) score = Math.max(score, 110);
+
+    if (tokens.length > 0 && tokens.every((token) => name.includes(token) || sku.includes(token))) {
+        score = Math.max(score, 80);
+    }
+
+    if (qCompact && isSubsequence(qCompact, skuCompact)) score = Math.max(score, 75);
+    if (qCompact && isSubsequence(qCompact, nameCompact)) score = Math.max(score, 65);
+
+    return score;
+}
+
 export function useItemSearch() {
     const [searchResults, setSearchResults] = useState<Item[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -53,16 +105,61 @@ export function useItemSearch() {
                 query = query.in('consignor_id', consignorIds);
             }
 
-            // Filter by item name if provided (case-insensitive, contains match)
+            // Broad server-side filter for item name/SKU if provided.
+            // We then rank and fuzzy-filter client-side for less strict matching.
             if (itemName.trim()) {
-                query = query.ilike('name', `%${itemName.trim()}%`);
+                const safeSearchTerm = itemName.trim().replace(/,/g, ' ');
+                query = query.or(`name.ilike.%${safeSearchTerm}%,sku.ilike.%${safeSearchTerm}%`);
             }
 
-            const { data, error: itemSearchError } = await query.limit(20);
+            const { data, error: itemSearchError } = await query.limit(itemName.trim() ? 120 : 20);
 
             if (itemSearchError) throw itemSearchError;
 
-            const rows = (data || []) as Item[];
+            let rows = (data || []) as Item[];
+
+            // Fallback pool: if the direct server filter is too strict, fetch a broader vendor-scoped set
+            // and apply fuzzy ranking to recover intended matches.
+            if (itemName.trim() && rows.length < 20) {
+                let fallbackQuery = supabase
+                    .from('items')
+                    .select(`
+          *,
+          consignor:consignors(id, consignor_number, name, commission_split, consignor_pays_card_fee, dealer_discount_percent)
+        `)
+                    .gt('quantity', 0)
+                    .order('name', { ascending: true });
+
+                if (vendorShortcode.trim()) {
+                    const { data: vendorConsignors, error: vendorConsignorError } = await supabase
+                        .from('consignors')
+                        .select('id')
+                        .ilike('consignor_number', `${vendorShortcode.trim()}%`);
+
+                    if (vendorConsignorError) throw vendorConsignorError;
+                    const vendorConsignorIds = (vendorConsignors || []).map((c) => c.id);
+                    fallbackQuery = fallbackQuery.in('consignor_id', vendorConsignorIds);
+                }
+
+                const { data: fallbackData, error: fallbackError } = await fallbackQuery.limit(250);
+                if (!fallbackError && fallbackData) {
+                    const mergedById = new Map<string, Item>();
+                    for (const row of rows) mergedById.set(row.id, row);
+                    for (const row of fallbackData as Item[]) mergedById.set(row.id, row);
+                    rows = [...mergedById.values()];
+                }
+            }
+
+            if (itemName.trim()) {
+                const queryText = itemName.trim();
+                rows = rows
+                    .map((row) => ({ row, score: getFuzzyScore(row, queryText) }))
+                    .filter((entry) => entry.score > 0)
+                    .sort((a, b) => b.score - a.score || a.row.name.localeCompare(b.row.name))
+                    .slice(0, 20)
+                    .map((entry) => entry.row);
+            }
+
             const consignorIds = rows
                 .map((row) => row.consignor?.id)
                 .filter((id): id is string => Boolean(id));

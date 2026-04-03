@@ -1,4 +1,4 @@
-import { useState, useMemo, type MouseEvent, type ReactNode } from 'react';
+import { useState, useMemo, useEffect, type MouseEvent, type ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 import { Input } from './Input';
 
@@ -26,6 +26,9 @@ export interface TableProps<T> {
     emptyMessage?: string;
     className?: string;
     isLoading?: boolean;
+    paginated?: boolean;
+    defaultPageSize?: number;
+    pageSizeOptions?: number[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -40,10 +43,15 @@ export function Table<T extends Record<string, any>>({
     emptyMessage = 'No data found',
     className,
     isLoading = false,
+    paginated = false,
+    defaultPageSize = 50,
+    pageSizeOptions = [25, 50, 100],
 }: TableProps<T>) {
     const [search, setSearch] = useState('');
     const [sortKey, setSortKey] = useState<string | null>(null);
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(defaultPageSize);
 
     // Filter data based on search
     const filteredData = useMemo(() => {
@@ -75,9 +83,32 @@ export function Table<T extends Record<string, any>>({
         });
     }, [filteredData, sortKey, sortDirection]);
 
+    const totalRows = sortedData.length;
+    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [search, sortKey, sortDirection, data.length, pageSize]);
+
+    useEffect(() => {
+        setPageSize(defaultPageSize);
+    }, [defaultPageSize]);
+
+    useEffect(() => {
+        setCurrentPage((prev) => Math.min(prev, totalPages));
+    }, [totalPages]);
+
+    const pagedData = useMemo(() => {
+        if (!paginated) return sortedData;
+        const pageStart = (currentPage - 1) * pageSize;
+        return sortedData.slice(pageStart, pageStart + pageSize);
+    }, [currentPage, pageSize, paginated, sortedData]);
+
+    const pageStartIndex = paginated ? (currentPage - 1) * pageSize : 0;
+
     const visibleKeys = useMemo(
-        () => sortedData.map((item) => keyExtractor(item)),
-        [keyExtractor, sortedData]
+        () => pagedData.map((item) => keyExtractor(item)),
+        [keyExtractor, pagedData]
     );
 
     const handleSort = (key: string) => {
@@ -145,7 +176,7 @@ export function Table<T extends Record<string, any>>({
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-[var(--color-border)]">
-                        {sortedData.length === 0 ? (
+                        {pagedData.length === 0 ? (
                             <tr>
                                 <td
                                     colSpan={columns.length}
@@ -155,11 +186,13 @@ export function Table<T extends Record<string, any>>({
                                 </td>
                             </tr>
                         ) : (
-                            sortedData.map((item, visibleIndex) => {
+                            pagedData.map((item, visibleIndex) => {
                                 return (
                                 <tr
                                     key={keyExtractor(item)}
-                                    onClick={(event) => onRowClick?.(item, event, { visibleIndex, visibleKeys })}
+                                    onClick={(event) =>
+                                        onRowClick?.(item, event, { visibleIndex: pageStartIndex + visibleIndex, visibleKeys })
+                                    }
                                     className={cn(
                                         'bg-white',
                                         onRowClick && 'cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors'
@@ -183,6 +216,50 @@ export function Table<T extends Record<string, any>>({
                     </tbody>
                 </table>
             </div>
+            {paginated && totalRows > 0 && (
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-[var(--color-border)] bg-[var(--color-surface)]">
+                    <div className="text-xs text-[var(--color-muted)]">
+                        Showing {pageStartIndex + 1}-{Math.min(pageStartIndex + pageSize, totalRows)} of {totalRows}
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <label className="text-xs text-[var(--color-muted)] flex items-center gap-2">
+                            Rows
+                            <select
+                                value={pageSize}
+                                onChange={(e) => setPageSize(Number(e.target.value))}
+                                className="px-2 py-1 rounded border border-[var(--color-border)] bg-white text-xs"
+                            >
+                                {pageSizeOptions.map((size) => (
+                                    <option key={size} value={size}>
+                                        {size}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                                className="px-3 py-1.5 text-xs rounded border border-[var(--color-border)] bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Previous
+                            </button>
+                            <span className="text-xs text-[var(--color-muted)]">
+                                Page {currentPage} of {totalPages}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                                disabled={currentPage === totalPages}
+                                className="px-3 py-1.5 text-xs rounded border border-[var(--color-border)] bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

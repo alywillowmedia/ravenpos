@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Select';
 import { Input } from '../components/ui/Input';
 import { cn } from '../lib/utils';
+import { getCachedAvatarUrl } from '../lib/avatar';
 import type { useMessaging } from '../hooks/useMessaging';
 
 type MessagingController = ReturnType<typeof useMessaging>;
@@ -150,14 +151,12 @@ export function Messages() {
                                     )}
                                 >
                                     <div className="flex items-center gap-2.5">
-                                        <div className={cn(
-                                            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
-                                            messaging.activeThreadId === thread.thread.id
-                                                ? 'bg-[var(--color-primary)] text-white'
-                                                : 'bg-[var(--color-surface)] text-[var(--color-muted)]'
-                                        )}>
-                                            {getThreadInitials(thread.title)}
-                                        </div>
+                                        <Avatar
+                                            name={thread.title}
+                                            imageUrl={thread.avatarUrl}
+                                            sizeClassName="h-8 w-8"
+                                            active={messaging.activeThreadId === thread.thread.id}
+                                        />
 
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center justify-between gap-2">
@@ -200,9 +199,12 @@ export function Messages() {
                                 Back
                             </button>
                             {activeThread && (
-                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-xs font-semibold text-white">
-                                    {getThreadInitials(activeThread.title)}
-                                </div>
+                                <Avatar
+                                    name={activeThread.title}
+                                    imageUrl={activeThread.avatarUrl}
+                                    sizeClassName="h-8 w-8"
+                                    active
+                                />
                             )}
                             <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-[var(--color-foreground)]">
@@ -222,19 +224,34 @@ export function Messages() {
                             <div
                                 key={message.id}
                                 className={cn(
-                                    'max-w-[80%] rounded-xl px-3 py-2',
-                                    message.isOwn
-                                        ? 'ml-auto bg-[var(--color-primary)] text-white'
-                                        : 'bg-[var(--color-surface)] text-[var(--color-foreground)]'
+                                    'flex items-start gap-2',
+                                    message.isOwn ? 'justify-end' : 'justify-start'
                                 )}
                             >
-                                <p className={cn('text-[11px]', message.isOwn ? 'text-white/80' : 'text-[var(--color-muted)]')}>
-                                    {message.senderLabel}
-                                </p>
-                                <p className="text-sm whitespace-pre-wrap break-words">{message.body}</p>
-                                <p className={cn('mt-1 text-[11px]', message.isOwn ? 'text-white/80' : 'text-[var(--color-muted)]')}>
-                                    {messaging.formatDateTime(message.created_at)}
-                                </p>
+                                {!message.isOwn && (
+                                    <Avatar
+                                        name={message.senderLabel}
+                                        imageUrl={message.senderAvatarUrl}
+                                        sizeClassName="h-7 w-7"
+                                    />
+                                )}
+
+                                <div
+                                    className={cn(
+                                        'max-w-[80%] rounded-xl px-3 py-2',
+                                        message.isOwn
+                                            ? 'bg-[var(--color-primary)] text-white'
+                                            : 'bg-[var(--color-surface)] text-[var(--color-foreground)]'
+                                    )}
+                                >
+                                    <p className={cn('text-[11px]', message.isOwn ? 'text-white/80' : 'text-[var(--color-muted)]')}>
+                                        {message.senderLabel}
+                                    </p>
+                                    <p className="text-sm whitespace-pre-wrap break-words">{message.body}</p>
+                                    <p className={cn('mt-1 text-[11px]', message.isOwn ? 'text-white/80' : 'text-[var(--color-muted)]')}>
+                                        {messaging.formatDateTime(message.created_at)}
+                                    </p>
+                                </div>
                             </div>
                         ))}
 
@@ -287,6 +304,44 @@ function getThreadInitials(title: string) {
         return words[0].slice(0, 2).toUpperCase();
     }
     return `${words[0][0] || ''}${words[1][0] || ''}`.toUpperCase();
+}
+
+interface AvatarProps {
+    name: string;
+    imageUrl?: string | null;
+    sizeClassName?: string;
+    active?: boolean;
+}
+
+function Avatar({ name, imageUrl, sizeClassName = 'h-8 w-8', active = false }: AvatarProps) {
+    const optimizedAvatarUrl = getCachedAvatarUrl(imageUrl, { size: 96, quality: 70 });
+    const initials = getThreadInitials(name);
+
+    if (optimizedAvatarUrl) {
+        return (
+            <img
+                src={optimizedAvatarUrl}
+                alt={name}
+                loading="lazy"
+                decoding="async"
+                className={cn(sizeClassName, 'shrink-0 rounded-full border border-[var(--color-border)] object-cover')}
+            />
+        );
+    }
+
+    return (
+        <div
+            className={cn(
+                'flex shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+                sizeClassName,
+                active
+                    ? 'bg-[var(--color-primary)] text-white'
+                    : 'bg-[var(--color-surface)] text-[var(--color-muted)]'
+            )}
+        >
+            {initials}
+        </div>
+    );
 }
 
 function shortTime(value: string | null) {

@@ -6,6 +6,7 @@ import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
+import { CheckCircle2, LockOpen } from 'lucide-react';
 import {
     authorizeDevice,
     getActiveAuthorizations,
@@ -157,12 +158,16 @@ export function AuthorizeDeviceModal({ isOpen, onClose }: AuthorizeDeviceModalPr
 
                     {success && (
                         <div className="p-3 rounded-lg bg-[rgba(34,197,94,0.1)] text-[#22c55e] text-sm">
-                            ✓ {success}
+                            <span className="inline-flex items-center gap-2">
+                                <CheckCircle2 size={16} />
+                                {success}
+                            </span>
                         </div>
                     )}
 
                     <Button type="submit" className="w-full" isLoading={isSubmitting}>
-                        🔓 Authorize This Device
+                        <LockOpen size={16} />
+                        Authorize This Device
                     </Button>
                 </form>
 

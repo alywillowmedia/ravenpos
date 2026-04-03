@@ -89,17 +89,17 @@ export function SmartSearch({ onItemSelect, isOpen, onClose }: SmartSearchProps)
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Item Name
+                                Item Name or SKU
                             </label>
                             <Input
                                 type="text"
-                                placeholder="e.g., shirt"
+                                placeholder="e.g., shirt or df4"
                                 value={itemName}
                                 onChange={(e) => setItemName(e.target.value)}
                                 className="w-full"
                             />
                             <p className="text-xs text-gray-500 mt-1">
-                                Leave empty to see all items
+                                Supports partial and fuzzy matches
                             </p>
                         </div>
                     </div>

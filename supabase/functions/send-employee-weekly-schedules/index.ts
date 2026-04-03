@@ -1,3 +1,4 @@
+/// <reference path="./types.d.ts" />
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
 
@@ -36,6 +37,12 @@ type RecurringShift = {
     active_until: string | null
 }
 
+type DayOffOverride = {
+    employee_id: string
+    shift_date: string
+    is_day_off: boolean
+}
+
 type DisplayShift = {
     date: string
     start_time: string
@@ -62,6 +69,13 @@ type PreviewResult = {
     subject: string
     html: string
     recipient: string | null
+}
+
+type AdminClientLike = {
+    auth: {
+        getUser(token: string): Promise<{ data: { user: { id: string } | null }; error: unknown }>
+    }
+    from(table: string): any
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -237,18 +251,34 @@ function buildShiftMap(
     employeeIds: string[],
     dates: string[],
     oneTimeShifts: OneTimeShift[],
-    recurringShifts: RecurringShift[]
+    recurringShifts: RecurringShift[],
+    dayOffOverrides: DayOffOverride[]
 ): Map<string, DisplayShift[]> {
     const byEmployee = new Map<string, DisplayShift[]>()
     const dateSet = new Set(dates)
+    const specificDayOverrides = new Set<string>()
+    const dayOffOverrideKeys = new Set<string>()
+
+    const overrideKey = (employeeId: string, dateKey: string) => `${employeeId}|${dateKey}`
 
     for (const employeeId of employeeIds) {
         byEmployee.set(employeeId, [])
     }
 
+    for (const dayOff of dayOffOverrides) {
+        if (!dayOff.is_day_off) continue
+        if (!dateSet.has(dayOff.shift_date)) continue
+        const key = overrideKey(dayOff.employee_id, dayOff.shift_date)
+        specificDayOverrides.add(key)
+        dayOffOverrideKeys.add(key)
+    }
+
     for (const shift of oneTimeShifts) {
         if (!dateSet.has(shift.shift_date)) continue
         if (!byEmployee.has(shift.employee_id)) continue
+        const key = overrideKey(shift.employee_id, shift.shift_date)
+        specificDayOverrides.add(key)
+        if (dayOffOverrideKeys.has(key)) continue
         byEmployee.get(shift.employee_id)!.push({
             date: shift.shift_date,
             start_time: shift.start_time,
@@ -263,6 +293,7 @@ function buildShiftMap(
         for (const dateKey of dates) {
             const date = parseDateKey(dateKey)
             if (!matchesRecurringOnDate(recurring, date, dateKey)) continue
+            if (specificDayOverrides.has(overrideKey(recurring.employee_id, dateKey))) continue
 
             byEmployee.get(recurring.employee_id)!.push({
                 date: dateKey,
@@ -284,7 +315,7 @@ function buildShiftMap(
 }
 
 async function validateInvocation(
-    adminClient: ReturnType<typeof createClient>,
+    adminClient: AdminClientLike,
     req: Request,
     cronSecret: string | null
 ): Promise<{ allowed: boolean; reason?: string }> {
@@ -304,11 +335,13 @@ async function validateInvocation(
         return { allowed: false, reason: 'Invalid token' }
     }
 
-    const { data: requester, error: requesterError } = await adminClient
+    const requesterResponse = await (adminClient
         .from('users')
         .select('role')
         .eq('id', authData.user.id)
-        .maybeSingle()
+        .maybeSingle() as Promise<{ data: { role: string | null } | null; error: unknown }>)
+    const requester = requesterResponse.data
+    const requesterError = requesterResponse.error
 
     if (requesterError || !requester || requester.role !== 'admin') {
         return { allowed: false, reason: 'Admin access required' }
@@ -450,7 +483,7 @@ function buildPreview(params: {
     }
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
     }
@@ -459,7 +492,7 @@ Deno.serve(async (req) => {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')
         const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
         const resendApiKey = Deno.env.get('RESEND_API_KEY')
-        const cronSecret = Deno.env.get('EMPLOYEE_SCHEDULE_CRON_SECRET')
+        const cronSecret = Deno.env.get('EMPLOYEE_SCHEDULE_CRON_SECRET') ?? null
 
         if (!supabaseUrl || !supabaseServiceRoleKey) {
             return new Response(
@@ -569,7 +602,12 @@ Deno.serve(async (req) => {
 
         const employeeIds = Array.from(new Set(users.map((user) => user.employee_id!).filter(Boolean)))
 
-        const [{ data: employeesData, error: employeesError }, { data: oneTimeData, error: oneTimeError }, { data: recurringData, error: recurringError }] = await Promise.all([
+        const [
+            { data: employeesData, error: employeesError },
+            { data: oneTimeData, error: oneTimeError },
+            { data: recurringData, error: recurringError },
+            { data: dayOffOverridesData, error: dayOffOverridesError },
+        ] = await Promise.all([
             adminClient
                 .from('employees')
                 .select('id, name, hourly_rate, is_active')
@@ -586,22 +624,29 @@ Deno.serve(async (req) => {
                 .in('employee_id', employeeIds)
                 .lte('active_from', sunday)
                 .or(`active_until.is.null,active_until.gte.${monday}`),
+            adminClient
+                .from('employee_schedule_day_overrides')
+                .select('employee_id, shift_date, is_day_off')
+                .in('employee_id', employeeIds)
+                .gte('shift_date', monday)
+                .lte('shift_date', sunday),
         ])
 
-        if (employeesError || oneTimeError || recurringError) {
-            const error = employeesError || oneTimeError || recurringError
+        if (employeesError || oneTimeError || recurringError || dayOffOverridesError) {
+            const error = employeesError || oneTimeError || recurringError || dayOffOverridesError
             return new Response(
                 JSON.stringify({ error: error?.message || 'Failed to load schedule data' }),
                 { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             )
         }
 
-        const employeesById = new Map<string, EmployeeRow>((employeesData || []).map((employee) => [employee.id, employee as EmployeeRow]))
+        const employeesById = new Map<string, EmployeeRow>((employeesData || []).map((employee: EmployeeRow) => [employee.id, employee]))
         const shiftsByEmployeeId = buildShiftMap(
             employeeIds,
             dates,
             (oneTimeData || []) as OneTimeShift[],
-            (recurringData || []) as RecurringShift[]
+            (recurringData || []) as RecurringShift[],
+            (dayOffOverridesData || []) as DayOffOverride[]
         )
 
         if (previewOnly) {

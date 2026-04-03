@@ -11,21 +11,81 @@ import {
 
 const INVENTORY_FETCH_BATCH_SIZE = 1000;
 
+interface UseInventoryOptions {
+    consignorId?: string;
+    paginated?: boolean;
+    page?: number;
+    pageSize?: number;
+    searchQuery?: string;
+    category?: string;
+}
+
 function isMissingRateScheduleTable(error: unknown): boolean {
     const err = error as { code?: string; message?: string; details?: string; hint?: string } | null;
     const text = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`.toLowerCase();
     return err?.code === '42P01' || text.includes('consignor_rate_schedules');
 }
 
-export function useInventory(consignorId?: string) {
+export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions) {
+    const options = typeof consignorIdOrOptions === 'string'
+        ? { consignorId: consignorIdOrOptions }
+        : (consignorIdOrOptions || {});
+    const {
+        consignorId,
+        paginated = false,
+        page = 1,
+        pageSize = 50,
+        searchQuery = '',
+        category = '',
+    } = options;
+
     const [items, setItems] = useState<Item[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [totalCount, setTotalCount] = useState(0);
 
     const fetchItems = useCallback(async () => {
         try {
             setIsLoading(true);
             setError(null);
+
+            if (paginated) {
+                let query = supabase
+                    .from('items')
+                    .select(`
+          *,
+          consignor:consignors(id, consignor_number, name)
+        `, { count: 'exact' })
+                    .order('created_at', { ascending: false })
+                    .order('id', { ascending: false });
+
+                if (consignorId) {
+                    query = query.eq('consignor_id', consignorId);
+                }
+
+                if (category) {
+                    query = query.eq('category', category);
+                }
+
+                const trimmedSearch = searchQuery.trim();
+                if (trimmedSearch) {
+                    const safeSearch = trimmedSearch.replace(/[,%]/g, ' ').replace(/\s+/g, ' ').trim();
+                    if (safeSearch) {
+                        query = query.or(
+                            `name.ilike.%${safeSearch}%,sku.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,variant_summary.ilike.%${safeSearch}%`
+                        );
+                    }
+                }
+
+                const from = (page - 1) * pageSize;
+                const to = from + pageSize - 1;
+                const { data, error: fetchError, count } = await query.range(from, to);
+
+                if (fetchError) throw fetchError;
+                setItems((data || []) as Item[]);
+                setTotalCount(count || 0);
+                return;
+            }
 
             const allItems: Item[] = [];
             let offset = 0;
@@ -60,12 +120,13 @@ export function useInventory(consignorId?: string) {
             }
 
             setItems(allItems);
+            setTotalCount(allItems.length);
         } catch (err) {
             setError(formatSupabaseError(err, 'Failed to fetch items'));
         } finally {
             setIsLoading(false);
         }
-    }, [consignorId]);
+    }, [category, consignorId, page, pageSize, paginated, searchQuery]);
 
     useEffect(() => {
         fetchItems();
@@ -418,6 +479,7 @@ export function useInventory(consignorId?: string) {
 
     return {
         items,
+        totalCount,
         isLoading,
         error,
         fetchItems,
