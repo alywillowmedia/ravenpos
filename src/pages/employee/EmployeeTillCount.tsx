@@ -29,6 +29,11 @@ const CASH_DENOMINATIONS = [
     { key: '0.01', label: '1¢', value: 0.01 },
 ] as const;
 
+function isMissingDealerPurchasesTableError(message?: string): boolean {
+    const text = (message || '').toLowerCase();
+    return text.includes('dealer_purchases') && (text.includes('does not exist') || text.includes('not found'));
+}
+
 function getTodayRangeIso(): { startIso: string; endIso: string } {
     const now = new Date();
     const start = new Date(now);
@@ -62,7 +67,7 @@ export function EmployeeTillCount() {
             setIsLoading(true);
             const { startIso, endIso } = getTodayRangeIso();
 
-            const [adminsResult, cashSalesResult, cashRefundsResult] = await Promise.all([
+            const [adminsResult, cashSalesResult, cashRefundsResult, dealerPurchasesResult] = await Promise.all([
                 supabase.rpc('get_chat_admin_contacts'),
                 supabase
                     .from('sales')
@@ -76,6 +81,12 @@ export function EmployeeTillCount() {
                     .eq('payment_method', 'cash')
                     .gte('created_at', startIso)
                     .lte('created_at', endIso),
+                supabase
+                    .from('dealer_purchases')
+                    .select('total')
+                    .eq('payment_method', 'cash')
+                    .gte('purchased_at', startIso)
+                    .lte('purchased_at', endIso),
             ]);
 
             if (adminsResult.error) {
@@ -96,6 +107,18 @@ export function EmployeeTillCount() {
                 return;
             }
 
+            let dealerCashPurchases = 0;
+            if (dealerPurchasesResult.error) {
+                if (!isMissingDealerPurchasesTableError(dealerPurchasesResult.error.message)) {
+                    toast.error('Failed to load dealer purchases', dealerPurchasesResult.error.message);
+                }
+            } else {
+                dealerCashPurchases = (dealerPurchasesResult.data || []).reduce(
+                    (sum, purchase) => sum + Number(purchase.total || 0),
+                    0
+                );
+            }
+
             const cashSalesNet = (cashSalesResult.data || []).reduce((sum, sale) => {
                 const tendered = Number(sale.cash_tendered ?? 0);
                 const change = Number(sale.change_given ?? 0);
@@ -108,7 +131,7 @@ export function EmployeeTillCount() {
                 0
             );
 
-            setExpectedCashFromSales(cashSalesNet - cashRefunds);
+            setExpectedCashFromSales(cashSalesNet - cashRefunds - dealerCashPurchases);
             setIsLoading(false);
         };
 
@@ -255,7 +278,7 @@ export function EmployeeTillCount() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                         <div>
-                            <p className="text-xs text-[var(--color-muted)]">From Today&apos;s Cash Sales</p>
+                            <p className="text-xs text-[var(--color-muted)]">From Today&apos;s Cash Activity (sales - refunds - dealer buys)</p>
                             <p className="text-2xl font-bold">
                                 {isLoading ? 'Loading...' : formatCurrency(expectedCashFromSales)}
                             </p>

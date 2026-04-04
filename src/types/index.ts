@@ -99,6 +99,20 @@ export interface Customer {
 
 export type CustomerInput = Omit<Customer, 'id' | 'created_at' | 'updated_at'>;
 
+export interface Dealer {
+    id: string;
+    name: string;
+    business_name: string | null;
+    email: string | null;
+    phone: string | null;
+    notes: string | null;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
+export type DealerInput = Omit<Dealer, 'id' | 'created_at' | 'updated_at'>;
+
 export type PaymentMethod = 'cash' | 'card' | 'check';
 
 // Discount types for POS
@@ -144,6 +158,35 @@ export interface Sale {
     discount_total?: number;
     // Joined data
     customer?: Customer;
+}
+
+export interface DealerPurchaseItem {
+    id: string;
+    dealer_purchase_id: string;
+    item_name: string;
+    description: string | null;
+    quantity: number;
+    unit_cost: number;
+    line_total: number;
+    created_at: string;
+}
+
+export interface DealerPurchase {
+    id: string;
+    dealer_id: string | null;
+    purchased_at: string;
+    subtotal: number;
+    tax_amount: number;
+    total: number;
+    payment_method: PaymentMethod;
+    check_number: string | null;
+    notes: string | null;
+    processed_by_user?: string | null;
+    processed_by_employee?: string | null;
+    created_at: string;
+    updated_at: string;
+    dealer?: Dealer | null;
+    items?: DealerPurchaseItem[];
 }
 
 export interface GiftCard {

@@ -30,6 +30,8 @@ export function AdminProfile() {
     const [isCreatingAdmin, setIsCreatingAdmin] = useState(false);
     const [isLoadingHomeSettings, setIsLoadingHomeSettings] = useState(true);
     const [isSavingHomeSettings, setIsSavingHomeSettings] = useState(false);
+    const [isLoadingPosDisplaySettings, setIsLoadingPosDisplaySettings] = useState(true);
+    const [isSavingPosDisplaySettings, setIsSavingPosDisplaySettings] = useState(false);
 
     const [profileName, setProfileName] = useState('');
     const [profileEmail, setProfileEmail] = useState('');
@@ -42,6 +44,8 @@ export function AdminProfile() {
     const [createPassword, setCreatePassword] = useState('');
     const [homeSettings, setHomeSettings] = useState<PublicStorefrontSettings>(DEFAULT_PUBLIC_STOREFRONT_SETTINGS);
     const [homeMessage, setHomeMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [posDisplayImageUrl, setPosDisplayImageUrl] = useState<string | null>(null);
+    const [posDisplayMessage, setPosDisplayMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     const fetchAdmins = useCallback(async () => {
         setIsLoadingAdmins(true);
@@ -90,6 +94,24 @@ export function AdminProfile() {
         setIsLoadingHomeSettings(false);
     }, []);
 
+    const fetchPosDisplaySettings = useCallback(async () => {
+        setIsLoadingPosDisplaySettings(true);
+        const { data, error } = await supabase
+            .from('pos_terminal_settings')
+            .select('customer_display_image_url')
+            .eq('id', true)
+            .maybeSingle();
+
+        if (error) {
+            setPosDisplayMessage({ type: 'error', text: error.message });
+            setPosDisplayImageUrl(null);
+        } else {
+            setPosDisplayImageUrl(data?.customer_display_image_url ?? null);
+        }
+
+        setIsLoadingPosDisplaySettings(false);
+    }, []);
+
     useEffect(() => {
         setProfileName(userRecord?.full_name ?? '');
         setProfileEmail(userRecord?.email ?? user?.email ?? '');
@@ -122,6 +144,10 @@ export function AdminProfile() {
     useEffect(() => {
         void fetchHomeSettings();
     }, [fetchHomeSettings]);
+
+    useEffect(() => {
+        void fetchPosDisplaySettings();
+    }, [fetchPosDisplaySettings]);
 
     const callManageAdmin = async (body: object) => {
         const headers: Record<string, string> = {};
@@ -279,6 +305,32 @@ export function AdminProfile() {
 
         setHomeMessage({ type: 'success', text: 'Public home header settings saved.' });
         await fetchHomeSettings();
+    };
+
+    const handleSavePosDisplaySettings = async (e: FormEvent) => {
+        e.preventDefault();
+        setPosDisplayMessage(null);
+        setIsSavingPosDisplaySettings(true);
+
+        const { error } = await supabase
+            .from('pos_terminal_settings')
+            .upsert(
+                {
+                    id: true,
+                    customer_display_image_url: posDisplayImageUrl,
+                },
+                { onConflict: 'id' }
+            );
+
+        setIsSavingPosDisplaySettings(false);
+
+        if (error) {
+            setPosDisplayMessage({ type: 'error', text: error.message });
+            return;
+        }
+
+        setPosDisplayMessage({ type: 'success', text: 'POS customer display image saved.' });
+        await fetchPosDisplaySettings();
     };
 
     return (
@@ -462,6 +514,47 @@ export function AdminProfile() {
 
                             <Button type="submit" isLoading={isSavingHomeSettings}>
                                 Save Home Header
+                            </Button>
+                        </form>
+                    )}
+                </CardContent>
+            </Card>
+
+            <Card variant="outlined" className="mb-6">
+                <CardHeader>
+                    <CardTitle className="text-sm">POS Customer Display</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {posDisplayMessage && (
+                        <div
+                            className={`mb-4 rounded-lg p-3 text-sm ${posDisplayMessage.type === 'success'
+                                ? 'bg-[var(--color-success-bg)] text-[var(--color-success)]'
+                                : 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]'
+                                }`}
+                        >
+                            {posDisplayMessage.text}
+                        </div>
+                    )}
+
+                    {isLoadingPosDisplaySettings ? (
+                        <p className="text-sm text-[var(--color-muted)]">Loading POS display settings...</p>
+                    ) : (
+                        <form onSubmit={handleSavePosDisplaySettings} className="space-y-4">
+                            <div>
+                                <p className="text-sm font-medium text-[var(--color-foreground)] mb-2">Idle Screen Image</p>
+                                <p className="text-xs text-[var(--color-muted)] mb-3">
+                                    This image appears above the welcome text on the customer-facing display.
+                                </p>
+                                <ImageUpload
+                                    value={posDisplayImageUrl}
+                                    onChange={(url) => setPosDisplayImageUrl(url)}
+                                    consignorId={userRecord?.id || 'admin'}
+                                    itemId="pos-customer-display-idle-image"
+                                />
+                            </div>
+
+                            <Button type="submit" isLoading={isSavingPosDisplaySettings}>
+                                Save POS Display
                             </Button>
                         </form>
                     )}

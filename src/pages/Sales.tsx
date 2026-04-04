@@ -25,6 +25,11 @@ type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMont
 type SalesTab = 'sales' | 'refunds' | 'employeeAttribution';
 const SALES_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
+function isMissingDealerPurchasesTableError(message?: string): boolean {
+    const text = (message || '').toLowerCase();
+    return text.includes('dealer_purchases') && (text.includes('does not exist') || text.includes('not found'));
+}
+
 const CASH_DENOMINATIONS = [
     { key: '100', label: '$100', value: 100 },
     { key: '50', label: '$50', value: 50 },
@@ -130,6 +135,7 @@ export function Sales() {
     const [manualCashAdjustmentInput, setManualCashAdjustmentInput] = useState('');
     const [checkCountInput, setCheckCountInput] = useState('');
     const [checkAmountInput, setCheckAmountInput] = useState('');
+    const [cashDealerPurchasesTotal, setCashDealerPurchasesTotal] = useState(0);
     const [denominationCounts, setDenominationCounts] = useState<Record<string, string>>(() =>
         CASH_DENOMINATIONS.reduce<Record<string, string>>((acc, denomination) => {
             acc[denomination.key] = '';
@@ -231,6 +237,36 @@ export function Sales() {
         setSalesPage((prev) => Math.min(prev, salesTotalPages));
     }, [salesTotalPages]);
 
+    useEffect(() => {
+        const loadDealerCashPurchases = async () => {
+            let query = supabase
+                .from('dealer_purchases')
+                .select('total')
+                .eq('payment_method', 'cash');
+
+            if (dateStartIso) {
+                query = query.gte('purchased_at', dateStartIso);
+            }
+            if (dateEndIso) {
+                query = query.lte('purchased_at', dateEndIso);
+            }
+
+            const { data, error } = await query;
+            if (error) {
+                if (!isMissingDealerPurchasesTableError(error.message)) {
+                    toast.error('Failed to load dealer cash purchases', error.message);
+                }
+                setCashDealerPurchasesTotal(0);
+                return;
+            }
+
+            const total = (data || []).reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
+            setCashDealerPurchasesTotal(total);
+        };
+
+        void loadDealerCashPurchases();
+    }, [dateStartIso, dateEndIso, toast]);
+
     const cashReconciliation = useMemo(() => {
         const cashSales = filteredSales.filter((sale) => sale.payment_method === 'cash');
         const cashSalesCount = cashSales.length;
@@ -251,7 +287,7 @@ export function Sales() {
         const cashRefunds = filteredRefunds
             .filter((refund) => refund.payment_method === 'cash')
             .reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0);
-        const expectedCashFromSales = cashSalesNet - cashRefunds;
+        const expectedCashFromSales = cashSalesNet - cashRefunds - cashDealerPurchasesTotal;
         const openingFloat = Number.parseFloat(openingFloatInput) || 0;
         const manualAdjustment = Number.parseFloat(manualCashAdjustmentInput) || 0;
         const checkCount = Math.max(0, Number.parseInt(checkCountInput || '0', 10) || 0);
@@ -269,6 +305,7 @@ export function Sales() {
             changeGiven,
             cashSalesNet,
             cashRefunds,
+            cashDealerPurchasesTotal,
             checkCount,
             checkTotal,
             expectedCashFromSales,
@@ -278,7 +315,7 @@ export function Sales() {
             countedTotal,
             variance,
         };
-    }, [filteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts]);
+    }, [filteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts, cashDealerPurchasesTotal]);
 
     useEffect(() => {
         const loadAdmins = async () => {
@@ -922,10 +959,11 @@ export function Sales() {
                         <div>
                             <p className="text-xs text-[var(--color-muted)] mb-1">Cash Reconciliation</p>
                             <p className="text-lg font-semibold">
-                                Expected From Sales: {formatCurrency(cashReconciliation.expectedCashFromSales)}
+                                Expected Cash: {formatCurrency(cashReconciliation.expectedCashFromSales)}
                             </p>
                             <p className="text-xs text-[var(--color-muted)]">
                                 {cashReconciliation.cashSalesCount} cash sale{cashReconciliation.cashSalesCount !== 1 ? 's' : ''} in current filter
+                                {' '}• dealer cash buys: -{formatCurrency(cashReconciliation.cashDealerPurchasesTotal)}
                             </p>
                         </div>
                         <Button variant="secondary" onClick={() => setShowCashReconciliation(true)}>
@@ -1636,15 +1674,20 @@ export function Sales() {
                 size="lg"
             >
                 <div className="space-y-4">
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                         <SummaryCard
-                            label="Expected Cash From Sales"
+                            label="Expected Cash (Net)"
                             value={formatCurrency(cashReconciliation.expectedCashFromSales)}
                         />
                         <SummaryCard
                             label="Cash Refunds"
                             value={`-${formatCurrency(cashReconciliation.cashRefunds)}`}
                             variant="danger"
+                        />
+                        <SummaryCard
+                            label="Dealer Cash Purchases"
+                            value={`-${formatCurrency(cashReconciliation.cashDealerPurchasesTotal)}`}
+                            variant="warning"
                         />
                         <SummaryCard
                             label="Cash Sales (Count)"

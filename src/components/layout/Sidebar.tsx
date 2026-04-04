@@ -11,6 +11,14 @@ const navigation = [
     { name: 'Consignors', href: '/admin/consignors', icon: UsersIcon },
     { name: 'Customers', href: '/admin/customers', icon: CustomersIcon },
     {
+        name: 'Dealers',
+        icon: DealersIcon,
+        children: [
+            { name: 'Purchase from Dealer', href: '/admin/dealers/purchases', icon: ReversePosIcon },
+            { name: 'Dealers List', href: '/admin/dealers', icon: DealerListIcon },
+        ]
+    },
+    {
         name: 'Employees',
         icon: EmployeesIcon,
         children: [
@@ -564,6 +572,42 @@ function CustomersIcon() {
             <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
             <line x1="3" x2="21" y1="6" y2="6" />
             <path d="M16 10a4 4 0 0 1-8 0" />
+        </svg>
+    );
+}
+
+function DealersIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 21h18" />
+            <path d="M5 21V9l7-4 7 4v12" />
+            <path d="M9 14h6" />
+            <path d="M9 17h6" />
+        </svg>
+    );
+}
+
+function ReversePosIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 7h14" />
+            <path d="m3 7 4-4" />
+            <path d="m3 7 4 4" />
+            <path d="M21 17H7" />
+            <path d="m21 17-4-4" />
+            <path d="m21 17-4 4" />
+        </svg>
+    );
+}
+
+function DealerListIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="8" cy="8" r="3" />
+            <path d="M2 20a6 6 0 0 1 12 0" />
+            <path d="M16 8h6" />
+            <path d="M16 12h6" />
+            <path d="M16 16h6" />
         </svg>
     );
 }

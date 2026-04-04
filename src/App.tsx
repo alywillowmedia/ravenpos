@@ -37,6 +37,8 @@ import { AdminProfile } from './pages/AdminProfile';
 import { EmailCampaigns } from './pages/EmailCampaigns';
 import { MarketingFees } from './pages/MarketingFees';
 import { Invoices } from './pages/Invoices';
+import { Dealers } from './pages/Dealers';
+import { DealerPurchases } from './pages/DealerPurchases';
 
 // Vendor Pages
 import { VendorDashboard } from './pages/vendor/VendorDashboard';
@@ -141,6 +143,8 @@ export default function App() {
                         <Route path="finances/categories" element={<CategoryTaxSettings />} />
                         <Route path="finances/marketing-fees" element={<MarketingFees />} />
                         <Route path="customers" element={<Customers />} />
+                        <Route path="dealers" element={<Dealers />} />
+                        <Route path="dealers/purchases" element={<DealerPurchases />} />
                         <Route path="employees" element={<Employees />} />
                         <Route path="employees/roles" element={<EmployeeRoleSettings />} />
                         <Route path="employees/schedule" element={<EmployeeSchedule />} />

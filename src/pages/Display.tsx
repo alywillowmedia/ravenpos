@@ -3,6 +3,7 @@ import { formatCurrency } from '../lib/utils';
 import { ShoppingCartIcon, TagIcon, Store, CheckCircle, Receipt, CreditCard, Wallet } from 'lucide-react';
 import type { CartItem, Discount, Sale, PaymentMethod } from '../types';
 import ravenposLogo from '../../assets/ravenpos_logo.svg';
+import { supabase } from '../lib/supabase';
 
 interface BroadcastData {
     cart: CartItem[];
@@ -24,6 +25,7 @@ interface BroadcastData {
 export function Display() {
     const [data, setData] = useState<BroadcastData | null>(null);
     const [now, setNow] = useState(() => new Date());
+    const [idleImageUrl, setIdleImageUrl] = useState<string | null>(null);
 
     useEffect(() => {
         const channel = new BroadcastChannel('ravenpos-cart');
@@ -42,9 +44,36 @@ export function Display() {
         return () => clearInterval(timer);
     }, []);
 
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadDisplaySettings = async () => {
+            const { data: settings, error } = await supabase
+                .from('pos_terminal_settings')
+                .select('customer_display_image_url')
+                .eq('id', true)
+                .maybeSingle();
+
+            if (error) {
+                console.error('Failed to load POS customer display settings:', error);
+                return;
+            }
+
+            if (isMounted) {
+                setIdleImageUrl(settings?.customer_display_image_url ?? null);
+            }
+        };
+
+        void loadDisplaySettings();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
     if (!data) {
         return (
-            <WelcomeState />
+            <WelcomeState imageUrl={idleImageUrl} />
         );
     }
 
@@ -104,7 +133,7 @@ export function Display() {
     }
 
     if (cart.length === 0) {
-        return <WelcomeState />;
+        return <WelcomeState imageUrl={idleImageUrl} />;
     }
 
     const totalUnits = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -278,10 +307,12 @@ function Row({ label, value, valueClassName }: { label: string; value: string; v
     );
 }
 
-function WelcomeState() {
+function WelcomeState({ imageUrl }: { imageUrl: string | null }) {
+    const imageSrc = imageUrl || ravenposLogo;
+
     return (
         <div className="h-screen w-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-white to-sky-100 text-[var(--color-foreground)] p-8">
-            <img src={ravenposLogo} alt="RavenPOS" className="w-72 max-w-[80vw] h-auto mb-8" />
+            <img src={imageSrc} alt="RavenPOS" className="w-72 max-w-[80vw] h-auto mb-8" />
             <p className="text-2xl text-[var(--color-muted)] text-center">Welcome! The register is ready for your order.</p>
         </div>
     );
