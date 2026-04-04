@@ -1,0 +1,173 @@
+import { supabase } from './supabase';
+import type { OfflineCashSalePayload, OfflineCashSaleQueueEntry, OfflineSalesSyncStatus } from '../types/offline';
+
+function isElectronRuntime(): boolean {
+    return typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+    const candidate = error as { code?: string; message?: string } | null;
+    if (!candidate) return false;
+    return candidate.code === '23505' || candidate.message?.toLowerCase().includes('duplicate key') === true;
+}
+
+function buildSyncErrorMessage(error: unknown, fallback: string): string {
+    if (error instanceof Error) return error.message;
+    const candidate = error as { message?: string; details?: string } | null;
+    if (candidate?.details) return candidate.details;
+    if (candidate?.message) return candidate.message;
+    return fallback;
+}
+
+export async function enqueueOfflineCashSale(payload: OfflineCashSalePayload): Promise<{ queueId: string; error: string | null }> {
+    if (!isElectronRuntime()) {
+        return { queueId: '', error: 'Offline cash queue is only available in Electron.' };
+    }
+
+    try {
+        const result = await window.electronAPI!.enqueueOfflineSale(payload);
+        return { queueId: result.queueEntry.queue_id, error: null };
+    } catch (error) {
+        return { queueId: '', error: buildSyncErrorMessage(error, 'Failed to save offline sale locally.') };
+    }
+}
+
+export async function getOfflineSalesSyncStatus(): Promise<OfflineSalesSyncStatus> {
+    if (!isElectronRuntime()) {
+        return { total: 0, pending: 0, syncing: 0, failed: 0 };
+    }
+
+    try {
+        return await window.electronAPI!.getOfflineSalesStatus();
+    } catch {
+        return { total: 0, pending: 0, syncing: 0, failed: 0 };
+    }
+}
+
+async function syncSingleQueueEntry(entry: OfflineCashSaleQueueEntry): Promise<void> {
+    const { sale, sale_items, inventory_adjustments } = entry.payload;
+
+    const { error: saleInsertError } = await supabase
+        .from('sales')
+        .insert(sale);
+
+    if (saleInsertError && !isDuplicateKeyError(saleInsertError)) {
+        throw saleInsertError;
+    }
+
+    const { error: saleItemsError } = await supabase
+        .from('sale_items')
+        .upsert(sale_items, {
+            onConflict: 'id',
+            ignoreDuplicates: true,
+        });
+
+    if (saleItemsError) {
+        throw saleItemsError;
+    }
+
+    for (const adjustment of inventory_adjustments) {
+        const { data: itemData, error: itemFetchError } = await supabase
+            .from('items')
+            .select('id, quantity, sync_enabled, shopify_inventory_item_id')
+            .eq('id', adjustment.item_id)
+            .single();
+
+        if (itemFetchError) {
+            throw itemFetchError;
+        }
+
+        const currentQuantity = Number(itemData.quantity || 0);
+        if (currentQuantity < adjustment.quantity_sold) {
+            throw new Error(
+                `Inventory conflict for item ${adjustment.item_id}: current ${currentQuantity}, sold ${adjustment.quantity_sold}.`
+            );
+        }
+
+        const { error: quantityUpdateError } = await supabase
+            .from('items')
+            .update({
+                quantity: currentQuantity - adjustment.quantity_sold,
+            })
+            .eq('id', adjustment.item_id);
+
+        if (quantityUpdateError) {
+            throw quantityUpdateError;
+        }
+
+        if (itemData.sync_enabled && itemData.shopify_inventory_item_id) {
+            try {
+                await supabase
+                    .from('items')
+                    .update({
+                        last_sync_source: 'ravenpos',
+                        last_synced_at: new Date().toISOString(),
+                    })
+                    .eq('id', adjustment.item_id);
+
+                await supabase.functions.invoke('push-to-shopify', {
+                    body: {
+                        item_id: adjustment.item_id,
+                        adjustment: -adjustment.quantity_sold,
+                    },
+                });
+            } catch (shopifyError) {
+                console.error('Offline sync: failed to push inventory to Shopify', adjustment.item_id, shopifyError);
+            }
+        }
+    }
+}
+
+export async function syncOfflineCashSalesQueue(options?: { failedOnly?: boolean }): Promise<{
+    synced: number;
+    failed: number;
+    skipped: number;
+}> {
+    if (!isElectronRuntime()) {
+        return { synced: 0, failed: 0, skipped: 0 };
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return { synced: 0, failed: 0, skipped: 0 };
+    }
+
+    const queue = await window.electronAPI!.listOfflineSales();
+    const candidates = queue
+        .filter((entry) => (options?.failedOnly ? entry.status === 'failed' : entry.status !== 'syncing'))
+        .sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+    let synced = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    for (const entry of candidates) {
+        if (options?.failedOnly && entry.status !== 'failed') {
+            skipped += 1;
+            continue;
+        }
+
+        try {
+            await window.electronAPI!.updateOfflineSale(entry.queue_id, {
+                status: 'syncing',
+                attempt_count: entry.attempt_count + 1,
+                last_attempt_at: new Date().toISOString(),
+                last_error: null,
+            });
+
+            await syncSingleQueueEntry(entry);
+
+            await window.electronAPI!.removeOfflineSale(entry.queue_id);
+            synced += 1;
+        } catch (error) {
+            const message = buildSyncErrorMessage(error, 'Failed syncing offline cash sale.');
+            await window.electronAPI!.updateOfflineSale(entry.queue_id, {
+                status: 'failed',
+                last_error: message,
+                last_attempt_at: new Date().toISOString(),
+            });
+            failed += 1;
+        }
+    }
+
+    return { synced, failed, skipped };
+}

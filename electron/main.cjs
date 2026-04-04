@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { randomUUID } = require('crypto');
 const Store = require('electron-store');
 const { autoUpdater } = require('electron-updater');
 const { printReceipt, printRefundReceipt, getPrinters, getPrintDiagnostics, getSelectedPrinter, setSelectedPrinter } = require('./printing.cjs');
@@ -18,6 +19,31 @@ const deviceAuthStore = new Store({
         token: null,
     },
 });
+const offlineSalesStore = new Store({
+    name: 'offline-cash-sales',
+    defaults: {
+        queue: [],
+    },
+});
+
+function getOfflineSalesQueue() {
+    const queue = offlineSalesStore.get('queue', []);
+    return Array.isArray(queue) ? queue : [];
+}
+
+function setOfflineSalesQueue(queue) {
+    offlineSalesStore.set('queue', queue);
+}
+
+function getOfflineSalesStatus() {
+    const queue = getOfflineSalesQueue();
+    return {
+        total: queue.length,
+        pending: queue.filter((entry) => entry.status === 'pending').length,
+        syncing: queue.filter((entry) => entry.status === 'syncing').length,
+        failed: queue.filter((entry) => entry.status === 'failed').length,
+    };
+}
 
 function getFocusedOrMainWindow() {
     return BrowserWindow.getFocusedWindow() || mainWindow || null;
@@ -249,6 +275,83 @@ ipcMain.handle('device-auth:set-token', async (event, token) => {
 ipcMain.handle('device-auth:clear-token', async () => {
     deviceAuthStore.set('token', null);
     return { success: true };
+});
+
+// IPC handlers for offline cash sale queue persistence
+ipcMain.handle('offline-sales:enqueue', async (event, payload) => {
+    if (!payload || typeof payload !== 'object') {
+        throw new Error('Invalid offline sale payload');
+    }
+
+    const now = new Date().toISOString();
+    const queueEntry = {
+        queue_id: randomUUID(),
+        status: 'pending',
+        attempt_count: 0,
+        last_error: null,
+        last_attempt_at: null,
+        created_at: now,
+        updated_at: now,
+        payload,
+    };
+
+    const queue = getOfflineSalesQueue();
+    queue.push(queueEntry);
+    setOfflineSalesQueue(queue);
+
+    return {
+        queueEntry,
+        status: getOfflineSalesStatus(),
+    };
+});
+
+ipcMain.handle('offline-sales:list', async () => {
+    return getOfflineSalesQueue();
+});
+
+ipcMain.handle('offline-sales:update', async (event, queueId, patch) => {
+    if (!queueId || typeof queueId !== 'string') {
+        throw new Error('Invalid queue id');
+    }
+    if (!patch || typeof patch !== 'object') {
+        throw new Error('Invalid patch');
+    }
+
+    const queue = getOfflineSalesQueue();
+    const nextQueue = queue.map((entry) => {
+        if (entry.queue_id !== queueId) return entry;
+        return {
+            ...entry,
+            ...patch,
+            updated_at: new Date().toISOString(),
+        };
+    });
+    setOfflineSalesQueue(nextQueue);
+
+    const updated = nextQueue.find((entry) => entry.queue_id === queueId) || null;
+    return {
+        entry: updated,
+        status: getOfflineSalesStatus(),
+    };
+});
+
+ipcMain.handle('offline-sales:remove', async (event, queueId) => {
+    if (!queueId || typeof queueId !== 'string') {
+        throw new Error('Invalid queue id');
+    }
+
+    const queue = getOfflineSalesQueue();
+    const nextQueue = queue.filter((entry) => entry.queue_id !== queueId);
+    setOfflineSalesQueue(nextQueue);
+
+    return {
+        removed: nextQueue.length !== queue.length,
+        status: getOfflineSalesStatus(),
+    };
+});
+
+ipcMain.handle('offline-sales:get-status', async () => {
+    return getOfflineSalesStatus();
 });
 
 // App lifecycle

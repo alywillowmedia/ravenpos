@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Monitor as MonitorIcon } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
@@ -30,9 +30,11 @@ import { formatCurrency } from '../lib/utils';
 import { createReceiptData } from '../lib/printReceipt';
 import { createInvoiceEmailDataFromCart } from '../lib/invoice';
 import { supabase } from '../lib/supabase';
+import { getOfflineSalesSyncStatus, syncOfflineCashSalesQueue } from '../lib/offlineCashSales';
 import type { CartItem, Item, Sale, Customer, CustomerInput, PaymentMethod, Discount, DiscountType, Invoice, InvoiceRecipientType } from '../types';
 import type { ReceiptData } from '../types/receipt';
 import type { InvoiceEmailData } from '../types/invoice';
+import type { OfflineSalesSyncStatus } from '../types/offline';
 
 const STRIPE_READER_MODE_KEY = 'ravenpos-stripe-reader-mode';
 const STRIPE_READER_LOCATION_KEY = 'ravenpos-stripe-reader-location-id';
@@ -156,6 +158,16 @@ export function POS() {
     });
 
     const [dealerDiscountEnabled, setDealerDiscountEnabled] = useState(false);
+    const [offlineSalesStatus, setOfflineSalesStatus] = useState<OfflineSalesSyncStatus>({
+        total: 0,
+        pending: 0,
+        syncing: 0,
+        failed: 0,
+    });
+    const [isSyncingOfflineSales, setIsSyncingOfflineSales] = useState(false);
+
+    const isElectronRuntime = typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
+    const isOfflineMode = isElectronRuntime && typeof navigator !== 'undefined' && !navigator.onLine;
 
     const getDealerDiscountPercentForItem = (item: Item): number => {
         if (!dealerDiscountEnabled) return 0;
@@ -186,10 +198,66 @@ export function POS() {
     const cashAmount = parseFloat(cashTendered) || 0;
     const change = cashAmount - amountDue;
 
+    const refreshOfflineSalesStatus = useCallback(async () => {
+        if (!isElectronRuntime) return;
+        const status = await getOfflineSalesSyncStatus();
+        setOfflineSalesStatus(status);
+    }, [isElectronRuntime]);
+
+    const runOfflineQueueSync = useCallback(async (failedOnly = false) => {
+        if (!isElectronRuntime) return;
+        if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+        setIsSyncingOfflineSales(true);
+        try {
+            await syncOfflineCashSalesQueue({ failedOnly });
+        } finally {
+            await refreshOfflineSalesStatus();
+            setIsSyncingOfflineSales(false);
+        }
+    }, [isElectronRuntime, refreshOfflineSalesStatus]);
+
     // Auto-focus scanner input
     useEffect(() => {
         scannerRef.current?.focus();
     }, []);
+
+    useEffect(() => {
+        if (!isElectronRuntime) return;
+
+        void refreshOfflineSalesStatus();
+
+        const onOnline = () => {
+            void runOfflineQueueSync(false);
+        };
+
+        window.addEventListener('online', onOnline);
+        const timer = window.setInterval(() => {
+            void refreshOfflineSalesStatus();
+            if (typeof navigator !== 'undefined' && navigator.onLine) {
+                void runOfflineQueueSync(false);
+            }
+        }, 15000);
+
+        return () => {
+            window.removeEventListener('online', onOnline);
+            window.clearInterval(timer);
+        };
+    }, [isElectronRuntime, refreshOfflineSalesStatus, runOfflineQueueSync]);
+
+    useEffect(() => {
+        if (!isOfflineMode) return;
+        if (paymentMethod !== 'cash') {
+            setPaymentMethod('cash');
+        }
+    }, [isOfflineMode, paymentMethod]);
+
+    useEffect(() => {
+        if (!isOfflineMode) return;
+        setUseStoreCredit(false);
+        setAppliedGiftCard(null);
+        setGiftCardInput('');
+    }, [isOfflineMode]);
 
     // Persist cart to sessionStorage
     useEffect(() => {
@@ -555,7 +623,7 @@ export function POS() {
             return;
         }
 
-        const { data: sale, error } = await completeSale(
+        const { data: sale, error, queuedOffline } = await completeSale(
             cart,
             subtotal,
             taxTotal,
@@ -599,9 +667,17 @@ export function POS() {
         }
 
         setCompletedSale(sale);
+        if (queuedOffline) {
+            setScanError('Sale saved locally. It will sync to Supabase automatically when internet returns.');
+            await refreshOfflineSalesStatus();
+        }
     };
 
     const handleCompleteCardSale = async () => {
+        if (isOfflineMode) {
+            setScanError('Offline mode supports cash sales only.');
+            return;
+        }
         if (cart.length === 0) return;
         if (amountDue > 0 && !connectedReader) {
             setScanError('No card reader connected');
@@ -744,6 +820,10 @@ export function POS() {
     };
 
     const handleCompleteCheckSale = async () => {
+        if (isOfflineMode) {
+            setScanError('Offline mode supports cash sales only.');
+            return;
+        }
         if (cart.length === 0) return;
 
         const { data: sale, error } = await completeSale(
@@ -972,6 +1052,11 @@ export function POS() {
     };
 
     const handleApplyGiftCard = async () => {
+        if (isOfflineMode) {
+            setGiftCardError('Gift cards require internet. Offline mode supports cash sales only.');
+            return;
+        }
+
         const normalizedCode = giftCardInput.trim().toUpperCase();
         if (!normalizedCode) {
             setGiftCardError('Enter a gift card code');
@@ -1037,7 +1122,8 @@ export function POS() {
                         <Button
                             variant="ghost"
                             onClick={() => setShowInvoiceModal(true)}
-                            disabled={cart.length === 0}
+                            disabled={cart.length === 0 || isOfflineMode}
+                            title={isOfflineMode ? 'Invoice creation requires internet' : undefined}
                         >
                             <FileTextIcon />
                             Invoice
@@ -1045,6 +1131,8 @@ export function POS() {
                         <Button
                             variant="ghost"
                             onClick={() => setShowRefundModal(true)}
+                            disabled={isOfflineMode}
+                            title={isOfflineMode ? 'Refund lookup requires internet' : undefined}
                         >
                             <RefundIcon />
                             Refund
@@ -1052,6 +1140,8 @@ export function POS() {
                         <Button
                             variant="ghost"
                             onClick={() => setShowGiftCardSaleModal(true)}
+                            disabled={isOfflineMode}
+                            title={isOfflineMode ? 'Gift card issuance requires internet' : undefined}
                         >
                             <GiftCardIcon />
                             Gift Card
@@ -1079,6 +1169,50 @@ export function POS() {
                     </div>
                 }
             />
+
+            {isOfflineMode && (
+                <Card variant="outlined" className="mb-4 shrink-0 border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10">
+                    <CardContent className="py-3">
+                        <p className="text-sm font-medium text-[var(--color-warning)]">Offline mode active: cash sales only.</p>
+                        <p className="text-xs text-[var(--color-muted)] mt-1">
+                            Card/check payments, store credit, gift cards, invoices, and refunds are temporarily disabled.
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
+
+            {isElectronRuntime && (offlineSalesStatus.failed > 0 || offlineSalesStatus.pending > 0) && (
+                <Card variant="outlined" className="mb-4 shrink-0">
+                    <CardContent className="py-3 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-medium">Offline Sync Queue</p>
+                            <p className="text-xs text-[var(--color-muted)]">
+                                Pending: {offlineSalesStatus.pending} · Failed: {offlineSalesStatus.failed}
+                            </p>
+                        </div>
+                        <div className="flex gap-2">
+                            <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => void runOfflineQueueSync(true)}
+                                disabled={isSyncingOfflineSales || offlineSalesStatus.failed === 0 || isOfflineMode}
+                                title={isOfflineMode ? 'Reconnect to retry failed syncs' : undefined}
+                            >
+                                Retry Failed
+                            </Button>
+                            <Button
+                                size="sm"
+                                onClick={() => void runOfflineQueueSync(false)}
+                                disabled={isSyncingOfflineSales || isOfflineMode}
+                                isLoading={isSyncingOfflineSales}
+                                title={isOfflineMode ? 'Reconnect to sync pending sales' : undefined}
+                            >
+                                Sync Now
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Customer Selection */}
             <Card variant="outlined" className="mb-4 shrink-0">
@@ -1116,9 +1250,15 @@ export function POS() {
                                             type="checkbox"
                                             checked={useStoreCredit}
                                             onChange={(e) => setUseStoreCredit(e.target.checked)}
+                                            disabled={isOfflineMode}
                                             className="h-4 w-4 rounded border-[var(--color-border)]"
                                         />
                                     </label>
+                                )}
+                                {isOfflineMode && availableStoreCredit > 0 && (
+                                    <p className="text-xs text-[var(--color-muted)]">
+                                        Store credit requires internet and is disabled offline.
+                                    </p>
                                 )}
                             </div>
                         </div>
@@ -1352,12 +1492,14 @@ export function POS() {
                                         value={giftCardInput}
                                         onChange={(e) => setGiftCardInput(e.target.value.toUpperCase())}
                                         placeholder="Enter gift card code"
+                                        disabled={isOfflineMode}
                                     />
                                     <Button
                                         variant="secondary"
                                         onClick={handleApplyGiftCard}
                                         isLoading={isApplyingGiftCard}
                                         className="shrink-0"
+                                        disabled={isOfflineMode}
                                     >
                                         Apply
                                     </Button>
@@ -1517,20 +1659,22 @@ export function POS() {
                                 </button>
                                 <button
                                     onClick={() => setPaymentMethod('check')}
+                                    disabled={isOfflineMode}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'check'
                                         ? 'bg-[var(--color-primary)] text-white'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
-                                        }`}
+                                        } ${isOfflineMode ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 >
                                     <CheckIcon />
                                     Check
                                 </button>
                                 <button
                                     onClick={() => setPaymentMethod('card')}
+                                    disabled={isOfflineMode}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'card'
                                         ? 'bg-[var(--color-primary)] text-white'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
-                                        }`}
+                                        } ${isOfflineMode ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 >
                                     <CardIcon />
                                     Card

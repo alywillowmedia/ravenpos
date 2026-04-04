@@ -18,6 +18,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setDeviceAuthToken: (token) => ipcRenderer.invoke('device-auth:set-token', token),
     clearDeviceAuthToken: () => ipcRenderer.invoke('device-auth:clear-token'),
 
+    // Offline cash sales queue
+    enqueueOfflineSale: (payload) => ipcRenderer.invoke('offline-sales:enqueue', payload),
+    listOfflineSales: () => ipcRenderer.invoke('offline-sales:list'),
+    updateOfflineSale: (queueId, patch) => ipcRenderer.invoke('offline-sales:update', queueId, patch),
+    removeOfflineSale: (queueId) => ipcRenderer.invoke('offline-sales:remove', queueId),
+    getOfflineSalesStatus: () => ipcRenderer.invoke('offline-sales:get-status'),
+
     // Platform detection
     isElectron: true,
 });

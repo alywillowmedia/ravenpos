@@ -1,7 +1,19 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { formatSupabaseError } from '../lib/supabaseError';
+import { enqueueOfflineCashSale } from '../lib/offlineCashSales';
 import type { CartItem, Sale, SaleItem, PaymentMethod, Discount } from '../types';
+import type { OfflineCashSalePayload } from '../types/offline';
+
+function isElectronRuntime(): boolean {
+    return typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
+}
+
+interface CompleteSaleResult {
+    data: Sale | null;
+    error: string | null;
+    queuedOffline?: boolean;
+}
 
 export function useSales() {
     const [isProcessing, setIsProcessing] = useState(false);
@@ -25,7 +37,7 @@ export function useSales() {
         checkNumber?: string,
         processedByUserId?: string | null,
         processedByEmployeeId?: string | null
-    ) => {
+    ): Promise<CompleteSaleResult> => {
         let creditDeducted = false;
         let giftCardDeducted = false;
 
@@ -45,6 +57,104 @@ export function useSales() {
             const roundedCardFeeAmount = Math.max(0, Math.round(cardFeeAmount * 100) / 100);
             const roundedGiftCardUsed = Math.max(0, Math.round(giftCardUsed * 100) / 100);
             const normalizedGiftCardCode = giftCardCode?.trim().toUpperCase();
+            const isOfflineCashMode = isElectronRuntime() && typeof navigator !== 'undefined' && !navigator.onLine && paymentMethod === 'cash';
+
+            if (isOfflineCashMode) {
+                if (roundedStoreCreditUsed > 0 || roundedGiftCardUsed > 0 || normalizedGiftCardCode) {
+                    return {
+                        data: null,
+                        error: 'Offline cash mode does not support store credit or gift cards.',
+                    };
+                }
+
+                const saleId = crypto.randomUUID();
+                const completedAt = new Date().toISOString();
+                const offlineSale: Sale = {
+                    id: saleId,
+                    customer_id: customerId || null,
+                    completed_at: completedAt,
+                    subtotal,
+                    tax_amount: taxTotal,
+                    total,
+                    payment_method: 'cash',
+                    cash_tendered: cashTendered,
+                    change_given: changeGiven,
+                    stripe_payment_intent_id: null,
+                    refund_status: null,
+                    discounts: orderDiscounts.map((discount) => ({
+                        type: discount.type,
+                        value: discount.value,
+                        reason: discount.reason,
+                        calculatedAmount: discount.calculatedAmount,
+                    })),
+                    discount_total: discountTotal,
+                    store_credit_used: 0,
+                    gift_card_used: 0,
+                    card_fee_amount: 0,
+                    processed_by_user: processedByUserId || null,
+                    processed_by_employee: processedByEmployeeId || null,
+                };
+
+                const offlineSaleItems = cartItems.map((cartItem) => ({
+                    id: crypto.randomUUID(),
+                    sale_id: saleId,
+                    item_id: cartItem.item.is_custom_sale_item ? null : cartItem.item.id,
+                    consignor_id: cartItem.item.consignor_id,
+                    sku: cartItem.item.sku,
+                    name: cartItem.item.name + (cartItem.item.variant_summary ? ` - ${cartItem.item.variant_summary}` : ''),
+                    price: cartItem.item.price,
+                    quantity: cartItem.quantity,
+                    commission_split: (cartItem.item.consignor as { commission_split: number })?.commission_split ?? 0.6,
+                    consignor_pays_card_fee: (cartItem.item.consignor as { consignor_pays_card_fee?: boolean })?.consignor_pays_card_fee ?? false,
+                    discount_type:
+                        cartItem.discount?.type ||
+                        ((cartItem.dealerDiscountAmount || 0) > 0 ? 'percentage' : undefined),
+                    discount_value:
+                        cartItem.discount?.value ??
+                        (((cartItem.dealerDiscountAmount || 0) > 0) ? Number(cartItem.dealerDiscountPercent || 0) : undefined),
+                    discount_amount: (cartItem.discount?.calculatedAmount ?? 0) + (cartItem.dealerDiscountAmount ?? 0),
+                    discount_reason: cartItem.discount?.reason ||
+                        (((cartItem.dealerDiscountAmount || 0) > 0) ? 'Dealer discount' : undefined),
+                }));
+
+                const inventoryAdjustments = cartItems
+                    .filter((cartItem) => !cartItem.item.is_custom_sale_item)
+                    .map((cartItem) => ({
+                        item_id: cartItem.item.id,
+                        quantity_sold: cartItem.quantity,
+                    }));
+
+                const payload: OfflineCashSalePayload = {
+                    sale: {
+                        id: offlineSale.id,
+                        customer_id: offlineSale.customer_id,
+                        subtotal: offlineSale.subtotal,
+                        tax_amount: offlineSale.tax_amount,
+                        total: offlineSale.total,
+                        payment_method: 'cash',
+                        cash_tendered: offlineSale.cash_tendered,
+                        change_given: offlineSale.change_given,
+                        stripe_payment_intent_id: null,
+                        discounts: offlineSale.discounts || [],
+                        discount_total: Number(offlineSale.discount_total || 0),
+                        store_credit_used: 0,
+                        gift_card_used: 0,
+                        card_fee_amount: 0,
+                        processed_by_user: offlineSale.processed_by_user || null,
+                        processed_by_employee: offlineSale.processed_by_employee || null,
+                        completed_at: offlineSale.completed_at,
+                    },
+                    sale_items: offlineSaleItems,
+                    inventory_adjustments: inventoryAdjustments,
+                };
+
+                const { error: queueError } = await enqueueOfflineCashSale(payload);
+                if (queueError) {
+                    return { data: null, error: queueError };
+                }
+
+                return { data: offlineSale, error: null, queuedOffline: true };
+            }
 
             // Deduct gift card first; if later steps fail, we'll attempt to restore it.
             if (normalizedGiftCardCode && roundedGiftCardUsed > 0) {
