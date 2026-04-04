@@ -7,10 +7,11 @@ import { AnalyticsCard } from '../components/analytics/AnalyticsCard';
 import { SalesTrendChart } from '../components/analytics/SalesTrendChart';
 import { SalesByCategoryChart } from '../components/analytics/SalesByCategoryChart';
 import { CustomerGrowthChart } from '../components/analytics/CustomerGrowthChart';
+import { BusyTimesCard } from '../components/analytics/BusyTimesCard';
 import { useConsignors } from '../hooks/useConsignors';
 import { useInventory } from '../hooks/useInventory';
 import { useSales } from '../hooks/useSales';
-import { useAnalytics, type SalesTrendData, type SalesByCategoryData, type CustomerGrowthData } from '../hooks/useAnalytics';
+import { useAnalytics, type SalesTrendData, type SalesByCategoryData, type CustomerGrowthData, type BusyTimeAnalyticsData } from '../hooks/useAnalytics';
 import { isConsignorCurrentlyActive } from '../lib/consignorStatus';
 import { formatCurrency } from '../lib/utils';
 import type { DashboardStats } from '../types';
@@ -39,12 +40,13 @@ export function Dashboard() {
     const { consignors, isLoading: consignorsLoading } = useConsignors();
     const { items, isLoading: itemsLoading } = useInventory();
     const { getTodaysSales } = useSales();
-    const { getSalesTrend, getSalesByCategory, getCustomerGrowth, isLoading: analyticsLoading } = useAnalytics();
+    const { getSalesTrend, getSalesByCategory, getCustomerGrowth, getBusyTimeAnalytics, isLoading: analyticsLoading } = useAnalytics();
 
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [salesTrend, setSalesTrend] = useState<SalesTrendData[]>([]);
     const [salesByCategory, setSalesByCategory] = useState<SalesByCategoryData[]>([]);
     const [customerGrowth, setCustomerGrowth] = useState<CustomerGrowthData[]>([]);
+    const [busyTimes, setBusyTimes] = useState<BusyTimeAnalyticsData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [analyticsExpanded, setAnalyticsExpanded] = useState(false);
     const [dateRange, setDateRange] = useState<AnalyticsRangePreset>('30');
@@ -88,16 +90,18 @@ export function Dashboard() {
 
         const fetchAnalytics = async () => {
             const rangeOptions = isCustom ? { startDate: customStart, endDate: customEnd } : undefined;
-            const [trendRes, categoryRes, growthRes] = await Promise.all([
+            const [trendRes, categoryRes, growthRes, busyRes] = await Promise.all([
                 getSalesTrend(days, isHourly, rangeOptions),
                 getSalesByCategory(rangeOptions),
-                getCustomerGrowth(days, isHourly, rangeOptions)
+                getCustomerGrowth(days, isHourly, rangeOptions),
+                getBusyTimeAnalytics(days, isHourly, rangeOptions)
             ]);
 
             if (isMounted) {
                 if (trendRes.data) setSalesTrend(trendRes.data);
                 if (categoryRes.data) setSalesByCategory(categoryRes.data);
                 if (growthRes.data) setCustomerGrowth(growthRes.data);
+                setBusyTimes(busyRes.data);
             }
         };
 
@@ -106,7 +110,7 @@ export function Dashboard() {
         return () => {
             isMounted = false;
         };
-    }, [analyticsExpanded, dateRange, customDateFrom, customDateTo, getSalesTrend, getSalesByCategory, getCustomerGrowth]);
+    }, [analyticsExpanded, dateRange, customDateFrom, customDateTo, getSalesTrend, getSalesByCategory, getCustomerGrowth, getBusyTimeAnalytics]);
 
     const quickLinks = [
         { href: '/admin/pos', label: 'Open Register', icon: RegisterIcon, color: 'bg-[var(--color-primary)]' },
@@ -220,6 +224,15 @@ export function Dashboard() {
                                     </div>
                                 ) : (
                                     <SalesByCategoryChart data={salesByCategory} />
+                                )}
+                            </AnalyticsCard>
+                            <AnalyticsCard title="Busiest Times" className="col-span-1 lg:col-span-3">
+                                {analyticsLoading ? (
+                                    <div className="flex items-center justify-center h-full">
+                                        <LoadingSpinner />
+                                    </div>
+                                ) : (
+                                    <BusyTimesCard data={busyTimes} />
                                 )}
                             </AnalyticsCard>
                             <AnalyticsCard title="Customer Growth" className="col-span-1 lg:col-span-3">

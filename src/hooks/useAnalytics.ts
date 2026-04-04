@@ -26,6 +26,21 @@ export interface InventoryStatsData {
     outOfStock: number;
 }
 
+export interface TimeBucketData {
+    label: string;
+    count: number;
+    amount: number;
+    averageCount: number;
+    averageAmount: number;
+}
+
+export interface BusyTimeAnalyticsData {
+    busiestHour: TimeBucketData | null;
+    busiestWeekday: TimeBucketData | null;
+    hourlyBreakdown: TimeBucketData[];
+    weekdayBreakdown: TimeBucketData[];
+}
+
 interface AnalyticsRangeOptions {
     startDate?: Date;
     endDate?: Date;
@@ -299,11 +314,117 @@ export function useAnalytics() {
         }
     }, []);
 
+    const getBusyTimeAnalytics = useCallback(async (
+        days: number = 30,
+        hourly: boolean = false,
+        rangeOptions?: AnalyticsRangeOptions
+    ) => {
+        try {
+            startLoading();
+
+            const endDate = rangeOptions?.endDate ? new Date(rangeOptions.endDate) : new Date();
+            const startDate = rangeOptions?.startDate ? new Date(rangeOptions.startDate) : new Date();
+
+            if (!rangeOptions?.startDate) {
+                if (hourly) {
+                    startDate.setHours(endDate.getHours() - 24);
+                } else {
+                    startDate.setDate(endDate.getDate() - days);
+                }
+            }
+
+            let query = supabase
+                .from('sales')
+                .select('completed_at, total')
+                .gte('completed_at', startDate.toISOString())
+                .lte('completed_at', endDate.toISOString())
+                .order('completed_at', { ascending: true });
+
+            const { data, error } = await query;
+            if (error) throw error;
+
+            const hourLabels = [
+                '12 AM', '1 AM', '2 AM', '3 AM', '4 AM', '5 AM',
+                '6 AM', '7 AM', '8 AM', '9 AM', '10 AM', '11 AM',
+                '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM',
+                '6 PM', '7 PM', '8 PM', '9 PM', '10 PM', '11 PM'
+            ];
+            const weekdayLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+            const hourlyBuckets = hourLabels.map((label) => ({ label, count: 0, amount: 0, averageCount: 0, averageAmount: 0 }));
+            const weekdayBuckets = weekdayLabels.map((label) => ({ label, count: 0, amount: 0, averageCount: 0, averageAmount: 0 }));
+
+            for (const sale of data || []) {
+                const date = new Date(sale.completed_at);
+                const hour = date.getHours();
+                const weekday = date.getDay();
+                const total = Number(sale.total) || 0;
+
+                hourlyBuckets[hour].count += 1;
+                hourlyBuckets[hour].amount += total;
+                weekdayBuckets[weekday].count += 1;
+                weekdayBuckets[weekday].amount += total;
+            }
+
+            const rangeStartDay = new Date(startDate);
+            rangeStartDay.setHours(0, 0, 0, 0);
+            const rangeEndDay = new Date(endDate);
+            rangeEndDay.setHours(0, 0, 0, 0);
+
+            let totalDaysInRange = 0;
+            const weekdayOccurrences = [0, 0, 0, 0, 0, 0, 0];
+            const cursor = new Date(rangeStartDay);
+            while (cursor <= rangeEndDay) {
+                totalDaysInRange += 1;
+                weekdayOccurrences[cursor.getDay()] += 1;
+                cursor.setDate(cursor.getDate() + 1);
+            }
+
+            const safeTotalDays = Math.max(totalDaysInRange, 1);
+            for (let i = 0; i < hourlyBuckets.length; i++) {
+                hourlyBuckets[i].averageCount = hourlyBuckets[i].count / safeTotalDays;
+                hourlyBuckets[i].averageAmount = hourlyBuckets[i].amount / safeTotalDays;
+            }
+
+            for (let i = 0; i < weekdayBuckets.length; i++) {
+                const divisor = Math.max(weekdayOccurrences[i], 1);
+                weekdayBuckets[i].averageCount = weekdayBuckets[i].count / divisor;
+                weekdayBuckets[i].averageAmount = weekdayBuckets[i].amount / divisor;
+            }
+
+            const busiestHour = hourlyBuckets.reduce<TimeBucketData | null>((top, current) => {
+                if (!top) return current;
+                return current.count > top.count ? current : top;
+            }, null);
+
+            const busiestWeekday = weekdayBuckets.reduce<TimeBucketData | null>((top, current) => {
+                if (!top) return current;
+                return current.count > top.count ? current : top;
+            }, null);
+
+            const result: BusyTimeAnalyticsData = {
+                busiestHour: busiestHour && busiestHour.count > 0 ? busiestHour : null,
+                busiestWeekday: busiestWeekday && busiestWeekday.count > 0 ? busiestWeekday : null,
+                hourlyBreakdown: hourlyBuckets,
+                weekdayBreakdown: weekdayBuckets
+            };
+
+            return { data: result, error: null };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to fetch busy time analytics';
+            setError(message);
+            return { data: null, error: message };
+        } finally {
+            stopLoading();
+        }
+    }, []);
+
     return {
         isLoading,
         error,
         getSalesTrend,
         getSalesByCategory,
-        getCustomerGrowth
+        getCustomerGrowth,
+        getBusyTimeAnalytics
     };
 }
