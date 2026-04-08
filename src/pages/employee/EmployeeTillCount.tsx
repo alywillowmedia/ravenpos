@@ -9,6 +9,14 @@ import { useEmployee } from '../../contexts/EmployeeContext';
 import { formatCurrency } from '../../lib/utils';
 import { supabase } from '../../lib/supabase';
 import { printTillCountReceipt } from '../../lib/printTillCountReceipt';
+import { getOfflineUnsyncedCashNetTotal } from '../../lib/offlineCashSales';
+import {
+    fromCurrencyCents,
+    getCountedDrawerCents,
+    getExpectedCashFromSalesCents,
+    sumCashSalesNetCents,
+    toCurrencyCents,
+} from '../../lib/cashReconciliation';
 
 interface AdminContact {
     id: string;
@@ -51,6 +59,7 @@ export function EmployeeTillCount() {
     const [isSendingEmail, setIsSendingEmail] = useState(false);
     const [openingFloatInput, setOpeningFloatInput] = useState('');
     const [expectedCashFromSales, setExpectedCashFromSales] = useState(0);
+    const [offlineUnsyncedCashNetTotal, setOfflineUnsyncedCashNetTotal] = useState(0);
     const [checkCountInput, setCheckCountInput] = useState('');
     const [checkAmountInput, setCheckAmountInput] = useState('');
     const [admins, setAdmins] = useState<AdminContact[]>([]);
@@ -67,7 +76,7 @@ export function EmployeeTillCount() {
             setIsLoading(true);
             const { startIso, endIso } = getTodayRangeIso();
 
-            const [adminsResult, cashSalesResult, cashRefundsResult, dealerPurchasesResult] = await Promise.all([
+            const [adminsResult, cashSalesResult, cashRefundsResult, dealerPurchasesResult, offlineUnsyncedCashTotal] = await Promise.all([
                 supabase.rpc('get_chat_admin_contacts'),
                 supabase
                     .from('sales')
@@ -87,6 +96,10 @@ export function EmployeeTillCount() {
                     .eq('payment_method', 'cash')
                     .gte('purchased_at', startIso)
                     .lte('purchased_at', endIso),
+                getOfflineUnsyncedCashNetTotal({
+                    dateStart: startIso,
+                    dateEnd: endIso,
+                }),
             ]);
 
             if (adminsResult.error) {
@@ -119,41 +132,35 @@ export function EmployeeTillCount() {
                 );
             }
 
-            const cashSalesNet = (cashSalesResult.data || []).reduce((sum, sale) => {
-                const tendered = Number(sale.cash_tendered ?? 0);
-                const change = Number(sale.change_given ?? 0);
-                const fallback = Number(sale.total ?? 0);
-                return sum + (tendered > 0 ? (tendered - change) : fallback);
-            }, 0);
-
-            const cashRefunds = (cashRefundsResult.data || []).reduce(
-                (sum, refund) => sum + Number(refund.refund_amount || 0),
+            const cashSalesNetCents = sumCashSalesNetCents(cashSalesResult.data || []);
+            const cashRefundsCents = (cashRefundsResult.data || []).reduce(
+                (sum, refund) => sum + toCurrencyCents(refund.refund_amount || 0),
                 0
             );
+            const expectedFromSalesCents = getExpectedCashFromSalesCents({
+                cashSalesNetCents,
+                cashRefundsCents,
+                dealerCashPurchasesCents: toCurrencyCents(dealerCashPurchases),
+                offlineUnsyncedCashSalesCents: toCurrencyCents(offlineUnsyncedCashTotal),
+            });
 
-            setExpectedCashFromSales(cashSalesNet - cashRefunds - dealerCashPurchases);
+            setOfflineUnsyncedCashNetTotal(offlineUnsyncedCashTotal);
+            setExpectedCashFromSales(fromCurrencyCents(expectedFromSalesCents));
             setIsLoading(false);
         };
 
         void loadPageData();
     }, [toast]);
 
-    const countedTotal = useMemo(
-        () => CASH_DENOMINATIONS.reduce((sum, denomination) => {
-            const quantity = Math.max(
-                0,
-                Number.parseInt(denominationCounts[denomination.key] || '0', 10) || 0
-            );
-            return sum + (quantity * denomination.value);
-        }, 0),
-        [denominationCounts]
-    );
+    const countedTotal = useMemo(() => fromCurrencyCents(
+        getCountedDrawerCents(CASH_DENOMINATIONS, denominationCounts)
+    ), [denominationCounts]);
 
     const openingFloat = Number.parseFloat(openingFloatInput) || 0;
     const checkCount = Math.max(0, Number.parseInt(checkCountInput || '0', 10) || 0);
     const checkTotal = Math.max(0, Number.parseFloat(checkAmountInput) || 0);
-    const expectedDrawerTotal = openingFloat + expectedCashFromSales;
-    const variance = countedTotal - expectedDrawerTotal;
+    const expectedDrawerTotal = fromCurrencyCents(toCurrencyCents(openingFloat) + toCurrencyCents(expectedCashFromSales));
+    const variance = fromCurrencyCents(toCurrencyCents(countedTotal) - toCurrencyCents(expectedDrawerTotal));
 
     const adminOptions = [
         { value: '', label: admins.length > 0 ? 'Select admin' : 'No admins available' },
@@ -282,6 +289,11 @@ export function EmployeeTillCount() {
                             <p className="text-2xl font-bold">
                                 {isLoading ? 'Loading...' : formatCurrency(expectedCashFromSales)}
                             </p>
+                            {offlineUnsyncedCashNetTotal > 0.009 && (
+                                <p className="text-xs text-[var(--color-muted)] mt-1">
+                                    Includes offline unsynced cash sales: +{formatCurrency(offlineUnsyncedCashNetTotal)}
+                                </p>
+                            )}
                         </div>
                         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
                             <p className="text-xs text-[var(--color-muted)]">Checks (Manual Entry)</p>

@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import type { OfflineCashSalePayload, OfflineCashSaleQueueEntry, OfflineSalesSyncStatus } from '../types/offline';
+import { getNetCashSaleCents, fromCurrencyCents } from './cashReconciliation';
 
 function isElectronRuntime(): boolean {
     return typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
@@ -41,6 +42,32 @@ export async function getOfflineSalesSyncStatus(): Promise<OfflineSalesSyncStatu
         return await window.electronAPI!.getOfflineSalesStatus();
     } catch {
         return { total: 0, pending: 0, syncing: 0, failed: 0 };
+    }
+}
+
+export async function getOfflineUnsyncedCashNetTotal(options?: {
+    dateStart?: string | null;
+    dateEnd?: string | null;
+}): Promise<number> {
+    if (!isElectronRuntime()) {
+        return 0;
+    }
+
+    try {
+        const queue = await window.electronAPI!.listOfflineSales();
+        const totalCents = queue
+            .filter((entry) => entry.status === 'pending' || entry.status === 'syncing' || entry.status === 'failed')
+            .filter((entry) => {
+                const completedAt = entry.payload.sale.completed_at;
+                if (options?.dateStart && completedAt < options.dateStart) return false;
+                if (options?.dateEnd && completedAt > options.dateEnd) return false;
+                return true;
+            })
+            .reduce((sum, entry) => sum + getNetCashSaleCents(entry.payload.sale), 0);
+
+        return fromCurrencyCents(totalCents);
+    } catch {
+        return 0;
     }
 }
 

@@ -8,8 +8,13 @@ import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Tabs } from '../components/ui/Tabs';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
+import { AnalyticsCard } from '../components/analytics/AnalyticsCard';
+import { SalesTrendChart } from '../components/analytics/SalesTrendChart';
+import { SalesByCategoryChart } from '../components/analytics/SalesByCategoryChart';
+import { BusyTimesCard } from '../components/analytics/BusyTimesCard';
 import { useSalesHistory, type SaleWithItems } from '../hooks/useSalesHistory';
 import { useRefundHistory, type RefundWithDetails } from '../hooks/useRefundHistory';
+import { useAnalytics, type SalesTrendData, type SalesByCategoryData, type BusyTimeAnalyticsData } from '../hooks/useAnalytics';
 import { useConsignors } from '../hooks/useConsignors';
 import { useCustomers } from '../hooks/useCustomers';
 import { useAuth } from '../contexts/AuthContext';
@@ -18,11 +23,20 @@ import { formatCurrency } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { printReceipt } from '../lib/printReceipt';
 import { printTillCountReceipt } from '../lib/printTillCountReceipt';
+import { calculateStripeTerminalProcessingFee } from '../lib/cardFees';
+import { getOfflineUnsyncedCashNetTotal } from '../lib/offlineCashSales';
+import {
+    fromCurrencyCents,
+    getCountedDrawerCents,
+    getExpectedCashFromSalesCents,
+    sumCashSalesNetCents,
+    toCurrencyCents,
+} from '../lib/cashReconciliation';
 import type { ReceiptData } from '../types/receipt';
 import type { Customer, CustomerInput } from '../types';
 
 type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
-type SalesTab = 'sales' | 'refunds' | 'employeeAttribution';
+type SalesTab = 'sales' | 'refunds' | 'employeeAttribution' | 'salesAnalytics';
 const SALES_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
 function isMissingDealerPurchasesTableError(message?: string): boolean {
@@ -95,6 +109,7 @@ export function Sales() {
     const { userRecord } = useAuth();
     const toast = useToast();
     const { refunds, isLoading: isLoadingRefunds } = useRefundHistory();
+    const { getSalesTrend, getSalesByCategory, getBusyTimeAnalytics, isLoading: isLoadingAnalytics } = useAnalytics();
     const { consignors } = useConsignors();
     const { searchCustomers, createCustomer } = useCustomers();
 
@@ -104,7 +119,7 @@ export function Sales() {
     const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
     const [selectedSale, setSelectedSale] = useState<SaleWithItems | null>(null);
     const [filterConsignor, setFilterConsignor] = useState('');
-    const [filterDatePreset, setFilterDatePreset] = useState<DatePreset>('all');
+    const [filterDatePreset, setFilterDatePreset] = useState<DatePreset>('last30');
     const [customDateFrom, setCustomDateFrom] = useState(() => toLocalDateInput(new Date()));
     const [customDateTo, setCustomDateTo] = useState(() => toLocalDateInput(new Date()));
     const [checkNumberInput, setCheckNumberInput] = useState('');
@@ -131,11 +146,15 @@ export function Sales() {
     const [admins, setAdmins] = useState<AdminContact[]>([]);
     const [selectedAdminId, setSelectedAdminId] = useState('');
     const [isSendingTillEmail, setIsSendingTillEmail] = useState(false);
+    const [salesTrendData, setSalesTrendData] = useState<SalesTrendData[]>([]);
+    const [salesByCategoryData, setSalesByCategoryData] = useState<SalesByCategoryData[]>([]);
+    const [busyTimeAnalytics, setBusyTimeAnalytics] = useState<BusyTimeAnalyticsData | null>(null);
     const [openingFloatInput, setOpeningFloatInput] = useState('');
     const [manualCashAdjustmentInput, setManualCashAdjustmentInput] = useState('');
     const [checkCountInput, setCheckCountInput] = useState('');
     const [checkAmountInput, setCheckAmountInput] = useState('');
     const [cashDealerPurchasesTotal, setCashDealerPurchasesTotal] = useState(0);
+    const [offlineUnsyncedCashNetTotal, setOfflineUnsyncedCashNetTotal] = useState(0);
     const [denominationCounts, setDenominationCounts] = useState<Record<string, string>>(() =>
         CASH_DENOMINATIONS.reduce<Record<string, string>>((acc, denomination) => {
             acc[denomination.key] = '';
@@ -200,7 +219,15 @@ export function Sales() {
     const dateStartIso = dateRange.start ? dateRange.start.toISOString() : null;
     const dateEndIso = dateRange.end ? dateRange.end.toISOString() : null;
 
-    const { sales, totalCount: filteredSalesTotalCount, isLoading, calculateSalesSummary, refetch } = useSalesHistory({
+    const {
+        sales,
+        allFilteredSales: allFilteredSalesRows,
+        totalCount: filteredSalesTotalCount,
+        isLoading,
+        isLoadingAllFiltered,
+        calculateSalesSummary,
+        refetch,
+    } = useSalesHistory({
         page: salesPage,
         pageSize: salesPageSize,
         dateStart: dateStartIso,
@@ -216,6 +243,7 @@ export function Sales() {
     };
 
     const filteredSales = sales;
+    const allFilteredSales = allFilteredSalesRows;
 
     const filteredRefunds = useMemo(
         () => refunds.filter((refund) => matchesDateRange(refund.created_at)),
@@ -267,55 +295,69 @@ export function Sales() {
         void loadDealerCashPurchases();
     }, [dateStartIso, dateEndIso, toast]);
 
+    useEffect(() => {
+        const loadOfflineUnsyncedCash = async () => {
+            const total = await getOfflineUnsyncedCashNetTotal({
+                dateStart: dateStartIso,
+                dateEnd: dateEndIso,
+            });
+            setOfflineUnsyncedCashNetTotal(total);
+        };
+
+        void loadOfflineUnsyncedCash();
+    }, [dateStartIso, dateEndIso]);
+
     const cashReconciliation = useMemo(() => {
-        const cashSales = filteredSales.filter((sale) => sale.payment_method === 'cash');
+        const cashSales = allFilteredSales.filter((sale) => sale.payment_method === 'cash');
         const cashSalesCount = cashSales.length;
-        const cashReceivedGross = cashSales.reduce(
-            (sum, sale) => sum + Number(sale.cash_tendered ?? 0),
+        const cashReceivedGrossCents = cashSales.reduce(
+            (sum, sale) => sum + toCurrencyCents(sale.cash_tendered ?? 0),
             0
         );
-        const changeGiven = cashSales.reduce(
-            (sum, sale) => sum + Number(sale.change_given ?? 0),
+        const changeGivenCents = cashSales.reduce(
+            (sum, sale) => sum + toCurrencyCents(sale.change_given ?? 0),
             0
         );
-        const cashSalesNet = cashSales.reduce((sum, sale) => {
-            const tendered = Number(sale.cash_tendered ?? 0);
-            const change = Number(sale.change_given ?? 0);
-            const fallback = Number(sale.total ?? 0);
-            return sum + (tendered > 0 ? (tendered - change) : fallback);
-        }, 0);
-        const cashRefunds = filteredRefunds
+        const cashSalesNetCents = sumCashSalesNetCents(cashSales);
+        const cashRefundsCents = filteredRefunds
             .filter((refund) => refund.payment_method === 'cash')
-            .reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0);
-        const expectedCashFromSales = cashSalesNet - cashRefunds - cashDealerPurchasesTotal;
+            .reduce((sum, refund) => sum + toCurrencyCents(refund.refund_amount || 0), 0);
+        const dealerCashPurchasesCents = toCurrencyCents(cashDealerPurchasesTotal);
+        const offlineUnsyncedCashSalesCents = toCurrencyCents(offlineUnsyncedCashNetTotal);
+        const expectedCashFromSalesCents = getExpectedCashFromSalesCents({
+            cashSalesNetCents,
+            cashRefundsCents,
+            dealerCashPurchasesCents,
+            offlineUnsyncedCashSalesCents,
+        });
         const openingFloat = Number.parseFloat(openingFloatInput) || 0;
         const manualAdjustment = Number.parseFloat(manualCashAdjustmentInput) || 0;
         const checkCount = Math.max(0, Number.parseInt(checkCountInput || '0', 10) || 0);
         const checkTotal = Math.max(0, Number.parseFloat(checkAmountInput) || 0);
-        const expectedDrawerTotal = openingFloat + expectedCashFromSales + manualAdjustment;
-        const countedTotal = CASH_DENOMINATIONS.reduce((sum, denomination) => {
-            const quantity = Math.max(0, Number.parseInt(denominationCounts[denomination.key] || '0', 10) || 0);
-            return sum + (quantity * denomination.value);
-        }, 0);
-        const variance = countedTotal - expectedDrawerTotal;
+        const expectedDrawerTotalCents = toCurrencyCents(openingFloat)
+            + expectedCashFromSalesCents
+            + toCurrencyCents(manualAdjustment);
+        const countedTotalCents = getCountedDrawerCents(CASH_DENOMINATIONS, denominationCounts);
+        const varianceCents = countedTotalCents - expectedDrawerTotalCents;
 
         return {
             cashSalesCount,
-            cashReceivedGross,
-            changeGiven,
-            cashSalesNet,
-            cashRefunds,
+            cashReceivedGross: fromCurrencyCents(cashReceivedGrossCents),
+            changeGiven: fromCurrencyCents(changeGivenCents),
+            cashSalesNet: fromCurrencyCents(cashSalesNetCents),
+            cashRefunds: fromCurrencyCents(cashRefundsCents),
             cashDealerPurchasesTotal,
+            offlineUnsyncedCashNetTotal,
             checkCount,
             checkTotal,
-            expectedCashFromSales,
+            expectedCashFromSales: fromCurrencyCents(expectedCashFromSalesCents),
             openingFloat,
             manualAdjustment,
-            expectedDrawerTotal,
-            countedTotal,
-            variance,
+            expectedDrawerTotal: fromCurrencyCents(expectedDrawerTotalCents),
+            countedTotal: fromCurrencyCents(countedTotalCents),
+            variance: fromCurrencyCents(varianceCents),
         };
-    }, [filteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts, cashDealerPurchasesTotal]);
+    }, [allFilteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal]);
 
     useEffect(() => {
         const loadAdmins = async () => {
@@ -354,14 +396,47 @@ export function Sales() {
         void loadEmployees();
     }, [toast]);
 
+    useEffect(() => {
+        if (activeTab !== 'salesAnalytics') return;
+
+        const loadAnalytics = async () => {
+            const rangeStart = dateRange.start
+                ? new Date(dateRange.start)
+                : (allFilteredSales.length > 0
+                    ? new Date(Math.min(...allFilteredSales.map((sale) => new Date(sale.completed_at).getTime())))
+                    : null);
+            const rangeEnd = dateRange.end
+                ? new Date(dateRange.end)
+                : (allFilteredSales.length > 0
+                    ? new Date(Math.max(...allFilteredSales.map((sale) => new Date(sale.completed_at).getTime())))
+                    : null);
+
+            const rangeOptions = rangeStart && rangeEnd
+                ? { startDate: rangeStart, endDate: rangeEnd }
+                : undefined;
+
+            const [trendRes, categoryRes, busyRes] = await Promise.all([
+                getSalesTrend(30, false, rangeOptions),
+                getSalesByCategory(rangeOptions),
+                getBusyTimeAnalytics(30, false, rangeOptions),
+            ]);
+
+            if (!trendRes.error) setSalesTrendData(trendRes.data);
+            if (!categoryRes.error) setSalesByCategoryData(categoryRes.data);
+            if (!busyRes.error) setBusyTimeAnalytics(busyRes.data);
+        };
+
+        void loadAnalytics();
+    }, [activeTab, dateRange.start, dateRange.end, allFilteredSales, getSalesTrend, getSalesByCategory, getBusyTimeAnalytics]);
+
     const paymentTotals = useMemo(() => {
-        const cashSalesTotal = filteredSales
+        const cashSalesTotal = allFilteredSales
             .filter((sale) => sale.payment_method === 'cash')
             .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
-        const cardSalesTotal = filteredSales
+        const cardSalesTotal = allFilteredSales
             .filter((sale) => sale.payment_method === 'card')
             .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
-        const checkSalesTotal = filteredSales
+        const checkSalesTotal = allFilteredSales
             .filter((sale) => sale.payment_method === 'check')
             .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
 
@@ -375,7 +450,7 @@ export function Sales() {
             .filter((refund) => refund.payment_method === 'check')
             .reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0);
 
-        const cardFeeTotal = filteredSales.reduce((sum, sale) => sum + Number(sale.card_fee_amount || 0), 0);
+        const cardFeeTotal = allFilteredSales.reduce((sum, sale) => sum + Number(sale.card_fee_amount || 0), 0);
 
         return {
             cashNetTotal: cashSalesTotal - cashRefundTotal,
@@ -383,7 +458,86 @@ export function Sales() {
             checkNetTotal: checkSalesTotal - checkRefundTotal,
             cardFeeTotal,
         };
-    }, [filteredSales, filteredRefunds]);
+    }, [allFilteredSales, filteredRefunds]);
+
+    const payoutBasisTotals = useMemo(() => {
+        const refundedItemsMap = new Map<string, number>();
+        for (const refund of filteredRefunds) {
+            const items = refund.items as Array<{ sale_item_id: string; quantity: number }> | null | undefined;
+            for (const item of items || []) {
+                const current = refundedItemsMap.get(item.sale_item_id) || 0;
+                refundedItemsMap.set(item.sale_item_id, current + Number(item.quantity || 0));
+            }
+        }
+
+        let grossSales = 0;
+        let taxCollected = 0;
+        let consignorShare = 0;
+        let storeShare = 0;
+        let consignorCardFees = 0;
+
+        for (const sale of allFilteredSales) {
+            const saleItems = sale.items.filter((item) => item.consignor?.is_active !== false);
+            if (saleItems.length === 0) continue;
+
+            let subtotalAfterItemDiscounts = 0;
+            let totalItemDiscounts = 0;
+            for (const item of saleItems) {
+                const rawLineTotal = Number(item.price || 0) * Number(item.quantity || 0);
+                const itemDiscount = Math.max(0, Math.min(Number(item.discount_amount || 0), rawLineTotal));
+                subtotalAfterItemDiscounts += Math.max(0, rawLineTotal - itemDiscount);
+                totalItemDiscounts += itemDiscount;
+            }
+
+            const saleDiscountTotal = Math.max(0, Number(sale.discount_total || 0));
+            const orderDiscountTotal = Math.max(
+                0,
+                Math.min(saleDiscountTotal - totalItemDiscounts, subtotalAfterItemDiscounts)
+            );
+            const orderDiscountRatio = subtotalAfterItemDiscounts > 0 ? orderDiscountTotal / subtotalAfterItemDiscounts : 0;
+            const saleNetSubtotal = Math.max(0, subtotalAfterItemDiscounts - orderDiscountTotal);
+            const saleTax = Number(sale.tax_amount || 0);
+            const totalSaleFee = sale.payment_method === 'card'
+                ? calculateStripeTerminalProcessingFee(Number(sale.total || saleNetSubtotal))
+                : 0;
+
+            for (const item of saleItems) {
+                const rawLineTotal = Number(item.price || 0) * Number(item.quantity || 0);
+                const itemDiscount = Math.max(0, Math.min(Number(item.discount_amount || 0), rawLineTotal));
+                const lineAfterItemDiscount = Math.max(0, rawLineTotal - itemDiscount);
+                const netLineTotal = lineAfterItemDiscount * (1 - orderDiscountRatio);
+
+                const itemTaxPortion = saleNetSubtotal > 0 ? (netLineTotal / saleNetSubtotal) * saleTax : 0;
+                const itemCreditCardFee =
+                    sale.payment_method === 'card' && item.consignor_pays_card_fee
+                        ? (saleNetSubtotal > 0 ? totalSaleFee * (netLineTotal / saleNetSubtotal) : 0)
+                        : 0;
+
+                const refundedQty = refundedItemsMap.get(item.id) || 0;
+                const effectiveQuantity = Math.max(0, Number(item.quantity || 0) - refundedQty);
+                const effectiveRatio = Number(item.quantity || 0) > 0 ? effectiveQuantity / Number(item.quantity || 0) : 0;
+                const effectiveLineTotal = netLineTotal * effectiveRatio;
+                const effectiveTax = itemTaxPortion * effectiveRatio;
+                const effectiveCardFee = itemCreditCardFee * effectiveRatio;
+                const effectiveConsignorShare = (effectiveLineTotal * Number(item.commission_split || 0)) - effectiveCardFee;
+                const effectiveStoreShare = effectiveLineTotal - (effectiveLineTotal * Number(item.commission_split || 0));
+
+                grossSales += effectiveLineTotal;
+                taxCollected += effectiveTax;
+                consignorShare += effectiveConsignorShare;
+                storeShare += effectiveStoreShare;
+                consignorCardFees += effectiveCardFee;
+            }
+        }
+
+        return {
+            grossSales,
+            taxCollected,
+            consignorShare,
+            storeShare,
+            consignorCardFees,
+        };
+    }, [allFilteredSales, filteredRefunds]);
 
     const employeeAttribution = useMemo(() => {
         const employeeNameById = new Map(employeeDirectory.map((employee) => [employee.id, employee.name]));
@@ -399,7 +553,7 @@ export function Sales() {
             grossSales: number;
         }>();
 
-        for (const sale of filteredSales) {
+        for (const sale of allFilteredSales) {
             const employeeId = sale.processed_by_employee ?? null;
             const userId = sale.processed_by_user ?? null;
             const key = employeeId
@@ -448,43 +602,41 @@ export function Sales() {
         const attributedAdmins = rows.filter((row) => row.actorType === 'admin');
 
         return { rows, attributedEmployees, attributedAdmins };
-    }, [employeeDirectory, admins, filteredSales]);
+    }, [employeeDirectory, admins, allFilteredSales]);
 
     // Calculate totals (subtracting refunds)
     const totals = useMemo(() => {
-        // Sum up all refunds
         const totalRefunded = filteredRefunds.reduce((sum, refund) => sum + Number(refund.refund_amount), 0);
 
-        // Calculate raw sales totals
-        const rawTotals = filteredSales.reduce(
-            (acc, sale) => {
-                const summary = calculateSalesSummary(sale);
-                return {
-                    subtotal: acc.subtotal + sale.subtotal,
-                    tax: acc.tax + sale.tax_amount,
-                    total: acc.total + sale.total,
-                    consignorShare: acc.consignorShare + summary.consignorShare,
-                    storeShare: acc.storeShare + summary.storeShare,
-                };
-            },
-            { subtotal: 0, tax: 0, total: 0, consignorShare: 0, storeShare: 0 }
-        );
-
-        // Calculate refund proportions for consignor/store split
-        // Assume refunds are split the same as sales (proportionally)
-        const totalRevenueRatio = rawTotals.total > 0 ? totalRefunded / rawTotals.total : 0;
-        const refundedConsignorShare = rawTotals.consignorShare * totalRevenueRatio;
-        const refundedStoreShare = rawTotals.storeShare * totalRevenueRatio;
-
         return {
-            subtotal: rawTotals.subtotal,
-            tax: rawTotals.tax,
-            total: rawTotals.total - totalRefunded,
-            consignorShare: rawTotals.consignorShare - refundedConsignorShare,
-            storeShare: rawTotals.storeShare - refundedStoreShare,
+            subtotal: payoutBasisTotals.grossSales,
+            tax: payoutBasisTotals.taxCollected,
+            total: paymentTotals.cashNetTotal + paymentTotals.cardNetTotal + paymentTotals.checkNetTotal,
+            consignorShare: payoutBasisTotals.consignorShare,
+            storeShare: payoutBasisTotals.storeShare,
             totalRefunded,
         };
-    }, [filteredSales, filteredRefunds, calculateSalesSummary]);
+    }, [filteredRefunds, payoutBasisTotals, paymentTotals]);
+
+    const analyticsOverview = useMemo(() => {
+        const transactionCount = allFilteredSales.length;
+        const itemsSold = allFilteredSales.reduce(
+            (sum, sale) => sum + sale.items.reduce((itemSum, item) => itemSum + Number(item.quantity || 0), 0),
+            0
+        );
+        const avgTicket = transactionCount > 0 ? totals.total / transactionCount : 0;
+        const topCategory = salesByCategoryData[0];
+        const cardShare = totals.total > 0 ? (paymentTotals.cardNetTotal / totals.total) * 100 : 0;
+
+        return {
+            transactionCount,
+            itemsSold,
+            avgTicket,
+            topCategory: topCategory?.category || 'N/A',
+            topCategorySales: topCategory?.amount || 0,
+            cardShare,
+        };
+    }, [allFilteredSales, totals.total, salesByCategoryData, paymentTotals.cardNetTotal]);
 
     const consignorOptions = [
         { value: '', label: 'All Consignors' },
@@ -765,7 +917,7 @@ export function Sales() {
     };
 
     const handleExportSalesCsvItemized = () => {
-        if (filteredSales.length === 0) return;
+        if (allFilteredSales.length === 0) return;
 
         const headers = [
             'Sale Date',
@@ -795,7 +947,7 @@ export function Sales() {
 
         const rows: string[] = [headers.map(escapeCsvValue).join(',')];
 
-        for (const sale of filteredSales) {
+        for (const sale of allFilteredSales) {
             const saleDate = new Date(sale.completed_at);
             const saleDateLabel = saleDate.toLocaleDateString();
             const saleTimeLabel = saleDate.toLocaleTimeString();
@@ -847,7 +999,7 @@ export function Sales() {
     };
 
     const handleExportSalesCsvSummary = () => {
-        if (filteredSales.length === 0) return;
+        if (allFilteredSales.length === 0) return;
 
         const headers = [
             'Sale Date',
@@ -872,7 +1024,7 @@ export function Sales() {
 
         const rows: string[] = [headers.map(escapeCsvValue).join(',')];
 
-        for (const sale of filteredSales) {
+        for (const sale of allFilteredSales) {
             const saleDate = new Date(sale.completed_at);
             const saleDateLabel = saleDate.toLocaleDateString();
             const saleTimeLabel = saleDate.toLocaleTimeString();
@@ -918,6 +1070,8 @@ export function Sales() {
                 description={
                     activeTab === 'refunds'
                         ? `${filteredRefunds.length} refund${filteredRefunds.length !== 1 ? 's' : ''}`
+                        : activeTab === 'salesAnalytics'
+                            ? `${filteredSalesTotalCount} transaction${filteredSalesTotalCount !== 1 ? 's' : ''} in selected period`
                         : activeTab === 'employeeAttribution'
                             ? `${filteredSalesTotalCount} transaction${filteredSalesTotalCount !== 1 ? 's' : ''} in selected period`
                             : `${filteredSalesTotalCount} transaction${filteredSalesTotalCount !== 1 ? 's' : ''}`
@@ -931,29 +1085,69 @@ export function Sales() {
                         { id: 'sales', label: 'Sales', icon: <ReceiptSmallIcon /> },
                         { id: 'refunds', label: 'Refunds', icon: <RefundTabIcon /> },
                         { id: 'employeeAttribution', label: 'By Employee', icon: <EmployeesAttributionIcon /> },
+                        { id: 'salesAnalytics', label: 'Analytics', icon: <AnalyticsSmallIcon /> },
                     ]}
                     activeTab={activeTab}
                     onChange={(id) => setActiveTab(id as SalesTab)}
-                    className="max-w-md"
+                    className="max-w-3xl"
                 />
             </div>
 
             {/* Summary Cards - Only show for sales tab */}
             {activeTab === 'sales' && (
                 <>
-                    <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-4">
-                        <SummaryCard label="Net Sales" value={formatCurrency(totals.total)} />
-                        <SummaryCard label="Refunded" value={`-${formatCurrency(totals.totalRefunded)}`} variant="danger" />
-                        <SummaryCard label="Tax Collected" value={formatCurrency(totals.tax)} />
-                        <SummaryCard label="Consignor Payouts" value={formatCurrency(totals.consignorShare)} variant="success" />
-                        <SummaryCard label="Store Revenue" value={formatCurrency(totals.storeShare)} variant="primary" />
-                        <SummaryCard label="Gross Sales" value={formatCurrency(totals.subtotal)} />
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                        <SummaryCard label="Cash Total" value={formatCurrency(paymentTotals.cashNetTotal)} />
-                        <SummaryCard label="Card Total" value={formatCurrency(paymentTotals.cardNetTotal)} />
-                        <SummaryCard label="Card Fees" value={`-${formatCurrency(paymentTotals.cardFeeTotal)}`} variant="warning" />
-                        <SummaryCard label="Check Total" value={formatCurrency(paymentTotals.checkNetTotal)} />
+                    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/50 p-4 mb-6 space-y-4">
+                        <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-medium text-[var(--color-foreground)]">Sales Snapshot</p>
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setActiveTab('salesAnalytics')}
+                                disabled={isLoadingAllFiltered}
+                            >
+                                See all sales analytics
+                            </Button>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <SummaryCard
+                                label="Net Sales"
+                                value={formatCurrency(totals.total)}
+                                info="Total collected after refunds, for the current date and consignor filters."
+                            />
+                            <SummaryCard
+                                label="Gross Sales"
+                                value={formatCurrency(totals.subtotal)}
+                                info="Pre-tax subtotal from all matching sales before refunds."
+                            />
+                            <SummaryCard
+                                label="Taxes"
+                                value={formatCurrency(totals.tax)}
+                                info="Total tax recorded on matching sales."
+                            />
+                            <SummaryCard
+                                label="Refunds"
+                                value={`-${formatCurrency(totals.totalRefunded)}`}
+                                variant="danger"
+                                info="Money returned to customers in the selected date range."
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <SummaryCard
+                                label="Cash"
+                                value={formatCurrency(paymentTotals.cashNetTotal)}
+                                info="Net cash sales after cash refunds."
+                            />
+                            <SummaryCard
+                                label="Card"
+                                value={formatCurrency(paymentTotals.cardNetTotal)}
+                                info="Net card sales after card refunds."
+                            />
+                            <SummaryCard
+                                label="Check"
+                                value={formatCurrency(paymentTotals.checkNetTotal)}
+                                info="Net check sales after check refunds."
+                            />
+                        </div>
                     </div>
                     <div className="bg-white rounded-xl border border-[var(--color-border)] p-4 mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                         <div>
@@ -964,6 +1158,9 @@ export function Sales() {
                             <p className="text-xs text-[var(--color-muted)]">
                                 {cashReconciliation.cashSalesCount} cash sale{cashReconciliation.cashSalesCount !== 1 ? 's' : ''} in current filter
                                 {' '}• dealer cash buys: -{formatCurrency(cashReconciliation.cashDealerPurchasesTotal)}
+                                {cashReconciliation.offlineUnsyncedCashNetTotal > 0.009
+                                    ? ` • offline unsynced: +${formatCurrency(cashReconciliation.offlineUnsyncedCashNetTotal)}`
+                                    : ''}
                             </p>
                         </div>
                         <Button variant="secondary" onClick={() => setShowCashReconciliation(true)}>
@@ -1005,7 +1202,7 @@ export function Sales() {
                         </div>
                     </>
                 )}
-                {activeTab === 'sales' && (
+                {(activeTab === 'sales' || activeTab === 'salesAnalytics') && (
                     <div className="w-48">
                         <Select
                             options={consignorOptions}
@@ -1020,18 +1217,18 @@ export function Sales() {
                         variant="secondary"
                         size="sm"
                         onClick={() => setShowExportModal(true)}
-                        disabled={isLoading || filteredSalesTotalCount === 0}
+                        disabled={isLoading || isLoadingAllFiltered || filteredSalesTotalCount === 0}
                     >
                         Export CSV
                     </Button>
                 )}
-                {(filterConsignor || filterDatePreset !== 'all') && (
+                {(filterConsignor || filterDatePreset !== 'last30') && (
                     <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => {
                             setFilterConsignor('');
-                            setFilterDatePreset('all');
+                            setFilterDatePreset('last30');
                             const today = toLocalDateInput(new Date());
                             setCustomDateFrom(today);
                             setCustomDateTo(today);
@@ -1181,13 +1378,13 @@ export function Sales() {
             {/* Employee Attribution Tab Content */}
             {activeTab === 'employeeAttribution' && (
                 <>
-                    {sales.length === 0 && !isLoading ? (
+                    {allFilteredSales.length === 0 && !isLoadingAllFiltered ? (
                         <EmptyState
                             icon={<EmployeesAttributionIcon />}
                             title="No sales yet"
                             description="Complete sales in the POS to view employee attribution."
                         />
-                    ) : isLoading ? (
+                    ) : isLoadingAllFiltered ? (
                         <div className="flex justify-center py-12">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
                         </div>
@@ -1201,22 +1398,26 @@ export function Sales() {
                                 <SummaryCard
                                     label="Employees"
                                     value={String(employeeAttribution.attributedEmployees.length)}
+                                    info="Number of employees with at least one attributed sale in the selected filters."
                                 />
                                 <SummaryCard
                                     label="Admin Users"
                                     value={String(employeeAttribution.attributedAdmins.length)}
+                                    info="Number of admin users with attributed sales in the selected filters."
                                 />
                                 <SummaryCard
                                     label="Attributed Sales"
                                     value={String(
                                         employeeAttribution.rows.reduce((sum, row) => sum + row.salesCount, 0)
                                     )}
+                                    info="Count of sales that include processor attribution."
                                 />
                                 <SummaryCard
                                     label="Attributed Revenue"
                                     value={formatCurrency(
                                         employeeAttribution.rows.reduce((sum, row) => sum + row.grossSales, 0)
                                     )}
+                                    info="Sum of sale totals for attributed sales."
                                 />
                             </div>
 
@@ -1257,6 +1458,127 @@ export function Sales() {
                         </div>
                     )}
                 </>
+            )}
+
+            {/* Sales Analytics Tab Content */}
+            {activeTab === 'salesAnalytics' && (
+                <div className="space-y-4">
+                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+                        <SummaryCard
+                            label="Net Sales"
+                            value={formatCurrency(totals.total)}
+                            info="Total collected after refunds, for the selected filters."
+                        />
+                        <SummaryCard
+                            label="Gross Sales"
+                            value={formatCurrency(totals.subtotal)}
+                            info="Pre-tax subtotal from matching sales before refunds."
+                        />
+                        <SummaryCard
+                            label="Taxes"
+                            value={formatCurrency(totals.tax)}
+                            info="Total tax recorded on matching sales."
+                        />
+                        <SummaryCard
+                            label="Refunds"
+                            value={`-${formatCurrency(totals.totalRefunded)}`}
+                            variant="danger"
+                            info="Money returned to customers in the selected range."
+                        />
+                        <SummaryCard
+                            label="Consignor Payouts"
+                            value={formatCurrency(totals.consignorShare)}
+                            variant="success"
+                            info="Estimated consignor portion based on item commission splits."
+                        />
+                        <SummaryCard
+                            label="Store Revenue"
+                            value={formatCurrency(totals.storeShare)}
+                            variant="primary"
+                            info="Estimated store portion after consignor share."
+                        />
+                        <SummaryCard
+                            label="Cash"
+                            value={formatCurrency(paymentTotals.cashNetTotal)}
+                            info="Net cash sales after cash refunds."
+                        />
+                        <SummaryCard
+                            label="Card"
+                            value={formatCurrency(paymentTotals.cardNetTotal)}
+                            info="Net card sales after card refunds."
+                        />
+                        <SummaryCard
+                            label="Check"
+                            value={formatCurrency(paymentTotals.checkNetTotal)}
+                            info="Net check sales after check refunds."
+                        />
+                        <SummaryCard
+                            label="Card Fee Total"
+                            value={`-${formatCurrency(paymentTotals.cardFeeTotal)}`}
+                            variant="warning"
+                            info="Total card fee surcharge amount recorded on sales."
+                        />
+                        <SummaryCard
+                            label="Consignor Card Fees"
+                            value={`-${formatCurrency(payoutBasisTotals.consignorCardFees)}`}
+                            variant="warning"
+                            info="Processing fees deducted from consignor earnings where consignor-pays-card-fee is enabled."
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+                        <SummaryCard
+                            label="Transactions"
+                            value={String(analyticsOverview.transactionCount)}
+                            info="Number of completed sales in the selected filters."
+                        />
+                        <SummaryCard
+                            label="Items Sold"
+                            value={String(analyticsOverview.itemsSold)}
+                            info="Total item quantities sold across matching sales."
+                        />
+                        <SummaryCard
+                            label="Avg Ticket"
+                            value={formatCurrency(analyticsOverview.avgTicket)}
+                            info="Average net sale amount per transaction."
+                        />
+                        <SummaryCard
+                            label="Top Category"
+                            value={analyticsOverview.topCategory}
+                            info="Highest-selling category by revenue in this period."
+                        />
+                        <SummaryCard
+                            label="Card Share"
+                            value={`${analyticsOverview.cardShare.toFixed(1)}%`}
+                            info="Percent of net sales paid by card."
+                        />
+                        <SummaryCard
+                            label="Expected Cash"
+                            value={formatCurrency(cashReconciliation.expectedCashFromSales)}
+                            info="Expected cash from cash sales minus cash refunds and dealer cash purchases."
+                        />
+                    </div>
+
+                    {isLoadingAnalytics ? (
+                        <div className="flex justify-center py-12">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                            <AnalyticsCard title="Sales Trend">
+                                <SalesTrendChart data={salesTrendData} />
+                            </AnalyticsCard>
+                            <AnalyticsCard title="Sales by Category">
+                                <SalesByCategoryChart data={salesByCategoryData} />
+                            </AnalyticsCard>
+                            <div className="xl:col-span-2">
+                                <AnalyticsCard title="Busy Time Analytics">
+                                    <BusyTimesCard data={busyTimeAnalytics} />
+                                </AnalyticsCard>
+                            </div>
+                        </div>
+                    )}
+                </div>
             )}
 
             {/* Receipt Preview Modal */}
@@ -1690,6 +2012,13 @@ export function Sales() {
                             variant="warning"
                         />
                         <SummaryCard
+                            label="Offline Unsynced"
+                            value={cashReconciliation.offlineUnsyncedCashNetTotal > 0
+                                ? `+${formatCurrency(cashReconciliation.offlineUnsyncedCashNetTotal)}`
+                                : formatCurrency(0)}
+                            variant={cashReconciliation.offlineUnsyncedCashNetTotal > 0 ? 'success' : undefined}
+                        />
+                        <SummaryCard
                             label="Cash Sales (Count)"
                             value={String(cashReconciliation.cashSalesCount)}
                         />
@@ -2098,10 +2427,12 @@ function SummaryCard({
     label,
     value,
     variant = 'default',
+    info,
 }: {
     label: string;
     value: string;
     variant?: 'default' | 'success' | 'primary' | 'danger' | 'warning';
+    info?: string;
 }) {
     const valueColor =
         variant === 'success'
@@ -2116,9 +2447,34 @@ function SummaryCard({
 
     return (
         <div className="bg-white rounded-xl border border-[var(--color-border)] p-4">
-            <p className="text-xs text-[var(--color-muted)] mb-1">{label}</p>
+            <div className="flex items-center gap-1 mb-1">
+                <p className="text-xs text-[var(--color-muted)]">{label}</p>
+                {info && (
+                    <InfoHint label={label} info={info} />
+                )}
+            </div>
             <p className={`text-lg font-semibold ${valueColor}`}>{value}</p>
         </div>
+    );
+}
+
+function InfoHint({ label, info }: { label: string; info: string }) {
+    return (
+        <span className="relative inline-flex items-center group">
+            <button
+                type="button"
+                className="text-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none"
+                aria-label={`${label} info`}
+            >
+                <InfoIcon />
+            </button>
+            <span
+                role="tooltip"
+                className="pointer-events-none absolute z-30 left-0 top-5 hidden w-64 rounded-lg border border-[var(--color-border)] bg-white p-2 text-xs text-[var(--color-foreground)] shadow-lg group-hover:block group-focus-within:block"
+            >
+                {info}
+            </span>
+        </span>
     );
 }
 
@@ -2289,6 +2645,44 @@ function UserPlusIcon() {
             <circle cx="8.5" cy="7" r="4" />
             <line x1="20" y1="8" x2="20" y2="14" />
             <line x1="23" y1="11" x2="17" y2="11" />
+        </svg>
+    );
+}
+
+function AnalyticsSmallIcon() {
+    return (
+        <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <line x1="4" x2="4" y1="20" y2="10" />
+            <line x1="12" x2="12" y1="20" y2="4" />
+            <line x1="20" x2="20" y1="20" y2="14" />
+        </svg>
+    );
+}
+
+function InfoIcon() {
+    return (
+        <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 16v-4" />
+            <path d="M12 8h.01" />
         </svg>
     );
 }

@@ -124,6 +124,12 @@ export function Payouts() {
         return true;
     };
 
+    const roundCurrency = (value: number) => Number(value.toFixed(2));
+    const isDateScopedPendingView = Boolean(dateRange.start || dateRange.end);
+    const selectedRangeLabel = (dateRange.start && dateRange.end)
+        ? `${dateRange.start.toLocaleDateString()} - ${dateRange.end.toLocaleDateString()}`
+        : 'All Time';
+
     // Filter consignors by search
     const filteredSummaries = useMemo(() => {
         if (!searchQuery) return consignorSummaries;
@@ -136,18 +142,99 @@ export function Payouts() {
         );
     }, [consignorSummaries, searchQuery]);
 
-    // Summaries with pending payouts
-    const pendingSummaries = useMemo(
-        () => filteredSummaries.filter((s) => s.pendingAmount > 0),
+    // Summaries to display in pending view:
+    // include vendors that are owed money OR had sales activity (even if amount due is $0.00).
+    const pendingDisplaySummaries = useMemo(
+        () => filteredSummaries.filter((s) => s.pendingAmount > 0 || s.salesCount > 0),
         [filteredSummaries]
     );
 
     const pendingSummariesInRange = useMemo(() => {
-        if (!dateRange.start && !dateRange.end) return pendingSummaries;
-        return pendingSummaries.filter((summary) =>
-            summary.salesSinceLastPayout.some((sale) => matchesDateRange(sale.saleDate))
-        );
-    }, [pendingSummaries, dateRange.start, dateRange.end]);
+        if (!isDateScopedPendingView) return pendingDisplaySummaries;
+        const scopedSummaries: ConsignorPayoutSummary[] = [];
+
+        for (const summary of pendingDisplaySummaries) {
+            const salesInRange = summary.salesSinceLastPayout.filter((sale) => matchesDateRange(sale.saleDate));
+            if (salesInRange.length === 0) continue;
+
+            const salesSet = new Set<string>();
+            let pendingFromSales = 0;
+            let pendingAmount = 0;
+            let grossSales = 0;
+            let taxCollected = 0;
+            let storeShare = 0;
+            let creditCardFees = 0;
+            let itemsSold = 0;
+
+            for (const item of salesInRange) {
+                const effectiveQuantity = Math.max(0, item.quantity - item.refundedQuantity);
+                const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
+                const effectiveLineTotal = item.lineTotal * effectiveRatio;
+                const effectiveConsignorShare = item.consignorShare * effectiveRatio;
+                const effectiveStoreShare = item.storeShare * effectiveRatio;
+                const effectiveTax = item.taxAmount * effectiveRatio;
+                const effectiveCardFee = item.creditCardFee * effectiveRatio;
+
+                salesSet.add(item.saleId);
+                pendingFromSales += effectiveConsignorShare;
+                pendingAmount += effectiveConsignorShare;
+                grossSales += effectiveLineTotal;
+                taxCollected += effectiveTax;
+                storeShare += effectiveStoreShare;
+                creditCardFees += effectiveCardFee;
+                itemsSold += effectiveQuantity;
+            }
+
+            const scopedSummary: ConsignorPayoutSummary = {
+                ...summary,
+                pendingFromSales: roundCurrency(pendingFromSales),
+                pendingAmount: roundCurrency(pendingAmount),
+                grossSales: roundCurrency(grossSales),
+                taxCollected: roundCurrency(taxCollected),
+                storeShare: roundCurrency(storeShare),
+                creditCardFees: roundCurrency(creditCardFees),
+                boothRentDeduction: 0,
+                marketingFeeDeduction: 0,
+                ledgerDeduction: 0,
+                salesCount: salesSet.size,
+                itemsSold,
+                salesSinceLastPayout: salesInRange,
+                boothRentMonthsToDeduct: [] as Array<{ period_month: number; period_year: number }>,
+                marketingAllocationIdsToDeduct: [] as string[],
+                ledgerEntryIdsToDeduct: [] as string[],
+                pendingLedgerEntries: [] as VendorLedgerEntry[],
+            };
+
+            scopedSummaries.push(scopedSummary);
+        }
+
+        return scopedSummaries;
+    }, [isDateScopedPendingView, pendingDisplaySummaries, dateRange.start, dateRange.end]);
+
+    const scopedTotals = useMemo(
+        () =>
+            pendingSummariesInRange.reduce(
+                (acc, summary) => ({
+                    totalPending: acc.totalPending + summary.pendingAmount,
+                    totalGrossSales: acc.totalGrossSales + summary.grossSales,
+                    totalStoreShare: acc.totalStoreShare + summary.storeShare,
+                    totalTaxCollected: acc.totalTaxCollected + summary.taxCollected,
+                    totalSalesCount: acc.totalSalesCount + summary.salesCount,
+                    totalItemsSold: acc.totalItemsSold + summary.itemsSold,
+                    consignorsWithPending: acc.consignorsWithPending + (summary.pendingAmount > 0 ? 1 : 0),
+                }),
+                {
+                    totalPending: 0,
+                    totalGrossSales: 0,
+                    totalStoreShare: 0,
+                    totalTaxCollected: 0,
+                    totalSalesCount: 0,
+                    totalItemsSold: 0,
+                    consignorsWithPending: 0,
+                }
+            ),
+        [pendingSummariesInRange]
+    );
 
     const filteredPayoutHistory = useMemo(
         () => payouts.filter((payout) => matchesDateRange(payout.paid_at)),
@@ -156,13 +243,14 @@ export function Payouts() {
 
     useEffect(() => {
         if (!selectedConsignor) return;
-        const refreshed = consignorSummaries.find(
+        const source = isDateScopedPendingView ? pendingSummariesInRange : pendingDisplaySummaries;
+        const refreshed = source.find(
             (summary) => summary.consignor.id === selectedConsignor.consignor.id
         );
         if (refreshed) {
             setSelectedConsignor(refreshed);
         }
-    }, [consignorSummaries, selectedConsignor]);
+    }, [pendingDisplaySummaries, pendingSummariesInRange, isDateScopedPendingView, selectedConsignor]);
 
     const handleMarkAsPaid = async () => {
         if (!selectedConsignor) return;
@@ -176,10 +264,18 @@ export function Payouts() {
         const result = await markAsPaid(
             selectedConsignor.consignor.id,
             selectedConsignor,
-            payoutNotes || undefined,
+            isDateScopedPendingView && dateRange.start && dateRange.end
+                ? `[Range Payout: ${selectedRangeLabel}]${payoutNotes ? ` ${payoutNotes}` : ''}`
+                : (payoutNotes || undefined),
             amountToPay,
             useCustomAmount ? partialReason : undefined,
-            useCustomAmount ? balanceDisposition : undefined
+            useCustomAmount ? balanceDisposition : undefined,
+            isDateScopedPendingView && dateRange.start && dateRange.end
+                ? {
+                    periodStartOverride: dateRange.start.toISOString(),
+                    periodEndOverride: dateRange.end.toISOString(),
+                }
+                : undefined
         );
 
         if (result.success) {
@@ -230,14 +326,20 @@ export function Payouts() {
     };
 
     const openPayModal = (summary: ConsignorPayoutSummary) => {
+        if (summary.pendingAmount <= 0) return;
         setSelectedConsignor(summary);
         setShowPayModal(true);
     };
 
     const printPayoutReport = (summary: ConsignorPayoutSummary) => {
         const { consignor, pendingAmount, pendingFromSales, grossSales, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, ledgerDeduction, salesSinceLastPayout, lastPayout } = summary;
-        const periodStart = lastPayout ? new Date(lastPayout.paid_at).toLocaleDateString() : 'Start';
-        const periodEnd = new Date().toLocaleDateString();
+        const saleDates = salesSinceLastPayout.map((item) => new Date(item.saleDate).getTime()).filter((value) => Number.isFinite(value));
+        const periodStart = saleDates.length > 0
+            ? new Date(Math.min(...saleDates)).toLocaleDateString()
+            : (lastPayout ? new Date(lastPayout.period_end || lastPayout.paid_at).toLocaleDateString() : 'Start');
+        const periodEnd = saleDates.length > 0
+            ? new Date(Math.max(...saleDates)).toLocaleDateString()
+            : new Date().toLocaleDateString();
         const consignorAddress = [
             consignor.address,
             consignor.address_line_2,
@@ -389,30 +491,30 @@ export function Payouts() {
             {/* Summary Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
                 <SummaryCard
-                    label="Total Pending"
-                    value={formatCurrency(totals.totalPending)}
+                    label={isDateScopedPendingView ? 'Total Pending (Range)' : 'Total Pending'}
+                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalPending : totals.totalPending)}
                     variant="warning"
                 />
                 <SummaryCard
                     label="Consignors Due"
-                    value={totals.consignorsWithPending.toString()}
+                    value={(isDateScopedPendingView ? scopedTotals.consignorsWithPending : totals.consignorsWithPending).toString()}
                 />
                 <SummaryCard
                     label="Gross Sales"
-                    value={formatCurrency(totals.totalGrossSales)}
+                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalGrossSales : totals.totalGrossSales)}
                 />
                 <SummaryCard
                     label="Store Revenue"
-                    value={formatCurrency(totals.totalStoreShare)}
+                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalStoreShare : totals.totalStoreShare)}
                     variant="primary"
                 />
                 <SummaryCard
                     label="Tax Collected"
-                    value={formatCurrency(totals.totalTaxCollected)}
+                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalTaxCollected : totals.totalTaxCollected)}
                 />
                 <SummaryCard
                     label="Items Sold"
-                    value={totals.totalItemsSold.toString()}
+                    value={(isDateScopedPendingView ? scopedTotals.totalItemsSold : totals.totalItemsSold).toString()}
                 />
             </div>
 
@@ -496,6 +598,11 @@ export function Payouts() {
                         Clear Dates
                     </Button>
                 )}
+                {isDateScopedPendingView && viewMode === 'pending' && (
+                    <p className="text-xs text-[var(--color-muted)]">
+                        Range mode: amounts and payouts apply only to {selectedRangeLabel}.
+                    </p>
+                )}
 
                 <Button variant="secondary" size="sm" onClick={() => refetch()}>
                     <RefreshIcon />
@@ -517,12 +624,12 @@ export function Payouts() {
                             searchQuery
                                 ? 'No consignors match your search.'
                                 : datePreset !== 'all'
-                                    ? 'No pending consignors had sales activity in this date range.'
-                                    : 'No pending payouts at this time.'
+                                    ? 'No consignors had sales activity in this date range.'
+                                    : 'No consignors currently have recent sales activity.'
                         }
                     />
                 ) : (
-                    <div className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                         {pendingSummariesInRange.map((summary) => (
                             <ConsignorPayoutRow
                                 key={summary.consignor.id}
@@ -557,6 +664,8 @@ export function Payouts() {
                         <ConsignorPayoutDetail
                             summary={selectedConsignor}
                             payoutHistory={getConsignorPayoutHistory(selectedConsignor.consignor.id)}
+                            isDateScoped={isDateScopedPendingView}
+                            selectedRangeLabel={selectedRangeLabel}
                         />
                         <LedgerManager
                             pendingEntries={selectedConsignor.pendingLedgerEntries}
@@ -629,6 +738,9 @@ export function Payouts() {
                             </p>
                             <p className="text-sm text-[var(--color-muted)]">
                                 W-9 On File: {selectedConsignor.consignor.has_w9_filled_out ? 'Yes' : 'No'}
+                            </p>
+                            <p className="text-sm text-[var(--color-muted)]">
+                                Payout Period: <span className="font-medium text-[var(--color-foreground)]">{selectedRangeLabel}</span>
                             </p>
                         </div>
 
@@ -791,7 +903,9 @@ export function Payouts() {
 
                         <div className="bg-[var(--color-warning-bg)] rounded-lg p-4 border border-[var(--color-warning)]">
                             <p className="text-sm text-[var(--color-warning)] font-medium">
-                                {useCustomAmount && balanceDisposition === 'forgiven'
+                                {isDateScopedPendingView
+                                    ? `This payout is scoped to ${selectedRangeLabel}. It will be recorded in history with this exact period.`
+                                    : useCustomAmount && balanceDisposition === 'forgiven'
                                     ? 'This will record a partial payout and forgive the remaining balance. The forgiven amount will not be owed to the consignor.'
                                     : useCustomAmount && balanceDisposition === 'deferred'
                                     ? 'This will record a partial payout. The remaining balance will still be owed and appear in the next payout period.'
@@ -841,70 +955,74 @@ function ConsignorPayoutRow({
     const { consignor, pendingAmount, grossSales, storeShare, salesCount, itemsSold, lastPayout } = summary;
 
     return (
-        <div className="bg-white rounded-xl border border-[var(--color-border)] p-4">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-                {/* Consignor Info */}
-                <div className="flex items-center gap-4 min-w-[200px]">
-                    <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center font-semibold">
-                        {getConsignorDisplayName(consignor).charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                        <p className="font-semibold">{getConsignorDisplayName(consignor)}</p>
-                        <p className="text-sm text-[var(--color-muted)]">
-                            {consignor.consignor_number}
-                            {consignor.booth_location && ` - ${consignor.booth_location}`}
-                        </p>
-                        <p className="text-xs text-[var(--color-muted)]">
-                            Check Payable To: {getConsignorPayToName(consignor)}
-                        </p>
-                    </div>
+        <div className="bg-white rounded-xl border border-[var(--color-border)] p-4 h-full flex flex-col">
+            <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center font-semibold">
+                    {getConsignorDisplayName(consignor).charAt(0).toUpperCase()}
                 </div>
+                <div className="min-w-0">
+                    <p className="font-semibold truncate">{getConsignorDisplayName(consignor)}</p>
+                    <p className="text-sm text-[var(--color-muted)] truncate">
+                        {consignor.consignor_number}
+                        {consignor.booth_location && ` - ${consignor.booth_location}`}
+                    </p>
+                    <p className="text-xs text-[var(--color-muted)] truncate">
+                        Check Payable To: {getConsignorPayToName(consignor)}
+                    </p>
+                </div>
+            </div>
 
-                {/* Stats */}
-                <div className="flex items-center gap-6 text-sm">
-                    <div className="text-center">
-                        <p className="text-[var(--color-muted)]">Sales</p>
-                        <p className="font-medium">{salesCount}</p>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-[var(--color-muted)]">Items</p>
-                        <p className="font-medium">{itemsSold}</p>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-[var(--color-muted)]">Gross</p>
-                        <p className="font-medium">{formatCurrency(grossSales)}</p>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-[var(--color-muted)]">Store</p>
-                        <p className="font-medium">{formatCurrency(storeShare)}</p>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-[var(--color-muted)]">Last Paid</p>
-                        <p className="font-medium">
+            <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+                <div className="rounded-lg bg-[var(--color-surface)] p-2">
+                    <p className="text-[var(--color-muted)] text-xs">Sales</p>
+                    <p className="font-medium">{salesCount}</p>
+                </div>
+                <div className="rounded-lg bg-[var(--color-surface)] p-2">
+                    <p className="text-[var(--color-muted)] text-xs">Items</p>
+                    <p className="font-medium">{itemsSold}</p>
+                </div>
+                <div className="rounded-lg bg-[var(--color-surface)] p-2">
+                    <p className="text-[var(--color-muted)] text-xs">Gross</p>
+                    <p className="font-medium">{formatCurrency(grossSales)}</p>
+                </div>
+                <div className="rounded-lg bg-[var(--color-surface)] p-2">
+                    <p className="text-[var(--color-muted)] text-xs">Store</p>
+                    <p className="font-medium">{formatCurrency(storeShare)}</p>
+                </div>
+            </div>
+
+            <div className="mt-auto">
+                <div className="flex items-end justify-between mb-3">
+                    <div>
+                        <p className="text-xs text-[var(--color-muted)]">Last Paid</p>
+                        <p className="text-sm font-medium">
                             {lastPayout
                                 ? new Date(lastPayout.paid_at).toLocaleDateString()
                                 : 'Never'}
                         </p>
                     </div>
-                </div>
-
-                {/* Amount Due & Actions */}
-                <div className="flex items-center gap-4">
                     <div className="text-right">
                         <p className="text-xs text-[var(--color-muted)]">Amount Due</p>
-                        <p className="text-xl font-bold text-[var(--color-success)]">
+                        <p className={`text-xl font-bold ${pendingAmount > 0 ? 'text-[var(--color-success)]' : 'text-[var(--color-muted)]'}`}>
                             {formatCurrency(pendingAmount)}
                         </p>
                     </div>
-                    <div className="flex gap-2">
-                        <Button variant="secondary" size="sm" onClick={onViewDetails}>
-                            Details
-                        </Button>
-                        <Button variant="success" size="sm" onClick={onMarkAsPaid}>
-                            <DollarIcon />
-                            Pay
-                        </Button>
-                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                    <Button variant="secondary" size="sm" onClick={onViewDetails} className="w-full justify-center">
+                        Details
+                    </Button>
+                    <Button
+                        variant={pendingAmount > 0 ? 'success' : 'secondary'}
+                        size="sm"
+                        onClick={onMarkAsPaid}
+                        disabled={pendingAmount <= 0}
+                        className="w-full justify-center"
+                    >
+                        <DollarIcon />
+                        {pendingAmount > 0 ? 'Pay' : 'Paid Up'}
+                    </Button>
                 </div>
             </div>
         </div>
@@ -915,9 +1033,13 @@ function ConsignorPayoutRow({
 function ConsignorPayoutDetail({
     summary,
     payoutHistory,
+    isDateScoped,
+    selectedRangeLabel,
 }: {
     summary: ConsignorPayoutSummary;
     payoutHistory: Payout[];
+    isDateScoped: boolean;
+    selectedRangeLabel: string;
 }) {
     const { consignor, pendingAmount, pendingFromSales, grossSales, taxCollected, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, ledgerDeduction, salesCount, itemsSold, salesSinceLastPayout } = summary;
     const consignorAddress = [
@@ -1041,12 +1163,16 @@ function ConsignorPayoutDetail({
                     {Math.round(consignor.commission_split * 100)}% to consignor, {Math.round((1 - consignor.commission_split) * 100)}% to store
                 </p>
             </div>
+            <div className="bg-[var(--color-surface)] rounded-lg px-3 py-2 flex items-center justify-between">
+                <p className="text-xs text-[var(--color-muted)]">Payout Period</p>
+                <p className="text-sm font-medium">{selectedRangeLabel}</p>
+            </div>
 
             {/* Sales Details Table */}
             {salesSinceLastPayout.length > 0 && (
                 <div>
                     <h4 className="font-medium text-sm mb-2">
-                        Sales Since Last Payout ({salesSinceLastPayout.length} items)
+                        {isDateScoped ? 'Sales In Selected Range' : 'Sales Since Last Payout'} ({salesSinceLastPayout.length} items)
                     </h4>
                     <div className="rounded-lg border border-[var(--color-border)] overflow-hidden max-h-64 overflow-y-auto">
                         <table className="w-full text-sm">
@@ -1130,6 +1256,11 @@ function ConsignorPayoutDetail({
                     <h4 className="font-medium text-sm mb-2">Previous Payouts</h4>
                     <div className="space-y-2">
                         {payoutHistory.slice(0, 5).map((payout) => (
+                            (() => {
+                                const rangeMatch = payout.notes?.match(/^\[Range Payout: ([^\]]+)\]/);
+                                const rangeLabel = rangeMatch?.[1] || null;
+                                const cleanedNotes = payout.notes?.replace(/^\[Range Payout: [^\]]+\]\s*/, '') || '';
+                                return (
                             <div
                                 key={payout.id}
                                 className="p-3 bg-[var(--color-surface)] rounded-lg"
@@ -1150,6 +1281,7 @@ function ConsignorPayoutDetail({
                                         </p>
                                     </div>
                                     <div className="flex items-center gap-2">
+                                        {rangeLabel && <Badge variant="info">Range Payout</Badge>}
                                         {payout.is_partial && (
                                             <Badge variant={payout.balance_disposition === 'forgiven' ? 'danger' : 'warning'}>
                                                 {payout.balance_disposition === 'forgiven' ? 'Partial (Forgiven)' : 'Partial'}
@@ -1163,9 +1295,14 @@ function ConsignorPayoutDetail({
                                         Reason: {payout.partial_reason}
                                     </p>
                                 )}
-                                {payout.notes && (
+                                {rangeLabel && (
                                     <p className="text-xs text-[var(--color-muted)] mt-1">
-                                        Note: {payout.notes}
+                                        Recorded Range: {rangeLabel}
+                                    </p>
+                                )}
+                                {cleanedNotes && (
+                                    <p className="text-xs text-[var(--color-muted)] mt-1">
+                                        Note: {cleanedNotes}
                                     </p>
                                 )}
                                 {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0 || (payout.ledger_deduction || 0) > 0) && (
@@ -1182,6 +1319,8 @@ function ConsignorPayoutDetail({
                                     </div>
                                 )}
                             </div>
+                                );
+                            })()
                         ))}
                     </div>
                 </div>
@@ -1324,6 +1463,11 @@ function PayoutHistoryList({
     return (
         <div className="space-y-3">
             {filteredPayouts.map((payout) => (
+                (() => {
+                    const rangeMatch = payout.notes?.match(/^\[Range Payout: ([^\]]+)\]/);
+                    const rangeLabel = rangeMatch?.[1] || null;
+                    const cleanedNotes = payout.notes?.replace(/^\[Range Payout: [^\]]+\]\s*/, '') || '';
+                    return (
                 <div
                     key={payout.id}
                     className="bg-white rounded-xl border border-[var(--color-border)] p-4"
@@ -1351,6 +1495,9 @@ function PayoutHistoryList({
                                     {new Date(payout.period_start).toLocaleDateString()} -{' '}
                                     {new Date(payout.period_end).toLocaleDateString()}
                                 </p>
+                                {rangeLabel && (
+                                    <p className="text-xs text-[var(--color-primary)]">Range Payout</p>
+                                )}
                             </div>
                             <div className="text-center">
                                 <p className="text-[var(--color-muted)]">Sales</p>
@@ -1376,6 +1523,7 @@ function PayoutHistoryList({
                         <div className="mt-2 pl-14 space-y-1">
                             <div className="flex items-center gap-2">
                                 <Badge variant="warning">Partial Payout</Badge>
+                                {rangeLabel && <Badge variant="info">Range Payout</Badge>}
                                 {payout.balance_disposition === 'forgiven' && (
                                     <Badge variant="danger">Balance Forgiven</Badge>
                                 )}
@@ -1400,9 +1548,14 @@ function PayoutHistoryList({
                             )}
                         </div>
                     )}
-                    {payout.notes && (
+                    {rangeLabel && (
+                        <p className="mt-2 text-xs text-[var(--color-primary)] pl-14">
+                            Recorded Range: {rangeLabel}
+                        </p>
+                    )}
+                    {cleanedNotes && (
                         <p className="mt-2 text-sm text-[var(--color-muted)] pl-14">
-                            Note: {payout.notes}
+                            Note: {cleanedNotes}
                         </p>
                     )}
                     {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0 || (payout.ledger_deduction || 0) > 0) && (
@@ -1419,6 +1572,8 @@ function PayoutHistoryList({
                         </div>
                     )}
                 </div>
+                    );
+                })()
             ))}
         </div>
     );

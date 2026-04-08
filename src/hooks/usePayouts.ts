@@ -257,7 +257,13 @@ export function usePayouts() {
                 const consignorPayouts = (allPayouts || []).filter((p) => p.consignor_id === consignor.id);
                 // allPayouts is already ordered by paid_at DESC.
                 const lastPayout = consignorPayouts[0] || null;
-                const lastPayoutDate = lastPayout ? new Date(lastPayout.paid_at) : new Date(0);
+                const lastPayoutBoundary = consignorPayouts.reduce<Date | null>((latest, payout) => {
+                    const boundaryCandidate = new Date(payout.period_end || payout.paid_at);
+                    if (Number.isNaN(boundaryCandidate.getTime())) return latest;
+                    if (!latest || boundaryCandidate > latest) return boundaryCandidate;
+                    return latest;
+                }, null);
+                const lastPayoutDate = lastPayoutBoundary || new Date(0);
                 const deferredCarryover = getDeferredBalanceCarryover(consignorPayouts);
                 const consignorBoothRentPayments = (boothRentPayments || []).filter(
                     (payment: BoothRentPaymentRecord) => payment.consignor_id === consignor.id
@@ -502,16 +508,20 @@ export function usePayouts() {
         notes?: string,
         customAmount?: number,
         partialReason?: string,
-        balanceDisposition?: BalanceDisposition
+        balanceDisposition?: BalanceDisposition,
+        options?: {
+            periodStartOverride?: string;
+            periodEndOverride?: string;
+        }
     ): Promise<{ success: boolean; error?: string }> => {
         try {
             // Determine period dates
-            const periodStart = summary.lastPayout
+            const periodStart = options?.periodStartOverride || (summary.lastPayout
                 ? summary.lastPayout.paid_at
                 : summary.salesSinceLastPayout.length > 0
                     ? summary.salesSinceLastPayout[summary.salesSinceLastPayout.length - 1].saleDate
-                    : new Date().toISOString();
-            const periodEnd = new Date().toISOString();
+                    : new Date().toISOString());
+            const periodEnd = options?.periodEndOverride || new Date().toISOString();
 
             // Determine if this is a partial payout
             const isPartial = customAmount !== undefined && customAmount < summary.pendingAmount;
