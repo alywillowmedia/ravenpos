@@ -1095,6 +1095,75 @@ export function Sales() {
                 />
             </div>
 
+            {/* Filters */}
+            <div className="flex flex-wrap gap-4 mb-6">
+                <div className="w-48">
+                    <Select
+                        options={dateRangeOptions}
+                        value={filterDatePreset}
+                        onChange={(e) => setFilterDatePreset(e.target.value as DatePreset)}
+                        selectSize="sm"
+                    />
+                </div>
+                {filterDatePreset === 'custom' && (
+                    <>
+                        <div className="w-44">
+                            <input
+                                type="date"
+                                value={customDateFrom}
+                                onChange={(e) => setCustomDateFrom(e.target.value)}
+                                max={customDateTo || undefined}
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-sm"
+                            />
+                        </div>
+                        <div className="w-44">
+                            <input
+                                type="date"
+                                value={customDateTo}
+                                onChange={(e) => setCustomDateTo(e.target.value)}
+                                min={customDateFrom || undefined}
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-sm"
+                            />
+                        </div>
+                    </>
+                )}
+                {(activeTab === 'sales' || activeTab === 'salesAnalytics') && (
+                    <div className="w-48">
+                        <Select
+                            options={consignorOptions}
+                            value={filterConsignor}
+                            onChange={(e) => setFilterConsignor(e.target.value)}
+                            selectSize="sm"
+                        />
+                    </div>
+                )}
+                {activeTab === 'sales' && (
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setShowExportModal(true)}
+                        disabled={isLoading || isLoadingAllFiltered || filteredSalesTotalCount === 0}
+                    >
+                        Export CSV
+                    </Button>
+                )}
+                {(filterConsignor || filterDatePreset !== 'last30') && (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                            setFilterConsignor('');
+                            setFilterDatePreset('last30');
+                            const today = toLocalDateInput(new Date());
+                            setCustomDateFrom(today);
+                            setCustomDateTo(today);
+                        }}
+                    >
+                        Clear Filters
+                    </Button>
+                )}
+            </div>
+
             {/* Summary Cards - Only show for sales tab */}
             {activeTab === 'sales' && (
                 <>
@@ -1174,75 +1243,6 @@ export function Sales() {
                     />
                 </>
             )}
-
-            {/* Filters */}
-            <div className="flex flex-wrap gap-4 mb-6">
-                <div className="w-48">
-                    <Select
-                        options={dateRangeOptions}
-                        value={filterDatePreset}
-                        onChange={(e) => setFilterDatePreset(e.target.value as DatePreset)}
-                        selectSize="sm"
-                    />
-                </div>
-                {filterDatePreset === 'custom' && (
-                    <>
-                        <div className="w-44">
-                            <input
-                                type="date"
-                                value={customDateFrom}
-                                onChange={(e) => setCustomDateFrom(e.target.value)}
-                                max={customDateTo || undefined}
-                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-sm"
-                            />
-                        </div>
-                        <div className="w-44">
-                            <input
-                                type="date"
-                                value={customDateTo}
-                                onChange={(e) => setCustomDateTo(e.target.value)}
-                                min={customDateFrom || undefined}
-                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-sm"
-                            />
-                        </div>
-                    </>
-                )}
-                {(activeTab === 'sales' || activeTab === 'salesAnalytics') && (
-                    <div className="w-48">
-                        <Select
-                            options={consignorOptions}
-                            value={filterConsignor}
-                            onChange={(e) => setFilterConsignor(e.target.value)}
-                            selectSize="sm"
-                        />
-                    </div>
-                )}
-                {activeTab === 'sales' && (
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setShowExportModal(true)}
-                        disabled={isLoading || isLoadingAllFiltered || filteredSalesTotalCount === 0}
-                    >
-                        Export CSV
-                    </Button>
-                )}
-                {(filterConsignor || filterDatePreset !== 'last30') && (
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                            setFilterConsignor('');
-                            setFilterDatePreset('last30');
-                            const today = toLocalDateInput(new Date());
-                            setCustomDateFrom(today);
-                            setCustomDateTo(today);
-                        }}
-                    >
-                        Clear Filters
-                    </Button>
-                )}
-            </div>
 
             {/* Sales Tab Content */}
             {activeTab === 'sales' && (

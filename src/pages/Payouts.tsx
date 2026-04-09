@@ -488,36 +488,6 @@ export function Payouts() {
                 description="Manage consignor payments and view financial summaries"
             />
 
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
-                <SummaryCard
-                    label={isDateScopedPendingView ? 'Total Pending (Range)' : 'Total Pending'}
-                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalPending : totals.totalPending)}
-                    variant="warning"
-                />
-                <SummaryCard
-                    label="Consignors Due"
-                    value={(isDateScopedPendingView ? scopedTotals.consignorsWithPending : totals.consignorsWithPending).toString()}
-                />
-                <SummaryCard
-                    label="Gross Sales"
-                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalGrossSales : totals.totalGrossSales)}
-                />
-                <SummaryCard
-                    label="Store Revenue"
-                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalStoreShare : totals.totalStoreShare)}
-                    variant="primary"
-                />
-                <SummaryCard
-                    label="Tax Collected"
-                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalTaxCollected : totals.totalTaxCollected)}
-                />
-                <SummaryCard
-                    label="Items Sold"
-                    value={(isDateScopedPendingView ? scopedTotals.totalItemsSold : totals.totalItemsSold).toString()}
-                />
-            </div>
-
             {/* View Toggle & Search */}
             <div className="flex flex-wrap items-center gap-4 mb-6">
                 <div className="flex rounded-lg border border-[var(--color-border)] overflow-hidden">
@@ -608,6 +578,36 @@ export function Payouts() {
                     <RefreshIcon />
                     Refresh
                 </Button>
+            </div>
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
+                <SummaryCard
+                    label={isDateScopedPendingView ? 'Total Pending (Range)' : 'Total Pending'}
+                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalPending : totals.totalPending)}
+                    variant="warning"
+                />
+                <SummaryCard
+                    label="Consignors Due"
+                    value={(isDateScopedPendingView ? scopedTotals.consignorsWithPending : totals.consignorsWithPending).toString()}
+                />
+                <SummaryCard
+                    label="Gross Sales"
+                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalGrossSales : totals.totalGrossSales)}
+                />
+                <SummaryCard
+                    label="Store Revenue"
+                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalStoreShare : totals.totalStoreShare)}
+                    variant="primary"
+                />
+                <SummaryCard
+                    label="Tax Collected"
+                    value={formatCurrency(isDateScopedPendingView ? scopedTotals.totalTaxCollected : totals.totalTaxCollected)}
+                />
+                <SummaryCard
+                    label="Items Sold"
+                    value={(isDateScopedPendingView ? scopedTotals.totalItemsSold : totals.totalItemsSold).toString()}
+                />
             </div>
 
             {/* Content */}
