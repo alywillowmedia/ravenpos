@@ -13,10 +13,9 @@ import { getOfflineUnsyncedCashNetTotal } from '../../lib/offlineCashSales';
 import {
     fromCurrencyCents,
     getCountedDrawerCents,
-    getExpectedCashFromSalesCents,
-    sumCashSalesNetCents,
     toCurrencyCents,
 } from '../../lib/cashReconciliation';
+import { calculateTillAccountabilityMetrics, type TillAccountabilityMetrics } from '../../lib/tillAccountability';
 
 interface AdminContact {
     id: string;
@@ -60,6 +59,9 @@ export function EmployeeTillCount() {
     const [openingFloatInput, setOpeningFloatInput] = useState('');
     const [expectedCashFromSales, setExpectedCashFromSales] = useState(0);
     const [offlineUnsyncedCashNetTotal, setOfflineUnsyncedCashNetTotal] = useState(0);
+    const [accountability, setAccountability] = useState<TillAccountabilityMetrics>(() =>
+        calculateTillAccountabilityMetrics({ sales: [], refunds: [], giftCardsSold: [] })
+    );
     const [checkCountInput, setCheckCountInput] = useState('');
     const [checkAmountInput, setCheckAmountInput] = useState('');
     const [admins, setAdmins] = useState<AdminContact[]>([]);
@@ -76,18 +78,16 @@ export function EmployeeTillCount() {
             setIsLoading(true);
             const { startIso, endIso } = getTodayRangeIso();
 
-            const [adminsResult, cashSalesResult, cashRefundsResult, dealerPurchasesResult, offlineUnsyncedCashTotal] = await Promise.all([
+            const [adminsResult, salesResult, refundsResult, dealerPurchasesResult, giftCardsResult, offlineUnsyncedCashTotal] = await Promise.all([
                 supabase.rpc('get_chat_admin_contacts'),
                 supabase
                     .from('sales')
-                    .select('total, cash_tendered, change_given')
-                    .eq('payment_method', 'cash')
+                    .select('subtotal, tax_amount, total, discount_total, card_fee_amount, store_credit_used, payment_method, cash_tendered, change_given')
                     .gte('completed_at', startIso)
                     .lte('completed_at', endIso),
                 supabase
                     .from('refunds')
-                    .select('refund_amount')
-                    .eq('payment_method', 'cash')
+                    .select('refund_amount, payment_method')
                     .gte('created_at', startIso)
                     .lte('created_at', endIso),
                 supabase
@@ -96,6 +96,11 @@ export function EmployeeTillCount() {
                     .eq('payment_method', 'cash')
                     .gte('purchased_at', startIso)
                     .lte('purchased_at', endIso),
+                supabase
+                    .from('gift_cards')
+                    .select('original_amount, purchase_payment_method')
+                    .gte('issued_at', startIso)
+                    .lte('issued_at', endIso),
                 getOfflineUnsyncedCashNetTotal({
                     dateStart: startIso,
                     dateEnd: endIso,
@@ -108,11 +113,12 @@ export function EmployeeTillCount() {
                 setAdmins((adminsResult.data || []) as AdminContact[]);
             }
 
-            if (cashSalesResult.error || cashRefundsResult.error) {
+            if (salesResult.error || refundsResult.error || giftCardsResult.error) {
                 toast.error(
                     'Failed to load till totals',
-                    cashSalesResult.error?.message
-                    || cashRefundsResult.error?.message
+                    salesResult.error?.message
+                    || refundsResult.error?.message
+                    || giftCardsResult.error?.message
                     || 'Please refresh and try again.'
                 );
                 setExpectedCashFromSales(0);
@@ -132,19 +138,16 @@ export function EmployeeTillCount() {
                 );
             }
 
-            const cashSalesNetCents = sumCashSalesNetCents(cashSalesResult.data || []);
-            const cashRefundsCents = (cashRefundsResult.data || []).reduce(
-                (sum, refund) => sum + toCurrencyCents(refund.refund_amount || 0),
-                0
-            );
-            const expectedFromSalesCents = getExpectedCashFromSalesCents({
-                cashSalesNetCents,
-                cashRefundsCents,
-                dealerCashPurchasesCents: toCurrencyCents(dealerCashPurchases),
-                offlineUnsyncedCashSalesCents: toCurrencyCents(offlineUnsyncedCashTotal),
+            const metrics = calculateTillAccountabilityMetrics({
+                sales: salesResult.data || [],
+                refunds: refundsResult.data || [],
+                giftCardsSold: giftCardsResult.data || [],
+                dealerCashPurchases,
+                offlineUnsyncedCashSales: offlineUnsyncedCashTotal,
             });
-
+            const expectedFromSalesCents = toCurrencyCents(metrics.expectedCashFromSales);
             setOfflineUnsyncedCashNetTotal(offlineUnsyncedCashTotal);
+            setAccountability(metrics);
             setExpectedCashFromSales(fromCurrencyCents(expectedFromSalesCents));
             setIsLoading(false);
         };
@@ -220,6 +223,24 @@ export function EmployeeTillCount() {
                     countedTotal,
                     variance,
                     denominationBreakdown,
+                    accountability: {
+                        grossProductSales: accountability.grossProductSales,
+                        discounts: accountability.discounts,
+                        returns: accountability.returns,
+                        allowances: accountability.allowances,
+                        netSales: accountability.netSales,
+                        salesTax: accountability.salesTax,
+                        creditCardFeesCharged: accountability.creditCardFeesCharged,
+                        giftCertificatesSold: accountability.giftCertificatesSold,
+                        totalCollected: accountability.totalCollected,
+                        cashInDrawer: accountability.cashInDrawer,
+                        checksInHand: accountability.checksInHand,
+                        creditCardsBatchTotal: accountability.creditCardsBatchTotal,
+                        storeCreditRedeemed: accountability.storeCreditRedeemed,
+                        totalReceived: accountability.totalReceived,
+                        difference: accountability.difference,
+                        dealerCashPurchases: accountability.dealerCashPurchases,
+                    },
                 },
                 timezone,
             },
@@ -260,6 +281,24 @@ export function EmployeeTillCount() {
                 countedTotal,
                 variance,
                 denominationBreakdown,
+                accountability: {
+                    grossProductSales: accountability.grossProductSales,
+                    discounts: accountability.discounts,
+                    returns: accountability.returns,
+                    allowances: accountability.allowances,
+                    netSales: accountability.netSales,
+                    salesTax: accountability.salesTax,
+                    creditCardFeesCharged: accountability.creditCardFeesCharged,
+                    giftCertificatesSold: accountability.giftCertificatesSold,
+                    totalCollected: accountability.totalCollected,
+                    cashInDrawer: accountability.cashInDrawer,
+                    checksInHand: accountability.checksInHand,
+                    creditCardsBatchTotal: accountability.creditCardsBatchTotal,
+                    storeCreditRedeemed: accountability.storeCreditRedeemed,
+                    totalReceived: accountability.totalReceived,
+                    difference: accountability.difference,
+                    dealerCashPurchases: accountability.dealerCashPurchases,
+                },
             }
         );
 
@@ -327,6 +366,36 @@ export function EmployeeTillCount() {
                             onChange={(event) => setOpeningFloatInput(event.target.value)}
                             placeholder="0.00"
                         />
+                        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                            <p className="text-xs text-[var(--color-muted)]">Total Collected = Total Received</p>
+                            <p className="text-sm mt-1">
+                                {formatCurrency(accountability.totalCollected)} = {formatCurrency(accountability.totalReceived)}
+                            </p>
+                            <p className="text-xs text-[var(--color-muted)] mt-1">
+                                Difference: {accountability.difference >= 0 ? '+' : ''}{formatCurrency(accountability.difference)}
+                            </p>
+                        </div>
+                        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs">
+                            <p className="font-semibold text-[var(--color-foreground)]">What Customers Paid For</p>
+                            <div className="mt-2 space-y-1 text-[var(--color-muted)]">
+                                <p>Gross Product Sales: {formatCurrency(accountability.grossProductSales)}</p>
+                                <p>Discounts: -{formatCurrency(accountability.discounts)}</p>
+                                <p>Returns: -{formatCurrency(accountability.returns)}</p>
+                                <p>Allowances: -{formatCurrency(accountability.allowances)}</p>
+                                <p>Net Sales: {formatCurrency(accountability.netSales)}</p>
+                                <p>Sales Tax: {formatCurrency(accountability.salesTax)}</p>
+                                <p>Credit Card Fees: {formatCurrency(accountability.creditCardFeesCharged)}</p>
+                                <p>Gift Certificates Sold: {formatCurrency(accountability.giftCertificatesSold)}</p>
+                            </div>
+                            <p className="font-semibold text-[var(--color-foreground)] mt-3">How Customers Paid</p>
+                            <div className="mt-2 space-y-1 text-[var(--color-muted)]">
+                                <p>Cash in Drawer: {formatCurrency(accountability.cashInDrawer)}</p>
+                                <p>Checks in Hand: {formatCurrency(accountability.checksInHand)}</p>
+                                <p>Credit Cards (Batch): {formatCurrency(accountability.creditCardsBatchTotal)}</p>
+                                <p>Store Credit Redeemed: {formatCurrency(accountability.storeCreditRedeemed)}</p>
+                                <p>Dealer Purchases (Cash Out): -{formatCurrency(accountability.dealerCashPurchases)}</p>
+                            </div>
+                        </div>
                         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
                             <p className="text-xs text-[var(--color-muted)]">Expected Drawer Total</p>
                             <p className="text-xl font-semibold">{formatCurrency(expectedDrawerTotal)}</p>

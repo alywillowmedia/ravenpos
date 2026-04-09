@@ -30,10 +30,10 @@ import { getOfflineUnsyncedCashNetTotal } from '../lib/offlineCashSales';
 import {
     fromCurrencyCents,
     getCountedDrawerCents,
-    getExpectedCashFromSalesCents,
     sumCashSalesNetCents,
     toCurrencyCents,
 } from '../lib/cashReconciliation';
+import { calculateTillAccountabilityMetrics } from '../lib/tillAccountability';
 import type { ReceiptData } from '../types/receipt';
 import type { Customer, CustomerInput } from '../types';
 
@@ -120,6 +120,7 @@ export function Sales() {
     const [salesPageSize, setSalesPageSize] = useState<number>(50);
     const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
     const [selectedSale, setSelectedSale] = useState<SaleWithItems | null>(null);
+    const [salesSearchQuery, setSalesSearchQuery] = useState('');
     const [filterConsignor, setFilterConsignor] = useState('');
     const [filterDatePreset, setFilterDatePreset] = useState<DatePreset>('last30');
     const [customDateFrom, setCustomDateFrom] = useState(() => toLocalDateInput(new Date()));
@@ -157,6 +158,7 @@ export function Sales() {
     const [checkAmountInput, setCheckAmountInput] = useState('');
     const [cashDealerPurchasesTotal, setCashDealerPurchasesTotal] = useState(0);
     const [offlineUnsyncedCashNetTotal, setOfflineUnsyncedCashNetTotal] = useState(0);
+    const [giftCardSales, setGiftCardSales] = useState<Array<{ original_amount: number; purchase_payment_method: string | null }>>([]);
     const [denominationCounts, setDenominationCounts] = useState<Record<string, string>>(() =>
         CASH_DENOMINATIONS.reduce<Record<string, string>>((acc, denomination) => {
             acc[denomination.key] = '';
@@ -222,9 +224,7 @@ export function Sales() {
     const dateEndIso = dateRange.end ? dateRange.end.toISOString() : null;
 
     const {
-        sales,
         allFilteredSales: allFilteredSalesRows,
-        totalCount: filteredSalesTotalCount,
         isLoading,
         isLoadingAllFiltered,
         calculateSalesSummary,
@@ -244,8 +244,36 @@ export function Sales() {
         return true;
     };
 
-    const filteredSales = sales;
-    const allFilteredSales = allFilteredSalesRows;
+    const normalizedSalesSearch = salesSearchQuery.trim().toLowerCase();
+    const allFilteredSales = useMemo(() => {
+        if (activeTab !== 'sales' || !normalizedSalesSearch) return allFilteredSalesRows;
+
+        return allFilteredSalesRows.filter((sale) => {
+            const searchableValues = [
+                sale.id,
+                sale.id.slice(0, 8),
+                sale.payment_method,
+                sale.check_number || '',
+                sale.card_last4 || '',
+                sale.customer?.name || '',
+                sale.customer?.email || '',
+                sale.customer?.phone || '',
+                ...sale.items.map((item) => item.name || ''),
+                ...sale.items.map((item) => item.sku || ''),
+                ...sale.items.map((item) => item.consignor?.name || ''),
+                ...sale.items.map((item) => item.consignor?.consignor_number || ''),
+            ];
+
+            return searchableValues.some((value) => value.toLowerCase().includes(normalizedSalesSearch));
+        });
+    }, [activeTab, allFilteredSalesRows, normalizedSalesSearch]);
+
+    const filteredSalesTotalCount = allFilteredSales.length;
+    const filteredSales = useMemo(() => {
+        const from = (salesPage - 1) * salesPageSize;
+        const to = from + salesPageSize;
+        return allFilteredSales.slice(from, to);
+    }, [allFilteredSales, salesPage, salesPageSize]);
 
     const filteredRefunds = useMemo(
         () => refunds.filter((refund) => matchesDateRange(refund.created_at)),
@@ -261,7 +289,7 @@ export function Sales() {
         if (activeTab !== 'sales') return;
         setSalesPage(1);
         setExpandedSaleId(null);
-    }, [activeTab, filterConsignor, filterDatePreset, customDateFrom, customDateTo]);
+    }, [activeTab, filterConsignor, filterDatePreset, customDateFrom, customDateTo, salesSearchQuery]);
 
     useEffect(() => {
         setSalesPage((prev) => Math.min(prev, salesTotalPages));
@@ -309,6 +337,42 @@ export function Sales() {
         void loadOfflineUnsyncedCash();
     }, [dateStartIso, dateEndIso]);
 
+    useEffect(() => {
+        const loadGiftCardSales = async () => {
+            let query = supabase
+                .from('gift_cards')
+                .select('original_amount, purchase_payment_method');
+
+            if (dateStartIso) {
+                query = query.gte('issued_at', dateStartIso);
+            }
+            if (dateEndIso) {
+                query = query.lte('issued_at', dateEndIso);
+            }
+
+            const { data, error } = await query;
+            if (error) {
+                toast.error('Failed to load gift certificate sales', error.message);
+                setGiftCardSales([]);
+                return;
+            }
+
+            setGiftCardSales((data || []) as Array<{ original_amount: number; purchase_payment_method: string | null }>);
+        };
+
+        void loadGiftCardSales();
+    }, [dateStartIso, dateEndIso, toast]);
+
+    const accountabilityMetrics = useMemo(() => (
+        calculateTillAccountabilityMetrics({
+            sales: allFilteredSales,
+            refunds: filteredRefunds,
+            giftCardsSold: giftCardSales,
+            dealerCashPurchases: cashDealerPurchasesTotal,
+            offlineUnsyncedCashSales: offlineUnsyncedCashNetTotal,
+        })
+    ), [allFilteredSales, filteredRefunds, giftCardSales, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal]);
+
     const cashReconciliation = useMemo(() => {
         const cashSales = allFilteredSales.filter((sale) => sale.payment_method === 'cash');
         const cashSalesCount = cashSales.length;
@@ -324,14 +388,7 @@ export function Sales() {
         const cashRefundsCents = filteredRefunds
             .filter((refund) => refund.payment_method === 'cash')
             .reduce((sum, refund) => sum + toCurrencyCents(refund.refund_amount || 0), 0);
-        const dealerCashPurchasesCents = toCurrencyCents(cashDealerPurchasesTotal);
-        const offlineUnsyncedCashSalesCents = toCurrencyCents(offlineUnsyncedCashNetTotal);
-        const expectedCashFromSalesCents = getExpectedCashFromSalesCents({
-            cashSalesNetCents,
-            cashRefundsCents,
-            dealerCashPurchasesCents,
-            offlineUnsyncedCashSalesCents,
-        });
+        const expectedCashFromSalesCents = toCurrencyCents(accountabilityMetrics.expectedCashFromSales);
         const openingFloat = Number.parseFloat(openingFloatInput) || 0;
         const manualAdjustment = Number.parseFloat(manualCashAdjustmentInput) || 0;
         const checkCount = Math.max(0, Number.parseInt(checkCountInput || '0', 10) || 0);
@@ -359,7 +416,7 @@ export function Sales() {
             countedTotal: fromCurrencyCents(countedTotalCents),
             variance: fromCurrencyCents(varianceCents),
         };
-    }, [allFilteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal]);
+    }, [allFilteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal, accountabilityMetrics.expectedCashFromSales]);
 
     useEffect(() => {
         const loadAdmins = async () => {
@@ -854,6 +911,24 @@ export function Sales() {
                     countedTotal: cashReconciliation.countedTotal,
                     variance: cashReconciliation.variance,
                     denominationBreakdown: buildDenominationBreakdown(),
+                    accountability: {
+                        grossProductSales: accountabilityMetrics.grossProductSales,
+                        discounts: accountabilityMetrics.discounts,
+                        returns: accountabilityMetrics.returns,
+                        allowances: accountabilityMetrics.allowances,
+                        netSales: accountabilityMetrics.netSales,
+                        salesTax: accountabilityMetrics.salesTax,
+                        creditCardFeesCharged: accountabilityMetrics.creditCardFeesCharged,
+                        giftCertificatesSold: accountabilityMetrics.giftCertificatesSold,
+                        totalCollected: accountabilityMetrics.totalCollected,
+                        cashInDrawer: accountabilityMetrics.cashInDrawer,
+                        checksInHand: accountabilityMetrics.checksInHand,
+                        creditCardsBatchTotal: accountabilityMetrics.creditCardsBatchTotal,
+                        storeCreditRedeemed: accountabilityMetrics.storeCreditRedeemed,
+                        totalReceived: accountabilityMetrics.totalReceived,
+                        difference: accountabilityMetrics.difference,
+                        dealerCashPurchases: accountabilityMetrics.dealerCashPurchases,
+                    },
                 },
                 timezone,
             },
@@ -886,6 +961,24 @@ export function Sales() {
                 countedTotal: cashReconciliation.countedTotal,
                 variance: cashReconciliation.variance,
                 denominationBreakdown: buildDenominationBreakdown(),
+                accountability: {
+                    grossProductSales: accountabilityMetrics.grossProductSales,
+                    discounts: accountabilityMetrics.discounts,
+                    returns: accountabilityMetrics.returns,
+                    allowances: accountabilityMetrics.allowances,
+                    netSales: accountabilityMetrics.netSales,
+                    salesTax: accountabilityMetrics.salesTax,
+                    creditCardFeesCharged: accountabilityMetrics.creditCardFeesCharged,
+                    giftCertificatesSold: accountabilityMetrics.giftCertificatesSold,
+                    totalCollected: accountabilityMetrics.totalCollected,
+                    cashInDrawer: accountabilityMetrics.cashInDrawer,
+                    checksInHand: accountabilityMetrics.checksInHand,
+                    creditCardsBatchTotal: accountabilityMetrics.creditCardsBatchTotal,
+                    storeCreditRedeemed: accountabilityMetrics.storeCreditRedeemed,
+                    totalReceived: accountabilityMetrics.totalReceived,
+                    difference: accountabilityMetrics.difference,
+                    dealerCashPurchases: accountabilityMetrics.dealerCashPurchases,
+                },
             }
         );
 
@@ -1138,6 +1231,15 @@ export function Sales() {
                     </div>
                 )}
                 {activeTab === 'sales' && (
+                    <div className="w-full sm:w-72">
+                        <Input
+                            placeholder="Search receipt, customer, item, SKU..."
+                            value={salesSearchQuery}
+                            onChange={(e) => setSalesSearchQuery(e.target.value)}
+                        />
+                    </div>
+                )}
+                {activeTab === 'sales' && (
                     <Button
                         variant="secondary"
                         size="sm"
@@ -1147,13 +1249,14 @@ export function Sales() {
                         Export CSV
                     </Button>
                 )}
-                {(filterConsignor || filterDatePreset !== 'last30') && (
+                {(filterConsignor || filterDatePreset !== 'last30' || salesSearchQuery.trim()) && (
                     <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => {
                             setFilterConsignor('');
                             setFilterDatePreset('last30');
+                            setSalesSearchQuery('');
                             const today = toLocalDateInput(new Date());
                             setCustomDateFrom(today);
                             setCustomDateTo(today);
@@ -1247,7 +1350,7 @@ export function Sales() {
             {/* Sales Tab Content */}
             {activeTab === 'sales' && (
                 <>
-                    {sales.length === 0 && !isLoading ? (
+                    {allFilteredSalesRows.length === 0 && !isLoading ? (
                         <EmptyState
                             icon={<ReceiptIcon />}
                             title="No sales yet"
@@ -1468,6 +1571,38 @@ export function Sales() {
             {/* Sales Analytics Tab Content */}
             {activeTab === 'salesAnalytics' && (
                 <div className="space-y-4">
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]/40 p-4">
+                        <p className="text-sm font-medium">Every dollar must be accounted for: Total Collected = Total Received</p>
+                        <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
+                            <div className="rounded-lg border border-[var(--color-border)] p-3 bg-[var(--color-card)]">
+                                <p className="font-semibold">What Customers Paid For</p>
+                                <div className="mt-2 space-y-1 text-[var(--color-muted)]">
+                                    <p>Gross Product Sales: {formatCurrency(accountabilityMetrics.grossProductSales)}</p>
+                                    <p>Discounts: -{formatCurrency(accountabilityMetrics.discounts)}</p>
+                                    <p>Returns: -{formatCurrency(accountabilityMetrics.returns)}</p>
+                                    <p>Allowances: -{formatCurrency(accountabilityMetrics.allowances)}</p>
+                                    <p className="text-[var(--color-foreground)] font-medium">Net Sales: {formatCurrency(accountabilityMetrics.netSales)}</p>
+                                    <p>Sales Tax: {formatCurrency(accountabilityMetrics.salesTax)}</p>
+                                    <p>Credit Card Fees: {formatCurrency(accountabilityMetrics.creditCardFeesCharged)}</p>
+                                    <p>Gift Certificates Sold: {formatCurrency(accountabilityMetrics.giftCertificatesSold)}</p>
+                                    <p className="text-[var(--color-foreground)] font-semibold">Total Collected: {formatCurrency(accountabilityMetrics.totalCollected)}</p>
+                                </div>
+                            </div>
+                            <div className="rounded-lg border border-[var(--color-border)] p-3 bg-[var(--color-card)]">
+                                <p className="font-semibold">How Customers Paid</p>
+                                <div className="mt-2 space-y-1 text-[var(--color-muted)]">
+                                    <p>Cash in (drawer): {formatCurrency(accountabilityMetrics.cashInDrawer)}</p>
+                                    <p>Checks (in hand): {formatCurrency(accountabilityMetrics.checksInHand)}</p>
+                                    <p>Credit Cards (batch total): {formatCurrency(accountabilityMetrics.creditCardsBatchTotal)}</p>
+                                    <p>Store Credit (redeemed): {formatCurrency(accountabilityMetrics.storeCreditRedeemed)}</p>
+                                    <p className="text-[var(--color-foreground)] font-semibold">Total Received: {formatCurrency(accountabilityMetrics.totalReceived)}</p>
+                                    <p>Collected - Received: {accountabilityMetrics.difference >= 0 ? '+' : ''}{formatCurrency(accountabilityMetrics.difference)}</p>
+                                    <p>Dealer Purchases (Cash Out): -{formatCurrency(accountabilityMetrics.dealerCashPurchases)}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
                         <SummaryCard
                             label="Net Sales"
@@ -2001,6 +2136,44 @@ export function Sales() {
                 size="lg"
             >
                 <div className="space-y-4">
+                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                        <p className="text-sm font-medium">Every dollar must be accounted for</p>
+                        <p className="text-sm mt-1">
+                            Total Collected = Total Received
+                            {' '}
+                            ({formatCurrency(accountabilityMetrics.totalCollected)} = {formatCurrency(accountabilityMetrics.totalReceived)})
+                        </p>
+                        <p className="text-xs text-[var(--color-muted)] mt-1">
+                            Collected - Received: {accountabilityMetrics.difference >= 0 ? '+' : ''}{formatCurrency(accountabilityMetrics.difference)}
+                        </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 text-sm">
+                        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3">
+                            <p className="font-semibold">What Customers Paid For</p>
+                            <div className="mt-2 space-y-1 text-[var(--color-muted)]">
+                                <p>Gross Product Sales: {formatCurrency(accountabilityMetrics.grossProductSales)}</p>
+                                <p>Discounts: -{formatCurrency(accountabilityMetrics.discounts)}</p>
+                                <p>Returns: -{formatCurrency(accountabilityMetrics.returns)}</p>
+                                <p>Allowances: -{formatCurrency(accountabilityMetrics.allowances)}</p>
+                                <p>Net Sales: {formatCurrency(accountabilityMetrics.netSales)}</p>
+                                <p>Sales Tax: {formatCurrency(accountabilityMetrics.salesTax)}</p>
+                                <p>Credit Card Fees: {formatCurrency(accountabilityMetrics.creditCardFeesCharged)}</p>
+                                <p>Gift Certificates Sold: {formatCurrency(accountabilityMetrics.giftCertificatesSold)}</p>
+                            </div>
+                        </div>
+                        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3">
+                            <p className="font-semibold">How Customers Paid</p>
+                            <div className="mt-2 space-y-1 text-[var(--color-muted)]">
+                                <p>Cash in (drawer): {formatCurrency(accountabilityMetrics.cashInDrawer)}</p>
+                                <p>Checks (in hand): {formatCurrency(accountabilityMetrics.checksInHand)}</p>
+                                <p>Credit Cards (batch total): {formatCurrency(accountabilityMetrics.creditCardsBatchTotal)}</p>
+                                <p>Store Credit (redeemed): {formatCurrency(accountabilityMetrics.storeCreditRedeemed)}</p>
+                                <p>Dealer Purchases (Cash Out): -{formatCurrency(accountabilityMetrics.dealerCashPurchases)}</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                         <SummaryCard
                             label="Expected Cash (Net)"

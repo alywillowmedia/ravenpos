@@ -188,7 +188,13 @@ export function VendorLayout() {
                     </button>
                 </div>
             </aside>
-
+            <div
+                aria-hidden="true"
+                className={cn(
+                    'pointer-events-none fixed top-14 z-[35] hidden h-6 w-6 rounded-tl-3xl bg-[var(--color-surface)] lg:block',
+                    isCollapsed ? 'left-16' : 'left-64'
+                )}
+            />
             {/* Main content */}
             <main className={cn(
                 isCollapsed ? 'lg:pl-16' : 'lg:pl-64',

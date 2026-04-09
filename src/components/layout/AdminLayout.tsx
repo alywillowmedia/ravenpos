@@ -35,6 +35,15 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <div className="min-h-screen bg-[var(--color-surface)]">
             {/* Desktop Sidebar - hidden on mobile */}
             {!isMobile && <Sidebar />}
+            {!isMobile && (
+                <div
+                    aria-hidden="true"
+                    className={cn(
+                        'pointer-events-none fixed top-14 z-[35] h-6 w-6 rounded-tl-3xl bg-[var(--color-surface)]',
+                        isSidebarCollapsed ? 'left-16' : 'left-64'
+                    )}
+                />
+            )}
 
             <main className={cn(
                 isMobile ? 'mobile-content-padding' : (isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'),

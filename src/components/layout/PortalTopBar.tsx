@@ -36,75 +36,77 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
 
     return (
         <>
-            <div className="h-14 bg-[var(--color-surface-elevated)] backdrop-blur">
-                <div className="flex h-full items-center justify-between px-4 sm:px-6 lg:px-8">
-                    <div>
-                        <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">{messaging.actorRoleLabel}</p>
-                        <p className="text-sm font-medium text-[var(--color-foreground)]">Team Messaging</p>
-                    </div>
+            <div className="sticky top-0 z-30">
+                <div className="h-14 bg-[var(--color-surface-elevated)]/95 backdrop-blur">
+                    <div className="flex h-full items-center justify-between px-4 sm:px-6 lg:px-8">
+                        <div>
+                            <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">{messaging.actorRoleLabel}</p>
+                            <p className="text-sm font-medium text-[var(--color-foreground)]">Team Messaging</p>
+                        </div>
 
-                    <div ref={panelRef} className="relative flex items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={toggleTheme}
-                            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2 text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface)]"
-                            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
-                        >
-                            {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setIsOpen((prev) => !prev)}
-                            className="relative rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2 text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface)]"
-                            aria-label="Open message notifications"
-                        >
-                            <BellIcon />
-                            {messaging.unreadCount > 0 && (
-                                <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-[var(--color-danger)] px-1.5 py-0.5 text-center text-[10px] font-bold text-white">
-                                    {messaging.unreadCount > 99 ? '99+' : messaging.unreadCount}
-                                </span>
-                            )}
-                        </button>
-
-                        {isOpen && (
-                            <div className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-2 shadow-lg">
-                                <div className="px-2 py-1.5">
-                                    <p className="text-sm font-semibold text-[var(--color-foreground)]">Unread messages</p>
-                                </div>
-
-                                {messaging.unreadThreads.length === 0 ? (
-                                    <p className="px-2 py-3 text-sm text-[var(--color-muted)]">No unread messages.</p>
-                                ) : (
-                                    <div className="max-h-80 space-y-1 overflow-y-auto">
-                                        {messaging.unreadThreads.slice(0, 8).map((thread) => (
-                                            <button
-                                                key={thread.thread.id}
-                                                type="button"
-                                                onClick={() => {
-                                                    setIsOpen(false);
-                                                    messaging.openThreadFromNotification(thread.thread.id);
-                                                }}
-                                                className="w-full rounded-lg px-2 py-2 text-left transition-colors hover:bg-[var(--color-surface)]"
-                                            >
-                                                <p className="truncate text-sm font-medium text-[var(--color-foreground)]">{thread.title}</p>
-                                                <p className="truncate text-xs text-[var(--color-muted)]">{thread.lastMessagePreview || 'New message'}</p>
-                                            </button>
-                                        ))}
-                                    </div>
+                        <div ref={panelRef} className="relative flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={toggleTheme}
+                                className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2 text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface)]"
+                                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                                title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+                            >
+                                {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsOpen((prev) => !prev)}
+                                className="relative rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2 text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface)]"
+                                aria-label="Open message notifications"
+                            >
+                                <BellIcon />
+                                {messaging.unreadCount > 0 && (
+                                    <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-[var(--color-danger)] px-1.5 py-0.5 text-center text-[10px] font-bold text-white">
+                                        {messaging.unreadCount > 99 ? '99+' : messaging.unreadCount}
+                                    </span>
                                 )}
+                            </button>
 
-                                <div className="border-t border-[var(--color-border)] px-2 pt-2">
-                                    <Link
-                                        to={`${portalBasePath}/messages`}
-                                        onClick={() => setIsOpen(false)}
-                                        className="text-sm font-medium text-[var(--color-primary)] hover:underline"
-                                    >
-                                        Open messages
-                                    </Link>
+                            {isOpen && (
+                                <div className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-2 shadow-lg">
+                                    <div className="px-2 py-1.5">
+                                        <p className="text-sm font-semibold text-[var(--color-foreground)]">Unread messages</p>
+                                    </div>
+
+                                    {messaging.unreadThreads.length === 0 ? (
+                                        <p className="px-2 py-3 text-sm text-[var(--color-muted)]">No unread messages.</p>
+                                    ) : (
+                                        <div className="max-h-80 space-y-1 overflow-y-auto">
+                                            {messaging.unreadThreads.slice(0, 8).map((thread) => (
+                                                <button
+                                                    key={thread.thread.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setIsOpen(false);
+                                                        messaging.openThreadFromNotification(thread.thread.id);
+                                                    }}
+                                                    className="w-full rounded-lg px-2 py-2 text-left transition-colors hover:bg-[var(--color-surface)]"
+                                                >
+                                                    <p className="truncate text-sm font-medium text-[var(--color-foreground)]">{thread.title}</p>
+                                                    <p className="truncate text-xs text-[var(--color-muted)]">{thread.lastMessagePreview || 'New message'}</p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <div className="border-t border-[var(--color-border)] px-2 pt-2">
+                                        <Link
+                                            to={`${portalBasePath}/messages`}
+                                            onClick={() => setIsOpen(false)}
+                                            className="text-sm font-medium text-[var(--color-primary)] hover:underline"
+                                        >
+                                            Open messages
+                                        </Link>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
