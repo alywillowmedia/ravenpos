@@ -24,10 +24,10 @@ export function Tabs({ tabs, activeTab, onChange, className }: TabsProps) {
                         onClick={() => onChange(tab.id)}
                         className={cn(
                             "w-full rounded-lg py-2.5 text-sm font-medium leading-5 transition-all duration-200",
-                            "ring-white/60 ring-offset-2 ring-offset-[var(--color-primary)] focus:outline-none focus:ring-2",
+                            "ring-[var(--color-card)]/60 ring-offset-2 ring-offset-[var(--color-primary)] focus:outline-none focus:ring-2",
                             isActive
-                                ? "bg-white text-[var(--color-primary)] shadow-sm"
-                                : "text-[var(--color-muted)] hover:bg-white/[0.12] hover:text-[var(--color-foreground)]"
+                                ? "bg-[var(--color-card)] text-[var(--color-primary)] shadow-sm"
+                                : "text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]"
                         )}
                         type="button"
                     >

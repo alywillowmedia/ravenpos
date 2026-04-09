@@ -66,7 +66,7 @@ export function BulkEditTable({
     }, [bulkQuantity, items, onStageChange]);
 
     return (
-        <div className="rounded-xl border border-[var(--color-border)] overflow-hidden bg-white">
+        <div className="rounded-xl border border-[var(--color-border)] overflow-hidden bg-[var(--color-card)]">
             {/* Header info */}
             <div className="px-4 py-3 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -91,7 +91,7 @@ export function BulkEditTable({
                             type="button"
                             onClick={applyQuantityToAll}
                             disabled={bulkQuantity.trim() === '' || Number.parseInt(bulkQuantity, 10) < 0}
-                            className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-[var(--color-border)] bg-white text-[var(--color-foreground)] hover:bg-[var(--color-surface)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-[var(--color-foreground)] hover:bg-[var(--color-surface)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                             Apply
                         </button>
@@ -136,8 +136,8 @@ export function BulkEditTable({
                                     className={`
                                         transition-colors
                                         ${hasChanges
-                                            ? 'bg-amber-50 hover:bg-amber-100'
-                                            : 'bg-white hover:bg-[var(--color-surface-hover)]'
+                                            ? 'bg-[var(--color-warning-bg)] hover:bg-[var(--color-warning-bg)]/80'
+                                            : 'bg-[var(--color-card)] hover:bg-[var(--color-surface-hover)]'
                                         }
                                     `}
                                 >

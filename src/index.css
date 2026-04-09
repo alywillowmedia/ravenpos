@@ -19,6 +19,7 @@
   --color-surface: #fafafa;
   --color-surface-elevated: #ffffff;
   --color-surface-hover: #f4f4f5;
+  --color-card: #ffffff;
 
   /* Primary accent - Deep indigo */
   --color-primary: #4f46e5;
@@ -27,10 +28,12 @@
 
   /* Semantic colors */
   --color-success: #10b981;
+  --color-success-hover: #059669;
   --color-success-bg: #ecfdf5;
   --color-warning: #f59e0b;
   --color-warning-bg: #fffbeb;
   --color-danger: #ef4444;
+  --color-danger-hover: #dc2626;
   --color-danger-bg: #fef2f2;
   --color-info: #3b82f6;
   --color-info-bg: #eff6ff;
@@ -63,6 +66,42 @@
   --mobile-touch-target: 44px;
 }
 
+:root {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-background: #0f1115;
+  --color-foreground: #f5f7fb;
+  --color-muted: #a1a9b8;
+  --color-muted-foreground: #7f8898;
+  --color-border: #2a303d;
+  --color-input: #262c39;
+  --color-ring: #8da2ff;
+
+  --color-surface: #171b24;
+  --color-surface-elevated: #1f2430;
+  --color-surface-hover: #272d3a;
+  --color-card: #1f2430;
+
+  --color-primary: #818cf8;
+  --color-primary-hover: #6366f1;
+  --color-primary-foreground: #0b1020;
+
+  --color-success: #34d399;
+  --color-success-hover: #10b981;
+  --color-success-bg: rgb(52 211 153 / 14%);
+  --color-warning: #fbbf24;
+  --color-warning-bg: rgb(251 191 36 / 14%);
+  --color-danger: #f87171;
+  --color-danger-hover: #ef4444;
+  --color-danger-bg: rgb(248 113 113 / 14%);
+  --color-info: #60a5fa;
+  --color-info-bg: rgb(96 165 250 / 14%);
+}
+
 /* ========================================
    Base Styles
    ======================================== */
@@ -84,6 +123,10 @@ body {
   line-height: 1.6;
 }
 
+:root[data-theme='dark'] .sidebar-logo-image {
+  filter: brightness(0) invert(1);
+}
+
 /* ========================================
    Ravenlia Public Storefront Theme
    ======================================== */
@@ -100,13 +143,16 @@ body {
   --color-surface: #efe3a5;
   --color-surface-elevated: #f4e9b7;
   --color-surface-hover: #e4d687;
+  --color-card: #f4e9b7;
 
   --color-primary: #b22c22;
   --color-primary-hover: #912119;
   --color-primary-foreground: #fff4d8;
 
   --color-success: #375d2a;
+  --color-success-hover: #2f4f25;
   --color-success-bg: #dce6c9;
+  --color-danger-hover: #912119;
 
   font-family: "Avenir Next", "Trebuchet MS", "Gill Sans", "Segoe UI", sans-serif;
   background:

@@ -6,6 +6,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
     size?: 'sm' | 'md' | 'lg' | 'xl';
     isLoading?: boolean;
+    fullWidth?: boolean;
     leftIcon?: ReactNode;
     rightIcon?: ReactNode;
 }
@@ -17,6 +18,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
             variant = 'primary',
             size = 'md',
             isLoading = false,
+            fullWidth = false,
             disabled,
             leftIcon,
             rightIcon,
@@ -55,13 +57,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       `,
             danger: `
         bg-[var(--color-danger)] text-white
-        hover:bg-[#dc2626]
+        hover:bg-[var(--color-danger-hover)]
         focus-visible:ring-[var(--color-danger)]
         shadow-sm hover:shadow-md
       `,
             success: `
         bg-[var(--color-success)] text-white
-        hover:bg-[#059669]
+        hover:bg-[var(--color-success-hover)]
         focus-visible:ring-[var(--color-success)]
         shadow-sm hover:shadow-md
       `,
@@ -77,7 +79,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         return (
             <button
                 ref={ref}
-                className={cn(baseStyles, variants[variant], sizes[size], className)}
+                className={cn(baseStyles, variants[variant], sizes[size], fullWidth && 'w-full', className)}
                 disabled={disabled || isLoading}
                 {...props}
             >

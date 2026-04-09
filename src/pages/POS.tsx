@@ -45,7 +45,7 @@ export function POS() {
     const { isAdmin, userRecord } = useAuth();
     const { employee } = useEmployee();
     const scannerRef = useRef<HTMLInputElement>(null);
-    const { getItemBySku } = useInventory();
+    const { getItemBySku } = useInventory({ autoFetch: false });
     const { consignors } = useConsignors();
     const { completeSale, isProcessing } = useSales();
     const { createInvoice, isLoading: isCreatingInvoice } = useInvoices();
@@ -1114,9 +1114,10 @@ export function POS() {
     };
 
     return (
-        <div className="animate-fadeIn h-[calc(100vh-7rem)] flex flex-col">
+        <div className="animate-fadeIn min-h-0 overflow-hidden flex flex-col">
             <Header
                 title="Point of Sale"
+                className="shrink-0 pb-4 mb-4"
                 actions={
                     <div className="flex gap-2">
                         <Button
@@ -1170,6 +1171,7 @@ export function POS() {
                 }
             />
 
+            <div className="flex-1 min-h-0 overflow-hidden">
             {isOfflineMode && (
                 <Card variant="outlined" className="mb-4 shrink-0 border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10">
                     <CardContent className="py-3">
@@ -1214,142 +1216,37 @@ export function POS() {
                 </Card>
             )}
 
-            {/* Customer Selection */}
-            <Card variant="outlined" className="mb-4 shrink-0">
-                <CardContent>
-                    <p className="text-sm font-medium mb-2">Customer (Optional)</p>
-                    {selectedCustomer ? (
-                        <div className="p-3 rounded-lg bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/20">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="font-medium text-[var(--color-foreground)]">
-                                        {selectedCustomer.name}
-                                    </p>
-                                    <p className="text-xs text-[var(--color-muted)]">
-                                        {selectedCustomer.phone || selectedCustomer.email || 'No contact info'}
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={handleClearCustomer}
-                                    className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-danger)] transition-colors"
-                                >
-                                    <XIcon />
-                                </button>
-                            </div>
-                            <div className="mt-3 space-y-2">
-                                <div className="flex items-center justify-between text-sm">
-                                    <span className="text-[var(--color-muted)]">Store Credit</span>
-                                    <span className="font-semibold text-[var(--color-success)]">
-                                        {formatCurrency(availableStoreCredit)}
-                                    </span>
-                                </div>
-                                {availableStoreCredit > 0 && (
-                                    <label className="flex items-center justify-between text-sm">
-                                        <span className="text-[var(--color-muted)]">Apply to this sale</span>
-                                        <input
-                                            type="checkbox"
-                                            checked={useStoreCredit}
-                                            onChange={(e) => setUseStoreCredit(e.target.checked)}
-                                            disabled={isOfflineMode}
-                                            className="h-4 w-4 rounded border-[var(--color-border)]"
-                                        />
-                                    </label>
-                                )}
-                                {isOfflineMode && availableStoreCredit > 0 && (
-                                    <p className="text-xs text-[var(--color-muted)]">
-                                        Store credit requires internet and is disabled offline.
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex gap-2">
-                            <div className="relative flex-1">
-                                <Input
-                                    value={customerSearch}
-                                    onChange={(e) => setCustomerSearch(e.target.value)}
-                                    placeholder="Search by name, phone, or email..."
-                                    leftIcon={isSearchingCustomer ? <LoadingSpinner size={16} /> : <SearchIcon />}
-                                />
-                                {showCustomerDropdown && customerResults.length > 0 && (
-                                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-[var(--color-border)] z-50 max-h-48 overflow-y-auto">
-                                        {customerResults.map((customer) => (
-                                            <button
-                                                key={customer.id}
-                                                onClick={() => handleSelectCustomer(customer)}
-                                                className="w-full px-3 py-2 text-left hover:bg-[var(--color-surface-hover)] transition-colors"
-                                            >
-                                                <p className="font-medium text-sm">{customer.name}</p>
-                                                <p className="text-xs text-[var(--color-muted)]">
-                                                    {customer.phone || customer.email || 'No contact'}
-                                                </p>
-                                                <p className="text-xs text-[var(--color-success)]">
-                                                    Credit: {formatCurrency(Number(customer.store_credit || 0))}
-                                                </p>
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                                {showCustomerDropdown && customerResults.length === 0 && customerSearch.length >= 2 && !isSearchingCustomer && (
-                                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-[var(--color-border)] z-50 p-3">
-                                        <p className="text-sm text-[var(--color-muted)] mb-2">No customers found</p>
-                                        <Button
-                                            size="sm"
-                                            variant="secondary"
-                                            onClick={() => {
-                                                setNewCustomerData({ name: customerSearch, email: null, phone: null, notes: null, accepts_marketing: false });
-                                                setShowNewCustomerModal(true);
-                                                setShowCustomerDropdown(false);
-                                            }}
-                                        >
-                                            + Add "{customerSearch}"
-                                        </Button>
-                                    </div>
-                                )}
-                            </div>
-                            <Button
-                                variant="secondary"
-                                onClick={() => {
-                                    setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
-                                    setShowNewCustomerModal(true);
-                                }}
-                                className="shrink-0"
-                                title="Create New Customer"
-                            >
-                                <UserPlusIcon />
-                            </Button>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0 overflow-hidden">
                 {/* Left: Scanner + Cart */}
                 <div className="lg:col-span-2 flex flex-col gap-4">
                     {/* Scanner Input */}
                     <Card variant="outlined">
                         <CardContent>
-                            <form onSubmit={handleScan}>
-                                <Input
-                                    ref={scannerRef}
-                                    value={scanInput}
-                                    onChange={(e) => setScanInput(e.target.value)}
-                                    placeholder="Scan barcode or enter SKU..."
-                                    inputSize="lg"
-                                    leftIcon={<BarcodeIcon />}
-                                    error={scanError || undefined}
-                                    autoComplete="off"
-                                />
-                            </form>
-                            <div className="mt-3 flex justify-end">
-                                <Button
-                                    variant="secondary"
-                                    onClick={openCustomItemModal}
-                                    disabled={consignors.length === 0}
-                                    title={consignors.length === 0 ? 'Add a consignor first' : 'Add a one-off custom item'}
-                                >
-                                    + Custom Item
-                                </Button>
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                                <form onSubmit={handleScan} className="flex-1">
+                                    <Input
+                                        ref={scannerRef}
+                                        value={scanInput}
+                                        onChange={(e) => setScanInput(e.target.value)}
+                                        placeholder="Scan barcode or enter SKU..."
+                                        inputSize="lg"
+                                        leftIcon={<BarcodeIcon />}
+                                        error={scanError || undefined}
+                                        autoComplete="off"
+                                    />
+                                </form>
+                                <div className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
+                                    <span className="hidden sm:inline">or</span>
+                                    <Button
+                                        variant="secondary"
+                                        onClick={openCustomItemModal}
+                                        disabled={consignors.length === 0}
+                                        title={consignors.length === 0 ? 'Add a consignor first' : 'Add a one-off custom item'}
+                                        className="shrink-0"
+                                    >
+                                        + Custom Item
+                                    </Button>
+                                </div>
                             </div>
                         </CardContent>
                     </Card>
@@ -1462,58 +1359,118 @@ export function POS() {
                 </div>
 
                 {/* Right: Totals + Tender */}
-                <div className="flex flex-col gap-4">
-                    {/* Gift Card */}
-                    <Card variant="outlined">
-                        <CardContent>
-                            <div className="flex items-center justify-between mb-2">
-                                <p className="text-sm font-medium">Gift Card</p>
-                                {appliedGiftCard && (
-                                    <button
-                                        onClick={handleRemoveGiftCard}
-                                        className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
-                                    >
-                                        Remove
-                                    </button>
-                                )}
-                            </div>
-                            {appliedGiftCard ? (
-                                <div className="rounded-lg bg-[var(--color-success-bg)] border border-[var(--color-success)]/20 p-3">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm font-mono text-[var(--color-foreground)]">{appliedGiftCard.code}</span>
-                                        <span className="text-xs text-[var(--color-muted)]">
-                                            Balance: {formatCurrency(appliedGiftCard.balance)}
-                                        </span>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="flex gap-2">
-                                    <Input
-                                        value={giftCardInput}
-                                        onChange={(e) => setGiftCardInput(e.target.value.toUpperCase())}
-                                        placeholder="Enter gift card code"
-                                        disabled={isOfflineMode}
-                                    />
-                                    <Button
-                                        variant="secondary"
-                                        onClick={handleApplyGiftCard}
-                                        isLoading={isApplyingGiftCard}
-                                        className="shrink-0"
-                                        disabled={isOfflineMode}
-                                    >
-                                        Apply
-                                    </Button>
-                                </div>
-                            )}
-                            {giftCardError && (
-                                <p className="text-xs text-[var(--color-danger)] mt-2">{giftCardError}</p>
-                            )}
-                        </CardContent>
-                    </Card>
-
+                <div className="flex flex-col gap-4 min-h-0">
                     {/* Totals */}
                     <Card variant="elevated">
                         <CardContent className="space-y-3">
+                            <div className="w-full flex items-center gap-2.5">
+                                <span className="shrink-0 text-[var(--color-muted)]">
+                                    <CustomerIcon />
+                                </span>
+                                <div className="relative flex-1 min-w-0">
+                                    {selectedCustomer ? (
+                                        <div className="rounded-lg bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/20 p-2">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="truncate text-sm font-medium text-[var(--color-foreground)]">
+                                                        {selectedCustomer.name}
+                                                    </p>
+                                                    <p className="truncate text-xs text-[var(--color-muted)]">
+                                                        {selectedCustomer.phone || selectedCustomer.email || 'No contact info'}
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    onClick={handleClearCustomer}
+                                                    className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                            <div className="mt-2 flex items-center justify-between gap-3">
+                                                <span className="text-xs font-semibold text-[var(--color-success)]">
+                                                    {formatCurrency(availableStoreCredit)} credit
+                                                </span>
+                                            </div>
+                                            {availableStoreCredit > 0 && (
+                                                <label className="mt-2 flex items-center justify-between text-xs">
+                                                    <span className="text-[var(--color-muted)]">Apply store credit</span>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={useStoreCredit}
+                                                        onChange={(e) => setUseStoreCredit(e.target.checked)}
+                                                        disabled={isOfflineMode}
+                                                        className="h-4 w-4 rounded border-[var(--color-border)]"
+                                                    />
+                                                </label>
+                                            )}
+                                            {isOfflineMode && availableStoreCredit > 0 && (
+                                                <p className="text-xs text-[var(--color-muted)] mt-2">
+                                                    Store credit requires internet and is disabled offline.
+                                                </p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="flex gap-2 w-full">
+                                            <Input
+                                                value={customerSearch}
+                                                onChange={(e) => setCustomerSearch(e.target.value)}
+                                                placeholder="Search customer..."
+                                                leftIcon={isSearchingCustomer ? <LoadingSpinner size={16} /> : <SearchIcon />}
+                                                className="w-full"
+                                            />
+                                            <Button
+                                                variant="secondary"
+                                                onClick={() => {
+                                                    setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
+                                                    setShowNewCustomerModal(true);
+                                                }}
+                                                className="shrink-0"
+                                                title="Create New Customer"
+                                            >
+                                                <UserPlusIcon />
+                                            </Button>
+                                        </div>
+                                    )}
+                                    {showCustomerDropdown && customerResults.length > 0 && (
+                                        <div className="absolute top-full left-0 right-0 mt-1 rounded-lg shadow-lg border border-[var(--color-border)] z-50 max-h-48 overflow-y-auto bg-[var(--color-card)]">
+                                            {customerResults.map((customer) => (
+                                                <button
+                                                    key={customer.id}
+                                                    onClick={() => handleSelectCustomer(customer)}
+                                                    className="w-full px-3 py-2 text-left hover:bg-[var(--color-surface-hover)] transition-colors"
+                                                >
+                                                    <p className="font-medium text-sm">{customer.name}</p>
+                                                    <p className="text-xs text-[var(--color-muted)]">
+                                                        {customer.phone || customer.email || 'No contact'}
+                                                    </p>
+                                                    <p className="text-xs text-[var(--color-success)]">
+                                                        Credit: {formatCurrency(Number(customer.store_credit || 0))}
+                                                    </p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {showCustomerDropdown && customerResults.length === 0 && customerSearch.length >= 2 && !isSearchingCustomer && (
+                                        <div className="absolute top-full left-0 right-0 mt-1 rounded-lg shadow-lg border border-[var(--color-border)] z-50 p-3 bg-[var(--color-card)]">
+                                            <p className="text-sm text-[var(--color-muted)] mb-2">No customers found</p>
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                onClick={() => {
+                                                    setNewCustomerData({ name: customerSearch, email: null, phone: null, notes: null, accepts_marketing: false });
+                                                    setShowNewCustomerModal(true);
+                                                    setShowCustomerDropdown(false);
+                                                }}
+                                            >
+                                                + Add "{customerSearch}"
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="border-t border-[var(--color-border)]" />
+
                             <div className="flex justify-between text-sm">
                                 <span className="text-[var(--color-muted)]">Subtotal</span>
                                 <span>{formatCurrency(subtotal)}</span>
@@ -1639,12 +1596,61 @@ export function POS() {
                                     +{formatCurrency(cardFeeDifference)} vs cash
                                 </p>
                             )}
+
+                            <div className="pt-3 border-t border-[var(--color-border)]">
+                                <div className="w-full flex items-center gap-2.5">
+                                    <span className="shrink-0 text-[var(--color-muted)]">
+                                        <GiftCardIcon />
+                                    </span>
+                                    <div className="flex-1 min-w-0 space-y-2">
+                                        {appliedGiftCard ? (
+                                            <div className="rounded-lg bg-[var(--color-success-bg)] border border-[var(--color-success)]/20 p-2">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="text-xs font-mono text-[var(--color-foreground)]">{appliedGiftCard.code}</span>
+                                                    <button
+                                                        onClick={handleRemoveGiftCard}
+                                                        className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                </div>
+                                                <p className="mt-1 text-xs text-[var(--color-muted)]">
+                                                    Balance: {formatCurrency(appliedGiftCard.balance)}
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="flex gap-2 w-full">
+                                                <Input
+                                                    value={giftCardInput}
+                                                    onChange={(e) => setGiftCardInput(e.target.value.toUpperCase())}
+                                                    placeholder="Enter giftcard code"
+                                                    disabled={isOfflineMode}
+                                                    className="w-full text-sm"
+                                                />
+                                                <Button
+                                                    variant="secondary"
+                                                    onClick={handleApplyGiftCard}
+                                                    isLoading={isApplyingGiftCard}
+                                                    className="shrink-0"
+                                                    disabled={isOfflineMode}
+                                                >
+                                                    Apply
+                                                </Button>
+                                            </div>
+                                        )}
+
+                                        {giftCardError && (
+                                            <p className="text-xs text-[var(--color-danger)]">{giftCardError}</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
                         </CardContent>
                     </Card>
 
                     {/* Payment Method */}
-                    <Card variant="outlined" className="flex-1">
-                        <CardContent className="h-full flex flex-col">
+                    <Card variant="outlined" className="flex-1 min-h-0 overflow-hidden">
+                        <CardContent className="h-full flex flex-col min-h-0">
                             {/* Payment Method Toggle */}
                             <div className="flex gap-2 mb-4">
                                 <button
@@ -1683,63 +1689,64 @@ export function POS() {
 
                             {paymentMethod === 'cash' ? (
                                 <>
-                                    <p className="text-sm font-medium mb-2">Cash Tendered</p>
-                                    <Input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        value={cashTendered}
-                                        onChange={(e) => setCashTendered(e.target.value)}
-                                        inputSize="lg"
-                                        leftIcon={<span className="text-[var(--color-muted)]">$</span>}
-                                        placeholder="0.00"
-                                    />
+                                    <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+                                        <p className="text-sm font-medium mb-2">Cash Tendered</p>
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={cashTendered}
+                                            onChange={(e) => setCashTendered(e.target.value)}
+                                            inputSize="lg"
+                                            leftIcon={<span className="text-[var(--color-muted)]">$</span>}
+                                            placeholder="0.00"
+                                        />
 
-                                    {/* Quick amounts */}
-                                    <div className="grid grid-cols-3 gap-2 mt-3">
-                                        {quickCashAmounts.map((amount) => (
-                                            <button
-                                                key={amount}
-                                                onClick={() => setCashTendered(amount.toString())}
-                                                className="py-2 px-3 rounded-lg bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-sm font-medium transition-colors"
+                                        {/* Quick amounts */}
+                                        <div className="grid grid-cols-3 gap-2 mt-3">
+                                            {quickCashAmounts.map((amount) => (
+                                                <button
+                                                    key={amount}
+                                                    onClick={() => setCashTendered(amount.toString())}
+                                                    className="py-2 px-3 rounded-lg bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-sm font-medium transition-colors"
+                                                >
+                                                    ${amount}
+                                                </button>
+                                            ))}
+                                            {amountDue > 0 && (
+                                                <button
+                                                    onClick={() => setCashTendered(Math.ceil(amountDue).toString())}
+                                                    className="col-span-3 py-2 px-3 rounded-lg bg-[var(--color-primary)]/10 hover:bg-[var(--color-primary)]/20 text-[var(--color-primary)] text-sm font-medium transition-colors"
+                                                >
+                                                    Exact: {formatCurrency(Math.ceil(amountDue))}
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* Change Display */}
+                                        {cashAmount > 0 && (
+                                            <div
+                                                className={`mt-4 p-4 rounded-xl text-center ${change >= 0
+                                                    ? 'bg-[var(--color-success-bg)]'
+                                                    : 'bg-[var(--color-danger-bg)]'
+                                                    }`}
                                             >
-                                                ${amount}
-                                            </button>
-                                        ))}
-                                        {amountDue > 0 && (
-                                            <button
-                                                onClick={() => setCashTendered(Math.ceil(amountDue).toString())}
-                                                className="col-span-3 py-2 px-3 rounded-lg bg-[var(--color-primary)]/10 hover:bg-[var(--color-primary)]/20 text-[var(--color-primary)] text-sm font-medium transition-colors"
-                                            >
-                                                Exact: {formatCurrency(Math.ceil(amountDue))}
-                                            </button>
+                                                <p className="text-sm text-[var(--color-muted)]">
+                                                    {change >= 0 ? 'Change Due' : 'Amount Short'}
+                                                </p>
+                                                <p
+                                                    className={`text-3xl font-bold ${change >= 0
+                                                        ? 'text-[var(--color-success)]'
+                                                        : 'text-[var(--color-danger)]'
+                                                        }`}
+                                                >
+                                                    {formatCurrency(Math.abs(change))}
+                                                </p>
+                                            </div>
                                         )}
                                     </div>
 
-                                    {/* Change Display */}
-                                    {cashAmount > 0 && (
-                                        <div
-                                            className={`mt-4 p-4 rounded-xl text-center ${change >= 0
-                                                ? 'bg-[var(--color-success-bg)]'
-                                                : 'bg-[var(--color-danger-bg)]'
-                                                }`}
-                                        >
-                                            <p className="text-sm text-[var(--color-muted)]">
-                                                {change >= 0 ? 'Change Due' : 'Amount Short'}
-                                            </p>
-                                            <p
-                                                className={`text-3xl font-bold ${change >= 0
-                                                    ? 'text-[var(--color-success)]'
-                                                    : 'text-[var(--color-danger)]'
-                                                    }`}
-                                            >
-                                                {formatCurrency(Math.abs(change))}
-                                            </p>
-                                        </div>
-                                    )}
-
-                                    {/* Complete Cash Sale Button */}
-                                    <div className="mt-auto pt-4">
+                                    <div className="pt-3 border-t border-[var(--color-border)] mt-3 shrink-0">
                                         <Button
                                             size="xl"
                                             className="w-full"
@@ -1753,17 +1760,19 @@ export function POS() {
                                 </>
                             ) : paymentMethod === 'check' ? (
                                 <>
-                                    <p className="text-sm font-medium mb-2">Check Number (Optional)</p>
-                                    <Input
-                                        value={checkNumber}
-                                        onChange={(e) => setCheckNumber(e.target.value)}
-                                        inputSize="lg"
-                                        placeholder="Enter check #"
-                                    />
-                                    <p className="text-xs text-[var(--color-muted)] mt-2">
-                                        You can also add or edit this later in Sales History.
-                                    </p>
-                                    <div className="mt-auto pt-4">
+                                    <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+                                        <p className="text-sm font-medium mb-2">Check Number (Optional)</p>
+                                        <Input
+                                            value={checkNumber}
+                                            onChange={(e) => setCheckNumber(e.target.value)}
+                                            inputSize="lg"
+                                            placeholder="Enter check #"
+                                        />
+                                        <p className="text-xs text-[var(--color-muted)] mt-2">
+                                            You can also add or edit this later in Sales History.
+                                        </p>
+                                    </div>
+                                    <div className="pt-3 border-t border-[var(--color-border)] mt-3 shrink-0">
                                         <Button
                                             size="xl"
                                             className="w-full"
@@ -1777,6 +1786,7 @@ export function POS() {
                                 </>
                             ) : (
                                 <>
+                                    <div className="flex-1 min-h-0 overflow-y-auto pr-1">
                                     {/* Card Reader Status */}
                                     <div className="mb-4">
                                         <div className="flex items-center justify-between mb-2">
@@ -1841,9 +1851,10 @@ export function POS() {
                                             </div>
                                         </div>
                                     )}
+                                    </div>
 
                                     {/* Complete Card Sale Button */}
-                                    <div className="mt-auto pt-4">
+                                    <div className="pt-3 border-t border-[var(--color-border)] mt-3 shrink-0">
                                         <Button
                                             size="xl"
                                             className="w-full"
@@ -1863,6 +1874,7 @@ export function POS() {
                         </CardContent>
                     </Card>
                 </div>
+            </div>
             </div>
 
             {/* Reader Selection Modal */}
@@ -1973,7 +1985,7 @@ export function POS() {
                             <select
                                 value={customItemForm.category}
                                 onChange={(e) => setCustomItemForm((prev) => ({ ...prev, category: e.target.value }))}
-                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white"
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)]"
                             >
                                 {['Clothing', 'Accessories', 'Collectibles', 'Books', 'Furniture', 'Electronics', 'Art', 'Jewelry', 'Vintage', 'Other'].map((category) => (
                                     <option key={category} value={category}>{category}</option>
@@ -1985,7 +1997,7 @@ export function POS() {
                             <select
                                 value={customItemForm.consignorId}
                                 onChange={(e) => setCustomItemForm((prev) => ({ ...prev, consignorId: e.target.value }))}
-                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white"
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)]"
                             >
                                 <option value="" disabled>Select consignor</option>
                                 {consignors.map((consignor) => (
@@ -2165,7 +2177,7 @@ export function POS() {
                             <select
                                 value={selectedInvoiceVendorId}
                                 onChange={(e) => setSelectedInvoiceVendorId(e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white"
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)]"
                             >
                                 <option value="">Select a vendor...</option>
                                 {consignors.map((consignor) => (
@@ -2313,6 +2325,17 @@ function SearchIcon() {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.3-4.3" />
+        </svg>
+    );
+}
+
+function CustomerIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
         </svg>
     );
 }

@@ -93,7 +93,7 @@ export function Messages() {
 
             <div className="grid gap-4">
                 {showList && (
-                <section className="rounded-xl border border-[var(--color-border)] bg-white overflow-hidden">
+                <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden">
                     <div className="border-b border-[var(--color-border)] px-3 py-2.5">
                         <div className="flex items-center justify-between gap-3">
                             <p className="text-sm font-semibold text-[var(--color-foreground)]">Conversations</p>
@@ -188,7 +188,7 @@ export function Messages() {
                 )}
 
                 {showChat && (
-                <section className="flex min-h-[560px] flex-col rounded-xl border border-[var(--color-border)] bg-white overflow-hidden">
+                <section className="flex min-h-[560px] flex-col rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden">
                     <div className="border-b border-[var(--color-border)] px-4 py-3">
                         <div className="flex items-center gap-3">
                             <button

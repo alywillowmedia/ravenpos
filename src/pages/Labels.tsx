@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Modal, ModalFooter } from '../components/ui/Modal';
@@ -8,6 +8,7 @@ import { useInventory } from '../hooks/useInventory';
 import { useConsignors } from '../hooks/useConsignors';
 import { useCategories } from '../hooks/useCategories';
 import { useToast } from '../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../lib/utils';
 import { generateLabelsPDF } from '../lib/generateLabelsPDF';
 import { downloadDymo30252PrintPack, downloadDymo30252TemplateForItems, downloadDymoPrintDataCsvFile } from '../lib/dymoLabelTemplate';
@@ -33,8 +34,23 @@ interface Filters {
     dateUpdatedTo: string;
 }
 
+function isLabelsPerfDebugEnabled(): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('debugLabelsPerf') === '1') return true;
+        return window.localStorage.getItem('ravenpos.debug.labelsPerf') === '1';
+    } catch {
+        return false;
+    }
+}
+
 export function Labels() {
-    const { items, isLoading, markAsPrinted } = useInventory();
+    const labelsPerfDebug = isLabelsPerfDebugEnabled();
+    const mountTimeRef = useRef(performance.now());
+    const firstPaintLoggedRef = useRef(false);
+    const { isLoading: isAuthLoading, userRecord } = useAuth();
+    const { items, isLoading, markAsPrinted } = useInventory({ queryProfile: 'labels' });
     const { consignors } = useConsignors();
     const { getCategoryNames } = useCategories();
     const toast = useToast();
@@ -66,13 +82,18 @@ export function Labels() {
     });
 
     // Sorting
-    const [sortField, setSortField] = useState<SortField>('created_at');
+    const [sortField, setSortField] = useState<SortField>('updated_at');
     const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
     const categories = getCategoryNames();
+    const consignorNumberById = useMemo(
+        () => new Map(consignors.map((c) => [c.id, c.consignor_number])),
+        [consignors]
+    );
 
     // Apply filters and sorting
     const filteredAndSortedItems = useMemo(() => {
+        const computeStart = labelsPerfDebug ? performance.now() : 0;
         let result = [...items];
 
         // Filter by consignor
@@ -148,8 +169,60 @@ export function Labels() {
             return sortOrder === 'asc' ? comparison : -comparison;
         });
 
+        if (labelsPerfDebug) {
+            console.debug('[LabelsPerf] filter+sort complete', {
+                inputRows: items.length,
+                outputRows: result.length,
+                sortField,
+                sortOrder,
+                computeMs: Number((performance.now() - computeStart).toFixed(2)),
+            });
+        }
+
         return result;
-    }, [items, filters, sortField, sortOrder]);
+    }, [items, filters, labelsPerfDebug, sortField, sortOrder]);
+
+    useEffect(() => {
+        if (!labelsPerfDebug) return;
+        console.groupCollapsed('[LabelsPerf] Labels mount');
+        console.debug('[LabelsPerf] mount', { atMs: Number(mountTimeRef.current.toFixed(2)) });
+        console.groupEnd();
+    }, [labelsPerfDebug]);
+
+    useEffect(() => {
+        if (!labelsPerfDebug) return;
+        console.debug('[LabelsPerf] auth state', {
+            isAuthLoading,
+            hasUserRecord: Boolean(userRecord),
+            sinceMountMs: Number((performance.now() - mountTimeRef.current).toFixed(2)),
+        });
+    }, [isAuthLoading, labelsPerfDebug, userRecord]);
+
+    useEffect(() => {
+        if (!labelsPerfDebug) return;
+        console.debug('[LabelsPerf] inventory state', {
+            isLoading,
+            itemRows: items.length,
+            filteredRows: filteredAndSortedItems.length,
+            sinceMountMs: Number((performance.now() - mountTimeRef.current).toFixed(2)),
+        });
+    }, [filteredAndSortedItems.length, isLoading, items.length, labelsPerfDebug]);
+
+    useEffect(() => {
+        if (!labelsPerfDebug || firstPaintLoggedRef.current) return;
+        if (isLoading || filteredAndSortedItems.length === 0) return;
+
+        const readyAt = performance.now();
+        requestAnimationFrame(() => {
+            if (firstPaintLoggedRef.current) return;
+            firstPaintLoggedRef.current = true;
+            console.debug('[LabelsPerf] first painted rows', {
+                rows: filteredAndSortedItems.length,
+                dataReadyToPaintMs: Number((performance.now() - readyAt).toFixed(2)),
+                sinceMountMs: Number((performance.now() - mountTimeRef.current).toFixed(2)),
+            });
+        });
+    }, [filteredAndSortedItems.length, isLoading, labelsPerfDebug]);
 
     const activeFilterCount = useMemo(() => {
         let count = 0;
@@ -560,10 +633,7 @@ export function Labels() {
             key: 'consignor',
             header: 'Consignor',
             width: '100px',
-            render: (item) => {
-                const c = item.consignor as { consignor_number: string } | undefined;
-                return c?.consignor_number || '—';
-            },
+            render: (item) => consignorNumberById.get(item.consignor_id) || '—',
         },
         {
             key: 'category',
@@ -1058,11 +1128,14 @@ export function Labels() {
                         searchable
                         searchPlaceholder="Search items..."
                         searchKeys={['name', 'sku', 'variant_summary']}
+                        virtualized
+                        virtualRowHeight={64}
+                        virtualViewportHeight={680}
                         onRowClick={(item, event, meta) => toggleSelect(item.id, {
                             shiftKey: event.shiftKey,
                             visibleIds: meta.visibleKeys,
                         })}
-                        isLoading={isLoading}
+                        isLoading={isLoading && items.length === 0}
                     />
 
                     {/* Sticky Footer */}

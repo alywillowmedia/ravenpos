@@ -41,7 +41,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
 
         const selectStyles = `
       w-full rounded-lg
-      bg-white
+      bg-[var(--color-surface-elevated)]
       border border-[var(--color-border)]
       text-[var(--color-foreground)]
       transition-all duration-150

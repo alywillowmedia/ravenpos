@@ -34,7 +34,7 @@ export function ImportCSV() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const { consignors } = useConsignors();
-    const { createItems } = useInventory();
+    const { createItems } = useInventory({ autoFetch: false });
     const { getCategoryNames } = useCategories();
 
     const [selectedConsignor, setSelectedConsignor] = useState('');

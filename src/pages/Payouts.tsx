@@ -525,7 +525,7 @@ export function Payouts() {
                         onClick={() => setViewMode('pending')}
                         className={`px-4 py-2 text-sm font-medium transition-colors ${viewMode === 'pending'
                             ? 'bg-[var(--color-primary)] text-white'
-                            : 'bg-white text-[var(--color-muted)] hover:bg-[var(--color-surface)]'
+                            : 'bg-[var(--color-surface-elevated)] text-[var(--color-muted)] hover:bg-[var(--color-surface)]'
                             }`}
                     >
                         Pending Payouts
@@ -534,7 +534,7 @@ export function Payouts() {
                         onClick={() => setViewMode('history')}
                         className={`px-4 py-2 text-sm font-medium transition-colors ${viewMode === 'history'
                             ? 'bg-[var(--color-primary)] text-white'
-                            : 'bg-white text-[var(--color-muted)] hover:bg-[var(--color-surface)]'
+                            : 'bg-[var(--color-surface-elevated)] text-[var(--color-muted)] hover:bg-[var(--color-surface)]'
                             }`}
                     >
                         Payout History
@@ -554,7 +554,7 @@ export function Payouts() {
                 <select
                     value={datePreset}
                     onChange={(e) => setDatePreset(e.target.value as DatePreset)}
-                    className="h-9 min-w-[170px] rounded-lg border border-[var(--color-border)] bg-white px-3 text-sm"
+                    className="h-9 min-w-[170px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 text-sm"
                 >
                     <option value="all">All Time</option>
                     <option value="today">Today</option>
@@ -572,14 +572,14 @@ export function Payouts() {
                             value={customDateFrom}
                             onChange={(e) => setCustomDateFrom(e.target.value)}
                             max={customDateTo || undefined}
-                            className="h-9 rounded-lg border border-[var(--color-border)] bg-white px-3 text-sm"
+                            className="h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 text-sm"
                         />
                         <input
                             type="date"
                             value={customDateTo}
                             onChange={(e) => setCustomDateTo(e.target.value)}
                             min={customDateFrom || undefined}
-                            className="h-9 rounded-lg border border-[var(--color-border)] bg-white px-3 text-sm"
+                            className="h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 text-sm"
                         />
                     </>
                 )}
@@ -805,7 +805,7 @@ export function Payouts() {
                                     }}
                                     className="sr-only peer"
                                 />
-                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[var(--color-primary)]/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-primary)]"></div>
+                                <div className="w-11 h-6 bg-[var(--color-border)] peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[var(--color-primary)]/20 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-[var(--color-card)] after:border-[var(--color-border)] after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-primary)]"></div>
                             </label>
                             <span className="text-sm font-medium">Pay a custom amount</span>
                         </div>
@@ -855,7 +855,7 @@ export function Payouts() {
                                         What happens to the remaining balance?
                                     </label>
                                     <div className="space-y-2">
-                                        <label className="flex items-start gap-3 p-3 rounded-lg border border-[var(--color-border)] cursor-pointer hover:bg-white transition-colors">
+                                        <label className="flex items-start gap-3 p-3 rounded-lg border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors">
                                             <input
                                                 type="radio"
                                                 name="balanceDisposition"
@@ -871,7 +871,7 @@ export function Payouts() {
                                                 </p>
                                             </div>
                                         </label>
-                                        <label className="flex items-start gap-3 p-3 rounded-lg border border-[var(--color-border)] cursor-pointer hover:bg-white transition-colors">
+                                        <label className="flex items-start gap-3 p-3 rounded-lg border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors">
                                             <input
                                                 type="radio"
                                                 name="balanceDisposition"
@@ -955,7 +955,7 @@ function ConsignorPayoutRow({
     const { consignor, pendingAmount, grossSales, storeShare, salesCount, itemsSold, lastPayout } = summary;
 
     return (
-        <div className="bg-white rounded-xl border border-[var(--color-border)] p-4 h-full flex flex-col">
+        <div className="bg-[var(--color-card)] rounded-xl border border-[var(--color-border)] p-4 h-full flex flex-col">
             <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center font-semibold">
                     {getConsignorDisplayName(consignor).charAt(0).toUpperCase()}
@@ -1351,7 +1351,7 @@ function LedgerManager({
     onSubmit: () => void;
 }) {
     return (
-        <div className="rounded-xl border border-[var(--color-border)] bg-white p-4 space-y-3">
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 space-y-3">
             <div className="flex items-center justify-between">
                 <div>
                     <h4 className="font-semibold text-sm">Ledger Deductions</h4>
@@ -1470,7 +1470,7 @@ function PayoutHistoryList({
                     return (
                 <div
                     key={payout.id}
-                    className="bg-white rounded-xl border border-[var(--color-border)] p-4"
+                    className="bg-[var(--color-card)] rounded-xl border border-[var(--color-border)] p-4"
                 >
                     <div className="flex items-center justify-between flex-wrap gap-4">
                         <div className="flex items-center gap-4">
@@ -1599,7 +1599,7 @@ function SummaryCard({
                     : 'text-[var(--color-foreground)]';
 
     return (
-        <div className="bg-white rounded-xl border border-[var(--color-border)] p-4">
+        <div className="bg-[var(--color-card)] rounded-xl border border-[var(--color-border)] p-4">
             <p className="text-xs text-[var(--color-muted)] mb-1">{label}</p>
             <p className={`text-lg font-semibold ${valueColor}`}>{value}</p>
         </div>

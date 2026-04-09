@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Card, CardContent } from '../components/ui/Card';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
+import { StatCard } from '../components/ui/StatCard';
 import { AnalyticsCard } from '../components/analytics/AnalyticsCard';
 import { SalesTrendChart } from '../components/analytics/SalesTrendChart';
 import { SalesByCategoryChart } from '../components/analytics/SalesByCategoryChart';
@@ -322,35 +323,6 @@ export function Dashboard() {
                 </Card>
             </div>
         </div>
-    );
-}
-
-interface StatCardProps {
-    label: string;
-    value: string | number;
-    subtext?: string;
-    icon: React.ReactNode;
-    highlight?: boolean;
-}
-
-function StatCard({ label, value, subtext, icon, highlight }: StatCardProps) {
-    return (
-        <Card variant="elevated" className={highlight ? 'ring-2 ring-[var(--color-primary)]/20' : ''}>
-            <CardContent>
-                <div className="flex items-start justify-between">
-                    <div>
-                        <p className="text-sm text-[var(--color-muted)]">{label}</p>
-                        <p className={`text-2xl font-bold mt-1 ${highlight ? 'text-[var(--color-primary)]' : 'text-[var(--color-foreground)]'}`}>
-                            {value}
-                        </p>
-                        {subtext && (
-                            <p className="text-xs text-[var(--color-muted-foreground)] mt-1">{subtext}</p>
-                        )}
-                    </div>
-                    <div className="text-[var(--color-muted-foreground)]">{icon}</div>
-                </div>
-            </CardContent>
-        </Card>
     );
 }
 

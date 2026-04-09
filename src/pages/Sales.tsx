@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, type ReactNode } from 'react';
 import { Header } from '../components/layout/Header';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
@@ -8,6 +8,8 @@ import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Tabs } from '../components/ui/Tabs';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
+import { DetailCard } from '../components/ui/DetailCard';
+import { StatCard } from '../components/ui/StatCard';
 import { AnalyticsCard } from '../components/analytics/AnalyticsCard';
 import { SalesTrendChart } from '../components/analytics/SalesTrendChart';
 import { SalesByCategoryChart } from '../components/analytics/SalesByCategoryChart';
@@ -1149,24 +1151,27 @@ export function Sales() {
                             />
                         </div>
                     </div>
-                    <div className="bg-white rounded-xl border border-[var(--color-border)] p-4 mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                        <div>
-                            <p className="text-xs text-[var(--color-muted)] mb-1">Cash Reconciliation</p>
-                            <p className="text-lg font-semibold">
-                                Expected Cash: {formatCurrency(cashReconciliation.expectedCashFromSales)}
-                            </p>
-                            <p className="text-xs text-[var(--color-muted)]">
-                                {cashReconciliation.cashSalesCount} cash sale{cashReconciliation.cashSalesCount !== 1 ? 's' : ''} in current filter
-                                {' '}• dealer cash buys: -{formatCurrency(cashReconciliation.cashDealerPurchasesTotal)}
-                                {cashReconciliation.offlineUnsyncedCashNetTotal > 0.009
-                                    ? ` • offline unsynced: +${formatCurrency(cashReconciliation.offlineUnsyncedCashNetTotal)}`
-                                    : ''}
-                            </p>
-                        </div>
-                        <Button variant="secondary" onClick={() => setShowCashReconciliation(true)}>
-                            Count Drawer
-                        </Button>
-                    </div>
+                    <DetailCard
+                        className="mb-6"
+                        title="Cash Reconciliation"
+                        subtitle={`${cashReconciliation.cashSalesCount} cash sale${cashReconciliation.cashSalesCount !== 1 ? 's' : ''} in current filter • dealer cash buys: -${formatCurrency(cashReconciliation.cashDealerPurchasesTotal)}${
+                            cashReconciliation.offlineUnsyncedCashNetTotal > 0.009
+                                ? ` • offline unsynced: +${formatCurrency(cashReconciliation.offlineUnsyncedCashNetTotal)}`
+                                : ''
+                        }`}
+                        actions={(
+                            <Button variant="secondary" onClick={() => setShowCashReconciliation(true)}>
+                                Count Drawer
+                            </Button>
+                        )}
+                        items={[
+                            {
+                                label: 'Expected Cash',
+                                value: formatCurrency(cashReconciliation.expectedCashFromSales),
+                                tone: 'default',
+                            },
+                        ]}
+                    />
                 </>
             )}
 
@@ -1188,7 +1193,7 @@ export function Sales() {
                                 value={customDateFrom}
                                 onChange={(e) => setCustomDateFrom(e.target.value)}
                                 max={customDateTo || undefined}
-                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white text-sm"
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-sm"
                             />
                         </div>
                         <div className="w-44">
@@ -1197,7 +1202,7 @@ export function Sales() {
                                 value={customDateTo}
                                 onChange={(e) => setCustomDateTo(e.target.value)}
                                 min={customDateFrom || undefined}
-                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white text-sm"
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-sm"
                             />
                         </div>
                     </>
@@ -1308,7 +1313,7 @@ export function Sales() {
                                                     setSalesPage(1);
                                                     setExpandedSaleId(null);
                                                 }}
-                                                className="px-2 py-1 rounded border border-[var(--color-border)] bg-white text-xs"
+                                                className="px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-xs"
                                             >
                                                 {SALES_PAGE_SIZE_OPTIONS.map((size) => (
                                                     <option key={size} value={size}>
@@ -1421,7 +1426,7 @@ export function Sales() {
                                 />
                             </div>
 
-                            <div className="rounded-xl border border-[var(--color-border)] overflow-hidden bg-white">
+                            <div className="rounded-xl border border-[var(--color-border)] overflow-hidden bg-[var(--color-card)]">
                                 <table className="w-full text-sm">
                                     <thead className="bg-[var(--color-surface)]">
                                         <tr>
@@ -1694,7 +1699,7 @@ export function Sales() {
                                             leftIcon={isSearchingCustomer ? <LoadingSpinner size={16} /> : <SearchIcon />}
                                         />
                                         {showCustomerDropdown && customerResults.length > 0 && (
-                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-[var(--color-border)] z-50 max-h-48 overflow-y-auto">
+                                            <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-card)] rounded-lg shadow-lg border border-[var(--color-border)] z-50 max-h-48 overflow-y-auto">
                                                 {customerResults.map((customer) => (
                                                     <button
                                                         key={customer.id}
@@ -1710,7 +1715,7 @@ export function Sales() {
                                             </div>
                                         )}
                                         {showCustomerDropdown && customerResults.length === 0 && customerSearch.length >= 2 && !isSearchingCustomer && (
-                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-[var(--color-border)] z-50 p-3">
+                                            <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-card)] rounded-lg shadow-lg border border-[var(--color-border)] z-50 p-3">
                                                 <p className="text-sm text-[var(--color-muted)] mb-2">No customers found</p>
                                                 <Button
                                                     size="sm"
@@ -2251,7 +2256,7 @@ function SaleRow({
         : summary.consignorNames[0] || '—';
 
     return (
-        <div className="bg-white rounded-xl border border-[var(--color-border)] overflow-hidden">
+        <div className="bg-[var(--color-card)] rounded-xl border border-[var(--color-border)] overflow-hidden">
             {/* Main Row - Clickable Header */}
             <button
                 onClick={onToggle}
@@ -2363,7 +2368,7 @@ function SaleRow({
                                         <tr key={idx} className="border-t border-[var(--color-border)]">
                                             <td className="py-2 font-medium">{item.name}</td>
                                             <td className="py-2">
-                                                <span className="font-mono text-xs bg-white px-1.5 py-0.5 rounded">
+                                                <span className="font-mono text-xs bg-[var(--color-surface-elevated)] px-1.5 py-0.5 rounded">
                                                     {item.sku}
                                                 </span>
                                             </td>
@@ -2429,11 +2434,13 @@ function SummaryCard({
     variant = 'default',
     info,
 }: {
-    label: string;
+    label: ReactNode;
     value: string;
     variant?: 'default' | 'success' | 'primary' | 'danger' | 'warning';
     info?: string;
 }) {
+    const labelText = typeof label === 'string' ? label : 'Metric';
+
     const valueColor =
         variant === 'success'
             ? 'text-[var(--color-success)]'
@@ -2446,15 +2453,16 @@ function SummaryCard({
                     : 'text-[var(--color-foreground)]';
 
     return (
-        <div className="bg-white rounded-xl border border-[var(--color-border)] p-4">
-            <div className="flex items-center gap-1 mb-1">
-                <p className="text-xs text-[var(--color-muted)]">{label}</p>
-                {info && (
-                    <InfoHint label={label} info={info} />
-                )}
-            </div>
-            <p className={`text-lg font-semibold ${valueColor}`}>{value}</p>
-        </div>
+        <StatCard
+            label={(
+                <span className="inline-flex items-center gap-1">
+                    <span>{label}</span>
+                    {info && <InfoHint label={labelText} info={info} />}
+                </span>
+            )}
+            value={<span className={valueColor}>{value}</span>}
+            className="min-h-[86px]"
+        />
     );
 }
 
@@ -2470,7 +2478,7 @@ function InfoHint({ label, info }: { label: string; info: string }) {
             </button>
             <span
                 role="tooltip"
-                className="pointer-events-none absolute z-30 left-0 top-5 hidden w-64 rounded-lg border border-[var(--color-border)] bg-white p-2 text-xs text-[var(--color-foreground)] shadow-lg group-hover:block group-focus-within:block"
+                className="pointer-events-none absolute z-30 left-0 top-5 hidden w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-2 text-xs text-[var(--color-foreground)] shadow-lg group-hover:block group-focus-within:block"
             >
                 {info}
             </span>
@@ -2502,7 +2510,7 @@ function RefundRow({ refund }: { refund: RefundWithDetails }) {
     const items = refund.items as Array<{ name: string; quantity: number; restocked: boolean }>;
 
     return (
-        <div className="bg-white rounded-xl border border-[var(--color-border)] p-4">
+        <div className="bg-[var(--color-card)] rounded-xl border border-[var(--color-border)] p-4">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-6">
                     {/* Date & Time */}

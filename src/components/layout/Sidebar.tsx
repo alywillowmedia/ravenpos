@@ -149,7 +149,7 @@ export function Sidebar() {
             <div className="lg:hidden fixed top-4 left-4 z-50">
                 <button
                     onClick={() => setIsMobileOpen(!isMobileOpen)}
-                    className="p-2 rounded-lg bg-white shadow-md border border-[var(--color-border)] text-[var(--color-foreground)]"
+                    className="p-2 rounded-lg bg-[var(--color-surface-elevated)] shadow-md border border-[var(--color-border)] text-[var(--color-foreground)]"
                     aria-label="Toggle menu"
                 >
                     <MenuIcon />
@@ -169,7 +169,7 @@ export function Sidebar() {
                 className={cn(
                     'fixed inset-y-0 left-0 z-40 transition-all duration-300 ease-in-out',
                     isCollapsed ? 'w-16' : 'w-64',
-                    'bg-white border-r border-[var(--color-border)]',
+                    'bg-[var(--color-surface-elevated)]',
                     'transform transition-transform duration-200 ease-out',
                     'lg:translate-x-0 flex flex-col',
                     isMobileOpen ? 'translate-x-0' : '-translate-x-full'
@@ -181,7 +181,7 @@ export function Sidebar() {
                         <img
                             src="./ravenpos_logo.svg"
                             alt="RavenPOS"
-                            className="w-35 h-auto max-h-18"
+                            className="sidebar-logo-image w-35 h-auto max-h-18"
                         />
                     ) : (
                         <div className="w-8 h-8 bg-[var(--color-primary)] rounded-lg flex items-center justify-center text-white font-bold text-sm">
@@ -191,7 +191,7 @@ export function Sidebar() {
                 </div>
 
                 {/* Collapse Toggle Button - Desktop Only */}
-                <div className="hidden lg:flex items-center justify-center py-2 border-b border-[var(--color-border)]">
+                <div className="hidden lg:flex items-center justify-center py-2">
                     <button
                         onClick={toggleCollapse}
                         className="p-2 rounded-lg hover:bg-[var(--color-surface-hover)] transition-colors text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
@@ -375,7 +375,7 @@ export function Sidebar() {
                     if (!group?.children) return null;
                     return (
                         <div
-                            className="fixed bg-white border border-[var(--color-border)] rounded-lg shadow-lg py-1.5 min-w-[180px] z-[60] animate-in fade-in slide-in-from-left-1 duration-150"
+                            className="fixed bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-lg shadow-lg py-1.5 min-w-[180px] z-[60] animate-in fade-in slide-in-from-left-1 duration-150"
                             style={{ left: '72px', top: `${flyoutTop}px` }}
                             onMouseEnter={handleFlyoutMouseEnter}
                             onMouseLeave={handleFlyoutMouseLeave}

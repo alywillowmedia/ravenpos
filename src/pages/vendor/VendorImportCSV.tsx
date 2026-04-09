@@ -36,7 +36,10 @@ export function VendorImportCSV() {
 
     const { userRecord } = useAuth();
     const { consignors } = useConsignors();
-    const { createItems } = useInventory(userRecord?.consignor_id || undefined);
+    const { createItems } = useInventory({
+        consignorId: userRecord?.consignor_id || undefined,
+        autoFetch: false,
+    });
     const { getCategoryNames } = useCategories();
 
     // Get vendor's consignor data

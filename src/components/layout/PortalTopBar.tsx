@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '../../lib/utils';
+import { getActiveTheme, setTheme, type ThemeMode } from '../../lib/theme';
 import type { useMessaging } from '../../hooks/useMessaging';
 
 type MessagingController = ReturnType<typeof useMessaging>;
@@ -12,6 +13,7 @@ interface PortalTopBarProps {
 
 export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
     const [isOpen, setIsOpen] = useState(false);
+    const [theme, setThemeState] = useState<ThemeMode>(() => getActiveTheme());
     const panelRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
@@ -26,20 +28,35 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    const toggleTheme = () => {
+        const nextTheme: ThemeMode = theme === 'light' ? 'dark' : 'light';
+        setTheme(nextTheme);
+        setThemeState(nextTheme);
+    };
+
     return (
         <>
-            <div className="h-14 border-b border-[var(--color-border)] bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/75">
+            <div className="h-14 bg-[var(--color-surface-elevated)] backdrop-blur">
                 <div className="flex h-full items-center justify-between px-4 sm:px-6 lg:px-8">
                     <div>
                         <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">{messaging.actorRoleLabel}</p>
                         <p className="text-sm font-medium text-[var(--color-foreground)]">Team Messaging</p>
                     </div>
 
-                    <div ref={panelRef} className="relative">
+                    <div ref={panelRef} className="relative flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={toggleTheme}
+                            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2 text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface)]"
+                            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+                        >
+                            {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+                        </button>
                         <button
                             type="button"
                             onClick={() => setIsOpen((prev) => !prev)}
-                            className="relative rounded-lg border border-[var(--color-border)] bg-white p-2 text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface)]"
+                            className="relative rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2 text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface)]"
                             aria-label="Open message notifications"
                         >
                             <BellIcon />
@@ -51,7 +68,7 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
                         </button>
 
                         {isOpen && (
-                            <div className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-[var(--color-border)] bg-white p-2 shadow-lg">
+                            <div className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-2 shadow-lg">
                                 <div className="px-2 py-1.5">
                                     <p className="text-sm font-semibold text-[var(--color-foreground)]">Unread messages</p>
                                 </div>
@@ -99,7 +116,7 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
                         type="button"
                         onClick={() => messaging.openThreadFromNotification(toast.threadId)}
                         className={cn(
-                            'pointer-events-auto rounded-xl border border-[var(--color-border)] bg-white px-4 py-3 text-left shadow-lg',
+                            'pointer-events-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-3 text-left shadow-lg',
                             'transition hover:bg-[var(--color-surface)]'
                         )}
                     >
@@ -119,6 +136,23 @@ function BellIcon() {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
             <path d="M9 17a3 3 0 0 0 6 0" />
+        </svg>
+    );
+}
+
+function SunIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+        </svg>
+    );
+}
+
+function MoonIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3a7.5 7.5 0 0 0 9 9 9 9 0 1 1-9-9Z" />
         </svg>
     );
 }

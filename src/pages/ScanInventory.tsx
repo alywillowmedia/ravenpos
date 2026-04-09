@@ -10,7 +10,7 @@ interface ScannedItem {
 }
 
 export function ScanInventory() {
-    const { getItemBySku, updateItem } = useInventory();
+    const { getItemBySku, updateItem } = useInventory({ autoFetch: false });
     const [mode, setMode] = useState<'add' | 'remove'>('add');
     const [scanInput, setScanInput] = useState('');
     const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);

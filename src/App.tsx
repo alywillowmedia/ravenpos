@@ -39,6 +39,7 @@ import { MarketingFees } from './pages/MarketingFees';
 import { Invoices } from './pages/Invoices';
 import { Dealers } from './pages/Dealers';
 import { DealerPurchases } from './pages/DealerPurchases';
+import { PreviewComponents } from './pages/PreviewComponents';
 
 // Vendor Pages
 import { VendorDashboard } from './pages/vendor/VendorDashboard';
@@ -92,6 +93,7 @@ export default function App() {
 
                     {/* Customer Display - Standalone Route */}
                     <Route path="/display" element={<Display />} />
+                    <Route path="/preview-components" element={<PreviewComponents />} />
 
                     {/* Employee Action Selection - Full screen, no sidebar */}
                     <Route path="/employee/action-selection" element={<EmployeeActionSelection />} />

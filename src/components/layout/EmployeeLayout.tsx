@@ -50,12 +50,12 @@ export function EmployeeLayout() {
 
             <main className={cn(
                 isMobile ? 'mobile-content-padding' : (isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'),
-                'transition-all duration-300 ease-in-out'
+                'bg-[var(--color-surface-elevated)] transition-all duration-300 ease-in-out'
             )}>
                 <PortalTopBar messaging={messaging} portalBasePath="/employee" />
                 <div className={cn(
-                    'px-4 py-6 sm:px-6',
-                    !isMobile && 'lg:px-8'
+                    'bg-[var(--color-surface)] px-4 py-6 sm:px-6',
+                    !isMobile && 'lg:rounded-tl-3xl lg:px-8'
                 )}>
                     <Outlet key={location.pathname} context={{ messaging }} />
                 </div>

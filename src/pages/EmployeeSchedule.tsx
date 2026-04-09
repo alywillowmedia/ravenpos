@@ -1119,26 +1119,26 @@ export function EmployeeSchedule() {
             {activeTab === 'schedule' && (
                 <>
                     <div className="mb-6 grid gap-3 sm:grid-cols-4">
-                        <Card variant="outlined" className="bg-white">
+                        <Card variant="outlined">
                             <CardContent>
                                 <p className="text-sm text-[var(--color-muted)]">Range</p>
                                 <p className="text-base font-semibold text-[var(--color-foreground)]">{rangeLabel}</p>
                             </CardContent>
                         </Card>
-                        <Card variant="outlined" className="bg-white">
+                        <Card variant="outlined">
                             <CardContent>
                                 <p className="text-sm text-[var(--color-muted)]">Visible Shifts</p>
                                 <p className="text-2xl font-bold text-[var(--color-foreground)]">{displayShifts.length}</p>
                             </CardContent>
                         </Card>
-                        <Card variant="outlined" className="bg-white">
+                        <Card variant="outlined">
                             <CardContent>
                                 <p className="text-sm text-[var(--color-muted)]">Scheduled Hours</p>
                                 <p className="text-2xl font-bold text-[var(--color-primary)]">{formatHours(scheduledHours)}</p>
                                 <p className="text-xs text-[var(--color-muted)]">{scheduledEmployeesCount} team members</p>
                             </CardContent>
                         </Card>
-                        <Card variant="outlined" className="bg-white">
+                        <Card variant="outlined">
                             <CardContent>
                                 <p className="text-sm text-[var(--color-muted)]">Template Rules</p>
                                 <p className="text-2xl font-bold text-[var(--color-foreground)]">{recurringSchedules.length}</p>
@@ -1180,7 +1180,7 @@ export function EmployeeSchedule() {
                                             key={dayKey}
                                             variant="outlined"
                                             padding="none"
-                                            className={`bg-white ${isOutsideMonth ? 'opacity-60' : ''}`}
+                                            className={isOutsideMonth ? 'opacity-60' : ''}
                                         >
                                             <CardContent className="space-y-1 p-1.5">
                                                 <div className="flex items-start justify-between gap-1.5 border-b border-[var(--color-border)] pb-1">
@@ -1324,7 +1324,7 @@ export function EmployeeSchedule() {
             )}
 
             {activeTab === 'templates' && (
-                <Card variant="outlined" className="bg-white">
+                <Card variant="outlined">
                     <CardContent className="space-y-4">
                         <div className="grid gap-3 sm:grid-cols-2">
                             <Select
@@ -1386,7 +1386,7 @@ export function EmployeeSchedule() {
                                         return (
                                             <div
                                                 key={`${day.offset}-${day.dateKey}`}
-                                                className={`rounded-lg border border-[var(--color-border)] p-2 lg:aspect-square ${day.enabled ? 'bg-[var(--color-surface)]' : 'bg-white'}`}
+                                                className={`rounded-lg border border-[var(--color-border)] p-2 lg:aspect-square ${day.enabled ? 'bg-[var(--color-surface)]' : 'bg-[var(--color-surface-elevated)]'}`}
                                             >
                                                 <label className="mb-2 flex items-start gap-2 text-xs font-medium text-[var(--color-foreground)]">
                                                     <input
@@ -1423,7 +1423,7 @@ export function EmployeeSchedule() {
                                                                     : item));
                                                             }}
                                                             disabled={!day.enabled}
-                                                            className="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-white px-2 py-1 text-xs text-[var(--color-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+                                                            className="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[var(--color-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
                                                         />
                                                     </label>
 
@@ -1439,7 +1439,7 @@ export function EmployeeSchedule() {
                                                                     : item));
                                                             }}
                                                             disabled={!day.enabled}
-                                                            className="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-white px-2 py-1 text-xs text-[var(--color-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+                                                            className="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[var(--color-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
                                                         />
                                                     </label>
 
@@ -1455,7 +1455,7 @@ export function EmployeeSchedule() {
                                                             }}
                                                             disabled={!day.enabled}
                                                             placeholder="Optional"
-                                                            className="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-white px-2 py-1 text-xs text-[var(--color-foreground)] placeholder:text-[var(--color-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+                                                            className="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[var(--color-foreground)] placeholder:text-[var(--color-muted)] disabled:cursor-not-allowed disabled:opacity-50"
                                                         />
                                                     </label>
                                                 </div>
@@ -1476,7 +1476,7 @@ export function EmployeeSchedule() {
             )}
 
             {activeTab === 'requests' && (
-                <Card variant="outlined" className="bg-white">
+                <Card variant="outlined">
                     <CardContent className="space-y-4">
                         <div>
                             <h2 className="text-base font-semibold text-[var(--color-foreground)]">Time Off Requests</h2>

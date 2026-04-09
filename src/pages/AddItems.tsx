@@ -21,7 +21,7 @@ export function AddItems() {
     const defaultConsignorId = searchParams.get('consignor') || '';
 
     const { consignors } = useConsignors();
-    const { createItem, createItems } = useInventory();
+    const { createItem, createItems } = useInventory({ autoFetch: false });
     const { getCategoryNames } = useCategories();
 
     const [mode, setMode] = useState<Mode>('single');

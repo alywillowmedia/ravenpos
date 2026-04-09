@@ -15,8 +15,8 @@ export function Card({
     padding = 'md',
 }: CardProps) {
     const variants = {
-        default: 'bg-white border border-[var(--color-border)]',
-        elevated: 'bg-white shadow-md',
+        default: 'bg-[var(--color-card)] border border-[var(--color-border)]',
+        elevated: 'bg-[var(--color-card)] shadow-md',
         outlined: 'bg-transparent border border-[var(--color-border)]',
     };
 

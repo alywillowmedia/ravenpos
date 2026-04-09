@@ -516,11 +516,11 @@ export function Inventory() {
                     <div className="flex items-center gap-3">
                         <label className="text-xs text-[var(--color-muted)] flex items-center gap-2">
                             Rows
-                            <select
-                                value={inventoryPageSize}
-                                onChange={(e) => setInventoryPageSize(Number(e.target.value))}
-                                className="px-2 py-1 rounded border border-[var(--color-border)] bg-white text-xs"
-                            >
+                                <select
+                                    value={inventoryPageSize}
+                                    onChange={(e) => setInventoryPageSize(Number(e.target.value))}
+                                    className="px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-xs"
+                                >
                                 {[25, 50, 100, 200].map((size) => (
                                     <option key={size} value={size}>
                                         {size}

@@ -84,7 +84,7 @@ export function Modal({
                 aria-describedby={description ? 'modal-description' : undefined}
                 className={cn(
                     'w-full rounded-xl',
-                    'bg-white shadow-xl',
+                    'bg-[var(--color-card)] shadow-xl',
                     'animate-fadeInUp',
                     'flex flex-col max-h-[85vh]',
                     sizes[size],

@@ -35,7 +35,10 @@ interface Filters {
 export function VendorLabels() {
     const { userRecord } = useAuth();
     const toast = useToast();
-    const { items, isLoading, markAsPrinted } = useInventory(userRecord?.consignor_id || undefined);
+    const { items, isLoading, markAsPrinted } = useInventory({
+        consignorId: userRecord?.consignor_id || undefined,
+        queryProfile: 'labels',
+    });
     const { getCategoryNames } = useCategories();
 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -64,7 +67,7 @@ export function VendorLabels() {
     });
 
     // Sorting
-    const [sortField, setSortField] = useState<SortField>('created_at');
+    const [sortField, setSortField] = useState<SortField>('updated_at');
     const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
     const categories = getCategoryNames();
@@ -1026,11 +1029,14 @@ export function VendorLabels() {
                         searchable
                         searchPlaceholder="Search items..."
                         searchKeys={['name', 'sku', 'variant']}
+                        virtualized
+                        virtualRowHeight={64}
+                        virtualViewportHeight={680}
                         onRowClick={(item, event, meta) => toggleSelect(item.id, {
                             shiftKey: event.shiftKey,
                             visibleIds: meta.visibleKeys,
                         })}
-                        isLoading={isLoading}
+                        isLoading={isLoading && items.length === 0}
                     />
 
                     {/* Sticky Footer */}

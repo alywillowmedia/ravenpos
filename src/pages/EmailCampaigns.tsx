@@ -682,7 +682,7 @@ export function EmailCampaigns() {
 
             <section className="grid gap-4 xl:grid-cols-[340px,1fr]">
                 <div className="space-y-4">
-                    <div className="rounded-xl border border-[var(--color-border)] bg-white p-4">
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Templates</p>
                         <div className="mt-3 space-y-2">
                             <Select
@@ -702,7 +702,7 @@ export function EmailCampaigns() {
                         </div>
                     </div>
 
-                    <div className="rounded-xl border border-[var(--color-border)] bg-white p-4">
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Audience</p>
                         <div className="mt-3 space-y-3">
                             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -795,7 +795,7 @@ export function EmailCampaigns() {
                         </div>
                     </div>
 
-                    <div className="rounded-xl border border-[var(--color-border)] bg-white p-4">
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Recent Sends</p>
                         <div className="mt-3 space-y-2">
                             {campaigns.map((campaign) => (
@@ -815,7 +815,7 @@ export function EmailCampaigns() {
                 </div>
 
                 <div className="space-y-4">
-                    <div className="rounded-xl border border-[var(--color-border)] bg-white p-4">
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Campaign Settings</p>
                         <div className="mt-3 grid gap-3 md:grid-cols-2">
                             <Input label="Subject" value={subject} onChange={(event) => setSubject(event.target.value)} className="md:col-span-2" />
@@ -826,7 +826,7 @@ export function EmailCampaigns() {
                         </div>
                     </div>
 
-                    <div className="rounded-xl border border-[var(--color-border)] bg-white p-4">
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Block Editor</p>
                             <div className="flex flex-wrap gap-2">
@@ -921,12 +921,12 @@ export function EmailCampaigns() {
                         </div>
                     </div>
 
-                    <div className="rounded-xl border border-[var(--color-border)] bg-white p-4">
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Preview</p>
                         <iframe
                             title="email-preview"
                             srcDoc={previewHtml}
-                            className="mt-3 h-[700px] w-full rounded-lg border border-[var(--color-border)] bg-white"
+                            className="mt-3 h-[700px] w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)]"
                         />
                     </div>
                 </div>

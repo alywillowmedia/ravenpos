@@ -10,6 +10,7 @@ import {
 } from '../lib/consignorRateSchedules';
 
 const INVENTORY_FETCH_BATCH_SIZE = 1000;
+const INVENTORY_FETCH_PARALLELISM = 4;
 
 interface UseInventoryOptions {
     consignorId?: string;
@@ -18,6 +19,19 @@ interface UseInventoryOptions {
     pageSize?: number;
     searchQuery?: string;
     category?: string;
+    autoFetch?: boolean;
+    queryProfile?: 'full' | 'labels';
+}
+
+function isLabelsPerfDebugEnabled(): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('debugLabelsPerf') === '1') return true;
+        return window.localStorage.getItem('ravenpos.debug.labelsPerf') === '1';
+    } catch {
+        return false;
+    }
 }
 
 function isMissingRateScheduleTable(error: unknown): boolean {
@@ -37,27 +51,65 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
         pageSize = 50,
         searchQuery = '',
         category = '',
+        autoFetch = true,
+        queryProfile = 'full',
     } = options;
 
     const [items, setItems] = useState<Item[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(autoFetch);
     const [error, setError] = useState<string | null>(null);
     const [totalCount, setTotalCount] = useState(0);
 
     const fetchItems = useCallback(async () => {
+        const labelsPerfDebug = queryProfile === 'labels' && isLabelsPerfDebugEnabled();
+        const fetchStart = labelsPerfDebug ? performance.now() : 0;
+        let batchCount = 0;
+        let totalRowsFetched = 0;
+
+        if (labelsPerfDebug) {
+            console.groupCollapsed('[LabelsPerf] useInventory.fetchItems start');
+            console.debug('[LabelsPerf] params', {
+                queryProfile,
+                paginated,
+                page,
+                pageSize,
+                hasConsignorFilter: Boolean(consignorId),
+                hasCategoryFilter: Boolean(category),
+                hasSearchFilter: Boolean(searchQuery.trim()),
+            });
+        }
+
         try {
             setIsLoading(true);
             setError(null);
 
             if (paginated) {
-                let query = supabase
-                    .from('items')
-                    .select(`
+                let query = queryProfile === 'labels'
+                    ? supabase
+                        .from('items')
+                        .select(`
+          id,
+          consignor_id,
+          sku,
+          name,
+          variant_summary,
+          category,
+          quantity,
+          qty_unlabeled,
+          price,
+          created_at,
+          updated_at
+        `, { count: 'exact' })
+                        .order('updated_at', { ascending: false })
+                        .order('id', { ascending: false })
+                    : supabase
+                        .from('items')
+                        .select(`
           *,
           consignor:consignors(id, consignor_number, name)
         `, { count: 'exact' })
-                    .order('created_at', { ascending: false })
-                    .order('id', { ascending: false });
+                        .order('updated_at', { ascending: false })
+                        .order('id', { ascending: false });
 
                 if (consignorId) {
                     query = query.eq('consignor_id', consignorId);
@@ -79,28 +131,96 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
 
                 const from = (page - 1) * pageSize;
                 const to = from + pageSize - 1;
+                const pageQueryStart = labelsPerfDebug ? performance.now() : 0;
                 const { data, error: fetchError, count } = await query.range(from, to);
 
                 if (fetchError) throw fetchError;
+                batchCount = 1;
+                totalRowsFetched = (data || []).length;
                 setItems((data || []) as Item[]);
                 setTotalCount(count || 0);
+
+                if (labelsPerfDebug) {
+                    console.debug('[LabelsPerf] paginated query complete', {
+                        from,
+                        to,
+                        rows: (data || []).length,
+                        count: count || 0,
+                        queryMs: Number((performance.now() - pageQueryStart).toFixed(2)),
+                    });
+                }
                 return;
             }
 
-            const allItems: Item[] = [];
-            let offset = 0;
-            let shouldContinue = true;
+            let countQuery = supabase
+                .from('items')
+                .select('id', { count: 'exact', head: true });
 
-            while (shouldContinue) {
-                let query = supabase
-                    .from('items')
-                    .select(`
+            if (consignorId) {
+                countQuery = countQuery.eq('consignor_id', consignorId);
+            }
+
+            const countQueryStart = labelsPerfDebug ? performance.now() : 0;
+            const { count, error: countError } = await countQuery;
+            if (countError) throw countError;
+
+            const totalRows = count || 0;
+            if (labelsPerfDebug) {
+                console.debug('[LabelsPerf] count query complete', {
+                    totalRows,
+                    queryMs: Number((performance.now() - countQueryStart).toFixed(2)),
+                });
+            }
+
+            if (totalRows === 0) {
+                setItems([]);
+                setTotalCount(0);
+                return;
+            }
+
+            const ranges: Array<{ from: number; to: number }> = [];
+            for (let from = 0; from < totalRows; from += INVENTORY_FETCH_BATCH_SIZE) {
+                ranges.push({
+                    from,
+                    to: Math.min(from + INVENTORY_FETCH_BATCH_SIZE - 1, totalRows - 1),
+                });
+            }
+
+            const batches: Item[][] = new Array(ranges.length);
+            let nextRangeIndex = 0;
+
+            const fetchRange = async (rangeIndex: number) => {
+                const { from, to } = ranges[rangeIndex];
+                const batchQueryStart = labelsPerfDebug ? performance.now() : 0;
+
+                let query = queryProfile === 'labels'
+                    ? supabase
+                        .from('items')
+                        .select(`
+          id,
+          consignor_id,
+          sku,
+          name,
+          variant_summary,
+          category,
+          quantity,
+          qty_unlabeled,
+          price,
+          created_at,
+          updated_at
+        `)
+                        .order('updated_at', { ascending: false })
+                        .order('id', { ascending: false })
+                        .range(from, to)
+                    : supabase
+                        .from('items')
+                        .select(`
           *,
           consignor:consignors(id, consignor_number, name)
         `)
-                    .order('created_at', { ascending: false })
-                    .order('id', { ascending: false })
-                    .range(offset, offset + INVENTORY_FETCH_BATCH_SIZE - 1);
+                        .order('updated_at', { ascending: false })
+                        .order('id', { ascending: false })
+                        .range(from, to);
 
                 if (consignorId) {
                     query = query.eq('consignor_id', consignorId);
@@ -109,28 +229,62 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                 const { data, error: fetchError } = await query;
                 if (fetchError) throw fetchError;
 
-                const batch = data || [];
-                allItems.push(...batch as Item[]);
+                const batch = (data || []) as Item[];
+                batches[rangeIndex] = batch;
+                batchCount += 1;
+                totalRowsFetched += batch.length;
 
-                if (batch.length < INVENTORY_FETCH_BATCH_SIZE) {
-                    shouldContinue = false;
-                } else {
-                    offset += INVENTORY_FETCH_BATCH_SIZE;
+                if (labelsPerfDebug) {
+                    console.debug('[LabelsPerf] batch fetched', {
+                        batch: rangeIndex + 1,
+                        from,
+                        to,
+                        batchSize: batch.length,
+                        runningTotal: totalRowsFetched,
+                        queryMs: Number((performance.now() - batchQueryStart).toFixed(2)),
+                    });
                 }
-            }
+            };
 
+            const workerCount = Math.min(INVENTORY_FETCH_PARALLELISM, ranges.length);
+            await Promise.all(
+                Array.from({ length: workerCount }, async () => {
+                    while (true) {
+                        const current = nextRangeIndex;
+                        nextRangeIndex += 1;
+                        if (current >= ranges.length) {
+                            return;
+                        }
+                        await fetchRange(current);
+                    }
+                })
+            );
+
+            const allItems = batches.flat();
             setItems(allItems);
-            setTotalCount(allItems.length);
+            setTotalCount(totalRows);
         } catch (err) {
             setError(formatSupabaseError(err, 'Failed to fetch items'));
+            if (labelsPerfDebug) {
+                console.debug('[LabelsPerf] fetch error', err);
+            }
         } finally {
             setIsLoading(false);
+            if (labelsPerfDebug) {
+                console.debug('[LabelsPerf] useInventory.fetchItems end', {
+                    totalMs: Number((performance.now() - fetchStart).toFixed(2)),
+                    batchCount,
+                    totalRowsFetched,
+                });
+                console.groupEnd();
+            }
         }
-    }, [category, consignorId, page, pageSize, paginated, searchQuery]);
+    }, [category, consignorId, page, pageSize, paginated, queryProfile, searchQuery]);
 
     useEffect(() => {
+        if (!autoFetch) return;
         fetchItems();
-    }, [fetchItems]);
+    }, [autoFetch, fetchItems]);
 
     const createItem = async (input: Partial<ItemInput> & { consignor_id: string; name: string; price: number }, consignorNumber: string) => {
         try {
@@ -314,11 +468,15 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
             }
 
             const today = getLocalDateString();
-            const { data: scheduleData, error: scheduleError } = await supabase
+            const { data: scheduleRow, error: scheduleError } = await supabase
                 .from('consignor_rate_schedules')
                 .select('id, consignor_id, effective_date, commission_split, booth_square_feet, booth_cost_per_square_foot, monthly_booth_rent, created_at, updated_at')
                 .eq('consignor_id', consignor.id)
-                .lte('effective_date', today);
+                .lte('effective_date', today)
+                .order('effective_date', { ascending: false })
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
 
             if (scheduleError && !isMissingRateScheduleTable(scheduleError)) throw scheduleError;
 
@@ -326,7 +484,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                 ...(data as Item),
                 consignor: applyEffectiveConsignorTerms(
                     consignor,
-                    (scheduleData || []) as ConsignorRateSchedule[],
+                    (scheduleRow ? [scheduleRow] : []) as ConsignorRateSchedule[],
                     today
                 ),
             };

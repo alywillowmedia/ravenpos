@@ -531,7 +531,7 @@ export function EmployeeSchedule() {
 
             {activeTab === 'schedule' && (
                 <>
-                    <Card variant="outlined" className="mb-3 bg-white">
+                    <Card variant="outlined" className="mb-3">
                         <CardContent className="py-3">
                             <p className="text-sm font-semibold text-[var(--color-foreground)]">{rangeLabel}</p>
                         </CardContent>
@@ -561,7 +561,7 @@ export function EmployeeSchedule() {
                                     const renderedShifts = viewMode === 'month' ? dayShifts.slice(0, 3) : dayShifts;
 
                                     return (
-                                        <Card key={dayKey} variant="outlined" className={`bg-white ${isOutsideMonth ? 'opacity-60' : ''}`}>
+                                        <Card key={dayKey} variant="outlined" className={isOutsideMonth ? 'opacity-60' : ''}>
                                             <CardContent className="space-y-2">
                                                 <div className="border-b border-[var(--color-border)] pb-2">
                                                     <p className="text-sm font-semibold text-[var(--color-foreground)]">
@@ -624,7 +624,7 @@ export function EmployeeSchedule() {
 
             {activeTab === 'requests' && (
                 <>
-                    <Card variant="outlined" className="mb-4 bg-white">
+                    <Card variant="outlined" className="mb-4">
                         <CardContent>
                             <h2 className="mb-1 text-base font-semibold text-[var(--color-foreground)]">Request Time Off</h2>
                             <p className="mb-3 text-xs text-[var(--color-muted)]">Submit full days or specific hours you cannot work. Admins can approve or deny.</p>
@@ -696,7 +696,7 @@ export function EmployeeSchedule() {
                         </div>
                     )}
 
-                    <Card variant="outlined" className="bg-white" padding="none">
+                    <Card variant="outlined" padding="none">
                         <div className="border-b border-[var(--color-border)] px-4 py-3">
                             <h2 className="text-base font-semibold text-[var(--color-foreground)]">Your Requests</h2>
                         </div>

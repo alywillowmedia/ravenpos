@@ -88,11 +88,11 @@ export function ChangeSummaryModal({
                                         <span className="text-[var(--color-muted)] w-16">
                                             {getFieldLabel(change.field)}:
                                         </span>
-                                        <span className="text-red-500 line-through">
+                                        <span className="text-[var(--color-danger)] line-through">
                                             {formatValue(change.field, change.from)}
                                         </span>
                                         <ArrowRightIcon />
-                                        <span className="text-green-600 font-medium">
+                                        <span className="text-[var(--color-success)] font-medium">
                                             {formatValue(change.field, change.to)}
                                         </span>
                                     </div>
@@ -103,9 +103,9 @@ export function ChangeSummaryModal({
                 </div>
 
                 {/* Warning */}
-                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-2">
-                    <InfoIcon className="text-amber-600 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-amber-800">
+                <div className="p-3 rounded-lg bg-[var(--color-warning-bg)] border border-[var(--color-warning)]/30 flex items-start gap-2">
+                    <InfoIcon className="text-[var(--color-warning)] flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-[var(--color-warning)]">
                         These changes will be applied immediately and cannot be undone.
                         Items with Shopify sync enabled will also be updated in Shopify.
                     </p>
@@ -136,7 +136,7 @@ function WarningIcon() {
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="text-amber-500"
+            className="text-[var(--color-warning)]"
         >
             <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
             <path d="M12 9v4" />

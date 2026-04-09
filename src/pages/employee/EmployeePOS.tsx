@@ -20,7 +20,7 @@ import type { CartItem, Customer, CustomerInput, PaymentMethod } from '../../typ
 export function EmployeePOS() {
     const scannerRef = useRef<HTMLInputElement>(null);
     const { employee } = useEmployee();
-    const { getItemBySku } = useInventory();
+    const { getItemBySku } = useInventory({ autoFetch: false });
     const { searchCustomers, createCustomer } = useCustomers();
 
     // Fetch categories to ensure tax rates are synced from database  
@@ -395,7 +395,7 @@ export function EmployeePOS() {
                                             leftIcon={isSearchingCustomer ? <LoadingSpinner size={16} /> : <SearchIcon />}
                                         />
                                         {showCustomerDropdown && customerResults.length > 0 && (
-                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border z-50 max-h-48 overflow-y-auto">
+                                            <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-card)] rounded-lg shadow-lg border border-[var(--color-border)] z-50 max-h-48 overflow-y-auto">
                                                 {customerResults.map((customer) => (
                                                     <button
                                                         key={customer.id}
