@@ -15,6 +15,14 @@ import { checkDymoWebAvailability, printDymoLabelsDirect, type DymoWebAvailabili
 import type { Item } from '../../types';
 
 type PrintMode = 'all' | 'new' | 'custom';
+type PrintSortMethod =
+    | 'table'
+    | 'alphabetical_asc'
+    | 'alphabetical_desc'
+    | 'created_desc'
+    | 'created_asc'
+    | 'updated_desc'
+    | 'updated_asc';
 type PrintedFilter = 'all' | 'none_printed' | 'some_printed' | 'all_printed';
 type SortField = 'name' | 'created_at' | 'updated_at' | 'price' | 'quantity';
 type SortOrder = 'asc' | 'desc';
@@ -46,6 +54,7 @@ export function VendorLabels() {
     const [showPrintOptions, setShowPrintOptions] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
     const [printMode, setPrintMode] = useState<PrintMode>('all');
+    const [printSortMethod, setPrintSortMethod] = useState<PrintSortMethod>('table');
     const [customQuantities, setCustomQuantities] = useState<PrintQuantityOverride>({});
     const [isGenerating, setIsGenerating] = useState(false);
     const [isAwaitingPrintConfirmation, setIsAwaitingPrintConfirmation] = useState(false);
@@ -241,7 +250,33 @@ export function VendorLabels() {
 
     // Get items with their print quantities
     const getItemsWithPrintQuantities = () => {
-        return selectedItems.map((item) => ({
+        const sortedItems = [...selectedItems];
+
+        switch (printSortMethod) {
+            case 'alphabetical_asc':
+                sortedItems.sort((a, b) => a.name.localeCompare(b.name));
+                break;
+            case 'alphabetical_desc':
+                sortedItems.sort((a, b) => b.name.localeCompare(a.name));
+                break;
+            case 'created_desc':
+                sortedItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                break;
+            case 'created_asc':
+                sortedItems.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                break;
+            case 'updated_desc':
+                sortedItems.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+                break;
+            case 'updated_asc':
+                sortedItems.sort((a, b) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime());
+                break;
+            case 'table':
+            default:
+                break;
+        }
+
+        return sortedItems.map((item) => ({
             ...item,
             printQuantity: getPrintQuantity(item),
         }));
@@ -674,6 +709,30 @@ export function VendorLabels() {
                                     </p>
                                 </div>
                             </label>
+                        </div>
+                    </div>
+
+                    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-6 mb-6">
+                        <h3 className="font-medium mb-4">Label Sort Order</h3>
+                        <div className="space-y-2">
+                            <label className="block text-sm text-[var(--color-muted)]" htmlFor="print-sort-order">
+                                Order used in generated PDF/DYMO data
+                            </label>
+                            <select
+                                id="print-sort-order"
+                                value={printSortMethod}
+                                onChange={(event) => setPrintSortMethod(event.target.value as PrintSortMethod)}
+                                disabled={isAwaitingPrintConfirmation}
+                                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                            >
+                                <option value="table">Current Table Order</option>
+                                <option value="alphabetical_asc">Alphabetical (A-Z)</option>
+                                <option value="alphabetical_desc">Alphabetical (Z-A)</option>
+                                <option value="updated_desc">Latest Updated First</option>
+                                <option value="updated_asc">Oldest Updated First</option>
+                                <option value="created_desc">Latest Added First</option>
+                                <option value="created_asc">Oldest Added First</option>
+                            </select>
                         </div>
                     </div>
 

@@ -16,6 +16,14 @@ import { checkDymoWebAvailability, printDymoLabelsDirect, type DymoWebAvailabili
 import type { Item } from '../types';
 
 type PrintMode = 'all' | 'new' | 'custom';
+type PrintSortMethod =
+    | 'table'
+    | 'alphabetical_asc'
+    | 'alphabetical_desc'
+    | 'created_desc'
+    | 'created_asc'
+    | 'updated_desc'
+    | 'updated_asc';
 type PrintedFilter = 'all' | 'none_printed' | 'some_printed' | 'all_printed';
 type SortField = 'name' | 'created_at' | 'updated_at' | 'price' | 'quantity';
 type SortOrder = 'asc' | 'desc';
@@ -60,6 +68,7 @@ export function Labels() {
     const [showPrintOptions, setShowPrintOptions] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
     const [printMode, setPrintMode] = useState<PrintMode>('all');
+    const [printSortMethod, setPrintSortMethod] = useState<PrintSortMethod>('table');
     const [customQuantities, setCustomQuantities] = useState<PrintQuantityOverride>({});
     const [isGenerating, setIsGenerating] = useState(false);
     const [isAwaitingPrintConfirmation, setIsAwaitingPrintConfirmation] = useState(false);
@@ -320,7 +329,33 @@ export function Labels() {
 
     // Get items with their print quantities
     const getItemsWithPrintQuantities = () => {
-        return selectedItems.map((item) => ({
+        const sortedItems = [...selectedItems];
+
+        switch (printSortMethod) {
+            case 'alphabetical_asc':
+                sortedItems.sort((a, b) => a.name.localeCompare(b.name));
+                break;
+            case 'alphabetical_desc':
+                sortedItems.sort((a, b) => b.name.localeCompare(a.name));
+                break;
+            case 'created_desc':
+                sortedItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                break;
+            case 'created_asc':
+                sortedItems.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                break;
+            case 'updated_desc':
+                sortedItems.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+                break;
+            case 'updated_asc':
+                sortedItems.sort((a, b) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime());
+                break;
+            case 'table':
+            default:
+                break;
+        }
+
+        return sortedItems.map((item) => ({
             ...item,
             printQuantity: getPrintQuantity(item),
         }));
@@ -657,7 +692,7 @@ export function Labels() {
                 const unlabeled = item.qty_unlabeled || 0;
                 const allLabeled = unlabeled === 0;
                 return (
-                    <span className={allLabeled ? 'text-green-600 font-medium' : 'text-amber-600'}>
+                    <span className={allLabeled ? 'font-medium text-[var(--color-success)]' : 'text-[var(--color-warning)]'}>
                         {unlabeled === 0 ? '✓' : unlabeled}
                     </span>
                 );
@@ -762,6 +797,30 @@ export function Labels() {
                         </div>
                     </div>
 
+                    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-6 mb-6">
+                        <h3 className="font-medium mb-4">Label Sort Order</h3>
+                        <div className="space-y-2">
+                            <label className="block text-sm text-[var(--color-muted)]" htmlFor="print-sort-order">
+                                Order used in generated PDF/DYMO data
+                            </label>
+                            <select
+                                id="print-sort-order"
+                                value={printSortMethod}
+                                onChange={(event) => setPrintSortMethod(event.target.value as PrintSortMethod)}
+                                disabled={isAwaitingPrintConfirmation}
+                                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                            >
+                                <option value="table">Current Table Order</option>
+                                <option value="alphabetical_asc">Alphabetical (A-Z)</option>
+                                <option value="alphabetical_desc">Alphabetical (Z-A)</option>
+                                <option value="updated_desc">Latest Updated First</option>
+                                <option value="updated_asc">Oldest Updated First</option>
+                                <option value="created_desc">Latest Added First</option>
+                                <option value="created_asc">Oldest Added First</option>
+                            </select>
+                        </div>
+                    </div>
+
                     {/* Custom Quantities Input */}
                     {printMode === 'custom' && (
                         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-6 mb-6">
@@ -775,7 +834,7 @@ export function Labels() {
                                     min="0"
                                     placeholder="Qty"
                                     id="applyToAllInput"
-                                    className="w-20 px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                    className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-1.5 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                                 />
                                 <Button
                                     variant="secondary"
@@ -817,7 +876,7 @@ export function Labels() {
                                                 ...prev,
                                                 [item.id]: Math.max(0, parseInt(e.target.value) || 0),
                                             }))}
-                                            className="w-20 px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                            className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-1.5 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                                         />
                                     </div>
                                 ))}
@@ -826,15 +885,15 @@ export function Labels() {
                     )}
 
                     {/* Summary */}
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                        <p className="text-blue-800">
+                    <div className="mb-6 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+                        <p className="text-[var(--color-foreground)]">
                             <strong>{getTotalLabels()}</strong> labels will be generated across{' '}
                             <strong>{Math.ceil(getTotalLabels() / 30)}</strong> sheet(s)
                         </p>
                     </div>
                     {isAwaitingPrintConfirmation && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
-                            <p className="text-amber-800 text-sm">
+                        <div className="mb-6 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+                            <p className="text-sm text-[var(--color-warning)]">
                                 PDF generated. After you finish printing from the PDF tab, click
                                 {' '}<strong>Confirm Printed &amp; Mark</strong>.
                             </p>
@@ -957,7 +1016,7 @@ export function Labels() {
                                 <FilterIcon />
                                 Filters
                                 {activeFilterCount > 0 && (
-                                    <span className="ml-1 px-1.5 py-0.5 text-xs bg-white/20 rounded-full">
+                                    <span className="ml-1 rounded-full bg-[var(--color-background)]/40 px-1.5 py-0.5 text-xs">
                                         {activeFilterCount}
                                     </span>
                                 )}
@@ -973,7 +1032,7 @@ export function Labels() {
                             <select
                                 value={sortField}
                                 onChange={(e) => setSortField(e.target.value as SortField)}
-                                className="text-sm px-2 py-1 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                             >
                                 <option value="created_at">Date Added</option>
                                 <option value="updated_at">Date Updated</option>
@@ -1001,7 +1060,7 @@ export function Labels() {
                                     <select
                                         value={filters.consignorId}
                                         onChange={(e) => setFilters({ ...filters, consignorId: e.target.value })}
-                                        className="w-full text-sm px-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                                     >
                                         <option value="">All Consignors</option>
                                         {consignors.map((c) => (
@@ -1018,7 +1077,7 @@ export function Labels() {
                                     <select
                                         value={filters.category}
                                         onChange={(e) => setFilters({ ...filters, category: e.target.value })}
-                                        className="w-full text-sm px-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                                     >
                                         <option value="">All Categories</option>
                                         {categories.map((cat) => (
@@ -1033,7 +1092,7 @@ export function Labels() {
                                     <select
                                         value={filters.printedStatus}
                                         onChange={(e) => setFilters({ ...filters, printedStatus: e.target.value as PrintedFilter })}
-                                        className="w-full text-sm px-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                                     >
                                         <option value="all">All Items</option>
                                         <option value="none_printed">Not Printed</option>
@@ -1052,7 +1111,7 @@ export function Labels() {
                                         type="date"
                                         value={filters.dateAddedFrom}
                                         onChange={(e) => setFilters({ ...filters, dateAddedFrom: e.target.value })}
-                                        className="w-full text-sm px-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                                     />
                                 </div>
                                 <div>
@@ -1061,7 +1120,7 @@ export function Labels() {
                                         type="date"
                                         value={filters.dateAddedTo}
                                         onChange={(e) => setFilters({ ...filters, dateAddedTo: e.target.value })}
-                                        className="w-full text-sm px-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                                     />
                                 </div>
 
@@ -1072,7 +1131,7 @@ export function Labels() {
                                         type="date"
                                         value={filters.dateUpdatedFrom}
                                         onChange={(e) => setFilters({ ...filters, dateUpdatedFrom: e.target.value })}
-                                        className="w-full text-sm px-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                                     />
                                 </div>
                                 <div>
@@ -1081,7 +1140,7 @@ export function Labels() {
                                         type="date"
                                         value={filters.dateUpdatedTo}
                                         onChange={(e) => setFilters({ ...filters, dateUpdatedTo: e.target.value })}
-                                        className="w-full text-sm px-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                                     />
                                 </div>
                             </div>
@@ -1140,7 +1199,7 @@ export function Labels() {
 
                     {/* Sticky Footer */}
                     {selectedIds.size > 0 && (
-                        <div className="fixed bottom-0 left-0 right-0 lg:left-64 p-4 bg-white border-t border-[var(--color-border)] shadow-lg">
+                        <div className="fixed bottom-0 left-0 right-0 lg:left-64 border-t border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-4 shadow-lg">
                             <div className="max-w-4xl mx-auto flex items-center justify-between">
                                 <p className="text-sm text-[var(--color-muted)]">
                                     {selectedIds.size} item{selectedIds.size !== 1 ? 's' : ''} selected
@@ -1219,7 +1278,7 @@ function DymoInfoModal({
                             value={selectedPrinter}
                             onChange={(event) => onSelectPrinter(event.target.value)}
                             disabled={isBusy || isCheckingDymoWeb}
-                            className="w-full text-sm px-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                            className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                         >
                             {dymoWebAvailability.printers.map((printerName) => (
                                 <option key={printerName} value={printerName}>
