@@ -88,8 +88,8 @@ export function Display() {
         cashPrice = total,
         cardFeeAmount = 0,
         cardPrice = Math.max(0, cashPrice + cardFeeAmount),
-        amountDue = total,
-        paymentMethod = 'cash',
+        amountDue = cardPrice,
+        paymentMethod = 'card',
         appliedStoreCredit = 0,
         appliedGiftCard = 0,
     } = data;

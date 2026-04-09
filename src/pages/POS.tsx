@@ -90,7 +90,7 @@ export function POS() {
     const [invoiceNote, setInvoiceNote] = useState('');
 
     // Payment method state
-    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card');
     const [checkNumber, setCheckNumber] = useState('');
     const [isCollectingCard, setIsCollectingCard] = useState(false);
     const [showReaderModal, setShowReaderModal] = useState(false);
@@ -890,7 +890,7 @@ export function POS() {
         setGiftCardError(null);
         setIsApplyingGiftCard(false);
         setAppliedGiftCard(null);
-        setPaymentMethod('cash');
+        setPaymentMethod('card');
         setCheckNumber('');
         setIsCollectingCard(false);
         setOrderDiscounts([]);
