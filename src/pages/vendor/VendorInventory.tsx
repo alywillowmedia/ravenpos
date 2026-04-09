@@ -193,7 +193,7 @@ export function VendorInventory() {
                 className="max-w-md"
             />
 
-            <div className="bg-white rounded-xl border border-[var(--color-border)] shadow-sm overflow-hidden p-6">
+            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-elevated)] shadow-sm overflow-hidden p-6">
                 {view === 'list' && (
                     <>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
