@@ -86,13 +86,6 @@ function buildReceiptHtml(meta: TillCountReceiptMeta, report: TillCountReport): 
             </tr>
         `)
         .join('');
-    const accountability = report.accountability;
-    const accountabilityDifferenceColor =
-        (accountability?.difference || 0) > 0.009
-            ? '#991b1b'
-            : (accountability?.difference || 0) < -0.009
-                ? '#166534'
-                : '#111827';
 
     return `<!doctype html>
 <html>
@@ -125,42 +118,11 @@ function buildReceiptHtml(meta: TillCountReceiptMeta, report: TillCountReport): 
     </div>
 
     <div class="section">
-      ${accountability ? `
-      <div class="muted">Every dollar must be accounted for: Total Collected = Total Received</div>
-      <table>
-        <tr><td colspan="2" class="bold">What Customers Paid For</td></tr>
-        <tr><td>Gross Product Sales</td><td class="right">${formatCurrency(accountability.grossProductSales)}</td></tr>
-        <tr><td>Discounts</td><td class="right">-${formatCurrency(accountability.discounts)}</td></tr>
-        <tr><td>Returns</td><td class="right">-${formatCurrency(accountability.returns)}</td></tr>
-        <tr><td>Allowances</td><td class="right">-${formatCurrency(accountability.allowances)}</td></tr>
-        <tr><td class="bold">Net Sales</td><td class="right bold">${formatCurrency(accountability.netSales)}</td></tr>
-        <tr><td>Sales Tax</td><td class="right">${formatCurrency(accountability.salesTax)}</td></tr>
-        <tr><td>Credit Card Fees</td><td class="right">${formatCurrency(accountability.creditCardFeesCharged)}</td></tr>
-        <tr><td>Gift Certificates Sold</td><td class="right">${formatCurrency(accountability.giftCertificatesSold)}</td></tr>
-        <tr><td class="bold">Total Collected</td><td class="right bold">${formatCurrency(accountability.totalCollected)}</td></tr>
-      </table>
-      <table class="section">
-        <tr><td colspan="2" class="bold">How Customers Paid</td></tr>
-        <tr><td>Cash in (drawer)</td><td class="right">${formatCurrency(accountability.cashInDrawer)}</td></tr>
-        <tr><td>Checks (in hand)</td><td class="right">${formatCurrency(accountability.checksInHand)}</td></tr>
-        <tr><td>Credit Cards (batch)</td><td class="right">${formatCurrency(accountability.creditCardsBatchTotal)}</td></tr>
-        <tr><td>Store Credit (redeemed)</td><td class="right">${formatCurrency(accountability.storeCreditRedeemed)}</td></tr>
-        <tr><td class="bold">Total Received</td><td class="right bold">${formatCurrency(accountability.totalReceived)}</td></tr>
-      </table>
-      <table class="section">
-        <tr><td>Collected - Received</td><td class="right bold" style="color:${accountabilityDifferenceColor};">${accountability.difference >= 0 ? '+' : ''}${formatCurrency(accountability.difference)}</td></tr>
-        <tr><td>Dealer Purchases (Cash Out)</td><td class="right">-${formatCurrency(accountability.dealerCashPurchases)}</td></tr>
-      </table>
-      ` : ''}
-    </div>
-
-    <div class="section">
       <table>
         <tr><td>Expected From Sales</td><td class="right">${formatCurrency(report.expectedFromSales)}</td></tr>
         <tr><td>Check Qty</td><td class="right">${report.checkCount}</td></tr>
         <tr><td>Check Amt</td><td class="right">${formatCurrency(report.checkTotal)}</td></tr>
         <tr><td>Opening Float</td><td class="right">${formatCurrency(report.openingFloat)}</td></tr>
-        ${Math.abs(Number(report.manualAdjustment || 0)) > 0.0001 ? `<tr><td>Manual Adj</td><td class="right">${formatCurrency(Number(report.manualAdjustment || 0))}</td></tr>` : ''}
         <tr><td class="bold">Expected Drawer</td><td class="right bold">${formatCurrency(report.expectedDrawerTotal)}</td></tr>
         <tr><td class="bold">Counted Total</td><td class="right bold">${formatCurrency(report.countedTotal)}</td></tr>
         <tr><td class="bold">Variance</td><td class="right bold" style="color:${varianceColor};">${report.variance >= 0 ? '+' : ''}${formatCurrency(report.variance)}</td></tr>
