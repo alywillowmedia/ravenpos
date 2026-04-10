@@ -2,7 +2,7 @@
   "name": "ravenpos",
   "description": "RavenPOS desktop point-of-sale application",
   "private": true,
-  "version": "3.8.7",
+  "version": "3.8.8",
   "author": "Ravenlia",
   "repository": {
     "type": "git",
@@ -22,7 +22,7 @@
     "images:optimize:sb": "node scripts/optimize-supabase-item-images.mjs",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run electron:build:base && npm run electron:build:installer:only && npm run electron:build:portable:only && npm run electron:verify:artifacts",
-    "electron:build:base": "tsc -b && vite build --mode electron",
+    "electron:build:base": "node scripts/verify-electron-env.cjs && tsc -b && vite build --mode electron",
     "electron:build:installer": "npm run electron:build:base && npm run electron:build:installer:only",
     "electron:build:installer:only": "electron-builder --win nsis --x64 --publish never",
     "electron:build:installer:publish": "electron-builder --win nsis --x64 --publish always",
@@ -115,7 +115,8 @@
       {
         "provider": "github",
         "owner": "alywillowmedia",
-        "repo": "ravenpos"
+        "repo": "ravenpos",
+        "releaseType": "release"
       }
     ]
   }
