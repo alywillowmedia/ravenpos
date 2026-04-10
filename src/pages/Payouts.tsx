@@ -11,7 +11,7 @@ import { getConsignorDisplayName, getConsignorPayToName } from '../lib/consignor
 import type { ConsignorPayoutSummary, Payout, BalanceDisposition, VendorLedgerEntry } from '../types';
 
 type ViewMode = 'pending' | 'history';
-type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
+type DatePreset = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
 
 function toLocalDateInput(date: Date): string {
     const year = date.getFullYear();
@@ -71,6 +71,14 @@ export function Payouts() {
                 const start = new Date(now);
                 start.setHours(0, 0, 0, 0);
                 const end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+                return { start, end };
+            }
+            case 'yesterday': {
+                const start = new Date(now);
+                start.setDate(start.getDate() - 1);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(start);
                 end.setHours(23, 59, 59, 999);
                 return { start, end };
             }
@@ -528,6 +536,7 @@ export function Payouts() {
                 >
                     <option value="all">All Time</option>
                     <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
                     <option value="last7">Last 7 Days</option>
                     <option value="last30">Last 30 Days</option>
                     <option value="thisMonth">This Month</option>
@@ -567,6 +576,11 @@ export function Payouts() {
                     >
                         Clear Dates
                     </Button>
+                )}
+                {selectedRangeLabel !== 'All Time' && (
+                    <p className="w-full text-xs text-[var(--color-muted)]">
+                        Selected range: {selectedRangeLabel}
+                    </p>
                 )}
                 {isDateScopedPendingView && viewMode === 'pending' && (
                     <p className="text-xs text-[var(--color-muted)]">

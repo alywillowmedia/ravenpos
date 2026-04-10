@@ -37,7 +37,7 @@ import { calculateTillAccountabilityMetrics } from '../lib/tillAccountability';
 import type { ReceiptData } from '../types/receipt';
 import type { Customer, CustomerInput } from '../types';
 
-type DatePreset = 'all' | 'today' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
+type DatePreset = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
 type SalesTab = 'sales' | 'refunds' | 'employeeAttribution' | 'salesAnalytics';
 const SALES_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
@@ -174,6 +174,14 @@ export function Sales() {
                 const start = new Date(now);
                 start.setHours(0, 0, 0, 0);
                 const end = new Date(now);
+                end.setHours(23, 59, 59, 999);
+                return { start, end };
+            }
+            case 'yesterday': {
+                const start = new Date(now);
+                start.setDate(start.getDate() - 1);
+                start.setHours(0, 0, 0, 0);
+                const end = new Date(start);
                 end.setHours(23, 59, 59, 999);
                 return { start, end };
             }
@@ -705,12 +713,17 @@ export function Sales() {
     const dateRangeOptions = [
         { value: 'all', label: 'All Time' },
         { value: 'today', label: 'Today' },
+        { value: 'yesterday', label: 'Yesterday' },
         { value: 'last7', label: 'Last 7 Days' },
         { value: 'last30', label: 'Last 30 Days' },
         { value: 'thisMonth', label: 'This Month' },
         { value: 'lastMonth', label: 'Last Month' },
         { value: 'custom', label: 'Custom Range' },
     ];
+
+    const selectedRangeLabel = (dateRange.start && dateRange.end)
+        ? `${dateRange.start.toLocaleDateString()} - ${dateRange.end.toLocaleDateString()}`
+        : null;
 
     const toggleExpand = (saleId: string) => {
         setExpandedSaleId(expandedSaleId === saleId ? null : saleId);
@@ -1264,6 +1277,11 @@ export function Sales() {
                     >
                         Clear Filters
                     </Button>
+                )}
+                {selectedRangeLabel && filterDatePreset !== 'all' && (
+                    <p className="w-full text-xs text-[var(--color-muted)]">
+                        Selected range: {selectedRangeLabel}
+                    </p>
                 )}
             </div>
 
