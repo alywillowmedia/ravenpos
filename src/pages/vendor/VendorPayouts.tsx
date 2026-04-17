@@ -57,9 +57,15 @@ export function VendorPayouts() {
 
             setPayouts(payoutData || []);
 
-            // Get last payout date
-            const lastPayout = payoutData?.[0];
-            const lastPayoutDate = lastPayout ? new Date(lastPayout.paid_at) : new Date(0);
+            // Use the latest covered payout boundary (period_end) rather than paid_at.
+            // paid_at reflects when payment was made, but period_end reflects what sales
+            // were already included in that payout.
+            const lastPayoutDate = (payoutData || []).reduce<Date | null>((latestBoundary, payout) => {
+                const boundaryCandidate = new Date(payout.period_end || payout.paid_at);
+                if (Number.isNaN(boundaryCandidate.getTime())) return latestBoundary;
+                if (!latestBoundary || boundaryCandidate > latestBoundary) return boundaryCandidate;
+                return latestBoundary;
+            }, null) || new Date(0);
 
             // Fetch sales since last payout (including payment_method for fee calc)
             const { data: saleItems } = await supabase
