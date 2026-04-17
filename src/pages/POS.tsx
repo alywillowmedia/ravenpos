@@ -17,6 +17,7 @@ import { SmartSearch } from '../components/pos/SmartSearch';
 import { useAuth } from '../contexts/AuthContext';
 import { useEmployee } from '../contexts/EmployeeContext';
 import { useInventory } from '../hooks/useInventory';
+import { useInventoryPricingDiscounts } from '../hooks/useInventoryPricingDiscounts';
 import { useConsignors } from '../hooks/useConsignors';
 import { useSales } from '../hooks/useSales';
 import { useInvoices } from '../hooks/useInvoices';
@@ -46,6 +47,7 @@ export function POS() {
     const { employee } = useEmployee();
     const scannerRef = useRef<HTMLInputElement>(null);
     const { getItemBySku } = useInventory({ autoFetch: false });
+    const { getApplicableDiscountForItem } = useInventoryPricingDiscounts();
     const { consignors } = useConsignors();
     const { completeSale, isProcessing } = useSales();
     const { createInvoice, isLoading: isCreatingInvoice } = useInvoices();
@@ -175,6 +177,29 @@ export function POS() {
         return Math.max(0, Math.min(100, raw));
     };
 
+    const getAutomaticCatalogDiscount = useCallback((item: Item): Discount | undefined => {
+        const applicable = getApplicableDiscountForItem(item);
+        if (!applicable) return undefined;
+
+        const scopeLabel = applicable.source.scope === 'item'
+            ? `item ${item.name}`
+            : `category ${item.category}`;
+        const titleLabel = applicable.source.title?.trim();
+        const reason = titleLabel
+            ? `Catalog discount: ${titleLabel}`
+            : `Catalog discount: ${Number(applicable.percentOff).toFixed(2)}% off ${scopeLabel}`;
+
+        return {
+            ...createDiscount('percentage', applicable.percentOff, 'item', undefined, reason),
+            source: 'catalog',
+        };
+    }, [getApplicableDiscountForItem]);
+
+    const getDefaultItemDiscount = useCallback((item: Item, existing?: Discount): Discount | undefined => {
+        if (existing?.source !== 'catalog') return existing;
+        return getAutomaticCatalogDiscount(item);
+    }, [getAutomaticCatalogDiscount]);
+
     const { subtotal, taxTotal, total, itemDiscountTotal, dealerDiscountTotal, discountTotal } = calculateCartTotals(cart, orderDiscounts);
     const eligibleSubtotalAfterDiscounts = cart.reduce((sum, cartItem) => {
         const consignorPays = (cartItem.item.consignor as { consignor_pays_card_fee?: boolean } | undefined)?.consignor_pays_card_fee ?? false;
@@ -275,7 +300,7 @@ export function POS() {
                 createCartItem(
                     cartItem.item,
                     cartItem.quantity,
-                    cartItem.discount,
+                    getDefaultItemDiscount(cartItem.item, cartItem.discount),
                     getDealerDiscountPercentForItem(cartItem.item)
                 )
             )
@@ -490,7 +515,7 @@ export function POS() {
             const updated = createCartItem(
                 existing.item,
                 existing.quantity + 1,
-                existing.discount,
+                getDefaultItemDiscount(existing.item, existing.discount),
                 getDealerDiscountPercentForItem(existing.item)
             );
             setCart((prev) => prev.map((ci, i) => (i === existingIndex ? updated : ci)));
@@ -512,7 +537,12 @@ export function POS() {
             return;
         }
 
-        const cartItem = createCartItem(item, 1, undefined, getDealerDiscountPercentForItem(item));
+        const cartItem = createCartItem(
+            item,
+            1,
+            getAutomaticCatalogDiscount(item),
+            getDealerDiscountPercentForItem(item)
+        );
         setCart((prev) => [...prev, cartItem]);
         setScanInput('');
     };
@@ -606,7 +636,7 @@ export function POS() {
         const updated = createCartItem(
             item.item,
             newQty,
-            item.discount,
+            getDefaultItemDiscount(item.item, item.discount),
             getDealerDiscountPercentForItem(item.item)
         );
         setCart((prev) => prev.map((ci, i) => (i === index ? updated : ci)));
@@ -1008,7 +1038,7 @@ export function POS() {
         const updatedItem = createCartItem(
             item.item,
             item.quantity,
-            undefined,
+            getAutomaticCatalogDiscount(item.item),
             getDealerDiscountPercentForItem(item.item)
         );
         setCart(prev => prev.map((ci, i) => (i === itemIndex ? updatedItem : ci)));
@@ -2275,7 +2305,7 @@ export function POS() {
                         const updated = createCartItem(
                             existing.item,
                             existing.quantity + 1,
-                            existing.discount,
+                            getDefaultItemDiscount(existing.item, existing.discount),
                             getDealerDiscountPercentForItem(existing.item)
                         );
                         setCart((prev) => prev.map((ci, i) => (i === existingIndex ? updated : ci)));
@@ -2284,7 +2314,12 @@ export function POS() {
                             setScanError('Out of stock');
                             return;
                         }
-                        const cartItem = createCartItem(item, 1, undefined, getDealerDiscountPercentForItem(item));
+                        const cartItem = createCartItem(
+                            item,
+                            1,
+                            getAutomaticCatalogDiscount(item),
+                            getDealerDiscountPercentForItem(item)
+                        );
                         setCart((prev) => [...prev, cartItem]);
                     }
                     setScanError(null);

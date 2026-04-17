@@ -126,7 +126,28 @@ export interface Discount {
     scope: DiscountScope;
     itemIndex?: number;      // Only for item-level discounts (cart index)
     reason?: string;         // Optional note
+    source?: 'manual' | 'catalog';
     calculatedAmount: number; // Actual dollar amount off
+}
+
+export type InventoryPricingDiscountScope = 'category' | 'item';
+
+export interface InventoryPricingDiscount {
+    id: string;
+    consignor_id: string;
+    scope: InventoryPricingDiscountScope;
+    category: string | null;
+    item_id: string | null;
+    percent_off: number;
+    title: string | null;
+    starts_at: string | null;
+    ends_at: string | null;
+    is_active: boolean;
+    created_by_user_id: string | null;
+    created_at: string;
+    updated_at: string;
+    item?: Pick<Item, 'id' | 'name' | 'sku' | 'category'> | null;
+    consignor?: Pick<Consignor, 'id' | 'consignor_number' | 'name'> | null;
 }
 
 export interface Sale {

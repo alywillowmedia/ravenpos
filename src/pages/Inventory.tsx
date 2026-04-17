@@ -7,11 +7,14 @@ import { Input } from '../components/ui/Input';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Select';
+import { Tabs } from '../components/ui/Tabs';
 import { EmptyState, PackageIcon } from '../components/ui/EmptyState';
 import { ItemForm } from '../components/inventory/ItemForm';
 import { BulkEditToolbar } from '../components/inventory/BulkEditToolbar';
 import { BulkEditTable } from '../components/inventory/BulkEditTable';
 import { ChangeSummaryModal } from '../components/inventory/ChangeSummaryModal';
+import { InventoryDiscountsTab } from '../components/inventory/InventoryDiscountsTab';
+import { useAuth } from '../contexts/AuthContext';
 import { useInventory } from '../hooks/useInventory';
 import { useConsignors } from '../hooks/useConsignors';
 import { useCategories } from '../hooks/useCategories';
@@ -32,6 +35,8 @@ function formatAddedDate(value: string): string {
 
 export function Inventory() {
     const navigate = useNavigate();
+    const { userRecord } = useAuth();
+    const [view, setView] = useState<'products' | 'discounts'>('products');
     const [inventoryPage, setInventoryPage] = useState(1);
     const [inventoryPageSize, setInventoryPageSize] = useState(50);
     const [searchQuery, setSearchQuery] = useState('');
@@ -46,6 +51,12 @@ export function Inventory() {
         searchQuery: debouncedSearchQuery,
         consignorId: filterConsignor || undefined,
         category: filterCategory || undefined,
+    });
+    const {
+        items: discountTabItems,
+    } = useInventory({
+        autoFetch: view === 'discounts',
+        queryProfile: 'labels',
     });
 
     const toast = useToast();
@@ -399,14 +410,19 @@ export function Inventory() {
         ];
     }, [bulkEdit, filteredItemIds]);
 
+    const viewTabs = [
+        { id: 'products', label: 'Products' },
+        { id: 'discounts', label: 'Discounts' },
+    ];
+
     return (
         <div className="animate-fadeIn">
             <Header
-                title="Inventory"
-                description={`${totalCount} products in stock`}
+                title={view === 'products' ? 'Inventory' : 'Inventory Discounts'}
+                description={view === 'products' ? `${totalCount} products in stock` : 'Create and manage automatic catalog discounts'}
                 actions={
                     <div className="flex items-center gap-3">
-                        {!bulkEdit.isActive ? (
+                        {view === 'products' && !bulkEdit.isActive ? (
                             <>
                                 <Button
                                     variant="secondary"
@@ -424,98 +440,119 @@ export function Inventory() {
                                     Add Products
                                 </Button>
                             </>
-                        ) : (
+                        ) : view === 'products' ? (
                             <Button variant="ghost" onClick={handleCancelBulkEdit}>
                                 Exit Bulk Edit
                             </Button>
-                        )}
+                        ) : null}
                     </div>
                 }
             />
 
-            {/* Filters */}
-            <div className="flex flex-wrap gap-4 mb-6">
-                <div className="min-w-[260px] flex-1 max-w-xl">
-                    <Input
-                        type="search"
-                        placeholder="Search by name, SKU, category, or variant..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        inputSize="sm"
-                    />
-                </div>
-                <div className="w-48">
-                    <Select
-                        options={consignorOptions}
-                        value={filterConsignor}
-                        onChange={(e) => setFilterConsignor(e.target.value)}
-                        selectSize="sm"
-                    />
-                </div>
-                <div className="w-40">
-                    <Select
-                        options={categoryOptions}
-                        value={filterCategory}
-                        onChange={(e) => setFilterCategory(e.target.value)}
-                        selectSize="sm"
-                    />
-                </div>
-                {(filterConsignor || filterCategory || searchQuery) && (
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                            setFilterConsignor('');
-                            setFilterCategory('');
-                            setSearchQuery('');
-                            setDebouncedSearchQuery('');
-                            setInventoryPage(1);
-                        }}
-                    >
-                        Clear Filters
-                    </Button>
-                )}
-            </div>
-
-            {/* Spreadsheet editor when active */}
-            {isSpreadsheetOpen && selectedItems.length > 0 ? (
-                <BulkEditTable
-                    items={selectedItems}
-                    categories={getCategoryNames()}
-                    stagedChanges={bulkEdit.getAllStagedChanges()}
-                    onStageChange={handleStageChange}
-                    onEscapePressed={handleEscapePressed}
-                />
-            ) : items.length === 0 && !isLoading ? (
-                <EmptyState
-                    icon={<PackageIcon />}
-                    title="No inventory yet"
-                    description="Add products to your inventory to get started."
-                    action={
-                        <Button onClick={() => navigate('/admin/add-items')}>
-                            <PlusIcon />
-                            Add Products
-                        </Button>
+            <Tabs
+                tabs={viewTabs}
+                activeTab={view}
+                onChange={(id) => {
+                    if (id === 'products' || id === 'discounts') {
+                        setView(id);
                     }
+                }}
+                className="max-w-sm mb-6"
+            />
+
+            {view === 'discounts' ? (
+                <InventoryDiscountsTab
+                    mode="admin"
+                    userId={userRecord?.id || null}
+                    items={discountTabItems}
+                    categories={getCategoryNames()}
+                    consignors={consignors}
                 />
             ) : (
-                <Table
-                    data={filteredItems}
-                    columns={columns}
-                    keyExtractor={(item) => item.id}
-                    isLoading={isLoading}
-                    emptyMessage="No products match your filters"
-                />
-            )}
-
-            {!isSpreadsheetOpen && totalCount > 0 && (
-                <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="text-xs text-[var(--color-muted)]">
-                        Showing {(inventoryPage - 1) * inventoryPageSize + 1}-{Math.min(inventoryPage * inventoryPageSize, totalCount)} of {totalCount}
+                <>
+                    {/* Filters */}
+                    <div className="flex flex-wrap gap-4 mb-6">
+                        <div className="min-w-[260px] flex-1 max-w-xl">
+                            <Input
+                                type="search"
+                                placeholder="Search by name, SKU, category, or variant..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                inputSize="sm"
+                            />
+                        </div>
+                        <div className="w-48">
+                            <Select
+                                options={consignorOptions}
+                                value={filterConsignor}
+                                onChange={(e) => setFilterConsignor(e.target.value)}
+                                selectSize="sm"
+                            />
+                        </div>
+                        <div className="w-40">
+                            <Select
+                                options={categoryOptions}
+                                value={filterCategory}
+                                onChange={(e) => setFilterCategory(e.target.value)}
+                                selectSize="sm"
+                            />
+                        </div>
+                        {(filterConsignor || filterCategory || searchQuery) && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                    setFilterConsignor('');
+                                    setFilterCategory('');
+                                    setSearchQuery('');
+                                    setDebouncedSearchQuery('');
+                                    setInventoryPage(1);
+                                }}
+                            >
+                                Clear Filters
+                            </Button>
+                        )}
                     </div>
-                    <div className="flex items-center gap-3">
-                        <label className="text-xs text-[var(--color-muted)] flex items-center gap-2">
-                            Rows
+
+                {/* Spreadsheet editor when active */}
+                {isSpreadsheetOpen && selectedItems.length > 0 ? (
+                    <BulkEditTable
+                        items={selectedItems}
+                        categories={getCategoryNames()}
+                        stagedChanges={bulkEdit.getAllStagedChanges()}
+                        onStageChange={handleStageChange}
+                        onEscapePressed={handleEscapePressed}
+                    />
+                ) : items.length === 0 && !isLoading ? (
+                    <EmptyState
+                        icon={<PackageIcon />}
+                        title="No inventory yet"
+                        description="Add products to your inventory to get started."
+                        action={
+                            <Button onClick={() => navigate('/admin/add-items')}>
+                                <PlusIcon />
+                                Add Products
+                            </Button>
+                        }
+                    />
+                ) : (
+                    <Table
+                        data={filteredItems}
+                        columns={columns}
+                        keyExtractor={(item) => item.id}
+                        isLoading={isLoading}
+                        emptyMessage="No products match your filters"
+                    />
+                )}
+
+                {!isSpreadsheetOpen && totalCount > 0 && (
+                    <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="text-xs text-[var(--color-muted)]">
+                            Showing {(inventoryPage - 1) * inventoryPageSize + 1}-{Math.min(inventoryPage * inventoryPageSize, totalCount)} of {totalCount}
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <label className="text-xs text-[var(--color-muted)] flex items-center gap-2">
+                                Rows
                                 <select
                                     value={inventoryPageSize}
                                     onChange={(e) => setInventoryPageSize(Number(e.target.value))}
@@ -527,34 +564,36 @@ export function Inventory() {
                                     </option>
                                 ))}
                             </select>
-                        </label>
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => setInventoryPage((prev) => Math.max(1, prev - 1))}
-                                disabled={inventoryPage === 1}
-                            >
-                                Previous
-                            </Button>
-                            <span className="text-xs text-[var(--color-muted)] min-w-[100px] text-center">
-                                Page {inventoryPage} of {totalPages}
-                            </span>
-                            <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => setInventoryPage((prev) => Math.min(totalPages, prev + 1))}
-                                disabled={inventoryPage === totalPages}
-                            >
-                                Next
-                            </Button>
+                            </label>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => setInventoryPage((prev) => Math.max(1, prev - 1))}
+                                    disabled={inventoryPage === 1}
+                                >
+                                    Previous
+                                </Button>
+                                <span className="text-xs text-[var(--color-muted)] min-w-[100px] text-center">
+                                    Page {inventoryPage} of {totalPages}
+                                </span>
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => setInventoryPage((prev) => Math.min(totalPages, prev + 1))}
+                                    disabled={inventoryPage === totalPages}
+                                >
+                                    Next
+                                </Button>
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
+            </>
             )}
 
             {/* Bulk edit toolbar */}
-            {bulkEdit.isActive && (
+            {view === 'products' && bulkEdit.isActive && (
                 <BulkEditToolbar
                     selectedCount={bulkEdit.selectedCount}
                     totalCount={filteredItems.length}
@@ -572,7 +611,7 @@ export function Inventory() {
 
             {/* Change summary modal */}
             <ChangeSummaryModal
-                isOpen={showChangeSummary}
+                isOpen={view === 'products' && showChangeSummary}
                 onClose={() => setShowChangeSummary(false)}
                 onConfirm={handleConfirmChanges}
                 changeSummary={bulkEdit.getChangeSummary()}
@@ -582,7 +621,7 @@ export function Inventory() {
 
             {/* Exit confirmation modal */}
             <Modal
-                isOpen={showExitConfirm}
+                isOpen={view === 'products' && showExitConfirm}
                 onClose={() => setShowExitConfirm(false)}
                 title="Discard Changes?"
                 size="sm"
@@ -603,7 +642,7 @@ export function Inventory() {
 
             {/* Transfer modal */}
             <Modal
-                isOpen={showTransferModal}
+                isOpen={view === 'products' && showTransferModal}
                 onClose={() => {
                     setShowTransferModal(false);
                     setTransferTargetConsignor('');
@@ -650,7 +689,7 @@ export function Inventory() {
 
             {/* Edit Modal */}
             <Modal
-                isOpen={!!editItem}
+                isOpen={view === 'products' && !!editItem}
                 onClose={closeEditItemModal}
                 title="Edit Product"
                 size="4xl"
@@ -673,7 +712,7 @@ export function Inventory() {
 
             {/* Delete Confirmation */}
             <Modal
-                isOpen={!!deleteTarget}
+                isOpen={view === 'products' && !!deleteTarget}
                 onClose={() => setDeleteTarget(null)}
                 title="Delete Product"
                 size="sm"

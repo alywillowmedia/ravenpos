@@ -8,19 +8,22 @@ import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { useInventory } from '../../hooks/useInventory';
+import { useInventoryPricingDiscounts } from '../../hooks/useInventoryPricingDiscounts';
 import { useCategories } from '../../hooks/useCategories';
 import { useCustomers } from '../../hooks/useCustomers';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { createCartItem, calculateCartTotals } from '../../lib/tax';
+import { createDiscount } from '../../lib/discounts';
 import { formatCurrency } from '../../lib/utils';
 import { formatSupabaseError } from '../../lib/supabaseError';
 import { supabase } from '../../lib/supabase';
-import type { CartItem, Customer, CustomerInput, PaymentMethod } from '../../types';
+import type { CartItem, Customer, CustomerInput, Discount, Item, PaymentMethod } from '../../types';
 
 export function EmployeePOS() {
     const scannerRef = useRef<HTMLInputElement>(null);
     const { employee } = useEmployee();
     const { getItemBySku } = useInventory({ autoFetch: false });
+    const { getApplicableDiscountForItem } = useInventoryPricingDiscounts();
     const { searchCustomers, createCustomer } = useCustomers();
 
     // Fetch categories to ensure tax rates are synced from database  
@@ -51,7 +54,7 @@ export function EmployeePOS() {
         accepts_marketing: false,
     });
 
-    const { subtotal, taxTotal, total } = calculateCartTotals(cart);
+    const { subtotal, taxTotal, total, discountTotal } = calculateCartTotals(cart);
     const cashAmount = parseFloat(cashTendered) || 0;
     const amountDue = total;
     const change = cashAmount - amountDue;
@@ -60,6 +63,29 @@ export function EmployeePOS() {
     useEffect(() => {
         scannerRef.current?.focus();
     }, []);
+
+    const getAutomaticCatalogDiscount = (item: Item): Discount | undefined => {
+        const applicable = getApplicableDiscountForItem(item);
+        if (!applicable) return undefined;
+
+        const scopeLabel = applicable.source.scope === 'item'
+            ? `item ${item.name}`
+            : `category ${item.category}`;
+        const titleLabel = applicable.source.title?.trim();
+        const reason = titleLabel
+            ? `Catalog discount: ${titleLabel}`
+            : `Catalog discount: ${Number(applicable.percentOff).toFixed(2)}% off ${scopeLabel}`;
+
+        return {
+            ...createDiscount('percentage', applicable.percentOff, 'item', undefined, reason),
+            source: 'catalog',
+        };
+    };
+
+    const getDefaultItemDiscount = (item: Item, existing?: Discount): Discount | undefined => {
+        if (existing?.source !== 'catalog') return existing;
+        return getAutomaticCatalogDiscount(item);
+    };
 
     // Refocus on click
     useEffect(() => {
@@ -98,7 +124,11 @@ export function EmployeePOS() {
                 setScanInput('');
                 return;
             }
-            const updated = createCartItem(existing.item, existing.quantity + 1);
+            const updated = createCartItem(
+                existing.item,
+                existing.quantity + 1,
+                getDefaultItemDiscount(existing.item, existing.discount)
+            );
             setCart((prev) => prev.map((ci, i) => (i === existingIndex ? updated : ci)));
             setScanInput('');
             return;
@@ -118,7 +148,7 @@ export function EmployeePOS() {
             return;
         }
 
-        const cartItem = createCartItem(item, 1);
+        const cartItem = createCartItem(item, 1, getAutomaticCatalogDiscount(item));
         setCart((prev) => [...prev, cartItem]);
         setScanInput('');
     };
@@ -133,7 +163,11 @@ export function EmployeePOS() {
             setScanError(`Only ${item.item.quantity} in stock`);
             return;
         }
-        const updated = createCartItem(item.item, newQty);
+        const updated = createCartItem(
+            item.item,
+            newQty,
+            getDefaultItemDiscount(item.item, item.discount)
+        );
         setCart((prev) => prev.map((ci, i) => (i === index ? updated : ci)));
     };
 
@@ -160,6 +194,8 @@ export function EmployeePOS() {
                     subtotal,
                     tax_amount: taxTotal,
                     total,
+                    discounts: [],
+                    discount_total: discountTotal,
                     payment_method: paymentMethod,
                     cash_tendered: paymentMethod === 'cash' ? cashAmount : null,
                     change_given: paymentMethod === 'cash' ? change : null,
@@ -185,6 +221,10 @@ export function EmployeePOS() {
                 price: ci.item.price,
                 quantity: ci.quantity,
                 commission_split: ci.item.consignor?.commission_split ?? 0.6,
+                discount_type: ci.discount?.type,
+                discount_value: ci.discount?.value,
+                discount_amount: ci.discount?.calculatedAmount ?? 0,
+                discount_reason: ci.discount?.reason,
             }));
 
             const { error: itemsError } = await supabase

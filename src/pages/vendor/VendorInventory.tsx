@@ -14,6 +14,7 @@ import { VendorItemForm } from '../../components/vendor/VendorItemForm';
 import { VendorBatchEntry } from '../../components/vendor/VendorBatchEntry';
 import { Tabs } from '../../components/ui/Tabs';
 import { Card, CardContent } from '../../components/ui/Card';
+import { InventoryDiscountsTab } from '../../components/inventory/InventoryDiscountsTab';
 import type { Item } from '../../types';
 
 export function VendorInventory() {
@@ -22,7 +23,7 @@ export function VendorInventory() {
     const { consignors } = useConsignors();
     const { getCategoryNames } = useCategories();
 
-    const [view, setView] = useState<'list' | 'single' | 'batch'>('list');
+    const [view, setView] = useState<'list' | 'single' | 'batch' | 'discounts'>('list');
     const [editingItem, setEditingItem] = useState<Item | null>(null);
     const [deletingItem, setDeletingItem] = useState<Item | null>(null);
 
@@ -169,6 +170,7 @@ export function VendorInventory() {
         { id: 'list', label: 'View All Products' },
         { id: 'single', label: 'Add Single Product' },
         { id: 'batch', label: 'Multiple Products' },
+        { id: 'discounts', label: 'Discounts' },
     ];
 
     const totalItems = items.length;
@@ -186,11 +188,11 @@ export function VendorInventory() {
                 tabs={tabs}
                 activeTab={view}
                 onChange={(id) => {
-                    if (id === 'list' || id === 'single' || id === 'batch') {
+                    if (id === 'list' || id === 'single' || id === 'batch' || id === 'discounts') {
                         setView(id);
                     }
                 }}
-                className="max-w-md"
+                className="max-w-3xl"
             />
 
             <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-elevated)] shadow-sm overflow-hidden p-6">
@@ -276,6 +278,17 @@ export function VendorInventory() {
                             onCancel={() => setView('list')}
                         />
                     </div>
+                )}
+
+                {view === 'discounts' && (
+                    <InventoryDiscountsTab
+                        mode="vendor"
+                        userId={userRecord?.id || null}
+                        currentConsignorId={userRecord?.consignor_id || undefined}
+                        items={items}
+                        categories={getCategoryNames()}
+                        consignors={consignors}
+                    />
                 )}
             </div>
 

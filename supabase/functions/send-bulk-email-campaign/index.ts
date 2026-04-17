@@ -27,7 +27,12 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const DEFAULT_FROM_NAME = 'Ravenlia'
 const DEFAULT_FROM_EMAIL = 'email@ravenlia.com'
 const MAX_RECIPIENTS = 1000
-const SEND_CHUNK_SIZE = 25
+const SEND_CHUNK_SIZE = 5
+const SEND_BATCH_INTERVAL_MS = 1000
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 function normalizeEmail(value: string): string | null {
     const email = value.trim().toLowerCase()
@@ -131,6 +136,11 @@ async function sendThroughResend(
                     sampleFailures.push(`${result.recipient}: ${result.reason}`)
                 }
             }
+        }
+
+        const hasMoreRecipients = i + SEND_CHUNK_SIZE < recipients.length
+        if (hasMoreRecipients) {
+            await delay(SEND_BATCH_INTERVAL_MS)
         }
     }
 
