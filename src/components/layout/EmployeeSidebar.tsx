@@ -125,7 +125,7 @@ function ChevronLeftIcon() {
 
 const navigation = [
     { name: 'POS', href: '/employee/pos', icon: RegisterIcon },
-    { name: 'My Sales', href: '/employee/sales', icon: ReceiptIcon },
+    { name: 'Sales', href: '/employee/sales', icon: ReceiptIcon },
     { name: 'Till Count', href: '/employee/till-count', icon: TillIcon },
     { name: 'Schedule & Time Off', href: '/employee/schedule', icon: ScheduleIcon },
     { name: 'Customers', href: '/employee/customers', icon: CustomersIcon },
@@ -159,13 +159,18 @@ export function EmployeeSidebar() {
                 return;
             }
 
-            const { data } = await supabase
+            const { data, error } = await supabase
                 .from('users')
                 .select('profile_image_url')
                 .or(`employee_id.eq.${employee.id},linked_employee_id.eq.${employee.id}`)
+                .not('profile_image_url', 'is', null)
                 .order('created_at', { ascending: false })
                 .limit(1)
                 .maybeSingle();
+
+            if (error) {
+                console.error('Failed to load employee profile image:', error);
+            }
 
             setEmployeeProfileUrl((data as { profile_image_url?: string | null } | null)?.profile_image_url ?? null);
         };

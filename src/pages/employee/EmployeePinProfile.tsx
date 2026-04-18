@@ -13,6 +13,7 @@ type EmployeeAccountRow = {
     email: string;
     full_name: string | null;
     profile_image_url: string | null;
+    created_at: string;
 };
 
 export function EmployeePinProfile() {
@@ -58,11 +59,10 @@ export function EmployeePinProfile() {
 
             const { data, error } = await supabase
                 .from('users')
-                .select('id, email, full_name, profile_image_url')
+                .select('id, email, full_name, profile_image_url, created_at')
                 .or(`employee_id.eq.${employee.id},linked_employee_id.eq.${employee.id}`)
                 .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
+                .limit(10);
 
             if (error) {
                 setAccountUserId(null);
@@ -72,10 +72,18 @@ export function EmployeePinProfile() {
                 return;
             }
 
-            const account = (data || null) as EmployeeAccountRow | null;
-            setAccountUserId(account?.id ?? null);
-            setAccountEmail(account?.email ?? '');
-            setProfileImageUrl(account?.profile_image_url ?? employee.profile_image_url ?? null);
+            const accounts = ((data || []) as EmployeeAccountRow[]);
+            const latestAccount = accounts[0] ?? null;
+            const accountWithPhoto = accounts.find((account) => Boolean(account.profile_image_url)) ?? null;
+
+            setAccountUserId(latestAccount?.id ?? null);
+            setAccountEmail(latestAccount?.email ?? '');
+            setProfileImageUrl(
+                accountWithPhoto?.profile_image_url
+                ?? latestAccount?.profile_image_url
+                ?? employee.profile_image_url
+                ?? null
+            );
             setIsLoadingAccount(false);
         };
 

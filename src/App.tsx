@@ -55,7 +55,6 @@ import { VendorStorefront } from './pages/vendor/VendorStorefront';
 import { EmployeeLogin } from './pages/employee/EmployeeLogin';
 import { EmployeeActionSelection } from './pages/employee/EmployeeActionSelection';
 import { EmployeeSchedule as EmployeeSelfSchedule } from './pages/employee/EmployeeSchedule';
-import { EmployeeSales } from './pages/employee/EmployeeSales';
 import { EmployeePortalDashboard } from './pages/employee/EmployeePortalDashboard';
 import { EmployeeTillCount } from './pages/employee/EmployeeTillCount';
 import { EmployeePinProfile } from './pages/employee/EmployeePinProfile';
@@ -103,7 +102,7 @@ export default function App() {
                         <Route index element={<Navigate to="/employee/action-selection" replace />} />
                         <Route path="pos" element={<POS />} />
                         <Route path="till-count" element={<EmployeeTillCount />} />
-                        <Route path="sales" element={<EmployeeSales />} />
+                        <Route path="sales" element={<Sales />} />
                         <Route path="schedule" element={<EmployeeSelfSchedule />} />
                         <Route path="customers" element={<Customers />} />
                         <Route path="labels" element={<Labels />} />

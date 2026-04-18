@@ -97,7 +97,13 @@ export function Messages() {
                     <div className="border-b border-[var(--color-border)] px-3 py-2.5">
                         <div className="flex items-center justify-between gap-3">
                             <p className="text-sm font-semibold text-[var(--color-foreground)]">Conversations</p>
-                            <Button size="sm" onClick={() => setIsStartOpen((prev) => !prev)}>
+                            <Button
+                                size="sm"
+                                onClick={() => {
+                                    setActionError(null);
+                                    setIsStartOpen((prev) => !prev);
+                                }}
+                            >
                                 Start New
                             </Button>
                         </div>
@@ -111,7 +117,10 @@ export function Messages() {
                                     <Select
                                         options={directOptions}
                                         value={startTargetKey}
-                                        onChange={(event) => setStartTargetKey(event.target.value)}
+                                        onChange={(event) => {
+                                            setActionError(null);
+                                            setStartTargetKey(event.target.value);
+                                        }}
                                         placeholder="Choose a person"
                                     />
                                     <div className="flex gap-2">
@@ -124,6 +133,7 @@ export function Messages() {
                                             onClick={() => {
                                                 setIsStartOpen(false);
                                                 setStartTargetKey('');
+                                                setActionError(null);
                                             }}
                                         >
                                             Cancel
@@ -131,6 +141,12 @@ export function Messages() {
                                     </div>
                                 </div>
                             </div>
+                        )}
+
+                        {actionError && (
+                            <p className="mb-2 rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
+                                {actionError}
+                            </p>
                         )}
 
                         <div className="max-h-[560px] space-y-1 overflow-y-auto pr-1">

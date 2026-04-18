@@ -38,7 +38,7 @@ const adminMoreItems: MoreNavItem[] = [
 ];
 
 const employeeMoreItems: MoreNavItem[] = [
-    { name: 'My Sales', href: '/employee/sales', icon: ReceiptIcon },
+    { name: 'Sales', href: '/employee/sales', icon: ReceiptIcon },
     { name: 'Till Count', href: '/employee/till-count', icon: CashIcon },
     { name: 'Labels', href: '/employee/labels', icon: TagIcon },
     { name: 'Messages', href: '/employee/messages', icon: MessageIcon },

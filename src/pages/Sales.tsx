@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
@@ -14,6 +15,7 @@ import { AnalyticsCard } from '../components/analytics/AnalyticsCard';
 import { SalesTrendChart } from '../components/analytics/SalesTrendChart';
 import { SalesByCategoryChart } from '../components/analytics/SalesByCategoryChart';
 import { BusyTimesCard } from '../components/analytics/BusyTimesCard';
+import { ReceiptDeliveryModal } from '../components/receipt/ReceiptDeliveryModal';
 import { useSalesHistory, type SaleWithItems } from '../hooks/useSalesHistory';
 import { useRefundHistory, type RefundWithDetails } from '../hooks/useRefundHistory';
 import { useAnalytics, type SalesTrendData, type SalesByCategoryData, type BusyTimeAnalyticsData } from '../hooks/useAnalytics';
@@ -35,7 +37,7 @@ import {
 } from '../lib/cashReconciliation';
 import { calculateTillAccountabilityMetrics } from '../lib/tillAccountability';
 import type { ReceiptData } from '../types/receipt';
-import type { Customer, CustomerInput } from '../types';
+import type { Customer, CustomerInput, PaymentMethod } from '../types';
 
 type DatePreset = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
 type SalesTab = 'sales' | 'refunds' | 'employeeAttribution' | 'salesAnalytics';
@@ -80,6 +82,19 @@ interface EmployeeAttributionRow {
     averageTicket: number;
 }
 
+interface CustomerSalesHistoryItem {
+    id: string;
+    completed_at: string;
+    total: number;
+    payment_method: PaymentMethod;
+    sale_items: {
+        id: string;
+        name: string;
+        quantity: number;
+        price: number;
+    }[];
+}
+
 function escapeCsvValue(value: string | number | null | undefined): string {
     if (value === null || value === undefined) return '';
     const stringValue = String(value);
@@ -108,12 +123,14 @@ function parseLocalDateInput(value: string, endOfDay = false): Date {
 }
 
 export function Sales() {
+    const location = useLocation();
     const { userRecord } = useAuth();
     const toast = useToast();
     const { refunds, isLoading: isLoadingRefunds } = useRefundHistory();
     const { getSalesTrend, getSalesByCategory, getBusyTimeAnalytics, isLoading: isLoadingAnalytics } = useAnalytics();
     const { consignors } = useConsignors();
-    const { searchCustomers, createCustomer } = useCustomers();
+    const { searchCustomers, createCustomer, updateCustomer, getCustomerOrderHistory } = useCustomers();
+    const isEmployeeView = location.pathname.startsWith('/employee');
 
     const [activeTab, setActiveTab] = useState<SalesTab>('sales');
     const [salesPage, setSalesPage] = useState(1);
@@ -129,6 +146,7 @@ export function Sales() {
     const [isSavingCheckNumber, setIsSavingCheckNumber] = useState(false);
     const [isPrintingReceipt, setIsPrintingReceipt] = useState(false);
     const [printError, setPrintError] = useState<string | null>(null);
+    const [showReceiptDelivery, setShowReceiptDelivery] = useState(false);
     const [customerSearch, setCustomerSearch] = useState('');
     const [customerResults, setCustomerResults] = useState<Customer[]>([]);
     const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
@@ -136,6 +154,10 @@ export function Sales() {
     const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
     const [isSavingCustomer, setIsSavingCustomer] = useState(false);
     const [customerError, setCustomerError] = useState<string | null>(null);
+    const [showCustomerHistory, setShowCustomerHistory] = useState(false);
+    const [customerSalesHistory, setCustomerSalesHistory] = useState<CustomerSalesHistoryItem[]>([]);
+    const [isLoadingCustomerHistory, setIsLoadingCustomerHistory] = useState(false);
+    const [customerHistoryError, setCustomerHistoryError] = useState<string | null>(null);
     const [newCustomerData, setNewCustomerData] = useState<CustomerInput>({
         name: '',
         email: null,
@@ -164,6 +186,20 @@ export function Sales() {
             acc[denomination.key] = '';
             return acc;
         }, {})
+    );
+
+    const availableTabs = useMemo(
+        () => (
+            isEmployeeView
+                ? [{ id: 'sales', label: 'Sales', icon: <ReceiptSmallIcon /> }]
+                : [
+                    { id: 'sales', label: 'Sales', icon: <ReceiptSmallIcon /> },
+                    { id: 'refunds', label: 'Refunds', icon: <RefundTabIcon /> },
+                    { id: 'employeeAttribution', label: 'By Employee', icon: <EmployeesAttributionIcon /> },
+                    { id: 'salesAnalytics', label: 'Analytics', icon: <AnalyticsSmallIcon /> },
+                ]
+        ),
+        [isEmployeeView]
     );
 
     const dateRange = useMemo(() => {
@@ -294,6 +330,26 @@ export function Sales() {
     );
 
     useEffect(() => {
+        if (!isEmployeeView) return;
+        if (activeTab !== 'sales') {
+            setActiveTab('sales');
+        }
+    }, [activeTab, isEmployeeView]);
+
+    useEffect(() => {
+        if (!isEmployeeView) return;
+        if (filterConsignor) {
+            setFilterConsignor('');
+        }
+        if (showExportModal) {
+            setShowExportModal(false);
+        }
+        if (showCashReconciliation) {
+            setShowCashReconciliation(false);
+        }
+    }, [filterConsignor, isEmployeeView, showCashReconciliation, showExportModal]);
+
+    useEffect(() => {
         if (activeTab !== 'sales') return;
         setSalesPage(1);
         setExpandedSaleId(null);
@@ -304,6 +360,11 @@ export function Sales() {
     }, [salesTotalPages]);
 
     useEffect(() => {
+        if (isEmployeeView) {
+            setCashDealerPurchasesTotal(0);
+            return;
+        }
+
         const loadDealerCashPurchases = async () => {
             let query = supabase
                 .from('dealer_purchases')
@@ -331,9 +392,14 @@ export function Sales() {
         };
 
         void loadDealerCashPurchases();
-    }, [dateStartIso, dateEndIso, toast]);
+    }, [dateStartIso, dateEndIso, isEmployeeView, toast]);
 
     useEffect(() => {
+        if (isEmployeeView) {
+            setOfflineUnsyncedCashNetTotal(0);
+            return;
+        }
+
         const loadOfflineUnsyncedCash = async () => {
             const total = await getOfflineUnsyncedCashNetTotal({
                 dateStart: dateStartIso,
@@ -343,9 +409,14 @@ export function Sales() {
         };
 
         void loadOfflineUnsyncedCash();
-    }, [dateStartIso, dateEndIso]);
+    }, [dateStartIso, dateEndIso, isEmployeeView]);
 
     useEffect(() => {
+        if (isEmployeeView) {
+            setGiftCardSales([]);
+            return;
+        }
+
         const loadGiftCardSales = async () => {
             let query = supabase
                 .from('gift_cards')
@@ -369,7 +440,7 @@ export function Sales() {
         };
 
         void loadGiftCardSales();
-    }, [dateStartIso, dateEndIso, toast]);
+    }, [dateStartIso, dateEndIso, isEmployeeView, toast]);
 
     const accountabilityMetrics = useMemo(() => (
         calculateTillAccountabilityMetrics({
@@ -427,6 +498,12 @@ export function Sales() {
     }, [allFilteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal, accountabilityMetrics.expectedCashFromSales]);
 
     useEffect(() => {
+        if (isEmployeeView) {
+            setAdmins([]);
+            setSelectedAdminId('');
+            return;
+        }
+
         const loadAdmins = async () => {
             const { data, error: adminsError } = await supabase.rpc('get_chat_admin_contacts');
             if (adminsError) {
@@ -443,9 +520,14 @@ export function Sales() {
         };
 
         void loadAdmins();
-    }, [toast, userRecord?.email]);
+    }, [isEmployeeView, toast, userRecord?.email]);
 
     useEffect(() => {
+        if (isEmployeeView) {
+            setEmployeeDirectory([]);
+            return;
+        }
+
         const loadEmployees = async () => {
             const { data, error: employeeError } = await supabase
                 .from('employees')
@@ -461,9 +543,15 @@ export function Sales() {
         };
 
         void loadEmployees();
-    }, [toast]);
+    }, [isEmployeeView, toast]);
 
     useEffect(() => {
+        if (isEmployeeView) {
+            setSalesTrendData([]);
+            setSalesByCategoryData([]);
+            setBusyTimeAnalytics(null);
+            return;
+        }
         if (activeTab !== 'salesAnalytics') return;
 
         const loadAnalytics = async () => {
@@ -494,7 +582,7 @@ export function Sales() {
         };
 
         void loadAnalytics();
-    }, [activeTab, dateRange.start, dateRange.end, allFilteredSales, getSalesTrend, getSalesByCategory, getBusyTimeAnalytics]);
+    }, [activeTab, dateRange.start, dateRange.end, allFilteredSales, getSalesTrend, getSalesByCategory, getBusyTimeAnalytics, isEmployeeView]);
 
     const paymentTotals = useMemo(() => {
         const cashSalesTotal = allFilteredSales
@@ -825,6 +913,37 @@ export function Sales() {
         setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
     };
 
+    const resetCustomerHistoryState = () => {
+        setShowCustomerHistory(false);
+        setCustomerSalesHistory([]);
+        setIsLoadingCustomerHistory(false);
+        setCustomerHistoryError(null);
+    };
+
+    const closeSelectedSaleModal = () => {
+        setSelectedSale(null);
+        setCheckNumberInput('');
+        setPrintError(null);
+        setShowReceiptDelivery(false);
+        resetCustomerAttachState();
+        resetCustomerHistoryState();
+    };
+
+    const loadCustomerHistoryForSelectedSale = async (customerId: string) => {
+        setIsLoadingCustomerHistory(true);
+        setCustomerHistoryError(null);
+        const { data, error } = await getCustomerOrderHistory(customerId);
+        setIsLoadingCustomerHistory(false);
+
+        if (error) {
+            setCustomerHistoryError(error);
+            setCustomerSalesHistory([]);
+            return;
+        }
+
+        setCustomerSalesHistory((data || []) as CustomerSalesHistoryItem[]);
+    };
+
     const attachCustomerToSelectedSale = async (customer: Customer | null) => {
         if (!selectedSale) return;
 
@@ -851,7 +970,15 @@ export function Sales() {
         setCustomerSearch('');
         setCustomerResults([]);
         setShowCustomerDropdown(false);
+        resetCustomerHistoryState();
         await refetch();
+    };
+
+    const handleViewCustomerHistory = async () => {
+        const customerId = selectedSale?.customer?.id;
+        if (!customerId) return;
+        setShowCustomerHistory(true);
+        await loadCustomerHistoryForSelectedSale(customerId);
     };
 
     const handleCreateCustomer = async () => {
@@ -870,6 +997,24 @@ export function Sales() {
         setShowNewCustomerModal(false);
         setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
         await attachCustomerToSelectedSale(data);
+    };
+
+    const handleCustomerEmailUpdate = async (customerId: string, email: string) => {
+        const { error } = await updateCustomer(customerId, { email });
+        if (error) {
+            throw new Error(error);
+        }
+
+        setSelectedSale((prev) => {
+            if (!prev?.customer || prev.customer.id !== customerId) return prev;
+            return {
+                ...prev,
+                customer: {
+                    ...prev.customer,
+                    email,
+                },
+            };
+        });
     };
 
     const updateDenominationCount = (key: string, value: string) => {
@@ -1187,19 +1332,16 @@ export function Sales() {
             />
 
             {/* Tabs */}
-            <div className="mb-6">
-                <Tabs
-                    tabs={[
-                        { id: 'sales', label: 'Sales', icon: <ReceiptSmallIcon /> },
-                        { id: 'refunds', label: 'Refunds', icon: <RefundTabIcon /> },
-                        { id: 'employeeAttribution', label: 'By Employee', icon: <EmployeesAttributionIcon /> },
-                        { id: 'salesAnalytics', label: 'Analytics', icon: <AnalyticsSmallIcon /> },
-                    ]}
-                    activeTab={activeTab}
-                    onChange={(id) => setActiveTab(id as SalesTab)}
-                    className="max-w-3xl"
-                />
-            </div>
+            {availableTabs.length > 1 && (
+                <div className="mb-6">
+                    <Tabs
+                        tabs={availableTabs}
+                        activeTab={activeTab}
+                        onChange={(id) => setActiveTab(id as SalesTab)}
+                        className="max-w-3xl"
+                    />
+                </div>
+            )}
 
             {/* Filters */}
             <div className="flex flex-wrap gap-4 mb-6">
@@ -1233,7 +1375,7 @@ export function Sales() {
                         </div>
                     </>
                 )}
-                {(activeTab === 'sales' || activeTab === 'salesAnalytics') && (
+                {!isEmployeeView && (activeTab === 'sales' || activeTab === 'salesAnalytics') && (
                     <div className="w-48">
                         <Select
                             options={consignorOptions}
@@ -1252,7 +1394,7 @@ export function Sales() {
                         />
                     </div>
                 )}
-                {activeTab === 'sales' && (
+                {!isEmployeeView && activeTab === 'sales' && (
                     <Button
                         variant="secondary"
                         size="sm"
@@ -1262,7 +1404,7 @@ export function Sales() {
                         Export CSV
                     </Button>
                 )}
-                {(filterConsignor || filterDatePreset !== 'last30' || salesSearchQuery.trim()) && (
+                {((!isEmployeeView && filterConsignor) || filterDatePreset !== 'last30' || salesSearchQuery.trim()) && (
                     <Button
                         variant="ghost"
                         size="sm"
@@ -1286,7 +1428,7 @@ export function Sales() {
             </div>
 
             {/* Summary Cards - Only show for sales tab */}
-            {activeTab === 'sales' && (
+            {!isEmployeeView && activeTab === 'sales' && (
                 <>
                     <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/50 p-4 mb-6 space-y-4">
                         <div className="flex items-center justify-between gap-3">
@@ -1413,7 +1555,9 @@ export function Sales() {
                                             setSelectedSale(sale);
                                             setCheckNumberInput(sale.check_number || '');
                                             setPrintError(null);
+                                            setShowReceiptDelivery(false);
                                             resetCustomerAttachState();
+                                            resetCustomerHistoryState();
                                         }}
                                         calculateSalesSummary={calculateSalesSummary}
                                     />
@@ -1742,12 +1886,7 @@ export function Sales() {
             {/* Receipt Preview Modal */}
             <Modal
                 isOpen={!!selectedSale}
-                onClose={() => {
-                    setSelectedSale(null);
-                    setCheckNumberInput('');
-                    setPrintError(null);
-                    resetCustomerAttachState();
-                }}
+                onClose={closeSelectedSaleModal}
                 title="Receipt Preview"
                 size="3xl"
             >
@@ -1827,6 +1966,14 @@ export function Sales() {
                                                     </p>
                                                 )}
                                             </div>
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                onClick={() => void handleViewCustomerHistory()}
+                                                disabled={isSavingCustomer}
+                                            >
+                                                History
+                                            </Button>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
@@ -2091,6 +2238,13 @@ export function Sales() {
                 })()}
                 <ModalFooter>
                     <Button
+                        onClick={() => setShowReceiptDelivery(true)}
+                        disabled={!selectedSale}
+                    >
+                        <EmailSmallIcon />
+                        Send Receipt
+                    </Button>
+                    <Button
                         variant="secondary"
                         onClick={handlePrintSelectedReceipt}
                         isLoading={isPrintingReceipt}
@@ -2098,61 +2252,144 @@ export function Sales() {
                         <PrinterSmallIcon />
                         Print Receipt
                     </Button>
-                    <Button variant="secondary" onClick={() => {
-                        setSelectedSale(null);
-                        setCheckNumberInput('');
-                        setPrintError(null);
-                        resetCustomerAttachState();
-                    }}>
+                    <Button variant="secondary" onClick={closeSelectedSaleModal}>
                         Close
                     </Button>
                 </ModalFooter>
             </Modal>
 
+            {selectedSale && (
+                <ReceiptDeliveryModal
+                    isOpen={showReceiptDelivery}
+                    onClose={() => setShowReceiptDelivery(false)}
+                    receipt={createReceiptDataFromSale(selectedSale)}
+                    customer={selectedSale.customer || null}
+                    onCustomerEmailUpdate={handleCustomerEmailUpdate}
+                />
+            )}
+
             <Modal
-                isOpen={showExportModal}
-                onClose={() => setShowExportModal(false)}
-                title="Export Sales CSV"
-                size="md"
+                isOpen={showCustomerHistory}
+                onClose={resetCustomerHistoryState}
+                title={`Previous Sales - ${selectedSale?.customer?.name || 'Customer'}`}
+                size="lg"
             >
-                <div className="space-y-3">
-                    <p className="text-sm text-[var(--color-muted)]">
-                        Choose export format:
-                    </p>
-                    <button
-                        type="button"
-                        onClick={handleExportSalesCsvItemized}
-                        className="w-full text-left rounded-lg border border-[var(--color-border)] p-3 hover:bg-[var(--color-surface)] transition-colors"
-                    >
-                        <p className="font-medium text-sm">Itemized (Current)</p>
-                        <p className="text-xs text-[var(--color-muted)] mt-1">
-                            One row per sale item, including SKU, item name, quantity, and commission splits.
-                        </p>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={handleExportSalesCsvSummary}
-                        className="w-full text-left rounded-lg border border-[var(--color-border)] p-3 hover:bg-[var(--color-surface)] transition-colors"
-                    >
-                        <p className="font-medium text-sm">One Row Per Sale (New)</p>
-                        <p className="text-xs text-[var(--color-muted)] mt-1">
-                            One row per sale with totals, payment method, customer, item count, and consignor summary.
-                        </p>
-                    </button>
-                </div>
+                {!selectedSale?.customer ? (
+                    <p className="text-sm text-[var(--color-muted)]">Attach a customer to view their previous sales.</p>
+                ) : isLoadingCustomerHistory ? (
+                    <div className="flex justify-center py-8">
+                        <LoadingSpinner size={24} />
+                    </div>
+                ) : customerHistoryError ? (
+                    <div className="space-y-3">
+                        <p className="text-sm text-[var(--color-danger)]">{customerHistoryError}</p>
+                        <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => void loadCustomerHistoryForSelectedSale(selectedSale.customer!.id)}
+                        >
+                            Refresh
+                        </Button>
+                    </div>
+                ) : (
+                    (() => {
+                        const previousSales = customerSalesHistory.filter((sale) => sale.id !== selectedSale.id);
+                        if (previousSales.length === 0) {
+                            return (
+                                <p className="text-sm text-[var(--color-muted)]">
+                                    No previous sales found for this customer.
+                                </p>
+                            );
+                        }
+
+                        return (
+                            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                                {previousSales.map((sale) => (
+                                    <div key={sale.id} className="rounded-lg border border-[var(--color-border)] p-3">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <p className="font-mono text-xs">#{sale.id.slice(0, 8).toUpperCase()}</p>
+                                                <p className="text-sm text-[var(--color-muted)]">
+                                                    {new Date(sale.completed_at).toLocaleString()}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-xs text-[var(--color-muted)]">{formatPaymentMethod(sale.payment_method)}</p>
+                                                <p className="font-semibold">{formatCurrency(Number(sale.total || 0))}</p>
+                                            </div>
+                                        </div>
+                                        <div className="mt-2 space-y-1">
+                                            {sale.sale_items.slice(0, 4).map((item) => (
+                                                <p key={item.id} className="text-xs text-[var(--color-muted)]">
+                                                    {item.quantity}x {item.name}
+                                                </p>
+                                            ))}
+                                            {sale.sale_items.length > 4 && (
+                                                <p className="text-xs text-[var(--color-muted)]">
+                                                    +{sale.sale_items.length - 4} more item{sale.sale_items.length - 4 === 1 ? '' : 's'}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        );
+                    })()
+                )}
                 <ModalFooter>
-                    <Button variant="secondary" onClick={() => setShowExportModal(false)}>
-                        Cancel
+                    <Button variant="secondary" onClick={resetCustomerHistoryState}>
+                        Close
                     </Button>
                 </ModalFooter>
             </Modal>
 
-            <Modal
-                isOpen={showCashReconciliation}
-                onClose={() => setShowCashReconciliation(false)}
-                title="Cash Drawer Reconciliation"
-                size="lg"
-            >
+            {!isEmployeeView && (
+                <Modal
+                    isOpen={showExportModal}
+                    onClose={() => setShowExportModal(false)}
+                    title="Export Sales CSV"
+                    size="md"
+                >
+                    <div className="space-y-3">
+                        <p className="text-sm text-[var(--color-muted)]">
+                            Choose export format:
+                        </p>
+                        <button
+                            type="button"
+                            onClick={handleExportSalesCsvItemized}
+                            className="w-full text-left rounded-lg border border-[var(--color-border)] p-3 hover:bg-[var(--color-surface)] transition-colors"
+                        >
+                            <p className="font-medium text-sm">Itemized (Current)</p>
+                            <p className="text-xs text-[var(--color-muted)] mt-1">
+                                One row per sale item, including SKU, item name, quantity, and commission splits.
+                            </p>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleExportSalesCsvSummary}
+                            className="w-full text-left rounded-lg border border-[var(--color-border)] p-3 hover:bg-[var(--color-surface)] transition-colors"
+                        >
+                            <p className="font-medium text-sm">One Row Per Sale (New)</p>
+                            <p className="text-xs text-[var(--color-muted)] mt-1">
+                                One row per sale with totals, payment method, customer, item count, and consignor summary.
+                            </p>
+                        </button>
+                    </div>
+                    <ModalFooter>
+                        <Button variant="secondary" onClick={() => setShowExportModal(false)}>
+                            Cancel
+                        </Button>
+                    </ModalFooter>
+                </Modal>
+            )}
+
+            {!isEmployeeView && (
+                <Modal
+                    isOpen={showCashReconciliation}
+                    onClose={() => setShowCashReconciliation(false)}
+                    title="Cash Drawer Reconciliation"
+                    size="lg"
+                >
                 <div className="space-y-4">
                     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
                         <p className="text-sm font-medium">Every dollar must be accounted for</p>
@@ -2367,7 +2604,8 @@ export function Sales() {
                         Close
                     </Button>
                 </ModalFooter>
-            </Modal>
+                </Modal>
+            )}
 
             <Modal
                 isOpen={showNewCustomerModal}
@@ -2824,6 +3062,24 @@ function PrinterSmallIcon() {
             <polyline points="6 9 6 2 18 2 18 9" />
             <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
             <rect x="6" y="14" width="12" height="8" />
+        </svg>
+    );
+}
+
+function EmailSmallIcon() {
+    return (
+        <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="m22 7-10 6L2 7" />
         </svg>
     );
 }
