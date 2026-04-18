@@ -147,11 +147,14 @@ export function EmployeeSidebar() {
     const { userRecord } = useAuth();
     const [employeeProfileUrl, setEmployeeProfileUrl] = useState<string | null>(null);
     const profileName = employee?.name || userRecord?.full_name || 'Employee';
-    const profileAvatarUrl = getCachedAvatarUrl(userRecord?.profile_image_url || employeeProfileUrl, { size: 96, quality: 70 });
+    const profileAvatarUrl = getCachedAvatarUrl(
+        userRecord?.profile_image_url || employee?.profile_image_url || employeeProfileUrl,
+        { size: 96, quality: 70 }
+    );
 
     useEffect(() => {
         const loadEmployeeProfileImage = async () => {
-            if (!employee?.id || userRecord?.profile_image_url) {
+            if (!employee?.id || userRecord?.profile_image_url || employee?.profile_image_url) {
                 setEmployeeProfileUrl(null);
                 return;
             }
@@ -168,7 +171,7 @@ export function EmployeeSidebar() {
         };
 
         void loadEmployeeProfileImage();
-    }, [employee?.id, userRecord?.profile_image_url]);
+    }, [employee?.id, employee?.profile_image_url, userRecord?.profile_image_url]);
 
     useEffect(() => {
         localStorage.setItem('sidebar-collapsed-employee', isCollapsed.toString());

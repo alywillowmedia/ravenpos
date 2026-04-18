@@ -8,6 +8,9 @@ import { cn, formatDateTime } from '../lib/utils';
 
 type BlockType = 'text' | 'image' | 'button' | 'divider' | 'spacer';
 type TextAlign = 'left' | 'center' | 'right';
+type ComposerView = 'compose' | 'split' | 'preview';
+type WorkspaceTab = 'compose' | 'history';
+type ComposeStep = 'editor' | 'audience';
 
 interface TextBlock {
     id: string;
@@ -99,6 +102,16 @@ const DEFAULT_TEMPLATE = {
     replyTo: '',
 };
 
+const BLOCK_LIBRARY: Array<{ type: BlockType; label: string }> = [
+    { type: 'text', label: 'Text' },
+    { type: 'image', label: 'Image' },
+    { type: 'button', label: 'Button' },
+    { type: 'divider', label: 'Divider' },
+    { type: 'spacer', label: 'Spacer' },
+];
+
+const ALIGNMENTS: TextAlign[] = ['left', 'center', 'right'];
+
 function uid(): string {
     return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
@@ -114,6 +127,16 @@ function escapeHtml(input: string): string {
 
 function addLineBreaks(text: string): string {
     return escapeHtml(text).replace(/\n/g, '<br/>');
+}
+
+function clamp(value: number, min: number, max: number): number {
+    return Math.min(max, Math.max(min, value));
+}
+
+function textAlignClass(align: TextAlign): string {
+    if (align === 'center') return 'text-center';
+    if (align === 'right') return 'text-right';
+    return 'text-left';
 }
 
 function defaultBlock(type: BlockType): EmailBlock {
@@ -177,7 +200,7 @@ function renderBlockHtml(block: EmailBlock): string {
     }
 
     if (block.type === 'image' && block.imageUrl.trim()) {
-        const safeWidth = Math.max(20, Math.min(100, block.widthPercent));
+        const safeWidth = clamp(block.widthPercent, 20, 100);
         return `
         <tr>
           <td style="padding: 10px 28px; text-align: center;">
@@ -210,7 +233,7 @@ function renderBlockHtml(block: EmailBlock): string {
     }
 
     if (block.type === 'spacer') {
-        const safeHeight = Math.max(8, Math.min(120, block.height));
+        const safeHeight = clamp(block.height, 8, 120);
         return `
         <tr>
           <td style="height: ${safeHeight}px; font-size: 0; line-height: 0;">&nbsp;</td>
@@ -293,6 +316,16 @@ function dedupeValidEmails(values: string[]): string[] {
     return Array.from(unique);
 }
 
+function blockLabel(type: BlockType): string {
+    return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function viewToggleLabel(view: ComposerView): string {
+    if (view === 'compose') return 'Compose';
+    if (view === 'split') return 'Split';
+    return 'Preview';
+}
+
 export function EmailCampaigns() {
     const [templates, setTemplates] = useState<EmailTemplate[]>([]);
     const [campaigns, setCampaigns] = useState<CampaignSend[]>([]);
@@ -308,6 +341,10 @@ export function EmailCampaigns() {
     const [fromEmail, setFromEmail] = useState(DEFAULT_TEMPLATE.fromEmail);
     const [replyTo, setReplyTo] = useState(DEFAULT_TEMPLATE.replyTo);
     const [blocks, setBlocks] = useState<EmailBlock[]>([defaultBlock('text')]);
+    const [activeBlockId, setActiveBlockId] = useState<string>('');
+    const [composerView, setComposerView] = useState<ComposerView>('split');
+    const [activeTab, setActiveTab] = useState<WorkspaceTab>('compose');
+    const [composeStep, setComposeStep] = useState<ComposeStep>('editor');
 
     const [recipientOptions, setRecipientOptions] = useState<RecipientOption[]>([]);
     const [selectedRecipientEmails, setSelectedRecipientEmails] = useState<string[]>([]);
@@ -319,6 +356,11 @@ export function EmailCampaigns() {
     const [templateError, setTemplateError] = useState<string | null>(null);
     const [sendError, setSendError] = useState<string | null>(null);
     const [sendSuccess, setSendSuccess] = useState<string | null>(null);
+
+    const activeBlock = useMemo(
+        () => blocks.find((block) => block.id === activeBlockId) || null,
+        [blocks, activeBlockId]
+    );
 
     const manualRecipientCount = useMemo(
         () => parseManualRecipients(manualRecipientsRaw).length,
@@ -347,9 +389,38 @@ export function EmailCampaigns() {
         return dedupeValidEmails([...selectedRecipientEmails, ...manualRecipients]).length;
     }, [selectedRecipientEmails, manualRecipientsRaw]);
 
-    const previewHtml = useMemo(() => buildEmailHtml({ subject: subject || 'Preview', previewText, blocks }), [subject, previewText, blocks]);
+    const previewHtml = useMemo(
+        () => buildEmailHtml({ subject: subject || 'Preview', previewText, blocks }),
+        [subject, previewText, blocks]
+    );
+
+    const textVersion = useMemo(() => buildTextVersion(blocks), [blocks]);
+
+    const wordCount = useMemo(
+        () => textVersion.split(/\s+/).filter(Boolean).length,
+        [textVersion]
+    );
+
+    const estimatedReadMinutes = useMemo(
+        () => Math.max(1, Math.ceil(wordCount / 180)),
+        [wordCount]
+    );
+
+    useEffect(() => {
+        if (blocks.length === 0) {
+            setActiveBlockId('');
+            return;
+        }
+
+        if (!activeBlockId || !blocks.some((block) => block.id === activeBlockId)) {
+            setActiveBlockId(blocks[0].id);
+        }
+    }, [blocks, activeBlockId]);
 
     const resetDraft = useCallback(() => {
+        const starter = defaultBlock('text');
+        setActiveTab('compose');
+        setComposeStep('editor');
         setSelectedTemplateId('');
         setTemplateName(DEFAULT_TEMPLATE.templateName);
         setSubject(DEFAULT_TEMPLATE.subject);
@@ -357,7 +428,8 @@ export function EmailCampaigns() {
         setFromName(DEFAULT_TEMPLATE.fromName);
         setFromEmail(DEFAULT_TEMPLATE.fromEmail);
         setReplyTo(DEFAULT_TEMPLATE.replyTo);
-        setBlocks([defaultBlock('text')]);
+        setBlocks([starter]);
+        setActiveBlockId(starter.id);
         setTemplateError(null);
         setSendError(null);
         setSendSuccess(null);
@@ -444,6 +516,10 @@ export function EmailCampaigns() {
         const template = templates.find((item) => item.id === templateId);
         if (!template) return;
 
+        const nextBlocks = template.blocks.length > 0 ? template.blocks : [defaultBlock('text')];
+
+        setActiveTab('compose');
+        setComposeStep('editor');
         setSelectedTemplateId(template.id);
         setTemplateName(template.name);
         setSubject(template.subject);
@@ -451,7 +527,8 @@ export function EmailCampaigns() {
         setFromName(template.from_name || DEFAULT_TEMPLATE.fromName);
         setFromEmail(template.from_email || DEFAULT_TEMPLATE.fromEmail);
         setReplyTo(template.reply_to || '');
-        setBlocks(template.blocks.length > 0 ? template.blocks : [defaultBlock('text')]);
+        setBlocks(nextBlocks);
+        setActiveBlockId(nextBlocks[0]?.id || '');
         setTemplateError(null);
         setSendError(null);
         setSendSuccess(null);
@@ -522,7 +599,6 @@ export function EmailCampaigns() {
 
         await loadInitialData();
         setSelectedTemplateId(nextSelectedTemplateId);
-
         setTemplateError(null);
     };
 
@@ -545,8 +621,19 @@ export function EmailCampaigns() {
         resetDraft();
     };
 
+    const insertBlock = (type: BlockType, index: number) => {
+        const block = defaultBlock(type);
+        setBlocks((prev) => {
+            const next = [...prev];
+            const safeIndex = clamp(index, 0, prev.length);
+            next.splice(safeIndex, 0, block);
+            return next;
+        });
+        setActiveBlockId(block.id);
+    };
+
     const addBlock = (type: BlockType) => {
-        setBlocks((prev) => [...prev, defaultBlock(type)]);
+        insertBlock(type, blocks.length);
     };
 
     const updateBlock = (id: string, updater: (block: EmailBlock) => EmailBlock) => {
@@ -554,14 +641,20 @@ export function EmailCampaigns() {
     };
 
     const duplicateBlock = (id: string) => {
+        let duplicatedId = '';
         setBlocks((prev) => {
             const idx = prev.findIndex((block) => block.id === id);
             if (idx < 0) return prev;
             const duplicate = { ...prev[idx], id: uid() };
+            duplicatedId = duplicate.id;
             const next = [...prev];
             next.splice(idx + 1, 0, duplicate);
             return next;
         });
+
+        if (duplicatedId) {
+            setActiveBlockId(duplicatedId);
+        }
     };
 
     const moveBlock = (id: string, direction: 'up' | 'down') => {
@@ -577,7 +670,27 @@ export function EmailCampaigns() {
     };
 
     const removeBlock = (id: string) => {
-        setBlocks((prev) => (prev.length === 1 ? prev : prev.filter((block) => block.id !== id)));
+        if (blocks.length === 1) return;
+
+        let nextActive = activeBlockId;
+
+        setBlocks((prev) => {
+            if (prev.length === 1) return prev;
+
+            const idx = prev.findIndex((block) => block.id === id);
+            if (idx < 0) return prev;
+
+            const next = prev.filter((block) => block.id !== id);
+            if (next.length === 0) {
+                nextActive = '';
+            } else if (nextActive === id) {
+                nextActive = next[Math.max(0, idx - 1)]?.id || next[0].id;
+            }
+
+            return next;
+        });
+
+        setActiveBlockId(nextActive);
     };
 
     const toggleRecipient = (email: string) => {
@@ -601,6 +714,23 @@ export function EmailCampaigns() {
 
     const removeSelectedRecipient = (email: string) => {
         setSelectedRecipientEmails((prev) => prev.filter((value) => value !== email));
+    };
+
+    const continueToAudience = () => {
+        setSendError(null);
+        setSendSuccess(null);
+
+        if (!subject.trim()) {
+            setSendError('Subject is required before moving to recipients.');
+            return;
+        }
+
+        if (blocks.length === 0) {
+            setSendError('Add at least one content block before moving to recipients.');
+            return;
+        }
+
+        setComposeStep('audience');
     };
 
     const sendCampaign = async () => {
@@ -671,266 +801,727 @@ export function EmailCampaigns() {
         <div className="space-y-6">
             <Header
                 title="Email Campaigns"
-                description="Build reusable email templates and send campaigns to selected customers and consignors using Resend."
-                actions={
-                    <div className="flex gap-2">
+                description="Build reusable templates and send polished campaigns to selected customers and consignors."
+                actions={activeTab === 'compose' ? (
+                    <div className="flex flex-wrap gap-2">
                         <Button variant="secondary" onClick={resetDraft}>New Template</Button>
                         <Button onClick={upsertTemplate} isLoading={isSavingTemplate}>Save Template</Button>
+                        {composeStep === 'editor' ? (
+                            <Button variant="success" onClick={continueToAudience}>Send...</Button>
+                        ) : (
+                            <>
+                                <Button variant="secondary" onClick={() => setComposeStep('editor')}>Back to Editor</Button>
+                                <Button variant="success" onClick={sendCampaign} isLoading={isSending}>Send Campaign</Button>
+                            </>
+                        )}
                     </div>
-                }
+                ) : undefined}
             />
 
-            <section className="grid gap-4 xl:grid-cols-[340px,1fr]">
-                <div className="space-y-4">
-                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Templates</p>
-                        <div className="mt-3 space-y-2">
-                            <Select
-                                label="Load template"
-                                options={templates.map((template) => ({ value: template.id, label: template.name }))}
-                                placeholder="Select a saved template"
-                                value={selectedTemplateId}
-                                onChange={(event) => loadTemplate(event.target.value)}
-                            />
-                            <Input label="Template name" value={templateName} onChange={(event) => setTemplateName(event.target.value)} />
-                            {selectedTemplateId && (
-                                <Button variant="danger" onClick={archiveTemplate} isLoading={isSavingTemplate}>
-                                    Archive Template
-                                </Button>
-                            )}
-                            {templateError && <p className="text-sm text-[var(--color-danger)]">{templateError}</p>}
-                        </div>
-                    </div>
+            <div className="inline-flex rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1">
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('compose')}
+                    className={cn(
+                        'rounded-md px-3 py-1.5 text-sm font-medium transition',
+                        activeTab === 'compose'
+                            ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                            : 'text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
+                    )}
+                >
+                    Compose Campaign
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('history')}
+                    className={cn(
+                        'rounded-md px-3 py-1.5 text-sm font-medium transition',
+                        activeTab === 'history'
+                            ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                            : 'text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
+                    )}
+                >
+                    Previously Sent
+                </button>
+            </div>
 
-                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Audience</p>
-                        <div className="mt-3 space-y-3">
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                                <Button variant="secondary" size="sm" onClick={() => addRecipientGroup('customers')}>
-                                    Add Customers ({customerAudienceCount})
-                                </Button>
-                                <Button variant="secondary" size="sm" onClick={() => addRecipientGroup('consignors')}>
-                                    Add Consignors ({consignorAudienceCount})
-                                </Button>
-                                <Button variant="secondary" size="sm" onClick={() => addRecipientGroup('all')}>
-                                    Add Both ({customerAudienceCount + consignorAudienceCount})
-                                </Button>
+            {activeTab === 'history' ? (
+                <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Previously Sent Emails</p>
+                    <div className="mt-3 space-y-2">
+                        {campaigns.map((campaign) => (
+                            <div key={campaign.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                                <p className="truncate text-sm font-semibold text-[var(--color-foreground)]">{campaign.subject}</p>
+                                <p className="text-xs text-[var(--color-muted)]">
+                                    {campaign.template_name || 'One-off'} | {campaign.sent_count}/{campaign.recipient_count} | {campaign.status}
+                                </p>
+                                <p className="text-xs text-[var(--color-muted)]">{formatDateTime(campaign.created_at)}</p>
                             </div>
-
-                            <Input
-                                label="Search customers or consignors"
-                                placeholder="Search by name or email"
-                                value={recipientSearch}
-                                onChange={(event) => setRecipientSearch(event.target.value)}
-                                hint={`${selectedRecipientEmails.length} selected`}
-                            />
-
-                            <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-[var(--color-border)] p-2">
-                                {filteredRecipients.map((recipient) => {
-                                    const checked = selectedRecipientEmails.includes(recipient.email);
-                                    return (
-                                        <label key={`${recipient.source}-${recipient.id}`} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-surface)]">
-                                            <input
-                                                type="checkbox"
-                                                checked={checked}
-                                                onChange={() => toggleRecipient(recipient.email)}
-                                                className="h-4 w-4"
-                                            />
-                                            <div className="min-w-0">
-                                                <p className="truncate text-sm font-medium text-[var(--color-foreground)]">{recipient.name}</p>
-                                                <p className="truncate text-xs text-[var(--color-muted)]">
-                                                    {recipient.email} • {recipient.source}
-                                                </p>
-                                            </div>
-                                        </label>
-                                    );
-                                })}
-                                {filteredRecipients.length === 0 && (
-                                    <p className="px-2 py-4 text-sm text-[var(--color-muted)]">No matching recipients found.</p>
+                        ))}
+                        {!isLoading && campaigns.length === 0 && (
+                            <p className="text-sm text-[var(--color-muted)]">No campaigns sent yet.</p>
+                        )}
+                    </div>
+                </section>
+            ) : (
+                <section className={cn(
+                    'grid gap-4',
+                    composeStep === 'editor'
+                        ? 'xl:grid-cols-[340px,minmax(0,1fr)]'
+                        : 'xl:grid-cols-[380px,minmax(0,1fr)]'
+                )}>
+                    <div className="space-y-4">
+                        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Templates</p>
+                            <div className="mt-3 space-y-2">
+                                <Select
+                                    label="Load template"
+                                    options={templates.map((template) => ({ value: template.id, label: template.name }))}
+                                    placeholder="Select a saved template"
+                                    value={selectedTemplateId}
+                                    onChange={(event) => loadTemplate(event.target.value)}
+                                />
+                                <Input
+                                    label="Template name"
+                                    value={templateName}
+                                    onChange={(event) => setTemplateName(event.target.value)}
+                                />
+                                {selectedTemplateId && (
+                                    <Button variant="danger" onClick={archiveTemplate} isLoading={isSavingTemplate}>
+                                        Archive Template
+                                    </Button>
                                 )}
-                            </div>
-
-                            <div className="rounded-lg border border-[var(--color-border)] p-2">
-                                <div className="mb-2 flex items-center justify-between gap-2">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Selected</p>
-                                    <button
-                                        type="button"
-                                        className="text-xs text-[var(--color-muted)] underline"
-                                        onClick={() => setSelectedRecipientEmails([])}
-                                        disabled={selectedRecipientEmails.length === 0}
-                                    >
-                                        Clear
-                                    </button>
-                                </div>
-                                <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
-                                    {selectedRecipients.map((recipient) => (
-                                        <button
-                                            key={`selected-${recipient.source}-${recipient.id}`}
-                                            type="button"
-                                            onClick={() => removeSelectedRecipient(recipient.email)}
-                                            className="rounded-full border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-foreground)]"
-                                        >
-                                            {recipient.name} ({recipient.source}) ×
-                                        </button>
-                                    ))}
-                                    {selectedRecipients.length === 0 && (
-                                        <p className="text-sm text-[var(--color-muted)]">No recipients selected yet.</p>
-                                    )}
-                                </div>
-                            </div>
-
-                            <Textarea
-                                label="Additional email addresses (optional)"
-                                placeholder="one@example.com, two@example.com"
-                                value={manualRecipientsRaw}
-                                onChange={(event) => setManualRecipientsRaw(event.target.value)}
-                                hint={`${manualRecipientCount} typed • ${totalRecipientCount} total unique recipients`}
-                            />
-
-                            <Button onClick={sendCampaign} isLoading={isSending}>
-                                Send Campaign
-                            </Button>
-                            {sendSuccess && <p className="text-sm text-[var(--color-success)]">{sendSuccess}</p>}
-                            {sendError && <p className="text-sm text-[var(--color-danger)]">{sendError}</p>}
-                        </div>
-                    </div>
-
-                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Recent Sends</p>
-                        <div className="mt-3 space-y-2">
-                            {campaigns.map((campaign) => (
-                                <div key={campaign.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5">
-                                    <p className="text-sm font-semibold text-[var(--color-foreground)] truncate">{campaign.subject}</p>
-                                    <p className="text-xs text-[var(--color-muted)]">
-                                        {campaign.template_name || 'One-off'} | {campaign.sent_count}/{campaign.recipient_count} | {campaign.status}
-                                    </p>
-                                    <p className="text-xs text-[var(--color-muted)]">{formatDateTime(campaign.created_at)}</p>
-                                </div>
-                            ))}
-                            {!isLoading && campaigns.length === 0 && (
-                                <p className="text-sm text-[var(--color-muted)]">No campaigns sent yet.</p>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="space-y-4">
-                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Campaign Settings</p>
-                        <div className="mt-3 grid gap-3 md:grid-cols-2">
-                            <Input label="Subject" value={subject} onChange={(event) => setSubject(event.target.value)} className="md:col-span-2" />
-                            <Input label="Preview text" value={previewText} onChange={(event) => setPreviewText(event.target.value)} className="md:col-span-2" />
-                            <Input label="From name" value={fromName} onChange={(event) => setFromName(event.target.value)} />
-                            <Input label="From email" type="email" value={fromEmail} onChange={(event) => setFromEmail(event.target.value)} />
-                            <Input label="Reply-to (optional)" type="email" value={replyTo} onChange={(event) => setReplyTo(event.target.value)} className="md:col-span-2" />
-                        </div>
-                    </div>
-
-                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Block Editor</p>
-                            <div className="flex flex-wrap gap-2">
-                                <Button variant="secondary" size="sm" onClick={() => addBlock('text')}>+ Text</Button>
-                                <Button variant="secondary" size="sm" onClick={() => addBlock('image')}>+ Image</Button>
-                                <Button variant="secondary" size="sm" onClick={() => addBlock('button')}>+ Button</Button>
-                                <Button variant="secondary" size="sm" onClick={() => addBlock('divider')}>+ Divider</Button>
-                                <Button variant="secondary" size="sm" onClick={() => addBlock('spacer')}>+ Spacer</Button>
+                                {templateError && <p className="text-sm text-[var(--color-danger)]">{templateError}</p>}
                             </div>
                         </div>
 
-                        <div className="mt-3 space-y-3">
-                            {blocks.map((block, index) => (
-                                <div key={block.id} className="rounded-lg border border-[var(--color-border)] p-3">
-                                    <div className="mb-3 flex items-center justify-between gap-2">
-                                        <p className="text-sm font-semibold capitalize text-[var(--color-foreground)]">{index + 1}. {block.type}</p>
-                                        <div className="flex gap-1">
-                                            <button className="rounded-md border border-[var(--color-border)] px-2 py-1 text-xs" onClick={() => moveBlock(block.id, 'up')}>Up</button>
-                                            <button className="rounded-md border border-[var(--color-border)] px-2 py-1 text-xs" onClick={() => moveBlock(block.id, 'down')}>Down</button>
-                                            <button className="rounded-md border border-[var(--color-border)] px-2 py-1 text-xs" onClick={() => duplicateBlock(block.id)}>Duplicate</button>
-                                            <button className={cn('rounded-md border px-2 py-1 text-xs', blocks.length === 1 ? 'border-[var(--color-border)] text-[var(--color-muted)]' : 'border-[var(--color-danger)] text-[var(--color-danger)]')} onClick={() => removeBlock(block.id)} disabled={blocks.length === 1}>Delete</button>
+                        {composeStep === 'editor' ? (
+                            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Step 1: Build Email</p>
+                                <p className="mt-2 text-sm text-[var(--color-foreground)]">
+                                    Finish the content, then use <span className="font-semibold">Send...</span> in the header to choose recipients.
+                                </p>
+                                {sendError && <p className="mt-2 text-sm text-[var(--color-danger)]">{sendError}</p>}
+                                {sendSuccess && <p className="mt-2 text-sm text-[var(--color-success)]">{sendSuccess}</p>}
+                            </div>
+                        ) : (
+                            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Step 2: Choose Recipients</p>
+                                <div className="mt-3 space-y-3">
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                        <Button variant="secondary" size="sm" onClick={() => addRecipientGroup('customers')}>
+                                            Add Customers ({customerAudienceCount})
+                                        </Button>
+                                        <Button variant="secondary" size="sm" onClick={() => addRecipientGroup('consignors')}>
+                                            Add Consignors ({consignorAudienceCount})
+                                        </Button>
+                                        <Button variant="secondary" size="sm" onClick={() => addRecipientGroup('all')}>
+                                            Add Both ({customerAudienceCount + consignorAudienceCount})
+                                        </Button>
+                                    </div>
+
+                                    <Input
+                                        label="Search customers or consignors"
+                                        placeholder="Search by name or email"
+                                        value={recipientSearch}
+                                        onChange={(event) => setRecipientSearch(event.target.value)}
+                                        hint={`${selectedRecipientEmails.length} selected`}
+                                    />
+
+                                    <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-[var(--color-border)] p-2">
+                                        {filteredRecipients.map((recipient) => {
+                                            const checked = selectedRecipientEmails.includes(recipient.email);
+                                            return (
+                                                <label key={`${recipient.source}-${recipient.id}`} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-surface)]">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked}
+                                                        onChange={() => toggleRecipient(recipient.email)}
+                                                        className="h-4 w-4"
+                                                    />
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-medium text-[var(--color-foreground)]">{recipient.name}</p>
+                                                        <p className="truncate text-xs text-[var(--color-muted)]">
+                                                            {recipient.email} • {recipient.source}
+                                                        </p>
+                                                    </div>
+                                                </label>
+                                            );
+                                        })}
+                                        {filteredRecipients.length === 0 && (
+                                            <p className="px-2 py-4 text-sm text-[var(--color-muted)]">No matching recipients found.</p>
+                                        )}
+                                    </div>
+
+                                    <div className="rounded-lg border border-[var(--color-border)] p-2">
+                                        <div className="mb-2 flex items-center justify-between gap-2">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Selected</p>
+                                            <button
+                                                type="button"
+                                                className="text-xs text-[var(--color-muted)] underline"
+                                                onClick={() => setSelectedRecipientEmails([])}
+                                                disabled={selectedRecipientEmails.length === 0}
+                                            >
+                                                Clear
+                                            </button>
+                                        </div>
+                                        <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                                            {selectedRecipients.map((recipient) => (
+                                                <button
+                                                    key={`selected-${recipient.source}-${recipient.id}`}
+                                                    type="button"
+                                                    onClick={() => removeSelectedRecipient(recipient.email)}
+                                                    className="rounded-full border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-foreground)]"
+                                                >
+                                                    {recipient.name} ({recipient.source}) ×
+                                                </button>
+                                            ))}
+                                            {selectedRecipients.length === 0 && (
+                                                <p className="text-sm text-[var(--color-muted)]">No recipients selected yet.</p>
+                                            )}
                                         </div>
                                     </div>
 
-                                    {block.type === 'text' && (
-                                        <div className="space-y-3">
-                                            <Input label="Heading" value={block.heading} onChange={(event) => updateBlock(block.id, (current) => current.type === 'text' ? { ...current, heading: event.target.value } : current)} />
-                                            <Textarea label="Body" value={block.body} onChange={(event) => updateBlock(block.id, (current) => current.type === 'text' ? { ...current, body: event.target.value } : current)} />
-                                            <Select
-                                                label="Alignment"
-                                                value={block.align}
-                                                onChange={(event) => updateBlock(block.id, (current) => current.type === 'text' ? { ...current, align: event.target.value as TextAlign } : current)}
-                                                options={[
-                                                    { value: 'left', label: 'Left' },
-                                                    { value: 'center', label: 'Center' },
-                                                    { value: 'right', label: 'Right' },
-                                                ]}
-                                            />
+                                    <Textarea
+                                        label="Additional email addresses (optional)"
+                                        placeholder="one@example.com, two@example.com"
+                                        value={manualRecipientsRaw}
+                                        onChange={(event) => setManualRecipientsRaw(event.target.value)}
+                                        hint={`${manualRecipientCount} typed • ${totalRecipientCount} total unique recipients`}
+                                    />
+
+                                    {sendSuccess && <p className="text-sm text-[var(--color-success)]">{sendSuccess}</p>}
+                                    {sendError && <p className="text-sm text-[var(--color-danger)]">{sendError}</p>}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Envelope & Inbox</p>
+                                    <p className="text-xs text-[var(--color-muted)]">
+                                        {blocks.length} blocks • {wordCount} words • ~{estimatedReadMinutes} min read
+                                    </p>
+                                </div>
+                                {composeStep === 'editor' && (
+                                    <div className="inline-flex rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1">
+                                        {(['compose', 'split', 'preview'] as ComposerView[]).map((view) => (
+                                            <button
+                                                key={view}
+                                                type="button"
+                                                onClick={() => setComposerView(view)}
+                                                className={cn(
+                                                    'rounded-md px-3 py-1.5 text-xs font-semibold transition',
+                                                    composerView === view
+                                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                                                        : 'text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
+                                                )}
+                                            >
+                                                {viewToggleLabel(view)}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                <Input
+                                    label="Subject"
+                                    value={subject}
+                                    onChange={(event) => setSubject(event.target.value)}
+                                    className="md:col-span-2"
+                                />
+                                <Input
+                                    label="Preview text"
+                                    value={previewText}
+                                    onChange={(event) => setPreviewText(event.target.value)}
+                                    className="md:col-span-2"
+                                />
+                                <Input label="From name" value={fromName} onChange={(event) => setFromName(event.target.value)} />
+                                <Input label="From email" type="email" value={fromEmail} onChange={(event) => setFromEmail(event.target.value)} />
+                                <Input label="Reply-to (optional)" type="email" value={replyTo} onChange={(event) => setReplyTo(event.target.value)} className="md:col-span-2" />
+                            </div>
+
+                            <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Inbox Preview</p>
+                                <p className="mt-2 text-sm text-[var(--color-foreground)]">{fromName.trim() || DEFAULT_TEMPLATE.fromName} &lt;{fromEmail.trim() || DEFAULT_TEMPLATE.fromEmail}&gt;</p>
+                                <p className="truncate text-sm font-semibold text-[var(--color-foreground)]">{subject.trim() || 'Your subject line appears here'}</p>
+                                <p className="truncate text-sm text-[var(--color-foreground)]">{previewText.trim() || 'Preview text appears next to the subject in most inboxes.'}</p>
+                            </div>
+                        </div>
+
+                        {composeStep === 'editor' ? (
+                            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Visual Composer</p>
+                                        <p className="text-xs text-[var(--color-muted)]">Edit directly inside each content block like a normal email editor.</p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {BLOCK_LIBRARY.map((option) => (
+                                            <Button key={option.type} variant="secondary" size="sm" onClick={() => addBlock(option.type)}>
+                                                + {option.label}
+                                            </Button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className={cn('mt-4 grid gap-4', composerView === 'split' && 'xl:grid-cols-2')}>
+                                    {(composerView === 'compose' || composerView === 'split') && (
+                                        <div className="space-y-4">
+                                            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                                                <div className="mx-auto max-w-[640px] rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-elevated)] shadow-sm">
+                                                    <div className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-4">
+                                                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Email Canvas</p>
+                                                        <p className="text-sm text-[var(--color-foreground)]">
+                                                            Click a block to tune style, duplicate, reorder, or delete.
+                                                        </p>
+                                                    </div>
+
+                                                    <div className="space-y-2 p-3 md:p-5">
+                                                        {blocks.map((block, index) => {
+                                                            const isActive = block.id === activeBlockId;
+
+                                                            return (
+                                                                <div key={block.id} className="space-y-2">
+                                                                    <div
+                                                                        className={cn(
+                                                                            'group relative rounded-xl border p-4 transition',
+                                                                            isActive
+                                                                                ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)] ring-1 ring-[var(--color-primary)]/30'
+                                                                                : 'border-[var(--color-border)] bg-[var(--color-card)] hover:border-[var(--color-primary)]/40'
+                                                                        )}
+                                                                        onClick={() => setActiveBlockId(block.id)}
+                                                                        role="button"
+                                                                        tabIndex={0}
+                                                                        onKeyDown={(event) => {
+                                                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                                                event.preventDefault();
+                                                                                setActiveBlockId(block.id);
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                                                            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-foreground)]">
+                                                                                {index + 1}. {blockLabel(block.type)}
+                                                                            </p>
+                                                                            <div className="flex flex-wrap gap-1.5">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[var(--color-foreground)] hover:bg-[var(--color-surface)]"
+                                                                                    onClick={() => moveBlock(block.id, 'up')}
+                                                                                >
+                                                                                    Up
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[var(--color-foreground)] hover:bg-[var(--color-surface)]"
+                                                                                    onClick={() => moveBlock(block.id, 'down')}
+                                                                                >
+                                                                                    Down
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[var(--color-foreground)] hover:bg-[var(--color-surface)]"
+                                                                                    onClick={() => duplicateBlock(block.id)}
+                                                                                >
+                                                                                    Duplicate
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className={cn(
+                                                                                        'rounded-md border px-2 py-1 text-xs',
+                                                                                        blocks.length === 1
+                                                                                            ? 'border-[var(--color-border)] text-[var(--color-muted)]'
+                                                                                            : 'border-[var(--color-danger)] text-[var(--color-danger)]'
+                                                                                    )}
+                                                                                    onClick={() => removeBlock(block.id)}
+                                                                                    disabled={blocks.length === 1}
+                                                                                >
+                                                                                    Delete
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {block.type === 'text' && (
+                                                                            <div className={cn('space-y-2', textAlignClass(block.align))}>
+                                                                                <input
+                                                                                    value={block.heading}
+                                                                                    onChange={(event) => updateBlock(
+                                                                                        block.id,
+                                                                                        (current) => current.type === 'text'
+                                                                                            ? { ...current, heading: event.target.value }
+                                                                                            : current
+                                                                                    )}
+                                                                                    placeholder="Heading"
+                                                                                    className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-2xl font-semibold leading-tight text-[var(--color-foreground)] outline-none transition focus:border-[var(--color-border)] focus:bg-[var(--color-surface)]"
+                                                                                />
+                                                                                <textarea
+                                                                                    value={block.body}
+                                                                                    onChange={(event) => updateBlock(
+                                                                                        block.id,
+                                                                                        (current) => current.type === 'text'
+                                                                                            ? { ...current, body: event.target.value }
+                                                                                            : current
+                                                                                    )}
+                                                                                    placeholder="Write your message here"
+                                                                                    rows={4}
+                                                                                    className="w-full resize-y rounded-md border border-transparent bg-transparent px-2 py-1 text-[15px] leading-7 text-[var(--color-foreground)] outline-none transition focus:border-[var(--color-border)] focus:bg-[var(--color-surface)]"
+                                                                                />
+                                                                                <div className="flex flex-wrap gap-1.5">
+                                                                                    {ALIGNMENTS.map((alignment) => (
+                                                                                        <button
+                                                                                            key={alignment}
+                                                                                            type="button"
+                                                                                            onClick={() => updateBlock(
+                                                                                                block.id,
+                                                                                                (current) => current.type === 'text'
+                                                                                                    ? { ...current, align: alignment }
+                                                                                                    : current
+                                                                                            )}
+                                                                                            className={cn(
+                                                                                                'rounded-md border px-2 py-1 text-xs font-medium capitalize',
+                                                                                                block.align === alignment
+                                                                                                    ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary)]'
+                                                                                                    : 'border-[var(--color-border)] text-[var(--color-foreground)]'
+                                                                                            )}
+                                                                                        >
+                                                                                            {alignment}
+                                                                                        </button>
+                                                                                    ))}
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+
+                                                                        {block.type === 'image' && (
+                                                                            <div className="space-y-3">
+                                                                                <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-4">
+                                                                                    {block.imageUrl.trim() ? (
+                                                                                        <img
+                                                                                            src={block.imageUrl}
+                                                                                            alt={block.alt || 'Campaign image'}
+                                                                                            className="mx-auto block h-auto max-w-full rounded-md"
+                                                                                            style={{ width: `${clamp(block.widthPercent, 20, 100)}%` }}
+                                                                                        />
+                                                                                    ) : (
+                                                                                        <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-sm text-[var(--color-foreground)]">
+                                                                                            Paste an image URL to display media in this block.
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                                <input
+                                                                                    value={block.imageUrl}
+                                                                                    onChange={(event) => updateBlock(
+                                                                                        block.id,
+                                                                                        (current) => current.type === 'image'
+                                                                                            ? { ...current, imageUrl: event.target.value }
+                                                                                            : current
+                                                                                    )}
+                                                                                    placeholder="https://your-cdn/image.jpg"
+                                                                                    className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] outline-none transition focus:border-[var(--color-primary)]"
+                                                                                />
+                                                                                <div className="grid gap-2 sm:grid-cols-[1fr,140px]">
+                                                                                    <input
+                                                                                        value={block.alt}
+                                                                                        onChange={(event) => updateBlock(
+                                                                                            block.id,
+                                                                                            (current) => current.type === 'image'
+                                                                                                ? { ...current, alt: event.target.value }
+                                                                                                : current
+                                                                                        )}
+                                                                                        placeholder="Alt text"
+                                                                                        className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] outline-none transition focus:border-[var(--color-primary)]"
+                                                                                    />
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min={20}
+                                                                                        max={100}
+                                                                                        value={block.widthPercent}
+                                                                                        onChange={(event) => {
+                                                                                            const width = Number(event.target.value);
+                                                                                            updateBlock(
+                                                                                                block.id,
+                                                                                                (current) => current.type === 'image'
+                                                                                                    ? {
+                                                                                                        ...current,
+                                                                                                        widthPercent: Number.isFinite(width)
+                                                                                                            ? clamp(Math.round(width), 20, 100)
+                                                                                                            : 100,
+                                                                                                    }
+                                                                                                    : current
+                                                                                            );
+                                                                                        }}
+                                                                                        className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] outline-none transition focus:border-[var(--color-primary)]"
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+
+                                                                        {block.type === 'button' && (
+                                                                            <div className={cn('space-y-3', textAlignClass(block.align))}>
+                                                                                <div>
+                                                                                    <div
+                                                                                        className="inline-flex rounded-lg px-4 py-2"
+                                                                                        style={{
+                                                                                            backgroundColor: block.backgroundColor,
+                                                                                            color: block.textColor,
+                                                                                        }}
+                                                                                    >
+                                                                                        <input
+                                                                                            value={block.label}
+                                                                                            onChange={(event) => updateBlock(
+                                                                                                block.id,
+                                                                                                (current) => current.type === 'button'
+                                                                                                    ? { ...current, label: event.target.value }
+                                                                                                    : current
+                                                                                            )}
+                                                                                            placeholder="Button label"
+                                                                                            className="w-full min-w-[120px] bg-transparent text-center text-sm font-semibold outline-none"
+                                                                                        />
+                                                                                    </div>
+                                                                                </div>
+                                                                                <input
+                                                                                    value={block.url}
+                                                                                    onChange={(event) => updateBlock(
+                                                                                        block.id,
+                                                                                        (current) => current.type === 'button'
+                                                                                            ? { ...current, url: event.target.value }
+                                                                                            : current
+                                                                                    )}
+                                                                                    placeholder="https://your-link"
+                                                                                    className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-foreground)] outline-none transition focus:border-[var(--color-primary)]"
+                                                                                />
+                                                                                <div className="grid gap-2 sm:grid-cols-[1fr,auto,auto] sm:items-center">
+                                                                                    <div className="flex flex-wrap gap-1.5">
+                                                                                        {ALIGNMENTS.map((alignment) => (
+                                                                                            <button
+                                                                                                key={alignment}
+                                                                                                type="button"
+                                                                                                onClick={() => updateBlock(
+                                                                                                    block.id,
+                                                                                                    (current) => current.type === 'button'
+                                                                                                        ? { ...current, align: alignment }
+                                                                                                        : current
+                                                                                                )}
+                                                                                                className={cn(
+                                                                                                    'rounded-md border px-2 py-1 text-xs font-medium capitalize',
+                                                                                                    block.align === alignment
+                                                                                                        ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary)]'
+                                                                                                        : 'border-[var(--color-border)] text-[var(--color-foreground)]'
+                                                                                                )}
+                                                                                            >
+                                                                                                {alignment}
+                                                                                            </button>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                    <label className="flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[var(--color-foreground)]">
+                                                                                        Fill
+                                                                                        <input
+                                                                                            type="color"
+                                                                                            value={block.backgroundColor}
+                                                                                            onChange={(event) => updateBlock(
+                                                                                                block.id,
+                                                                                                (current) => current.type === 'button'
+                                                                                                    ? { ...current, backgroundColor: event.target.value }
+                                                                                                    : current
+                                                                                            )}
+                                                                                            className="h-6 w-6 cursor-pointer border-0 bg-transparent p-0"
+                                                                                        />
+                                                                                    </label>
+                                                                                    <label className="flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[var(--color-foreground)]">
+                                                                                        Text
+                                                                                        <input
+                                                                                            type="color"
+                                                                                            value={block.textColor}
+                                                                                            onChange={(event) => updateBlock(
+                                                                                                block.id,
+                                                                                                (current) => current.type === 'button'
+                                                                                                    ? { ...current, textColor: event.target.value }
+                                                                                                    : current
+                                                                                            )}
+                                                                                            className="h-6 w-6 cursor-pointer border-0 bg-transparent p-0"
+                                                                                        />
+                                                                                    </label>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+
+                                                                        {block.type === 'divider' && (
+                                                                            <div className="space-y-3">
+                                                                                <div
+                                                                                    className="h-px w-full"
+                                                                                    style={{ backgroundColor: block.color }}
+                                                                                />
+                                                                                <div className="flex items-center justify-end gap-2">
+                                                                                    <input
+                                                                                        value={block.color}
+                                                                                        onChange={(event) => updateBlock(
+                                                                                            block.id,
+                                                                                            (current) => current.type === 'divider'
+                                                                                                ? { ...current, color: event.target.value }
+                                                                                                : current
+                                                                                        )}
+                                                                                        className="w-28 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[var(--color-foreground)] outline-none transition focus:border-[var(--color-primary)]"
+                                                                                    />
+                                                                                    <input
+                                                                                        type="color"
+                                                                                        value={block.color}
+                                                                                        onChange={(event) => updateBlock(
+                                                                                            block.id,
+                                                                                            (current) => current.type === 'divider'
+                                                                                                ? { ...current, color: event.target.value }
+                                                                                                : current
+                                                                                        )}
+                                                                                        className="h-8 w-8 cursor-pointer rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-0"
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+
+                                                                        {block.type === 'spacer' && (
+                                                                            <div className="space-y-3">
+                                                                                <div
+                                                                                    className="rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-surface-elevated)]"
+                                                                                    style={{ height: clamp(block.height, 8, 120) }}
+                                                                                />
+                                                                                <div className="flex items-center gap-3">
+                                                                                    <input
+                                                                                        type="range"
+                                                                                        min={8}
+                                                                                        max={120}
+                                                                                        value={block.height}
+                                                                                        onChange={(event) => {
+                                                                                            const height = Number(event.target.value);
+                                                                                            updateBlock(
+                                                                                                block.id,
+                                                                                                (current) => current.type === 'spacer'
+                                                                                                    ? {
+                                                                                                        ...current,
+                                                                                                        height: Number.isFinite(height)
+                                                                                                            ? clamp(Math.round(height), 8, 120)
+                                                                                                            : 24,
+                                                                                                    }
+                                                                                                    : current
+                                                                                            );
+                                                                                        }}
+                                                                                        className="w-full"
+                                                                                    />
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min={8}
+                                                                                        max={120}
+                                                                                        value={block.height}
+                                                                                        onChange={(event) => {
+                                                                                            const height = Number(event.target.value);
+                                                                                            updateBlock(
+                                                                                                block.id,
+                                                                                                (current) => current.type === 'spacer'
+                                                                                                    ? {
+                                                                                                        ...current,
+                                                                                                        height: Number.isFinite(height)
+                                                                                                            ? clamp(Math.round(height), 8, 120)
+                                                                                                            : 24,
+                                                                                                    }
+                                                                                                    : current
+                                                                                            );
+                                                                                        }}
+                                                                                        className="w-20 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[var(--color-foreground)] outline-none transition focus:border-[var(--color-primary)]"
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+
+                                                                    <div className="flex flex-wrap justify-center gap-1.5">
+                                                                        {BLOCK_LIBRARY.map((option) => (
+                                                                            <button
+                                                                                key={`${block.id}-${option.type}-after`}
+                                                                                type="button"
+                                                                                className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1 text-xs text-[var(--color-foreground)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                                                                                onClick={() => insertBlock(option.type, index + 1)}
+                                                                            >
+                                                                                + {option.label}
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                                                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Selected Block</p>
+                                                {activeBlock ? (
+                                                    <div className="mt-2 space-y-2 text-sm text-[var(--color-foreground)]">
+                                                        <p>
+                                                            <span className="font-semibold">Type:</span> {blockLabel(activeBlock.type)}
+                                                        </p>
+                                                        <p>
+                                                            <span className="font-semibold">Position:</span> #{blocks.findIndex((block) => block.id === activeBlock.id) + 1} of {blocks.length}
+                                                        </p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <Button variant="secondary" size="sm" onClick={() => duplicateBlock(activeBlock.id)}>
+                                                                Duplicate
+                                                            </Button>
+                                                            <Button variant="secondary" size="sm" onClick={() => moveBlock(activeBlock.id, 'up')}>
+                                                                Move Up
+                                                            </Button>
+                                                            <Button variant="secondary" size="sm" onClick={() => moveBlock(activeBlock.id, 'down')}>
+                                                                Move Down
+                                                            </Button>
+                                                            <Button
+                                                                variant="danger"
+                                                                size="sm"
+                                                                onClick={() => removeBlock(activeBlock.id)}
+                                                                disabled={blocks.length === 1}
+                                                            >
+                                                                Delete
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <p className="mt-2 text-sm text-[var(--color-foreground)]">Select a block in the canvas to see quick actions.</p>
+                                                )}
+                                            </div>
                                         </div>
                                     )}
 
-                                    {block.type === 'image' && (
-                                        <div className="space-y-3">
-                                            <Input label="Image URL" value={block.imageUrl} onChange={(event) => updateBlock(block.id, (current) => current.type === 'image' ? { ...current, imageUrl: event.target.value } : current)} />
-                                            <Input label="Alt text" value={block.alt} onChange={(event) => updateBlock(block.id, (current) => current.type === 'image' ? { ...current, alt: event.target.value } : current)} />
-                                            <Input
-                                                label="Width %"
-                                                type="number"
-                                                min={20}
-                                                max={100}
-                                                value={block.widthPercent}
-                                                onChange={(event) => updateBlock(block.id, (current) => current.type === 'image' ? { ...current, widthPercent: Number(event.target.value) || 100 } : current)}
+                                    {(composerView === 'preview' || composerView === 'split') && (
+                                        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Rendered Preview</p>
+                                            <iframe
+                                                title="email-preview"
+                                                srcDoc={previewHtml}
+                                                className="mt-3 h-[860px] w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)]"
                                             />
                                         </div>
-                                    )}
-
-                                    {block.type === 'button' && (
-                                        <div className="grid gap-3 md:grid-cols-2">
-                                            <Input label="Label" value={block.label} onChange={(event) => updateBlock(block.id, (current) => current.type === 'button' ? { ...current, label: event.target.value } : current)} />
-                                            <Input label="URL" value={block.url} onChange={(event) => updateBlock(block.id, (current) => current.type === 'button' ? { ...current, url: event.target.value } : current)} />
-                                            <Select
-                                                label="Alignment"
-                                                value={block.align}
-                                                onChange={(event) => updateBlock(block.id, (current) => current.type === 'button' ? { ...current, align: event.target.value as TextAlign } : current)}
-                                                options={[
-                                                    { value: 'left', label: 'Left' },
-                                                    { value: 'center', label: 'Center' },
-                                                    { value: 'right', label: 'Right' },
-                                                ]}
-                                            />
-                                            <Input label="Background color" value={block.backgroundColor} onChange={(event) => updateBlock(block.id, (current) => current.type === 'button' ? { ...current, backgroundColor: event.target.value } : current)} />
-                                            <Input label="Text color" value={block.textColor} onChange={(event) => updateBlock(block.id, (current) => current.type === 'button' ? { ...current, textColor: event.target.value } : current)} />
-                                        </div>
-                                    )}
-
-                                    {block.type === 'divider' && (
-                                        <Input label="Line color" value={block.color} onChange={(event) => updateBlock(block.id, (current) => current.type === 'divider' ? { ...current, color: event.target.value } : current)} />
-                                    )}
-
-                                    {block.type === 'spacer' && (
-                                        <Input
-                                            label="Height (px)"
-                                            type="number"
-                                            min={8}
-                                            max={120}
-                                            value={block.height}
-                                            onChange={(event) => updateBlock(block.id, (current) => current.type === 'spacer' ? { ...current, height: Number(event.target.value) || 24 } : current)}
-                                        />
                                     )}
                                 </div>
-                            ))}
-                        </div>
+                            </div>
+                        ) : (
+                            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Final Review</p>
+                                <p className="mt-2 text-sm text-[var(--color-foreground)]">
+                                    Confirm recipients and content preview, then click <span className="font-semibold">Send Campaign</span> in the header.
+                                </p>
+                                <p className="mt-2 text-sm text-[var(--color-muted)]">
+                                    {totalRecipientCount} total unique recipients selected.
+                                </p>
+                                <iframe
+                                    title="email-preview-audience-step"
+                                    srcDoc={previewHtml}
+                                    className="mt-3 h-[780px] w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)]"
+                                />
+                            </div>
+                        )}
                     </div>
-
-                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Preview</p>
-                        <iframe
-                            title="email-preview"
-                            srcDoc={previewHtml}
-                            className="mt-3 h-[700px] w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)]"
-                        />
-                    </div>
-                </div>
-            </section>
+                </section>
+            )}
         </div>
     );
 }

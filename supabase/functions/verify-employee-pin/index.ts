@@ -27,6 +27,10 @@ interface Employee {
     updated_at: string;
 }
 
+type EmployeeProfileRow = {
+    profile_image_url: string | null;
+};
+
 const SESSION_DURATION_HOURS = 8;
 const MAX_PIN_ATTEMPTS = 10;
 const LOCKOUT_MINUTES = 15;
@@ -227,6 +231,19 @@ Deno.serve(async (req) => {
                     );
                 }
 
+                const { data: employeeProfile, error: employeeProfileError } = await supabase
+                    .from('users')
+                    .select('profile_image_url')
+                    .or(`employee_id.eq.${employee.id},linked_employee_id.eq.${employee.id}`)
+                    .not('profile_image_url', 'is', null)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                if (employeeProfileError) {
+                    console.error('Employee profile lookup error:', employeeProfileError);
+                }
+
                 // Found matching employee - return without sensitive data
                 return new Response(
                     JSON.stringify({
@@ -235,6 +252,7 @@ Deno.serve(async (req) => {
                             name: employee.name,
                             hourly_rate: employee.hourly_rate,
                             is_active: employee.is_active,
+                            profile_image_url: (employeeProfile as EmployeeProfileRow | null)?.profile_image_url ?? null,
                         }
                     }),
                     {

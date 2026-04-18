@@ -4,6 +4,7 @@
 export interface Employee {
     id: string;
     name: string;
+    profile_image_url?: string | null;
     hourly_rate: number;
     is_active: boolean;
     employer?: 'Ravenlia' | 'Alywillow' | null;

@@ -51,7 +51,7 @@ export function EmployeePinProfile() {
             if (userRecord?.id && (userRecord.employee_id === employee.id || userRecord.linked_employee_id === employee.id)) {
                 setAccountUserId(userRecord.id);
                 setAccountEmail(userRecord.email || user?.email || '');
-                setProfileImageUrl(userRecord.profile_image_url ?? null);
+                setProfileImageUrl(userRecord.profile_image_url ?? employee.profile_image_url ?? null);
                 setIsLoadingAccount(false);
                 return;
             }
@@ -67,7 +67,7 @@ export function EmployeePinProfile() {
             if (error) {
                 setAccountUserId(null);
                 setAccountEmail('');
-                setProfileImageUrl(null);
+                setProfileImageUrl(employee.profile_image_url ?? null);
                 setIsLoadingAccount(false);
                 return;
             }
@@ -75,7 +75,7 @@ export function EmployeePinProfile() {
             const account = (data || null) as EmployeeAccountRow | null;
             setAccountUserId(account?.id ?? null);
             setAccountEmail(account?.email ?? '');
-            setProfileImageUrl(account?.profile_image_url ?? null);
+            setProfileImageUrl(account?.profile_image_url ?? employee.profile_image_url ?? null);
             setIsLoadingAccount(false);
         };
 
