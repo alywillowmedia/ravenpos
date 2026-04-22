@@ -323,7 +323,7 @@ export async function sendReceiptEmail(
     customerName?: string
 ): Promise<SendEmailResult> {
     try {
-        // Call the Edge Function without auth (JWT verification is disabled)
+        // Call the Edge Function (auth/session-aware)
         const response = await supabase.functions.invoke('send-receipt-email', {
             body: {
                 receipt,
@@ -335,9 +335,21 @@ export async function sendReceiptEmail(
 
         if (response.error) {
             console.error('Email send error:', response.error);
+            let detailedError: string | null = null;
+            const context = (response.error as { context?: Response }).context;
+            if (context) {
+                try {
+                    const body = await context.clone().json() as { error?: string };
+                    if (body?.error) {
+                        detailedError = body.error;
+                    }
+                } catch {
+                    // Ignore parse failures and fall back to generic message
+                }
+            }
             return {
                 success: false,
-                error: response.error.message || 'Failed to send email'
+                error: detailedError || response.error.message || 'Failed to send email'
             };
         }
 

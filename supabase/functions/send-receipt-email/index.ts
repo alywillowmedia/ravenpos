@@ -314,6 +314,21 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
     `;
 }
 
+function isAnonymousUser(user: Record<string, unknown> | null | undefined): boolean {
+    if (!user) return false
+
+    const isAnonymousFlag = user.is_anonymous
+    if (isAnonymousFlag === true) return true
+
+    const appMetadata = user.app_metadata
+    if (appMetadata && typeof appMetadata === 'object') {
+        const provider = (appMetadata as Record<string, unknown>).provider
+        if (provider === 'anonymous') return true
+    }
+
+    return false
+}
+
 Deno.serve(async (req) => {
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {
@@ -344,6 +359,8 @@ Deno.serve(async (req) => {
             )
         }
 
+        const userIsAnonymous = isAnonymousUser(user as unknown as Record<string, unknown>)
+
         const [{ data: appUser }, { data: employeeSession }] = await Promise.all([
             supabase
                 .from('users')
@@ -358,7 +375,10 @@ Deno.serve(async (req) => {
                 .maybeSingle(),
         ])
 
-        if (!appUser && !employeeSession) {
+        // Admin/vendor users must exist in users table. Employee PIN sessions are anonymous users:
+        // prefer active employee_sessions, but allow anonymous session tokens through so receipt
+        // sending does not break if the session mapping is stale.
+        if (!appUser && !employeeSession && !userIsAnonymous) {
             return new Response(
                 JSON.stringify({ error: 'Access denied' }),
                 { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
