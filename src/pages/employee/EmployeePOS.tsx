@@ -12,7 +12,7 @@ import { useInventoryPricingDiscounts } from '../../hooks/useInventoryPricingDis
 import { useCategories } from '../../hooks/useCategories';
 import { useCustomers } from '../../hooks/useCustomers';
 import { useEmployee } from '../../contexts/EmployeeContext';
-import { createCartItem, calculateCartTotals } from '../../lib/tax';
+import { createCartItem, calculateCartTotals, calculateVendorSubtotal } from '../../lib/tax';
 import { createDiscount } from '../../lib/discounts';
 import { formatCurrency } from '../../lib/utils';
 import { formatSupabaseError } from '../../lib/supabaseError';
@@ -55,6 +55,7 @@ export function EmployeePOS() {
     });
 
     const { subtotal, taxTotal, total, discountTotal } = calculateCartTotals(cart);
+    const alySubtotal = calculateVendorSubtotal(cart, 'ALY');
     const cashAmount = parseFloat(cashTendered) || 0;
     const amountDue = total;
     const change = cashAmount - amountDue;
@@ -467,6 +468,12 @@ export function EmployeePOS() {
                                 <span className="text-[var(--color-muted)]">Subtotal</span>
                                 <span>{formatCurrency(subtotal)}</span>
                             </div>
+                            {alySubtotal > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--color-muted)]">Alywilow Subtotal</span>
+                                    <span>{formatCurrency(alySubtotal)}</span>
+                                </div>
+                            )}
                             <div className="flex justify-between text-sm">
                                 <span className="text-[var(--color-muted)]">Tax</span>
                                 <span>{formatCurrency(taxTotal)}</span>

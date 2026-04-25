@@ -145,6 +145,19 @@ export function calculateCartTotals(
     };
 }
 
+export function calculateVendorSubtotal(items: CartItem[], vendorShortcode: string): number {
+    const normalizedShortcode = vendorShortcode.trim().toUpperCase();
+
+    if (!normalizedShortcode) return 0;
+
+    const vendorSubtotal = items.reduce((sum, item) => {
+        const itemShortcode = item.item.consignor?.consignor_number?.trim().toUpperCase();
+        return itemShortcode === normalizedShortcode ? sum + item.lineTotal : sum;
+    }, 0);
+
+    return Math.round(vendorSubtotal * 100) / 100;
+}
+
 // Update tax rates from database categories (call on app init)
 export function updateTaxRates(categories: { name: string; tax_rate: number }[]): void {
     categories.forEach(cat => {

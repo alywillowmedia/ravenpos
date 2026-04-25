@@ -24,7 +24,7 @@ import { useInvoices } from '../hooks/useInvoices';
 import { useCategories } from '../hooks/useCategories';
 import { useCustomers } from '../hooks/useCustomers';
 import { useStripeTerminal } from '../hooks/useStripeTerminal';
-import { createCartItem, calculateCartTotals } from '../lib/tax';
+import { createCartItem, calculateCartTotals, calculateVendorSubtotal } from '../lib/tax';
 import { createDiscount, formatDiscountLabel } from '../lib/discounts';
 import { calculateCardSurchargeAmount } from '../lib/cardFees';
 import { formatCurrency } from '../lib/utils';
@@ -201,6 +201,7 @@ export function POS() {
     }, [getAutomaticCatalogDiscount]);
 
     const { subtotal, taxTotal, total, itemDiscountTotal, dealerDiscountTotal, discountTotal } = calculateCartTotals(cart, orderDiscounts);
+    const alySubtotal = calculateVendorSubtotal(cart, 'ALY');
     const eligibleSubtotalAfterDiscounts = cart.reduce((sum, cartItem) => {
         const consignorPays = (cartItem.item.consignor as { consignor_pays_card_fee?: boolean } | undefined)?.consignor_pays_card_fee ?? false;
         return consignorPays ? sum : sum + cartItem.discountedLineTotal;
@@ -1505,6 +1506,13 @@ export function POS() {
                                 <span className="text-[var(--color-muted)]">Subtotal</span>
                                 <span>{formatCurrency(subtotal)}</span>
                             </div>
+
+                            {alySubtotal > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--color-muted)]">Alywilow Subtotal</span>
+                                    <span>{formatCurrency(alySubtotal)}</span>
+                                </div>
+                            )}
 
                             {/* Item-level discounts summary */}
                             {itemDiscountTotal > 0 && (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createCartItem, calculateCartTotals } from '../../src/lib/tax';
+import { createCartItem, calculateCartTotals, calculateVendorSubtotal } from '../../src/lib/tax';
 import { createDiscount } from '../../src/lib/discounts';
 import type { Item } from '../../src/types';
 
@@ -46,5 +46,48 @@ describe('cart totals smoke', () => {
         expect(totals.discountTotal).toBe(15);
         expect(totals.taxTotal).toBe(4.51);
         expect(totals.total).toBe(89.51);
+    });
+
+    it('calculates a vendor subtotal from consignor shortcode', () => {
+        const alyCartItem = createCartItem(buildItem({
+            id: 'item-aly',
+            price: 25,
+            consignor: {
+                id: 'consignor-aly',
+                consignor_number: ' aly ',
+                name: 'Alywillow',
+                booth_location: null,
+                email: null,
+                phone: null,
+                address: null,
+                notes: null,
+                commission_split: 1,
+                monthly_booth_rent: 0,
+                is_active: true,
+                created_at: '2026-01-01T00:00:00.000Z',
+                updated_at: '2026-01-01T00:00:00.000Z',
+            },
+        }), 2);
+        const otherCartItem = createCartItem(buildItem({
+            id: 'item-rav',
+            price: 10,
+            consignor: {
+                id: 'consignor-rav',
+                consignor_number: 'RAV',
+                name: 'Ravenlia',
+                booth_location: null,
+                email: null,
+                phone: null,
+                address: null,
+                notes: null,
+                commission_split: 0,
+                monthly_booth_rent: 0,
+                is_active: true,
+                created_at: '2026-01-01T00:00:00.000Z',
+                updated_at: '2026-01-01T00:00:00.000Z',
+            },
+        }), 3);
+
+        expect(calculateVendorSubtotal([alyCartItem, otherCartItem], 'ALY')).toBe(50);
     });
 });
