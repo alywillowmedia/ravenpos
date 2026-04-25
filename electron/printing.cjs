@@ -274,11 +274,20 @@ function buildSaleReceiptText(receipt) {
         const name = item.quantity > 1 ? `${item.quantity}x ${item.name}` : item.name;
         lines.push(lineItem(name, formatCurrency(item.lineTotal)));
         if (item.quantity > 1) lines.push(`  @ ${formatCurrency(item.price)} each`);
+        if (item.totalDiscountAmount && item.totalDiscountAmount > 0) {
+            lines.push(`  Discount: -${formatCurrency(item.totalDiscountAmount)}`);
+            if (item.quantity > 1 && item.discountedUnitPrice !== undefined) {
+                lines.push(`  Net @ ${formatCurrency(item.discountedUnitPrice)} each`);
+            }
+        }
         lines.push(`  Vendor: ${item.consignorName}`);
     }
 
     lines.push('-'.repeat(RECEIPT_COLUMNS));
     lines.push(lineItem('Subtotal', formatCurrency(receipt.subtotal)));
+    if (receipt.discountTotal && receipt.discountTotal > 0) {
+        lines.push(lineItem('Discounts', `-${formatCurrency(receipt.discountTotal)}`));
+    }
     if (receipt.tax > 0) lines.push(lineItem('Tax', formatCurrency(receipt.tax)));
     if (receipt.cardFeeAmount && receipt.cardFeeAmount > 0) {
         lines.push(lineItem('Card Fee', formatCurrency(receipt.cardFeeAmount)));
@@ -559,6 +568,12 @@ async function printReceipt(receipt) {
             if (item.quantity > 1) {
                 printer.println(`  @ ${formatCurrency(item.price)} each`);
             }
+            if (item.totalDiscountAmount && item.totalDiscountAmount > 0) {
+                printer.println(`  Discount: -${formatCurrency(item.totalDiscountAmount)}`);
+                if (item.quantity > 1 && item.discountedUnitPrice !== undefined) {
+                    printer.println(`  Net @ ${formatCurrency(item.discountedUnitPrice)} each`);
+                }
+            }
             printer.println(`  Vendor: ${item.consignorName}`);
         }
 
@@ -569,6 +584,13 @@ async function printReceipt(receipt) {
             { text: 'Subtotal', align: 'LEFT', width: 0.6 },
             { text: formatCurrency(receipt.subtotal), align: 'RIGHT', width: 0.4 },
         ]);
+
+        if (receipt.discountTotal && receipt.discountTotal > 0) {
+            printer.tableCustom([
+                { text: 'Discounts', align: 'LEFT', width: 0.6 },
+                { text: `-${formatCurrency(receipt.discountTotal)}`, align: 'RIGHT', width: 0.4 },
+            ]);
+        }
 
         if (receipt.tax > 0) {
             printer.tableCustom([

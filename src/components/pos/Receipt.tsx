@@ -12,13 +12,13 @@ interface ReceiptProps {
 
 export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
     const [isPrinting, setIsPrinting] = useState(false);
+    const receiptData = createReceiptData(sale, items);
     const maskedCardLast4 = sale.card_last4
         ? `•••• ${String(sale.card_last4).replace(/\D/g, '').slice(-4)}`
         : null;
 
     const handlePrintReceipt = async () => {
         setIsPrinting(true);
-        const receiptData = createReceiptData(sale, items);
         await printReceipt(receiptData);
         setIsPrinting(false);
     };
@@ -44,15 +44,25 @@ export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
 
                 {/* Items */}
                 <div className="space-y-1 border-b border-dashed border-[var(--color-border)] pb-3 mb-3">
-                    {items.map((item) => (
-                        <div key={item.item.id} className="flex justify-between">
+                    {receiptData.items.map((item, index) => (
+                        <div key={`${item.consignorId}-${index}`} className="flex justify-between">
                             <div className="flex-1 min-w-0">
-                                <span className="truncate block">{item.item.name}</span>
-                                {item.quantity > 1 && (
-                                    <span className="text-xs text-[var(--color-muted)]">
-                                        {item.quantity} x {formatCurrency(Number(item.item.price))}
-                                    </span>
-                                )}
+                                <span className="truncate block">{item.name}</span>
+                                <div className="text-xs text-[var(--color-muted)] space-y-0.5">
+                                    {item.quantity > 1 && (
+                                        <span className="block">
+                                            {item.quantity} x {formatCurrency(item.price)}
+                                        </span>
+                                    )}
+                                    {(item.totalDiscountAmount || 0) > 0 && (
+                                        <>
+                                            <span className="block">Discount: -{formatCurrency(item.totalDiscountAmount || 0)}</span>
+                                            {item.quantity > 1 && item.discountedUnitPrice !== undefined && (
+                                                <span className="block">Net: {formatCurrency(item.discountedUnitPrice)} each</span>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
                             </div>
                             <span className="ml-4">{formatCurrency(item.lineTotal)}</span>
                         </div>
@@ -63,11 +73,17 @@ export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
                 <div className="space-y-1">
                     <div className="flex justify-between">
                         <span>Subtotal</span>
-                        <span>{formatCurrency(Number(sale.subtotal))}</span>
+                        <span>{formatCurrency(receiptData.subtotal)}</span>
                     </div>
+                    {(receiptData.discountTotal || 0) > 0 && (
+                        <div className="flex justify-between text-[var(--color-muted)]">
+                            <span>Discounts</span>
+                            <span>-{formatCurrency(receiptData.discountTotal || 0)}</span>
+                        </div>
+                    )}
                     <div className="flex justify-between text-[var(--color-muted)]">
                         <span>Tax</span>
-                        <span>{formatCurrency(Number(sale.tax_amount))}</span>
+                        <span>{formatCurrency(receiptData.tax)}</span>
                     </div>
                     {(sale.store_credit_used || 0) > 0 && (
                         <div className="flex justify-between text-[var(--color-muted)]">
@@ -89,7 +105,7 @@ export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
                     )}
                     <div className="flex justify-between font-bold text-base pt-1">
                         <span>Total</span>
-                        <span>{formatCurrency(Number(sale.total))}</span>
+                        <span>{formatCurrency(receiptData.total)}</span>
                     </div>
                     {sale.payment_method === 'cash' && (
                         <>

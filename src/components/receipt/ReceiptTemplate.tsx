@@ -109,6 +109,14 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
                             {item.quantity > 1 && (
                                 <div>@ {formatCurrency(item.price)} each</div>
                             )}
+                            {(item.totalDiscountAmount || 0) > 0 && (
+                                <>
+                                    <div>Discount: -{formatCurrency(item.totalDiscountAmount || 0)}</div>
+                                    {item.quantity > 1 && item.discountedUnitPrice !== undefined && (
+                                        <div>Net @ {formatCurrency(item.discountedUnitPrice)} each</div>
+                                    )}
+                                </>
+                            )}
                             <div>Vendor: {item.consignorName}</div>
                         </div>
                     </div>
@@ -127,6 +135,12 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
                     <span>Subtotal</span>
                     <span>{formatCurrency(receipt.subtotal)}</span>
                 </div>
+                {(receipt.discountTotal || 0) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Discounts</span>
+                        <span>-{formatCurrency(receipt.discountTotal || 0)}</span>
+                    </div>
+                )}
                 {receipt.tax > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span>Tax</span>

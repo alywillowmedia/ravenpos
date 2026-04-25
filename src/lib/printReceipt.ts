@@ -1,6 +1,7 @@
 import type { ReceiptData, ReceiptItem, RefundReceiptData } from '../types/receipt';
 import type { CartItem, Sale } from '../types';
 import '../types/electron.d.ts';
+import { calculateCartDiscountBreakdown } from './saleDiscounts';
 
 /**
  * Detect if running inside Electron desktop app
@@ -122,21 +123,35 @@ export function createReceiptData(
     sale: Sale,
     cartItems: CartItem[]
 ): ReceiptData {
-    const items: ReceiptItem[] = cartItems.map((cartItem) => ({
-        name: cartItem.item.name + (cartItem.item.variant_summary ? ` - ${cartItem.item.variant_summary}` : ''),
-        quantity: cartItem.quantity,
-        price: Number(cartItem.item.price),
-        lineTotal: cartItem.lineTotal,
-        consignorName: (cartItem.item.consignor?.name) ?? 'Unknown Vendor',
-        consignorId: cartItem.item.consignor_id,
-        imageUrl: cartItem.item.image_url,
-    }));
+    const discountBreakdown = calculateCartDiscountBreakdown(
+        cartItems,
+        Number(sale.discount_total || 0)
+    );
+    const items: ReceiptItem[] = cartItems.map((cartItem, index) => {
+        const breakdown = discountBreakdown.items[index];
+        return {
+            name: cartItem.item.name + (cartItem.item.variant_summary ? ` - ${cartItem.item.variant_summary}` : ''),
+            quantity: cartItem.quantity,
+            price: Number(cartItem.item.price),
+            lineTotal: breakdown?.netLineTotal ?? cartItem.lineTotal,
+            originalLineTotal: breakdown?.originalLineTotal ?? cartItem.lineTotal,
+            lineDiscountAmount: breakdown?.lineDiscountAmount ?? 0,
+            orderDiscountAmount: breakdown?.orderDiscountAmount ?? 0,
+            totalDiscountAmount: breakdown?.totalDiscountAmount ?? 0,
+            discountedUnitPrice: breakdown?.discountedUnitPrice ?? Number(cartItem.item.price),
+            consignorName: (cartItem.item.consignor?.name) ?? 'Unknown Vendor',
+            consignorId: cartItem.item.consignor_id,
+            imageUrl: cartItem.item.image_url,
+        };
+    });
 
     return {
         transactionId: sale.id,
         date: new Date(sale.completed_at),
         items,
         subtotal: Number(sale.subtotal),
+        discountTotal: discountBreakdown.discountTotal,
+        netSubtotal: discountBreakdown.netSubtotal,
         tax: Number(sale.tax_amount),
         storeCreditUsed: sale.store_credit_used ? Number(sale.store_credit_used) : 0,
         giftCardUsed: sale.gift_card_used ? Number(sale.gift_card_used) : 0,
@@ -177,7 +192,23 @@ function generateReceiptHTML(receipt: ReceiptData): string {
     const receiptNumber = receipt.transactionId.slice(0, 8).toUpperCase();
     const barcodeHTML = generateCode39BarcodeHTML(receiptNumber);
 
-    const itemsHTML = receipt.items.map((item, index) => `
+    const itemsHTML = receipt.items.map((item, index) => {
+        const detailLines: string[] = [];
+        if (item.quantity > 1) {
+            detailLines.push(`<div>@ ${formatCurrency(item.price)} each</div>`);
+        }
+        if ((item.totalDiscountAmount || 0) > 0) {
+            detailLines.push(`<div>Discount: -${formatCurrency(item.totalDiscountAmount || 0)}</div>`);
+            if ((item.originalLineTotal || 0) > item.lineTotal) {
+                detailLines.push(`<div>Original: ${formatCurrency(item.originalLineTotal || 0)}</div>`);
+            }
+            if (item.quantity > 1 && item.discountedUnitPrice !== undefined) {
+                detailLines.push(`<div>Net @ ${formatCurrency(item.discountedUnitPrice)} each</div>`);
+            }
+        }
+        detailLines.push(`<div>Vendor: ${item.consignorName}</div>`);
+
+        return `
         <div style="margin-bottom: 8px; ${index > 0 ? 'border-top: 1px dotted #999; padding-top: 6px;' : ''}">
             <div style="display: flex; justify-content: space-between;">
                 <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px;">
@@ -186,11 +217,11 @@ function generateReceiptHTML(receipt: ReceiptData): string {
                 <span style="white-space: nowrap;">${formatCurrency(item.lineTotal)}</span>
             </div>
             <div style="font-size: 10px; color: #666; padding-left: 8px;">
-                ${item.quantity > 1 ? `<div>@ ${formatCurrency(item.price)} each</div>` : ''}
-                <div>Vendor: ${item.consignorName}</div>
+                ${detailLines.join('')}
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     const paymentHTML = receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined
         ? `
@@ -280,6 +311,12 @@ function generateReceiptHTML(receipt: ReceiptData): string {
                 <span>Subtotal</span>
                 <span>${formatCurrency(receipt.subtotal)}</span>
             </div>
+            ${receipt.discountTotal && receipt.discountTotal > 0 ? `
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Discounts</span>
+                    <span>-${formatCurrency(receipt.discountTotal)}</span>
+                </div>
+            ` : ''}
             ${receipt.tax > 0 ? `
                 <div style="display: flex; justify-content: space-between;">
                     <span>Tax</span>

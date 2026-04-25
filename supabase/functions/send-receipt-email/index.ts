@@ -9,6 +9,11 @@ interface ReceiptItem {
     quantity: number;
     price: number;
     lineTotal: number;
+    originalLineTotal?: number;
+    lineDiscountAmount?: number;
+    orderDiscountAmount?: number;
+    totalDiscountAmount?: number;
+    discountedUnitPrice?: number;
     consignorName: string;
     consignorId: string;
     imageUrl?: string | null;
@@ -19,12 +24,15 @@ interface ReceiptData {
     date: string; // ISO string when sent over JSON
     items: ReceiptItem[];
     subtotal: number;
+    discountTotal?: number;
+    netSubtotal?: number;
     tax: number;
     storeCreditUsed?: number;
     giftCardUsed?: number;
     total: number;
-    paymentMethod: 'cash' | 'card';
+    paymentMethod: 'cash' | 'card' | 'check';
     cardLast4?: string;
+    checkNumber?: string;
     cashTendered?: number;
     changeGiven?: number;
 }
@@ -167,6 +175,18 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
                 <img src="${item.imageUrl}" alt="${item.name}" style="width: 44px; height: 44px; object-fit: cover; border-radius: 4px; display: block;" />
             </td>
         ` : '';
+        const detailParts: string[] = [];
+
+        if (item.quantity > 1) {
+            detailParts.push(`@ ${formatCurrency(item.price)} each`);
+        }
+        if ((item.totalDiscountAmount || 0) > 0) {
+            detailParts.push(`Discount: -${formatCurrency(item.totalDiscountAmount || 0)}`);
+            if (item.quantity > 1 && item.discountedUnitPrice !== undefined) {
+                detailParts.push(`Net @ ${formatCurrency(item.discountedUnitPrice)} each`);
+            }
+        }
+        detailParts.push(`Vendor: ${item.consignorName}`);
 
         return `
         <tr>
@@ -176,7 +196,7 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
                     ${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}
                 </div>
                 <div style="font-size: 12px; color: #666; margin-top: 2px;">
-                    ${item.quantity > 1 ? `@ ${formatCurrency(item.price)} each · ` : ''}Vendor: ${item.consignorName}
+                    ${detailParts.join(' · ')}
                 </div>
             </td>
             <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; white-space: nowrap; vertical-align: top;">
@@ -195,6 +215,17 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
             <tr>
                 <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; font-weight: bold;">Change</td>
                 <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; font-weight: bold;">${formatCurrency(receipt.changeGiven ?? 0)}</td>
+            </tr>
+        `
+        : receipt.paymentMethod === 'check'
+            ? `
+            <tr>
+                <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Paid by</td>
+                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Check</td>
+            </tr>
+            <tr>
+                <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Check #</td>
+                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">${receipt.checkNumber ? receipt.checkNumber : 'N/A'}</td>
             </tr>
         `
         : `
@@ -252,6 +283,12 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
                                     <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Subtotal</td>
                                     <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">${formatCurrency(receipt.subtotal)}</td>
                                 </tr>
+                                ${receipt.discountTotal && receipt.discountTotal > 0 ? `
+                                <tr>
+                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Discounts</td>
+                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">-${formatCurrency(receipt.discountTotal)}</td>
+                                </tr>
+                                ` : ''}
                                 ${receipt.tax > 0 ? `
                                 <tr>
                                     <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Tax</td>

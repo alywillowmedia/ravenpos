@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { calculateSaleItemDiscountBreakdown } from '../lib/saleDiscounts';
 import type { Sale, SaleItem, Consignor, Customer } from '../types';
 
 export interface SaleWithItems extends Sale {
@@ -243,18 +244,23 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
     const calculateSalesSummary = useCallback((sale: SaleWithItems): SalesSummary => {
         const consignorSet = new Set<string>();
         let consignorShare = 0;
+        const discountBreakdown = calculateSaleItemDiscountBreakdown(
+            sale.items,
+            Number(sale.discount_total || 0)
+        );
 
-        for (const item of sale.items) {
+        for (const [index, item] of sale.items.entries()) {
             // Add consignor name
             if (item.consignor?.name) {
                 consignorSet.add(item.consignor.name);
             }
             // Calculate consignor's portion
-            const itemTotal = Number(item.price) * item.quantity;
-            consignorShare += itemTotal * item.commission_split;
+            const netLineTotal = discountBreakdown.items[index]?.netLineTotal
+                ?? Number(item.price) * item.quantity;
+            consignorShare += netLineTotal * item.commission_split;
         }
 
-        const storeShare = sale.subtotal - consignorShare;
+        const storeShare = discountBreakdown.netSubtotal - consignorShare;
 
         return {
             consignorNames: Array.from(consignorSet),

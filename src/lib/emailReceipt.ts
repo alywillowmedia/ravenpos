@@ -133,6 +133,18 @@ export function generateEmailHTML(receipt: ReceiptData): string {
                 <img src="${item.imageUrl}" alt="${item.name}" style="width: 44px; height: 44px; object-fit: cover; border-radius: 4px; display: block;" />
             </td>
         ` : '';
+        const detailParts: string[] = [];
+
+        if (item.quantity > 1) {
+            detailParts.push(`@ ${formatCurrency(item.price)} each`);
+        }
+        if ((item.totalDiscountAmount || 0) > 0) {
+            detailParts.push(`Discount: -${formatCurrency(item.totalDiscountAmount || 0)}`);
+            if (item.quantity > 1 && item.discountedUnitPrice !== undefined) {
+                detailParts.push(`Net @ ${formatCurrency(item.discountedUnitPrice)} each`);
+            }
+        }
+        detailParts.push(`Vendor: ${item.consignorName}`);
 
         return `
         <tr>
@@ -142,7 +154,7 @@ export function generateEmailHTML(receipt: ReceiptData): string {
                     ${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}
                 </div>
                 <div style="font-size: 12px; color: #666; margin-top: 2px;">
-                    ${item.quantity > 1 ? `@ ${formatCurrency(item.price)} each · ` : ''}Vendor: ${item.consignorName}
+                    ${detailParts.join(' · ')}
                 </div>
             </td>
             <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; white-space: nowrap; vertical-align: top;">
@@ -229,6 +241,12 @@ export function generateEmailHTML(receipt: ReceiptData): string {
                                     <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Subtotal</td>
                                     <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">${formatCurrency(receipt.subtotal)}</td>
                                 </tr>
+                                ${receipt.discountTotal && receipt.discountTotal > 0 ? `
+                                <tr>
+                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Discounts</td>
+                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">-${formatCurrency(receipt.discountTotal)}</td>
+                                </tr>
+                                ` : ''}
                                 ${receipt.tax > 0 ? `
                                 <tr>
                                     <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Tax</td>

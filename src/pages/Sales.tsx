@@ -27,6 +27,7 @@ import { formatCurrency } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { printReceipt } from '../lib/printReceipt';
 import { printTillCountReceipt } from '../lib/printTillCountReceipt';
+import { calculateSaleItemDiscountBreakdown } from '../lib/saleDiscounts';
 import { calculateStripeTerminalProcessingFee } from '../lib/cardFees';
 import { getOfflineUnsyncedCashNetTotal } from '../lib/offlineCashSales';
 import {
@@ -841,30 +842,47 @@ export function Sales() {
         }
     };
 
-    const createReceiptDataFromSale = (sale: SaleWithItems): ReceiptData => ({
-        transactionId: sale.id,
-        date: new Date(sale.completed_at),
-        items: sale.items.map((item) => ({
-            name: item.name,
-            quantity: item.quantity,
-            price: Number(item.price),
-            lineTotal: Number(item.price) * item.quantity,
-            consignorName: item.consignor?.name || 'Unknown Vendor',
-            consignorId: item.consignor_id,
-            imageUrl: null,
-        })),
-        subtotal: Number(sale.subtotal),
-        tax: Number(sale.tax_amount),
-        storeCreditUsed: sale.store_credit_used ? Number(sale.store_credit_used) : 0,
-        giftCardUsed: sale.gift_card_used ? Number(sale.gift_card_used) : 0,
-        total: Number(sale.total),
-        cardFeeAmount: sale.card_fee_amount ? Number(sale.card_fee_amount) : 0,
-        cardLast4: sale.card_last4 || undefined,
-        paymentMethod: sale.payment_method,
-        checkNumber: sale.check_number || undefined,
-        cashTendered: sale.cash_tendered ? Number(sale.cash_tendered) : undefined,
-        changeGiven: sale.change_given ? Number(sale.change_given) : undefined,
-    });
+    const createReceiptDataFromSale = (sale: SaleWithItems): ReceiptData => {
+        const discountBreakdown = calculateSaleItemDiscountBreakdown(
+            sale.items,
+            Number(sale.discount_total || 0)
+        );
+
+        return {
+            transactionId: sale.id,
+            date: new Date(sale.completed_at),
+            items: sale.items.map((item, index) => {
+                const breakdown = discountBreakdown.items[index];
+                return {
+                    name: item.name,
+                    quantity: item.quantity,
+                    price: Number(item.price),
+                    lineTotal: breakdown?.netLineTotal ?? Number(item.price) * item.quantity,
+                    originalLineTotal: breakdown?.originalLineTotal ?? Number(item.price) * item.quantity,
+                    lineDiscountAmount: breakdown?.lineDiscountAmount ?? 0,
+                    orderDiscountAmount: breakdown?.orderDiscountAmount ?? 0,
+                    totalDiscountAmount: breakdown?.totalDiscountAmount ?? 0,
+                    discountedUnitPrice: breakdown?.discountedUnitPrice ?? Number(item.price),
+                    consignorName: item.consignor?.name || 'Unknown Vendor',
+                    consignorId: item.consignor_id,
+                    imageUrl: null,
+                };
+            }),
+            subtotal: Number(sale.subtotal),
+            discountTotal: discountBreakdown.discountTotal,
+            netSubtotal: discountBreakdown.netSubtotal,
+            tax: Number(sale.tax_amount),
+            storeCreditUsed: sale.store_credit_used ? Number(sale.store_credit_used) : 0,
+            giftCardUsed: sale.gift_card_used ? Number(sale.gift_card_used) : 0,
+            total: Number(sale.total),
+            cardFeeAmount: sale.card_fee_amount ? Number(sale.card_fee_amount) : 0,
+            cardLast4: sale.card_last4 || undefined,
+            paymentMethod: sale.payment_method,
+            checkNumber: sale.check_number || undefined,
+            cashTendered: sale.cash_tendered ? Number(sale.cash_tendered) : undefined,
+            changeGiven: sale.change_given ? Number(sale.change_given) : undefined,
+        };
+    };
 
     const handlePrintSelectedReceipt = async () => {
         if (!selectedSale) return;
@@ -1537,7 +1555,7 @@ export function Sales() {
                                     <div className="w-[70px] text-xs font-medium text-[var(--color-muted)]">Status</div>
                                 </div>
                                 <div className="flex items-center gap-3 flex-shrink-0">
-                                    <div className="w-[70px] text-right text-xs font-medium text-[var(--color-muted)]">Subtotal</div>
+                                    <div className="w-[70px] text-right text-xs font-medium text-[var(--color-muted)]">Net Subtotal</div>
                                     <div className="w-[50px] text-right text-xs font-medium text-[var(--color-muted)]">Tax</div>
                                     <div className="w-[100px] text-right text-xs font-medium text-[var(--color-muted)]">Commission</div>
                                     <div className="w-[70px] text-right text-xs font-medium text-[var(--color-muted)]">Total</div>
@@ -1906,6 +1924,10 @@ export function Sales() {
 
                     const hasRefunds = totalRefundedAmount > 0;
                     const summary = calculateSalesSummary(selectedSale);
+                    const discountBreakdown = calculateSaleItemDiscountBreakdown(
+                        selectedSale.items,
+                        Number(selectedSale.discount_total || 0)
+                    );
 
                     // Calculate adjusted commission split
                     const refundRatio = selectedSale.subtotal > 0 ? totalRefundedAmount / selectedSale.subtotal : 0;
@@ -2067,6 +2089,9 @@ export function Sales() {
                                                 const refundedQty = refundedItemQty[item.id] || 0;
                                                 const isFullyRefunded = refundedQty >= item.quantity;
                                                 const isPartiallyRefunded = refundedQty > 0 && refundedQty < item.quantity;
+                                                const breakdown = discountBreakdown.items[idx];
+                                                const discountedUnitPrice = breakdown?.discountedUnitPrice ?? Number(item.price);
+                                                const totalDiscountAmount = breakdown?.totalDiscountAmount ?? 0;
 
                                                 return (
                                                     <tr
@@ -2088,7 +2113,12 @@ export function Sales() {
                                                             )}
                                                         </td>
                                                         <td className={`px-3 py-2 text-right ${isFullyRefunded ? 'line-through text-[var(--color-muted)]' : ''}`}>
-                                                            {formatCurrency(Number(item.price))}
+                                                            <div>{formatCurrency(Number(item.price))}</div>
+                                                            {totalDiscountAmount > 0 && (
+                                                                <div className="text-xs text-[var(--color-muted)]">
+                                                                    Net {formatCurrency(discountedUnitPrice)}
+                                                                </div>
+                                                            )}
                                                         </td>
                                                         <td className="px-3 py-2 text-right">
                                                             {isFullyRefunded ? (
@@ -2119,6 +2149,18 @@ export function Sales() {
                                             <span className="text-[var(--color-muted)]">Subtotal</span>
                                             <span className={hasRefunds ? 'line-through' : ''}>{formatCurrency(selectedSale.subtotal)}</span>
                                         </div>
+                                        {(selectedSale.discount_total || 0) > 0 && (
+                                            <div className="flex justify-between">
+                                                <span className="text-[var(--color-muted)]">Discounts</span>
+                                                <span className={hasRefunds ? 'line-through' : ''}>-{formatCurrency(Number(selectedSale.discount_total || 0))}</span>
+                                            </div>
+                                        )}
+                                        {(selectedSale.discount_total || 0) > 0 && (
+                                            <div className="flex justify-between">
+                                                <span className="text-[var(--color-muted)]">Net Subtotal</span>
+                                                <span className={hasRefunds ? 'line-through' : ''}>{formatCurrency(discountBreakdown.netSubtotal)}</span>
+                                            </div>
+                                        )}
                                         <div className="flex justify-between">
                                             <span className="text-[var(--color-muted)]">Tax</span>
                                             <span className={hasRefunds ? 'line-through' : ''}>{formatCurrency(selectedSale.tax_amount)}</span>
@@ -2680,6 +2722,12 @@ function SaleRow({
     calculateSalesSummary: (sale: SaleWithItems) => { consignorNames: string[]; consignorShare: number; storeShare: number };
 }) {
     const summary = calculateSalesSummary(sale);
+    const discountBreakdown = calculateSaleItemDiscountBreakdown(
+        sale.items,
+        Number(sale.discount_total || 0)
+    );
+    const saleNetSubtotal = discountBreakdown.netSubtotal;
+    const saleDiscountTotal = discountBreakdown.discountTotal;
     const consignorDisplay = summary.consignorNames.length > 1
         ? 'Multiple'
         : summary.consignorNames[0] || '—';
@@ -2752,7 +2800,10 @@ function SaleRow({
                 {/* Right Side - Totals */}
                 <div className="flex items-center gap-3 flex-shrink-0">
                     <div className="text-right w-[70px]">
-                        <p className="text-sm">{formatCurrency(sale.subtotal)}</p>
+                        <p className="text-sm">{formatCurrency(saleNetSubtotal)}</p>
+                        {saleDiscountTotal > 0 && (
+                            <p className="text-[10px] text-[var(--color-muted)]">-{formatCurrency(saleDiscountTotal)}</p>
+                        )}
                     </div>
                     <div className="text-right w-[50px]">
                         <p className="text-sm">{formatCurrency(sale.tax_amount)}</p>
@@ -2789,7 +2840,8 @@ function SaleRow({
                             </thead>
                             <tbody>
                                 {sale.items.map((item, idx) => {
-                                    const itemTotal = Number(item.price) * item.quantity;
+                                    const breakdown = discountBreakdown.items[idx];
+                                    const itemTotal = breakdown?.netLineTotal ?? Number(item.price) * item.quantity;
                                     const consignorAmount = itemTotal * item.commission_split;
                                     const storeAmount = itemTotal - consignorAmount;
 
@@ -2805,7 +2857,14 @@ function SaleRow({
                                                 {item.consignor?.name || '—'}
                                             </td>
                                             <td className="py-2 text-center">{item.quantity}</td>
-                                            <td className="py-2 text-right">{formatCurrency(Number(item.price))}</td>
+                                            <td className="py-2 text-right">
+                                                <div>{formatCurrency(Number(item.price))}</div>
+                                                {(breakdown?.totalDiscountAmount || 0) > 0 && (
+                                                    <div className="text-xs text-[var(--color-muted)]">
+                                                        Net {formatCurrency(breakdown?.discountedUnitPrice ?? Number(item.price))}
+                                                    </div>
+                                                )}
+                                            </td>
                                             <td className="py-2 text-right">
                                                 <Badge variant="default">
                                                     {Math.round(item.commission_split * 100)}%

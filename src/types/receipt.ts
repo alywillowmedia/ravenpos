@@ -8,6 +8,11 @@ export interface ReceiptItem {
     quantity: number;
     price: number;
     lineTotal: number;
+    originalLineTotal?: number;
+    lineDiscountAmount?: number;
+    orderDiscountAmount?: number;
+    totalDiscountAmount?: number;
+    discountedUnitPrice?: number;
     consignorName: string;
     consignorId: string;
     imageUrl?: string | null;
@@ -21,6 +26,8 @@ export interface ReceiptData {
     date: Date;
     items: ReceiptItem[];
     subtotal: number;
+    discountTotal?: number;
+    netSubtotal?: number;
     tax: number;
     storeCreditUsed?: number;
     giftCardUsed?: number;
