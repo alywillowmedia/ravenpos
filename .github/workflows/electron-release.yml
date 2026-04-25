@@ -12,6 +12,7 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    environment: Production
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL || vars.SUPABASE_URL || secrets.SUPABASE_URL }}
