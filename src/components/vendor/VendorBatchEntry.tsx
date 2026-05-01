@@ -196,11 +196,11 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
                             <Input
                                 placeholder="Detail 1"
                                 value={row.other_details_1}
-                                onChange={(e) => updateRow(row.id, 'other_details_1', e.target.value.slice(0, 50))}
+                                onChange={(e) => updateRow(row.id, 'other_details_1', e.target.value.slice(0, 60))}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'other_details_1')}
                                 inputSize="sm"
                                 className="md:text-xs"
-                                maxLength={50}
+                                maxLength={60}
                             />
                         </div>
                         <div className="col-span-4 sm:col-span-1">
