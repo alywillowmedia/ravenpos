@@ -24,6 +24,7 @@ interface DealerPurchaseRow {
     id: string;
     purchased_at: string;
     total: number;
+    subtotal: number;
     payment_method: PaymentMethod;
     check_number: string | null;
     notes: string | null;
@@ -35,6 +36,7 @@ interface DealerPurchaseRow {
     dealer_purchase_items: Array<{
         id: string;
         item_name: string;
+        description: string | null;
         quantity: number;
         unit_cost: number;
         line_total: number;
@@ -79,6 +81,7 @@ export function DealerPurchases() {
     const [newDealerForm, setNewDealerForm] = useState<DealerInput>(EMPTY_DEALER_FORM);
     const [purchaseHistory, setPurchaseHistory] = useState<DealerPurchaseRow[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+    const [selectedHistoryPurchase, setSelectedHistoryPurchase] = useState<DealerPurchaseRow | null>(null);
 
     const normalizedItems = useMemo(() => items.map((item) => {
         const quantity = Math.max(0, Number.parseInt(item.quantity || '0', 10) || 0);
@@ -126,12 +129,13 @@ export function DealerPurchases() {
             .select(`
                 id,
                 purchased_at,
+                subtotal,
                 total,
                 payment_method,
                 check_number,
                 notes,
                 dealer:dealers(id, name, business_name),
-                dealer_purchase_items(id, item_name, quantity, unit_cost, line_total)
+                dealer_purchase_items(id, item_name, description, quantity, unit_cost, line_total)
             `)
             .order('purchased_at', { ascending: false })
             .limit(25);
@@ -461,7 +465,12 @@ export function DealerPurchases() {
                     ) : (
                         <div className="space-y-3">
                             {purchaseHistory.map((purchase) => (
-                                <div key={purchase.id} className="rounded-lg border border-[var(--color-border)] p-3">
+                                <button
+                                    key={purchase.id}
+                                    type="button"
+                                    onClick={() => setSelectedHistoryPurchase(purchase)}
+                                    className="w-full rounded-lg border border-[var(--color-border)] p-3 text-left transition-colors hover:bg-[var(--color-surface)]"
+                                >
                                     <div className="flex items-center justify-between gap-3">
                                         <div>
                                             <p className="font-medium">
@@ -472,14 +481,19 @@ export function DealerPurchases() {
                                                 {purchase.payment_method === 'check' && purchase.check_number ? ` #${purchase.check_number}` : ''}
                                             </p>
                                         </div>
-                                        <span className="text-xs text-[var(--color-muted)]">
-                                            {purchase.dealer_purchase_items?.length || 0} item line{(purchase.dealer_purchase_items?.length || 0) === 1 ? '' : 's'}
-                                        </span>
+                                        <div className="text-right">
+                                            <span className="block text-xs text-[var(--color-muted)]">
+                                                {purchase.dealer_purchase_items?.length || 0} item line{(purchase.dealer_purchase_items?.length || 0) === 1 ? '' : 's'}
+                                            </span>
+                                            <span className="mt-1 block text-xs font-medium text-[var(--color-primary)]">
+                                                View details
+                                            </span>
+                                        </div>
                                     </div>
                                     {purchase.notes && (
-                                        <p className="text-sm text-[var(--color-muted)] mt-2">{purchase.notes}</p>
+                                        <p className="mt-2 text-sm text-[var(--color-muted)]">{purchase.notes}</p>
                                     )}
-                                </div>
+                                </button>
                             ))}
                         </div>
                     )}
@@ -530,6 +544,91 @@ export function DealerPurchases() {
                     <Button variant="ghost" onClick={() => setShowNewDealerModal(false)}>Cancel</Button>
                     <Button onClick={createDealerInline} disabled={!newDealerForm.name.trim()}>
                         Add Dealer
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
+            <Modal
+                isOpen={!!selectedHistoryPurchase}
+                onClose={() => setSelectedHistoryPurchase(null)}
+                title="Dealer Purchase Details"
+                description={selectedHistoryPurchase
+                    ? `${selectedHistoryPurchase.dealer?.name || 'Deleted dealer'} • ${formatDateTime(selectedHistoryPurchase.purchased_at)}`
+                    : undefined}
+                size="lg"
+            >
+                {selectedHistoryPurchase && (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-1 gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:grid-cols-3">
+                            <div>
+                                <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Payment</p>
+                                <p className="mt-1 font-medium text-[var(--color-foreground)]">
+                                    {selectedHistoryPurchase.payment_method.toUpperCase()}
+                                    {selectedHistoryPurchase.payment_method === 'check' && selectedHistoryPurchase.check_number
+                                        ? ` #${selectedHistoryPurchase.check_number}`
+                                        : ''}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Subtotal</p>
+                                <p className="mt-1 font-medium text-[var(--color-foreground)]">
+                                    {formatCurrency(Number(selectedHistoryPurchase.subtotal || 0))}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Total</p>
+                                <p className="mt-1 font-semibold text-[var(--color-foreground)]">
+                                    {formatCurrency(Number(selectedHistoryPurchase.total || 0))}
+                                </p>
+                            </div>
+                        </div>
+
+                        {selectedHistoryPurchase.notes && (
+                            <div className="rounded-lg border border-[var(--color-border)] p-4">
+                                <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Purchase Notes</p>
+                                <p className="mt-2 text-sm text-[var(--color-foreground)]">{selectedHistoryPurchase.notes}</p>
+                            </div>
+                        )}
+
+                        <div className="overflow-hidden rounded-lg border border-[var(--color-border)]">
+                            <table className="min-w-full divide-y divide-[var(--color-border)]">
+                                <thead className="bg-[var(--color-surface)]">
+                                    <tr>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Item</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Description</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Qty</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Price Bought For</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Line Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-[var(--color-border)] bg-[var(--color-card)]">
+                                    {selectedHistoryPurchase.dealer_purchase_items.map((item) => (
+                                        <tr key={item.id}>
+                                            <td className="px-4 py-3 align-top text-sm font-medium text-[var(--color-foreground)]">
+                                                {item.item_name}
+                                            </td>
+                                            <td className="px-4 py-3 align-top text-sm text-[var(--color-muted)]">
+                                                {item.description?.trim() || '—'}
+                                            </td>
+                                            <td className="px-4 py-3 text-right align-top text-sm text-[var(--color-foreground)]">
+                                                {item.quantity}
+                                            </td>
+                                            <td className="px-4 py-3 text-right align-top text-sm text-[var(--color-foreground)]">
+                                                {formatCurrency(Number(item.unit_cost || 0))}
+                                            </td>
+                                            <td className="px-4 py-3 text-right align-top text-sm font-medium text-[var(--color-foreground)]">
+                                                {formatCurrency(Number(item.line_total || 0))}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+                <ModalFooter>
+                    <Button variant="ghost" onClick={() => setSelectedHistoryPurchase(null)}>
+                        Close
                     </Button>
                 </ModalFooter>
             </Modal>
