@@ -40,6 +40,7 @@ export function ChangeSummaryModal({
 
     const getFieldLabel = (field: string): string => {
         const labels: Record<string, string> = {
+            variant_summary: 'Shelf Description',
             price: 'Price',
             quantity: 'Quantity',
             category: 'Category',

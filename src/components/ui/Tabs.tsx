@@ -11,11 +11,16 @@ interface TabsProps {
     activeTab: string;
     onChange: (id: string) => void;
     className?: string;
+    size?: 'md' | 'sm';
 }
 
-export function Tabs({ tabs, activeTab, onChange, className }: TabsProps) {
+export function Tabs({ tabs, activeTab, onChange, className, size = 'md' }: TabsProps) {
+    const buttonSize = size === 'sm'
+        ? 'rounded-full px-4 py-1.5 text-xs'
+        : 'rounded-lg py-2.5 text-sm';
+
     return (
-        <div className={cn("flex space-x-1 rounded-xl bg-[var(--color-surface)] p-1 border border-[var(--color-border)]", className)}>
+        <div className={cn("flex space-x-1 rounded-xl bg-[var(--color-surface)] p-1 border border-[var(--color-border)]", size === 'sm' && 'rounded-full', className)}>
             {tabs.map((tab) => {
                 const isActive = activeTab === tab.id;
                 return (
@@ -23,7 +28,8 @@ export function Tabs({ tabs, activeTab, onChange, className }: TabsProps) {
                         key={tab.id}
                         onClick={() => onChange(tab.id)}
                         className={cn(
-                            "w-full rounded-lg py-2.5 text-sm font-medium leading-5 transition-all duration-200",
+                            "w-full font-medium leading-5 transition-all duration-200",
+                            buttonSize,
                             "ring-[var(--color-card)]/60 ring-offset-2 ring-offset-[var(--color-primary)] focus:outline-none focus:ring-2",
                             isActive
                                 ? "bg-[var(--color-card)] text-[var(--color-primary)] shadow-sm"

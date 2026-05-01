@@ -68,14 +68,19 @@ export function BulkEditTable({
     return (
         <div className="rounded-xl border border-[var(--color-border)] overflow-hidden bg-[var(--color-card)]">
             {/* Header info */}
-            <div className="px-4 py-3 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex items-center justify-between">
-                <div className="flex items-center gap-2">
+            <div className="px-4 py-3 bg-[var(--color-surface)] border-b border-[var(--color-border)] flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-2 min-w-0">
                     <SpreadsheetIcon />
-                    <span className="text-sm font-medium text-[var(--color-foreground)]">
-                        Editing {items.length} items
-                    </span>
+                    <div className="min-w-0">
+                        <span className="text-sm font-medium text-[var(--color-foreground)]">
+                            Editing {items.length} items
+                        </span>
+                        <p className="text-xs text-[var(--color-muted)]">
+                            Shelf Description feeds the smaller text on shelf tags.
+                        </p>
+                    </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-2">
                         <span className="text-xs text-[var(--color-muted)] whitespace-nowrap">Set qty for all:</span>
                         <Input
@@ -103,26 +108,29 @@ export function BulkEditTable({
             </div>
 
             {/* Spreadsheet table */}
-            <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
-                <table className="w-full">
+            <div className="overflow-auto max-h-[66vh]">
+                <table className="w-full min-w-[1120px] table-fixed">
                     <thead className="sticky top-0 z-10">
                         <tr className="bg-[var(--color-surface)] border-b border-[var(--color-border)]">
-                            <th className="px-4 py-3 text-left text-xs font-medium text-[var(--color-muted)] uppercase tracking-wider w-[200px]">
+                            <th className="sticky left-0 z-20 bg-[var(--color-surface)] px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[220px]">
                                 Item
                             </th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-[var(--color-muted)] uppercase tracking-wider w-[100px]">
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[110px]">
                                 SKU
                             </th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-[var(--color-muted)] uppercase tracking-wider w-[120px]">
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[260px]">
+                                Shelf Description
+                            </th>
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[108px]">
                                 Price
                             </th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-[var(--color-muted)] uppercase tracking-wider w-[100px]">
-                                Quantity
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[86px]">
+                                Qty
                             </th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-[var(--color-muted)] uppercase tracking-wider w-[150px]">
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[160px]">
                                 Category
                             </th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-[var(--color-muted)] uppercase tracking-wider w-[120px]">
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[112px]">
                                 Status
                             </th>
                         </tr>
@@ -142,7 +150,7 @@ export function BulkEditTable({
                                     `}
                                 >
                                     {/* Item name (read-only) */}
-                                    <td className="px-4 py-3">
+                                    <td className={`sticky left-0 z-[1] px-3 py-2 ${hasChanges ? 'bg-[var(--color-warning-bg)]' : 'bg-[var(--color-card)]'}`}>
                                         <div className="flex items-center gap-3">
                                             <div className="w-8 h-8 rounded-lg overflow-hidden bg-[var(--color-surface)] flex-shrink-0 flex items-center justify-center border border-[var(--color-border)]">
                                                 {item.image_url ? (
@@ -159,9 +167,9 @@ export function BulkEditTable({
                                                 <p className="text-sm font-medium text-[var(--color-foreground)] truncate">
                                                     {item.name}
                                                 </p>
-                                                {item.variant_summary && (
+                                                {item.category && (
                                                     <p className="text-xs text-[var(--color-muted)] truncate">
-                                                        {item.variant_summary}
+                                                        {item.category}
                                                     </p>
                                                 )}
                                             </div>
@@ -174,14 +182,37 @@ export function BulkEditTable({
                                     </td>
 
                                     {/* SKU (read-only) */}
-                                    <td className="px-4 py-3">
+                                    <td className="px-3 py-2">
                                         <span className="font-mono text-xs bg-[var(--color-surface)] px-2 py-1 rounded">
                                             {item.sku}
                                         </span>
                                     </td>
 
+                                    {/* Shelf description / variant summary (editable) */}
+                                    <td className="px-3 py-2">
+                                        <textarea
+                                            value={String(getFieldValue(item, 'variant_summary') ?? '')}
+                                            maxLength={25}
+                                            rows={2}
+                                            onChange={(e) => {
+                                                const newValue = e.target.value.slice(0, 25);
+                                                onStageChange(
+                                                    item.id,
+                                                    'variant_summary',
+                                                    newValue || null,
+                                                    item.variant_summary
+                                                );
+                                            }}
+                                            className="min-h-[42px] w-full resize-none rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2.5 py-1.5 text-sm text-[var(--color-foreground)] outline-none transition-colors placeholder:text-[var(--color-muted)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
+                                            placeholder="Smaller shelf tag text"
+                                        />
+                                        <p className="mt-1 text-[10px] text-[var(--color-muted)]">
+                                            {String(getFieldValue(item, 'variant_summary') ?? '').length}/25
+                                        </p>
+                                    </td>
+
                                     {/* Price (editable) */}
-                                    <td className="px-4 py-3">
+                                    <td className="px-3 py-2">
                                         <div className="relative">
                                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] text-sm">
                                                 $
@@ -196,13 +227,13 @@ export function BulkEditTable({
                                                     onStageChange(item.id, 'price', newValue, item.price);
                                                 }}
                                                 inputSize="sm"
-                                                className="pl-6 w-24"
+                                                className="pl-6 w-full"
                                             />
                                         </div>
                                     </td>
 
                                     {/* Quantity (editable) */}
-                                    <td className="px-4 py-3">
+                                    <td className="px-3 py-2">
                                         <Input
                                             type="number"
                                             min="0"
@@ -212,12 +243,12 @@ export function BulkEditTable({
                                                 onStageChange(item.id, 'quantity', newValue, item.quantity);
                                             }}
                                             inputSize="sm"
-                                            className="w-20"
+                                            className="w-full"
                                         />
                                     </td>
 
                                     {/* Category (editable) */}
-                                    <td className="px-4 py-3">
+                                    <td className="px-3 py-2">
                                         <Select
                                             options={categoryOptions}
                                             value={String(getFieldValue(item, 'category'))}
@@ -229,7 +260,7 @@ export function BulkEditTable({
                                     </td>
 
                                     {/* Status (editable) */}
-                                    <td className="px-4 py-3">
+                                    <td className="px-3 py-2">
                                         <Select
                                             options={statusOptions}
                                             value={String(getFieldValue(item, 'is_listed'))}

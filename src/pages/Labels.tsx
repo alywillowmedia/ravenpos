@@ -16,6 +16,7 @@ import { checkDymoWebAvailability, printDymoLabelsDirect, type DymoWebAvailabili
 import type { Item } from '../types';
 
 type PrintMode = 'all' | 'new' | 'custom';
+type LabelLayout = 'price' | 'shelf';
 type PrintSortMethod =
     | 'table'
     | 'alphabetical_asc'
@@ -68,6 +69,7 @@ export function Labels() {
     const [showPrintOptions, setShowPrintOptions] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
     const [printMode, setPrintMode] = useState<PrintMode>('all');
+    const [labelLayout, setLabelLayout] = useState<LabelLayout>('price');
     const [printSortMethod, setPrintSortMethod] = useState<PrintSortMethod>('table');
     const [customQuantities, setCustomQuantities] = useState<PrintQuantityOverride>({});
     const [isGenerating, setIsGenerating] = useState(false);
@@ -393,8 +395,11 @@ export function Labels() {
         setIsGenerating(true);
         try {
             const itemsWithQuantities = getItemsWithPrintQuantities();
-            generateLabelsPDF(itemsWithQuantities);
-            toast.success('Labels ready', 'Opened label PDF in a new tab.');
+            generateLabelsPDF(itemsWithQuantities, { layout: labelLayout });
+            toast.success(
+                labelLayout === 'shelf' ? 'Shelf tags ready' : 'Labels ready',
+                'Opened label PDF in a new tab.'
+            );
         } catch (error) {
             console.error('Failed to generate PDF:', error);
             const message = error instanceof Error ? error.message : 'Failed to generate PDF. Please try again.';
@@ -407,7 +412,7 @@ export function Labels() {
         setIsGenerating(true);
         try {
             const itemsWithQuantities = getItemsWithPrintQuantities();
-            generateLabelsPDF(itemsWithQuantities);
+            generateLabelsPDF(itemsWithQuantities, { layout: labelLayout });
 
             const printedItems = selectedItems.map((item) => ({
                 id: item.id,
@@ -416,7 +421,7 @@ export function Labels() {
 
             setPendingPrintedItems(printedItems);
             setIsAwaitingPrintConfirmation(true);
-            toast.info('Print generated', 'Confirm once labels finish printing to mark them as printed.');
+            toast.info('Print generated', 'Confirm once printing finishes to mark labels as printed.');
         } catch (error) {
             console.error('Failed to generate PDF:', error);
             const message = error instanceof Error ? error.message : 'Failed to generate PDF. Please try again.';
@@ -742,6 +747,44 @@ export function Labels() {
                 <div className="max-w-2xl mx-auto">
                     <h2 className="text-xl font-semibold mb-6">Print Options</h2>
 
+                    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-6 mb-6">
+                        <h3 className="font-medium mb-4">Select Label Style</h3>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-4">
+                                <input
+                                    type="radio"
+                                    name="labelLayout"
+                                    checked={labelLayout === 'price'}
+                                    onChange={() => setLabelLayout('price')}
+                                    disabled={isAwaitingPrintConfirmation}
+                                    className="mt-1"
+                                />
+                                <div>
+                                    <p className="font-medium">Price Tags</p>
+                                    <p className="text-sm text-[var(--color-muted)]">
+                                        Current barcode label with SKU, price, and item details.
+                                    </p>
+                                </div>
+                            </label>
+                            <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-4">
+                                <input
+                                    type="radio"
+                                    name="labelLayout"
+                                    checked={labelLayout === 'shelf'}
+                                    onChange={() => setLabelLayout('shelf')}
+                                    disabled={isAwaitingPrintConfirmation}
+                                    className="mt-1"
+                                />
+                                <div>
+                                    <p className="font-medium">Shelf Tags</p>
+                                    <p className="text-sm text-[var(--color-muted)]">
+                                        Large title with description on the lower left and price boxed on the lower right.
+                                    </p>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
                     {/* Print Mode Selection */}
                     <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-6 mb-6">
                         <h3 className="font-medium mb-4">Select Print Mode</h3>
@@ -801,7 +844,7 @@ export function Labels() {
                         <h3 className="font-medium mb-4">Label Sort Order</h3>
                         <div className="space-y-2">
                             <label className="block text-sm text-[var(--color-muted)]" htmlFor="print-sort-order">
-                                Order used in generated PDF/DYMO data
+                                Order used in generated {labelLayout === 'price' ? 'PDF/DYMO data' : 'PDF'}
                             </label>
                             <select
                                 id="print-sort-order"
@@ -887,7 +930,7 @@ export function Labels() {
                     {/* Summary */}
                     <div className="mb-6 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
                         <p className="text-[var(--color-foreground)]">
-                            <strong>{getTotalLabels()}</strong> labels will be generated across{' '}
+                            <strong>{getTotalLabels()}</strong> {labelLayout === 'shelf' ? 'shelf tags' : 'labels'} will be generated across{' '}
                             <strong>{Math.ceil(getTotalLabels() / 30)}</strong> sheet(s)
                         </p>
                     </div>
@@ -918,34 +961,36 @@ export function Labels() {
                         >
                             {isGenerating ? 'Generating...' : (isAwaitingPrintConfirmation ? 'Re-open PDF' : 'Preview PDF')}
                         </Button>
-                        <Button
-                            variant="secondary"
-                            onClick={handleOpenDymoFilesModal}
-                            disabled={getTotalLabels() === 0 || isGenerating}
-                        >
-                            Download DYMO Files
-                            <span
-                                role="button"
-                                tabIndex={0}
-                                aria-label="DYMO help"
-                                title="How to use DYMO files"
-                                onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    handleOpenDymoFilesModal();
-                                }}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter' || event.key === ' ') {
+                        {labelLayout === 'price' && (
+                            <Button
+                                variant="secondary"
+                                onClick={handleOpenDymoFilesModal}
+                                disabled={getTotalLabels() === 0 || isGenerating}
+                            >
+                                Download DYMO Files
+                                <span
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label="DYMO help"
+                                    title="How to use DYMO files"
+                                    onClick={(event) => {
                                         event.preventDefault();
                                         event.stopPropagation();
                                         handleOpenDymoFilesModal();
-                                    }
-                                }}
-                                className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px] leading-none"
-                            >
-                                i
-                            </span>
-                        </Button>
+                                    }}
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            handleOpenDymoFilesModal();
+                                        }
+                                    }}
+                                    className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px] leading-none"
+                                >
+                                    i
+                                </span>
+                            </Button>
+                        )}
                         <Button
                             onClick={isAwaitingPrintConfirmation ? handleConfirmPrinted : handleGenerateAndMark}
                             disabled={getTotalLabels() === 0 || isGenerating}

@@ -22,6 +22,12 @@ interface LabelItem extends Item {
     printQuantity?: number;
 }
 
+export type LabelLayout = 'price' | 'shelf';
+
+export interface GenerateLabelsPDFOptions {
+    layout?: LabelLayout;
+}
+
 /**
  * Generate barcode as data URL
  */
@@ -55,7 +61,7 @@ function formatCurrency(amount: number): string {
 /**
  * Generate a PDF of Avery 5160 labels and open it
  */
-export function generateLabelsPDF(items: LabelItem[]): void {
+export function generateLabelsPDF(items: LabelItem[], options: GenerateLabelsPDFOptions = {}): void {
     const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'pt',
@@ -97,7 +103,11 @@ export function generateLabelsPDF(items: LabelItem[]): void {
         const y = topMargin + row * labelHeight;
 
         // Draw label content
-        drawLabel(pdf, item, x, y, labelWidth, labelHeight);
+        if (options.layout === 'shelf') {
+            drawShelfLabel(pdf, item, x, y, labelWidth, labelHeight);
+        } else {
+            drawLabel(pdf, item, x, y, labelWidth, labelHeight);
+        }
     });
 
     // Open PDF in new tab
@@ -226,6 +236,84 @@ function drawLabel(
     }
 }
 
+function buildShelfDescription(item: LabelItem): string {
+    return [
+        item.variant_summary,
+        item.other_details_1,
+        item.other_details_2,
+    ]
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value))
+        .join(' • ');
+}
+
+function drawShelfLabel(
+    pdf: jsPDF,
+    item: LabelItem,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+): void {
+    const padding = 5;
+    const innerX = x + padding;
+    const innerY = y + padding;
+    const innerWidth = width - padding * 2;
+    const innerHeight = height - padding * 2;
+    const titleHeight = 34;
+    const bottomY = innerY + titleHeight;
+    const descriptionWidth = innerWidth * 0.66;
+    const priceX = innerX + descriptionWidth + 4;
+    const priceWidth = innerWidth - descriptionWidth - 4;
+    const bottomHeight = innerHeight - titleHeight;
+
+    pdf.setDrawColor(0);
+    pdf.setLineWidth(0.75);
+    pdf.roundedRect(x + 2, y + 2, width - 4, height - 4, 4, 4);
+
+    pdf.setLineWidth(0.45);
+    pdf.line(innerX, bottomY, x + width - padding, bottomY);
+    pdf.line(priceX - 4, bottomY, priceX - 4, y + height - padding);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(16);
+    pdf.setTextColor(0);
+    const titleLines = pdf.splitTextToSize(item.name.toUpperCase(), innerWidth);
+    pdf.text(titleLines.slice(0, 2), innerX, innerY + 14, {
+        baseline: 'alphabetic',
+        lineHeightFactor: 0.88,
+    });
+
+    const description = buildShelfDescription(item);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7.5);
+    pdf.setTextColor(65);
+    if (description) {
+        const descriptionLines = pdf.splitTextToSize(description, descriptionWidth - 2);
+        pdf.text(descriptionLines.slice(0, 3), innerX, bottomY + 10, {
+            baseline: 'alphabetic',
+            lineHeightFactor: 1.05,
+        });
+    } else if (item.category) {
+        pdf.text(truncateText(pdf, item.category, descriptionWidth - 2), innerX, bottomY + 10);
+    }
+
+    pdf.setDrawColor(0);
+    pdf.setLineWidth(0.55);
+    pdf.roundedRect(priceX, bottomY + 5, priceWidth, bottomHeight - 9, 3, 3);
+
+    const price = formatCurrency(Number(item.price));
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(price.length > 7 ? 11 : 13);
+    pdf.setTextColor(0);
+    const priceWidthText = pdf.getTextWidth(price);
+    pdf.text(
+        price,
+        priceX + Math.max(3, (priceWidth - priceWidthText) / 2),
+        bottomY + bottomHeight / 2 + 5
+    );
+}
+
 /**
  * Truncate text to fit within a given width
  */
@@ -244,7 +332,11 @@ function truncateText(pdf: jsPDF, text: string, maxWidth: number): string {
 /**
  * Download the PDF instead of opening it
  */
-export function downloadLabelsPDF(items: LabelItem[], filename: string = 'labels.pdf'): void {
+export function downloadLabelsPDF(
+    items: LabelItem[],
+    filename: string = 'labels.pdf',
+    options: GenerateLabelsPDFOptions = {}
+): void {
     const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'pt',
@@ -282,7 +374,11 @@ export function downloadLabelsPDF(items: LabelItem[], filename: string = 'labels
         const x = sideMargin + col * (labelWidth + horizontalGap);
         const y = topMargin + row * labelHeight;
 
-        drawLabel(pdf, item, x, y, labelWidth, labelHeight);
+        if (options.layout === 'shelf') {
+            drawShelfLabel(pdf, item, x, y, labelWidth, labelHeight);
+        } else {
+            drawLabel(pdf, item, x, y, labelWidth, labelHeight);
+        }
     });
 
     pdf.save(filename);

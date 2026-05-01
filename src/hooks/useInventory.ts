@@ -23,6 +23,12 @@ interface UseInventoryOptions {
     queryProfile?: 'full' | 'labels';
 }
 
+interface InventoryFilterOptions {
+    consignorId?: string;
+    searchQuery?: string;
+    category?: string;
+}
+
 function isLabelsPerfDebugEnabled(): boolean {
     if (typeof window === 'undefined') return false;
     try {
@@ -38,6 +44,38 @@ function isMissingRateScheduleTable(error: unknown): boolean {
     const err = error as { code?: string; message?: string; details?: string; hint?: string } | null;
     const text = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`.toLowerCase();
     return err?.code === '42P01' || text.includes('consignor_rate_schedules');
+}
+
+interface FilterableInventoryQuery<T> {
+    eq: (column: string, value: string) => T;
+    or: (filters: string) => T;
+}
+
+function applyInventoryFilters<T extends FilterableInventoryQuery<T>>(
+    query: T,
+    filters: InventoryFilterOptions
+) {
+    let nextQuery = query;
+
+    if (filters.consignorId) {
+        nextQuery = nextQuery.eq('consignor_id', filters.consignorId) as T;
+    }
+
+    if (filters.category) {
+        nextQuery = nextQuery.eq('category', filters.category) as T;
+    }
+
+    const trimmedSearch = filters.searchQuery?.trim() || '';
+    if (trimmedSearch) {
+        const safeSearch = trimmedSearch.replace(/[,%]/g, ' ').replace(/\s+/g, ' ').trim();
+        if (safeSearch) {
+            nextQuery = nextQuery.or(
+                `name.ilike.%${safeSearch}%,sku.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,variant_summary.ilike.%${safeSearch}%`
+            ) as T;
+        }
+    }
+
+    return nextQuery;
 }
 
 export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions) {
@@ -113,23 +151,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                         .order('updated_at', { ascending: false })
                         .order('id', { ascending: false });
 
-                if (consignorId) {
-                    query = query.eq('consignor_id', consignorId);
-                }
-
-                if (category) {
-                    query = query.eq('category', category);
-                }
-
-                const trimmedSearch = searchQuery.trim();
-                if (trimmedSearch) {
-                    const safeSearch = trimmedSearch.replace(/[,%]/g, ' ').replace(/\s+/g, ' ').trim();
-                    if (safeSearch) {
-                        query = query.or(
-                            `name.ilike.%${safeSearch}%,sku.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,variant_summary.ilike.%${safeSearch}%`
-                        );
-                    }
-                }
+                query = applyInventoryFilters(query, { consignorId, category, searchQuery });
 
                 const from = (page - 1) * pageSize;
                 const to = from + pageSize - 1;
@@ -158,9 +180,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                 .from('items')
                 .select('id', { count: 'exact', head: true });
 
-            if (consignorId) {
-                countQuery = countQuery.eq('consignor_id', consignorId);
-            }
+            countQuery = applyInventoryFilters(countQuery, { consignorId, category, searchQuery });
 
             const countQueryStart = labelsPerfDebug ? performance.now() : 0;
             const { count, error: countError } = await countQuery;
@@ -226,9 +246,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                         .order('id', { ascending: false })
                         .range(from, to);
 
-                if (consignorId) {
-                    query = query.eq('consignor_id', consignorId);
-                }
+                query = applyInventoryFilters(query, { consignorId, category, searchQuery });
 
                 const { data, error: fetchError } = await query;
                 if (fetchError) throw fetchError;
@@ -289,6 +307,64 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
         if (!autoFetch) return;
         fetchItems();
     }, [autoFetch, fetchItems]);
+
+    const fetchMatchingItems = useCallback(async (filters: InventoryFilterOptions = {}) => {
+        let countQuery = supabase
+            .from('items')
+            .select('id', { count: 'exact', head: true });
+
+        countQuery = applyInventoryFilters(countQuery, filters);
+
+        const { count, error: countError } = await countQuery;
+        if (countError) throw countError;
+
+        const totalRows = count || 0;
+        if (totalRows === 0) return [] as Item[];
+
+        const ranges: Array<{ from: number; to: number }> = [];
+        for (let from = 0; from < totalRows; from += INVENTORY_FETCH_BATCH_SIZE) {
+            ranges.push({
+                from,
+                to: Math.min(from + INVENTORY_FETCH_BATCH_SIZE - 1, totalRows - 1),
+            });
+        }
+
+        const batches: Item[][] = new Array(ranges.length);
+        let nextRangeIndex = 0;
+
+        const fetchRange = async (rangeIndex: number) => {
+            const { from, to } = ranges[rangeIndex];
+            let query = supabase
+                .from('items')
+                .select(`
+          *,
+          consignor:consignors(id, consignor_number, name)
+        `)
+                .order('updated_at', { ascending: false })
+                .order('id', { ascending: false })
+                .range(from, to);
+
+            query = applyInventoryFilters(query, filters);
+
+            const { data, error: fetchError } = await query;
+            if (fetchError) throw fetchError;
+            batches[rangeIndex] = (data || []) as Item[];
+        };
+
+        const workerCount = Math.min(INVENTORY_FETCH_PARALLELISM, ranges.length);
+        await Promise.all(
+            Array.from({ length: workerCount }, async () => {
+                while (true) {
+                    const current = nextRangeIndex;
+                    nextRangeIndex += 1;
+                    if (current >= ranges.length) return;
+                    await fetchRange(current);
+                }
+            })
+        );
+
+        return batches.flat();
+    }, []);
 
     const createItem = async (input: Partial<ItemInput> & { consignor_id: string; name: string; price: number }, consignorNumber: string) => {
         try {
@@ -556,9 +632,33 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
         updates: Array<{ id: string; changes: Partial<ItemInput> }>
     ): Promise<{ success: boolean; errors: string[] }> => {
         const errors: string[] = [];
-        const originalItems = [...items];
+        let originalItems = [...items];
 
         try {
+            const knownIds = new Set(originalItems.map((item) => item.id));
+            const missingIds = updates
+                .map((update) => update.id)
+                .filter((id) => !knownIds.has(id));
+
+            if (missingIds.length > 0) {
+                const missingBatches: Item[][] = [];
+                for (let i = 0; i < missingIds.length; i += INVENTORY_FETCH_BATCH_SIZE) {
+                    const ids = missingIds.slice(i, i + INVENTORY_FETCH_BATCH_SIZE);
+                    const { data, error: fetchMissingError } = await supabase
+                        .from('items')
+                        .select(`
+          *,
+          consignor:consignors(id, consignor_number, name)
+        `)
+                        .in('id', ids);
+
+                    if (fetchMissingError) throw fetchMissingError;
+                    missingBatches.push((data || []) as Item[]);
+                }
+
+                originalItems = [...originalItems, ...missingBatches.flat()];
+            }
+
             // Optimistic update - apply all changes locally first
             setItems((prev) =>
                 prev.map((item) => {
@@ -645,6 +745,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
         isLoading,
         error,
         fetchItems,
+        fetchMatchingItems,
         createItem,
         createItems,
         updateItem,

@@ -44,7 +44,7 @@ export function Inventory() {
     const [filterConsignor, setFilterConsignor] = useState('');
     const [filterCategory, setFilterCategory] = useState('');
 
-    const { items, totalCount, isLoading, updateItem, updateItems, deleteItem } = useInventory({
+    const { items, totalCount, isLoading, updateItem, updateItems, deleteItem, fetchMatchingItems } = useInventory({
         paginated: true,
         page: inventoryPage,
         pageSize: inventoryPageSize,
@@ -77,6 +77,8 @@ export function Inventory() {
     const [showTransferModal, setShowTransferModal] = useState(false);
     const [transferTargetConsignor, setTransferTargetConsignor] = useState('');
     const [isTransferring, setIsTransferring] = useState(false);
+    const [isSelectingAll, setIsSelectingAll] = useState(false);
+    const [bulkItemCache, setBulkItemCache] = useState<Map<string, Item>>(new Map());
 
     useEffect(() => {
         const timeout = setTimeout(() => {
@@ -122,11 +124,23 @@ export function Inventory() {
 
     const filteredItems = items;
 
+    useEffect(() => {
+        setBulkItemCache((prev) => {
+            const next = new Map(prev);
+            items.forEach((item) => next.set(item.id, item));
+            return next;
+        });
+    }, [items]);
+
     // Get selected items for bulk edit
-    const selectedItems = useMemo(() =>
-        filteredItems.filter((item) => bulkEdit.selectedIds.has(item.id)),
-        [filteredItems, bulkEdit.selectedIds]
-    );
+    const selectedItems = useMemo(() => {
+        const selected: Item[] = [];
+        bulkEdit.selectedIds.forEach((id) => {
+            const item = bulkItemCache.get(id);
+            if (item) selected.push(item);
+        });
+        return selected;
+    }, [bulkEdit.selectedIds, bulkItemCache]);
 
     const consignorOptions = [
         { value: '', label: 'All Consignors' },
@@ -144,9 +158,31 @@ export function Inventory() {
     const totalPages = Math.max(1, Math.ceil(totalCount / inventoryPageSize));
 
     // Bulk edit handlers
-    const handleSelectAll = useCallback(() => {
-        bulkEdit.selectAll(filteredItems.map((item) => item.id));
-    }, [bulkEdit, filteredItems]);
+    const handleSelectAll = useCallback(async () => {
+        setIsSelectingAll(true);
+        try {
+            const matchingItems = await fetchMatchingItems({
+                consignorId: filterConsignor || undefined,
+                category: filterCategory || undefined,
+                searchQuery: debouncedSearchQuery,
+            });
+            setBulkItemCache((prev) => {
+                const next = new Map(prev);
+                matchingItems.forEach((item) => next.set(item.id, item));
+                return next;
+            });
+            bulkEdit.selectAll(matchingItems.map((item) => item.id));
+            toast.success(
+                'Products selected',
+                `${matchingItems.length} product${matchingItems.length === 1 ? '' : 's'} selected from the current filters.`
+            );
+        } catch (error) {
+            console.error('Failed to select all matching products:', error);
+            toast.error('Unable to select all products', 'Please try again.');
+        } finally {
+            setIsSelectingAll(false);
+        }
+    }, [bulkEdit, debouncedSearchQuery, fetchMatchingItems, filterCategory, filterConsignor, toast]);
 
     const handleEditSelected = useCallback(() => {
         setIsSpreadsheetOpen(true);
@@ -449,52 +485,47 @@ export function Inventory() {
                 }
             />
 
-            <Tabs
-                tabs={viewTabs}
-                activeTab={view}
-                onChange={(id) => {
-                    if (id === 'products' || id === 'discounts') {
-                        setView(id);
-                    }
-                }}
-                className="max-w-sm mb-6"
-            />
-
-            {view === 'discounts' ? (
-                <InventoryDiscountsTab
-                    mode="admin"
-                    userId={userRecord?.id || null}
-                    items={discountTabItems}
-                    categories={getCategoryNames()}
-                    consignors={consignors}
+            <div className="mb-6 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <Tabs
+                    tabs={viewTabs}
+                    activeTab={view}
+                    onChange={(id) => {
+                        if (id === 'products' || id === 'discounts') {
+                            setView(id);
+                        }
+                    }}
+                    size="sm"
+                    className="w-full max-w-[260px] shrink-0 bg-[var(--color-card)]"
                 />
-            ) : (
-                <>
-                    {/* Filters */}
-                    <div className="flex flex-wrap gap-4 mb-6">
-                        <div className="min-w-[260px] flex-1 max-w-xl">
+
+                {view === 'products' && (
+                    <div className="flex w-full flex-wrap items-center gap-2 xl:justify-end">
+                        <div className="min-w-[240px] flex-1 xl:max-w-sm">
                             <Input
                                 type="search"
-                                placeholder="Search by name, SKU, category, or variant..."
+                                placeholder="Search products..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 inputSize="sm"
+                                className="rounded-full bg-[var(--color-card)]"
                             />
                         </div>
-                        <div className="w-48">
+                        <div className="w-[190px]">
                             <Select
                                 options={consignorOptions}
                                 value={filterConsignor}
                                 onChange={(e) => setFilterConsignor(e.target.value)}
                                 selectSize="sm"
+                                className="rounded-full bg-[var(--color-card)]"
                             />
                         </div>
-                        <div className="w-40">
+                        <div className="w-[160px]">
                             <Select
                                 options={categoryOptions}
                                 value={filterCategory}
                                 onChange={(e) => setFilterCategory(e.target.value)}
                                 selectSize="sm"
+                                className="rounded-full bg-[var(--color-card)]"
                             />
                         </div>
                         {(filterConsignor || filterCategory || searchQuery) && (
@@ -508,12 +539,25 @@ export function Inventory() {
                                     setDebouncedSearchQuery('');
                                     setInventoryPage(1);
                                 }}
+                                className="rounded-full"
                             >
-                                Clear Filters
+                                Clear
                             </Button>
                         )}
                     </div>
+                )}
+            </div>
 
+            {view === 'discounts' ? (
+                <InventoryDiscountsTab
+                    mode="admin"
+                    userId={userRecord?.id || null}
+                    items={discountTabItems}
+                    categories={getCategoryNames()}
+                    consignors={consignors}
+                />
+            ) : (
+                <>
                 {/* Spreadsheet editor when active */}
                 {isSpreadsheetOpen && selectedItems.length > 0 ? (
                     <BulkEditTable
@@ -596,7 +640,7 @@ export function Inventory() {
             {view === 'products' && bulkEdit.isActive && (
                 <BulkEditToolbar
                     selectedCount={bulkEdit.selectedCount}
-                    totalCount={filteredItems.length}
+                    totalCount={totalCount}
                     hasChanges={bulkEdit.hasChanges}
                     isEditing={isSpreadsheetOpen}
                     onSelectAll={handleSelectAll}
@@ -606,6 +650,7 @@ export function Inventory() {
                     onSaveChanges={handleSaveChanges}
                     onCancel={handleCancelBulkEdit}
                     isSaving={isSaving}
+                    isSelectingAll={isSelectingAll}
                 />
             )}
 
@@ -615,7 +660,7 @@ export function Inventory() {
                 onClose={() => setShowChangeSummary(false)}
                 onConfirm={handleConfirmChanges}
                 changeSummary={bulkEdit.getChangeSummary()}
-                items={items}
+                items={selectedItems}
                 isLoading={isSaving}
             />
 

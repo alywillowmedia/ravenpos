@@ -12,6 +12,7 @@ interface BulkEditToolbarProps {
     onSaveChanges: () => void;
     onCancel: () => void;
     isSaving?: boolean;
+    isSelectingAll?: boolean;
 }
 
 export function BulkEditToolbar({
@@ -26,6 +27,7 @@ export function BulkEditToolbar({
     onSaveChanges,
     onCancel,
     isSaving = false,
+    isSelectingAll = false,
 }: BulkEditToolbarProps) {
     return (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-slideUp">
@@ -44,9 +46,9 @@ export function BulkEditToolbar({
                         variant="ghost"
                         size="sm"
                         onClick={onSelectAll}
-                        disabled={selectedCount === totalCount}
+                        disabled={selectedCount === totalCount || isSelectingAll}
                     >
-                        Select All
+                        {isSelectingAll ? 'Selecting...' : 'Select All'}
                     </Button>
                     <Button
                         variant="ghost"
