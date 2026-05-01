@@ -192,10 +192,10 @@ export function BulkEditTable({
                                     <td className="px-3 py-2">
                                         <textarea
                                             value={String(getFieldValue(item, 'variant_summary') ?? '')}
-                                            maxLength={25}
+                                            maxLength={60}
                                             rows={2}
                                             onChange={(e) => {
-                                                const newValue = e.target.value.slice(0, 25);
+                                                const newValue = e.target.value.slice(0, 60);
                                                 onStageChange(
                                                     item.id,
                                                     'variant_summary',
@@ -207,7 +207,7 @@ export function BulkEditTable({
                                             placeholder="Smaller shelf tag text"
                                         />
                                         <p className="mt-1 text-[10px] text-[var(--color-muted)]">
-                                            {String(getFieldValue(item, 'variant_summary') ?? '').length}/25
+                                            {String(getFieldValue(item, 'variant_summary') ?? '').length}/60
                                         </p>
                                     </td>
 
