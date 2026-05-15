@@ -98,6 +98,7 @@ interface BarcodeLabelProps {
 
 function BarcodeLabel({ item }: BarcodeLabelProps) {
     const barcodeRef = useRef<SVGSVGElement>(null);
+    const vendorName = item.consignor?.name || item.consignor?.consignor_number || '';
 
     useEffect(() => {
         if (barcodeRef.current) {
@@ -124,11 +125,45 @@ function BarcodeLabel({ item }: BarcodeLabelProps) {
                 boxSizing: 'border-box',
             }}
         >
+            {/* Vendor + price */}
+            <div
+                style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'baseline',
+                    gap: '6px',
+                    minHeight: '12px',
+                }}
+            >
+                <span
+                    style={{
+                        minWidth: 0,
+                        flex: 1,
+                        fontSize: '7px',
+                        color: '#666',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                    }}
+                >
+                    {vendorName}
+                </span>
+                <span
+                    style={{
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        whiteSpace: 'nowrap',
+                    }}
+                >
+                    {formatCurrency(Number(item.price))}
+                </span>
+            </div>
+
             {/* Item name + variant */}
             <div style={{ overflow: 'hidden' }}>
                 <div
                     style={{
-                        fontSize: '10px',
+                        fontSize: '9px',
                         fontWeight: 600,
                         lineHeight: 1.2,
                         overflow: 'hidden',
@@ -158,11 +193,11 @@ function BarcodeLabel({ item }: BarcodeLabelProps) {
                 <svg ref={barcodeRef} />
             </div>
 
-            {/* SKU and Price */}
+            {/* SKU */}
             <div
                 style={{
                     display: 'flex',
-                    justifyContent: 'space-between',
+                    justifyContent: 'flex-start',
                     alignItems: 'center',
                 }}
             >
@@ -174,14 +209,6 @@ function BarcodeLabel({ item }: BarcodeLabelProps) {
                     }}
                 >
                     {item.sku}
-                </span>
-                <span
-                    style={{
-                        fontSize: '12px',
-                        fontWeight: 700,
-                    }}
-                >
-                    {formatCurrency(Number(item.price))}
                 </span>
             </div>
         </div>

@@ -138,7 +138,8 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
           qty_unlabeled,
           price,
           created_at,
-          updated_at
+          updated_at,
+          consignor:consignors(id, consignor_number, name)
         `, { count: 'exact' })
                         .order('updated_at', { ascending: false })
                         .order('id', { ascending: false })
@@ -231,7 +232,8 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
           qty_unlabeled,
           price,
           created_at,
-          updated_at
+          updated_at,
+          consignor:consignors(id, consignor_number, name)
         `)
                         .order('updated_at', { ascending: false })
                         .order('id', { ascending: false })
