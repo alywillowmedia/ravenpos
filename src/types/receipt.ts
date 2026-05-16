@@ -34,7 +34,15 @@ export interface ReceiptData {
     total: number;
     cardFeeAmount?: number;
     cardLast4?: string;
-    paymentMethod: 'cash' | 'card' | 'check';
+    paymentMethod: 'cash' | 'card' | 'check' | 'split';
+    paymentBreakdown?: Array<{
+        method: 'cash' | 'card' | 'check';
+        amount: number;
+        tendered?: number | null;
+        change?: number | null;
+        check_number?: string | null;
+        card_last4?: string | null;
+    }>;
     checkNumber?: string;
     cashTendered?: number;
     changeGiven?: number;
@@ -60,6 +68,6 @@ export interface RefundReceiptData {
     date: Date;
     items: RefundReceiptItem[];
     refundAmount: number;
-    paymentMethod: 'cash' | 'card' | 'check';
+    paymentMethod: 'cash' | 'card' | 'check' | 'split';
     stripeRefundId?: string;
 }

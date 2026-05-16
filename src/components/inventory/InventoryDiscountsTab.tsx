@@ -20,15 +20,24 @@ interface InventoryDiscountsTabProps {
 
 type DiscountTargetScope = 'category' | 'item';
 
-function formatDate(value: string | null): string {
+function formatDateTime(value: string | null): string {
     if (!value) return '—';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '—';
-    return date.toLocaleDateString(undefined, {
+    return date.toLocaleString(undefined, {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
     });
+}
+
+function toTimestamp(value: string): string | null {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString();
 }
 
 function isLive(discount: InventoryPricingDiscount): boolean {
@@ -159,8 +168,16 @@ export function InventoryDiscountsTab({
             return;
         }
 
-        if (startsAt && endsAt && new Date(endsAt) < new Date(startsAt)) {
-            toast.error('Invalid date range', 'End date must be on or after the start date.');
+        const startsAtTimestamp = toTimestamp(startsAt);
+        const endsAtTimestamp = toTimestamp(endsAt);
+
+        if ((startsAt && !startsAtTimestamp) || (endsAt && !endsAtTimestamp)) {
+            toast.error('Invalid schedule', 'Enter valid start and end times.');
+            return;
+        }
+
+        if (startsAtTimestamp && endsAtTimestamp && new Date(endsAtTimestamp) < new Date(startsAtTimestamp)) {
+            toast.error('Invalid schedule', 'End time must be on or after the start time.');
             return;
         }
 
@@ -172,8 +189,8 @@ export function InventoryDiscountsTab({
             item_id: targetScope === 'item' ? selectedItemId : null,
             percent_off: parsedPercent,
             title: title || null,
-            starts_at: startsAt || null,
-            ends_at: endsAt || null,
+            starts_at: startsAtTimestamp,
+            ends_at: endsAtTimestamp,
             is_active: true,
             created_by_user_id: userId || null,
         });
@@ -261,11 +278,11 @@ export function InventoryDiscountsTab({
         },
         {
             key: 'date_window',
-            header: 'Date Window',
+            header: 'Schedule',
             minWidth: '220px',
             render: (discount) => (
                 <span className="text-sm text-[var(--color-muted)]">
-                    {`${formatDate(discount.starts_at)} - ${formatDate(discount.ends_at)}`}
+                    {`${formatDateTime(discount.starts_at)} - ${formatDateTime(discount.ends_at)}`}
                 </span>
             ),
         },
@@ -418,16 +435,18 @@ export function InventoryDiscountsTab({
                         />
 
                         <Input
-                            label="Start Date (Optional)"
-                            type="date"
+                            label="Start Time (Optional)"
+                            type="datetime-local"
                             value={startsAt}
+                            step={900}
                             onChange={(e) => setStartsAt(e.target.value)}
                         />
 
                         <Input
-                            label="End Date (Optional)"
-                            type="date"
+                            label="End Time (Optional)"
+                            type="datetime-local"
                             value={endsAt}
+                            step={900}
                             onChange={(e) => setEndsAt(e.target.value)}
                         />
                     </div>

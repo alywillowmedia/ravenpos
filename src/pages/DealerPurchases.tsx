@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Header } from '../components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input, Textarea } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { useDealers } from '../hooks/useDealers';
@@ -62,6 +63,32 @@ function createDraftItem(): DraftPurchaseItem {
     };
 }
 
+function draftItemsFromPurchase(purchase: DealerPurchaseRow): DraftPurchaseItem[] {
+    if (!purchase.dealer_purchase_items?.length) return [createDraftItem()];
+
+    return purchase.dealer_purchase_items.map((item) => ({
+        id: item.id,
+        item_name: item.item_name,
+        description: item.description || '',
+        quantity: String(item.quantity || 1),
+        unit_cost: String(Number(item.unit_cost || 0)),
+    }));
+}
+
+function toLocalDateTimeInput(value: string): string {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+    return localDate.toISOString().slice(0, 16);
+}
+
+function toTimestamp(value: string): string | null {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString();
+}
+
 export function DealerPurchases() {
     const { userRecord } = useAuth();
     const toast = useToast();
@@ -82,6 +109,19 @@ export function DealerPurchases() {
     const [purchaseHistory, setPurchaseHistory] = useState<DealerPurchaseRow[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(true);
     const [selectedHistoryPurchase, setSelectedHistoryPurchase] = useState<DealerPurchaseRow | null>(null);
+    const [commentTarget, setCommentTarget] = useState<DealerPurchaseRow | null>(null);
+    const [commentText, setCommentText] = useState('');
+    const [isSavingComment, setIsSavingComment] = useState(false);
+    const [editTarget, setEditTarget] = useState<DealerPurchaseRow | null>(null);
+    const [editDealerId, setEditDealerId] = useState('');
+    const [editPurchasedAt, setEditPurchasedAt] = useState('');
+    const [editPaymentMethod, setEditPaymentMethod] = useState<PaymentMethod>('cash');
+    const [editCheckNumber, setEditCheckNumber] = useState('');
+    const [editNotes, setEditNotes] = useState('');
+    const [editItems, setEditItems] = useState<DraftPurchaseItem[]>([createDraftItem()]);
+    const [isSavingEdit, setIsSavingEdit] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<DealerPurchaseRow | null>(null);
+    const [isDeletingPurchase, setIsDeletingPurchase] = useState(false);
 
     const normalizedItems = useMemo(() => items.map((item) => {
         const quantity = Math.max(0, Number.parseInt(item.quantity || '0', 10) || 0);
@@ -97,6 +137,22 @@ export function DealerPurchases() {
     const subtotal = useMemo(
         () => normalizedItems.reduce((sum, item) => sum + item.lineTotal, 0),
         [normalizedItems]
+    );
+
+    const normalizedEditItems = useMemo(() => editItems.map((item) => {
+        const quantity = Math.max(0, Number.parseInt(item.quantity || '0', 10) || 0);
+        const unitCost = Math.max(0, Number.parseFloat(item.unit_cost || '0') || 0);
+        return {
+            ...item,
+            quantity,
+            unitCost,
+            lineTotal: quantity * unitCost,
+        };
+    }), [editItems]);
+
+    const editSubtotal = useMemo(
+        () => normalizedEditItems.reduce((sum, item) => sum + item.lineTotal, 0),
+        [normalizedEditItems]
     );
 
     useEffect(() => {
@@ -122,7 +178,7 @@ export function DealerPurchases() {
         return () => clearTimeout(timer);
     }, [dealerSearch, searchDealers, selectedDealer]);
 
-    const loadPurchaseHistory = async () => {
+    const loadPurchaseHistory = useCallback(async () => {
         setIsLoadingHistory(true);
         const { data, error } = await supabase
             .from('dealer_purchases')
@@ -149,11 +205,11 @@ export function DealerPurchases() {
 
         setPurchaseHistory((data || []) as unknown as DealerPurchaseRow[]);
         setIsLoadingHistory(false);
-    };
+    }, [toast]);
 
     useEffect(() => {
         void loadPurchaseHistory();
-    }, []);
+    }, [loadPurchaseHistory]);
 
     const addItemRow = () => {
         setItems((prev) => [...prev, createDraftItem()]);
@@ -168,6 +224,23 @@ export function DealerPurchases() {
 
     const updateItem = (id: string, patch: Partial<DraftPurchaseItem>) => {
         setItems((prev) =>
+            prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
+        );
+    };
+
+    const addEditItemRow = () => {
+        setEditItems((prev) => [...prev, createDraftItem()]);
+    };
+
+    const removeEditItemRow = (id: string) => {
+        setEditItems((prev) => {
+            if (prev.length <= 1) return prev;
+            return prev.filter((item) => item.id !== id);
+        });
+    };
+
+    const updateEditItem = (id: string, patch: Partial<DraftPurchaseItem>) => {
+        setEditItems((prev) =>
             prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
         );
     };
@@ -259,6 +332,165 @@ export function DealerPurchases() {
         setSelectedDealer(null);
         await loadPurchaseHistory();
     };
+
+    const openCommentModal = (purchase: DealerPurchaseRow) => {
+        setCommentTarget(purchase);
+        setCommentText(purchase.notes || '');
+    };
+
+    const handleSaveComment = async () => {
+        if (!commentTarget) return;
+
+        setIsSavingComment(true);
+        const nextNotes = commentText.trim() || null;
+        const { error } = await supabase
+            .from('dealer_purchases')
+            .update({ notes: nextNotes })
+            .eq('id', commentTarget.id);
+        setIsSavingComment(false);
+
+        if (error) {
+            toast.error('Failed to save comment', error.message);
+            return;
+        }
+
+        setPurchaseHistory((prev) => prev.map((purchase) => (
+            purchase.id === commentTarget.id ? { ...purchase, notes: nextNotes } : purchase
+        )));
+        setSelectedHistoryPurchase((prev) => (
+            prev?.id === commentTarget.id ? { ...prev, notes: nextNotes } : prev
+        ));
+        setCommentTarget(null);
+        setCommentText('');
+        toast.success('Comment saved');
+    };
+
+    const openEditModal = (purchase: DealerPurchaseRow) => {
+        setEditTarget(purchase);
+        setEditDealerId(purchase.dealer?.id || '');
+        setEditPurchasedAt(toLocalDateTimeInput(purchase.purchased_at));
+        setEditPaymentMethod(purchase.payment_method);
+        setEditCheckNumber(purchase.check_number || '');
+        setEditNotes(purchase.notes || '');
+        setEditItems(draftItemsFromPurchase(purchase));
+    };
+
+    const closeEditModal = () => {
+        setEditTarget(null);
+        setEditDealerId('');
+        setEditPurchasedAt('');
+        setEditPaymentMethod('cash');
+        setEditCheckNumber('');
+        setEditNotes('');
+        setEditItems([createDraftItem()]);
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editTarget) return;
+
+        const validItems = normalizedEditItems.filter((item) => item.item_name.trim() && item.quantity > 0 && item.unitCost >= 0);
+        if (validItems.length === 0) {
+            toast.error('Add at least one item with quantity and unit cost');
+            return;
+        }
+
+        if (editPaymentMethod === 'check' && !editCheckNumber.trim()) {
+            toast.error('Check number is required for check payments');
+            return;
+        }
+
+        const purchasedAtTimestamp = toTimestamp(editPurchasedAt);
+        if (!purchasedAtTimestamp) {
+            toast.error('Choose a valid purchase date and time');
+            return;
+        }
+
+        const total = Math.round(editSubtotal * 100) / 100;
+
+        setIsSavingEdit(true);
+        const { error: purchaseError } = await supabase
+            .from('dealer_purchases')
+            .update({
+                dealer_id: editDealerId || null,
+                purchased_at: purchasedAtTimestamp,
+                subtotal: total,
+                tax_amount: 0,
+                total,
+                payment_method: editPaymentMethod,
+                check_number: editPaymentMethod === 'check' ? editCheckNumber.trim() : null,
+                notes: editNotes.trim() || null,
+            })
+            .eq('id', editTarget.id);
+
+        if (purchaseError) {
+            setIsSavingEdit(false);
+            toast.error('Failed to update purchase', purchaseError.message);
+            return;
+        }
+
+        const { error: deleteItemsError } = await supabase
+            .from('dealer_purchase_items')
+            .delete()
+            .eq('dealer_purchase_id', editTarget.id);
+
+        if (deleteItemsError) {
+            setIsSavingEdit(false);
+            toast.error('Purchase updated, but old item lines could not be replaced', deleteItemsError.message);
+            return;
+        }
+
+        const { error: insertItemsError } = await supabase
+            .from('dealer_purchase_items')
+            .insert(validItems.map((item) => ({
+                dealer_purchase_id: editTarget.id,
+                item_name: item.item_name.trim(),
+                description: item.description.trim() || null,
+                quantity: item.quantity,
+                unit_cost: item.unitCost,
+                line_total: Math.round(item.lineTotal * 100) / 100,
+            })));
+
+        setIsSavingEdit(false);
+
+        if (insertItemsError) {
+            toast.error('Purchase updated, but item lines failed', insertItemsError.message);
+            return;
+        }
+
+        toast.success('Dealer purchase updated');
+        closeEditModal();
+        setSelectedHistoryPurchase(null);
+        await loadPurchaseHistory();
+    };
+
+    const handleDeletePurchase = async () => {
+        if (!deleteTarget) return;
+
+        setIsDeletingPurchase(true);
+        const { error } = await supabase
+            .from('dealer_purchases')
+            .delete()
+            .eq('id', deleteTarget.id);
+        setIsDeletingPurchase(false);
+
+        if (error) {
+            toast.error('Failed to delete purchase', error.message);
+            return;
+        }
+
+        setPurchaseHistory((prev) => prev.filter((purchase) => purchase.id !== deleteTarget.id));
+        setSelectedHistoryPurchase((prev) => (prev?.id === deleteTarget.id ? null : prev));
+        setDeleteTarget(null);
+        toast.success('Dealer purchase deleted');
+    };
+
+    const dealerOptions = [
+        { value: '', label: 'No dealer linked' },
+        ...dealers.map((dealer) => ({
+            value: dealer.id,
+            label: dealer.business_name ? `${dealer.name} - ${dealer.business_name}` : dealer.name,
+        })),
+    ];
 
     return (
         <div className="animate-fadeIn">
@@ -583,12 +815,21 @@ export function DealerPurchases() {
                             </div>
                         </div>
 
-                        {selectedHistoryPurchase.notes && (
-                            <div className="rounded-lg border border-[var(--color-border)] p-4">
-                                <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Purchase Notes</p>
-                                <p className="mt-2 text-sm text-[var(--color-foreground)]">{selectedHistoryPurchase.notes}</p>
+                        <div className="rounded-lg border border-[var(--color-border)] p-4">
+                            <div className="flex items-center justify-between gap-3">
+                                <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Purchase Comments</p>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => openCommentModal(selectedHistoryPurchase)}
+                                >
+                                    {selectedHistoryPurchase.notes ? 'Edit Comment' : 'Add Comment'}
+                                </Button>
                             </div>
-                        )}
+                            <p className="mt-2 whitespace-pre-wrap text-sm text-[var(--color-foreground)]">
+                                {selectedHistoryPurchase.notes?.trim() || 'No comments yet.'}
+                            </p>
+                        </div>
 
                         <div className="overflow-hidden rounded-lg border border-[var(--color-border)]">
                             <table className="min-w-full divide-y divide-[var(--color-border)]">
@@ -627,8 +868,207 @@ export function DealerPurchases() {
                     </div>
                 )}
                 <ModalFooter>
+                    {selectedHistoryPurchase && (
+                        <>
+                            <Button
+                                variant="danger"
+                                onClick={() => setDeleteTarget(selectedHistoryPurchase)}
+                            >
+                                Delete
+                            </Button>
+                            <Button
+                                variant="secondary"
+                                onClick={() => openEditModal(selectedHistoryPurchase)}
+                            >
+                                Edit
+                            </Button>
+                        </>
+                    )}
                     <Button variant="ghost" onClick={() => setSelectedHistoryPurchase(null)}>
                         Close
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
+            <Modal
+                isOpen={!!commentTarget}
+                onClose={() => {
+                    setCommentTarget(null);
+                    setCommentText('');
+                }}
+                title="Comment on Dealer Purchase"
+                description={commentTarget
+                    ? `${commentTarget.dealer?.name || 'Deleted dealer'} • ${formatCurrency(Number(commentTarget.total || 0))}`
+                    : undefined}
+                size="md"
+            >
+                <Textarea
+                    label="Comment"
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    rows={5}
+                    placeholder="Add context, follow-up notes, or corrections for this transaction"
+                />
+                <ModalFooter>
+                    <Button
+                        variant="ghost"
+                        onClick={() => {
+                            setCommentTarget(null);
+                            setCommentText('');
+                        }}
+                    >
+                        Cancel
+                    </Button>
+                    <Button onClick={handleSaveComment} isLoading={isSavingComment}>
+                        Save Comment
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
+            <Modal
+                isOpen={!!editTarget}
+                onClose={closeEditModal}
+                title="Edit Dealer Purchase"
+                description={editTarget
+                    ? `${editTarget.dealer?.name || 'Deleted dealer'} • ${formatDateTime(editTarget.purchased_at)}`
+                    : undefined}
+                size="4xl"
+            >
+                <div className="space-y-5">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <Select
+                            label="Dealer"
+                            options={dealerOptions}
+                            value={editDealerId}
+                            onChange={(e) => setEditDealerId(e.target.value)}
+                        />
+                        <Input
+                            label="Purchase Date + Time"
+                            type="datetime-local"
+                            value={editPurchasedAt}
+                            step={60}
+                            onChange={(e) => setEditPurchasedAt(e.target.value)}
+                        />
+                        <Select
+                            label="Payment Method"
+                            options={[
+                                { value: 'cash', label: 'Cash' },
+                                { value: 'card', label: 'Card' },
+                                { value: 'check', label: 'Check' },
+                            ]}
+                            value={editPaymentMethod}
+                            onChange={(e) => setEditPaymentMethod(e.target.value as PaymentMethod)}
+                        />
+                        {editPaymentMethod === 'check' && (
+                            <Input
+                                label="Check Number *"
+                                value={editCheckNumber}
+                                onChange={(e) => setEditCheckNumber(e.target.value)}
+                                placeholder="Enter check number"
+                            />
+                        )}
+                    </div>
+
+                    <Textarea
+                        label="Purchase Comments"
+                        value={editNotes}
+                        onChange={(e) => setEditNotes(e.target.value)}
+                        rows={3}
+                        placeholder="Optional comments for this purchase"
+                    />
+
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <h3 className="text-sm font-semibold text-[var(--color-foreground)]">Item Lines</h3>
+                            <Button variant="ghost" size="sm" onClick={addEditItemRow}>
+                                + Add Line
+                            </Button>
+                        </div>
+                        {editItems.map((item, index) => {
+                            const normalized = normalizedEditItems.find((entry) => entry.id === item.id);
+                            return (
+                                <div key={item.id} className="rounded-lg border border-[var(--color-border)] p-3">
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <p className="text-sm font-medium text-[var(--color-muted)]">Item {index + 1}</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => removeEditItemRow(item.id)}
+                                            className="text-xs text-[var(--color-danger)] disabled:opacity-50"
+                                            disabled={editItems.length <= 1}
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.5fr_1.5fr_0.7fr_0.9fr_0.9fr]">
+                                        <Input
+                                            label="Item Name"
+                                            value={item.item_name}
+                                            onChange={(e) => updateEditItem(item.id, { item_name: e.target.value })}
+                                            placeholder="Vintage lamp"
+                                        />
+                                        <Input
+                                            label="Description"
+                                            value={item.description}
+                                            onChange={(e) => updateEditItem(item.id, { description: e.target.value })}
+                                            placeholder="Condition, lot, etc."
+                                        />
+                                        <Input
+                                            label="Qty"
+                                            type="number"
+                                            min={1}
+                                            value={item.quantity}
+                                            onChange={(e) => updateEditItem(item.id, { quantity: e.target.value })}
+                                        />
+                                        <Input
+                                            label="Unit Cost"
+                                            type="number"
+                                            min={0}
+                                            step="0.01"
+                                            value={item.unit_cost}
+                                            onChange={(e) => updateEditItem(item.id, { unit_cost: e.target.value })}
+                                        />
+                                        <div className="flex flex-col gap-1.5">
+                                            <span className="text-sm font-medium text-[var(--color-foreground)]">Line Total</span>
+                                            <div className="flex min-h-[44px] items-center justify-end rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm font-semibold">
+                                                {formatCurrency(normalized?.lineTotal || 0)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+                        <div className="flex items-center justify-between text-lg">
+                            <span className="font-medium">Updated Total</span>
+                            <span className="font-bold">{formatCurrency(editSubtotal)}</span>
+                        </div>
+                    </div>
+                </div>
+                <ModalFooter>
+                    <Button variant="ghost" onClick={closeEditModal}>Cancel</Button>
+                    <Button onClick={handleSaveEdit} isLoading={isSavingEdit}>
+                        Save Changes
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
+            <Modal
+                isOpen={!!deleteTarget}
+                onClose={() => setDeleteTarget(null)}
+                title="Delete Dealer Purchase"
+                description={deleteTarget
+                    ? `Delete the ${formatCurrency(Number(deleteTarget.total || 0))} purchase from ${deleteTarget.dealer?.name || 'this dealer'}? This removes the transaction and its item lines.`
+                    : undefined}
+                size="sm"
+            >
+                <ModalFooter>
+                    <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
+                        Cancel
+                    </Button>
+                    <Button variant="danger" isLoading={isDeletingPurchase} onClick={handleDeletePurchase}>
+                        Delete Purchase
                     </Button>
                 </ModalFooter>
             </Modal>

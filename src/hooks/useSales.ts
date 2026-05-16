@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { formatSupabaseError } from '../lib/supabaseError';
 import { enqueueOfflineCashSale } from '../lib/offlineCashSales';
-import type { CartItem, Sale, SaleItem, PaymentMethod, Discount } from '../types';
+import type { CartItem, Sale, SaleItem, PaymentMethod, Discount, PaymentBreakdownEntry } from '../types';
 import type { OfflineCashSalePayload } from '../types/offline';
 
 function isElectronRuntime(): boolean {
@@ -36,7 +36,8 @@ export function useSales() {
         giftCardUsed = 0,
         checkNumber?: string,
         processedByUserId?: string | null,
-        processedByEmployeeId?: string | null
+        processedByEmployeeId?: string | null,
+        paymentBreakdown?: PaymentBreakdownEntry[]
     ): Promise<CompleteSaleResult> => {
         let creditDeducted = false;
         let giftCardDeducted = false;
@@ -58,6 +59,15 @@ export function useSales() {
             const roundedGiftCardUsed = Math.max(0, Math.round(giftCardUsed * 100) / 100);
             const normalizedGiftCardCode = giftCardCode?.trim().toUpperCase();
             const isOfflineCashMode = isElectronRuntime() && typeof navigator !== 'undefined' && !navigator.onLine && paymentMethod === 'cash';
+            const normalizedPaymentBreakdown = paymentBreakdown?.map((entry) => ({
+                ...entry,
+                amount: Math.max(0, Math.round(Number(entry.amount || 0) * 100) / 100),
+                tendered: entry.tendered == null ? null : Math.max(0, Math.round(Number(entry.tendered || 0) * 100) / 100),
+                change: entry.change == null ? null : Math.max(0, Math.round(Number(entry.change || 0) * 100) / 100),
+                check_number: entry.check_number?.trim() || null,
+                stripe_payment_intent_id: entry.stripe_payment_intent_id || null,
+                card_last4: entry.card_last4 || null,
+            })).filter((entry) => entry.amount > 0);
 
             if (isOfflineCashMode) {
                 if (roundedStoreCreditUsed > 0 || roundedGiftCardUsed > 0 || normalizedGiftCardCode) {
@@ -186,8 +196,8 @@ export function useSales() {
                     tax_amount: taxTotal,
                     total,
                     payment_method: paymentMethod,
-                    cash_tendered: paymentMethod === 'cash' ? cashTendered : null,
-                    change_given: paymentMethod === 'cash' ? changeGiven : null,
+                    cash_tendered: paymentMethod === 'cash' || paymentMethod === 'split' ? cashTendered : null,
+                    change_given: paymentMethod === 'cash' || paymentMethod === 'split' ? changeGiven : null,
                     stripe_payment_intent_id: stripePaymentIntentId || null,
                     customer_id: customerId || null,
                     discounts: orderDiscounts.map(d => ({
@@ -200,9 +210,12 @@ export function useSales() {
                     store_credit_used: roundedStoreCreditUsed,
                     gift_card_used: roundedGiftCardUsed,
                     card_fee_amount: roundedCardFeeAmount,
+                    payment_breakdown: normalizedPaymentBreakdown && normalizedPaymentBreakdown.length > 0
+                        ? normalizedPaymentBreakdown
+                        : null,
                     processed_by_user: processedByUserId || null,
                     processed_by_employee: processedByEmployeeId || null,
-                    ...(paymentMethod === 'check' ? { check_number: checkNumber?.trim() || null } : {}),
+                    ...(paymentMethod === 'check' || paymentMethod === 'split' ? { check_number: checkNumber?.trim() || null } : {}),
                 })
                 .select()
                 .single();

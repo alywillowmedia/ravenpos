@@ -33,6 +33,7 @@ import { getOfflineUnsyncedCashNetTotal } from '../lib/offlineCashSales';
 import {
     fromCurrencyCents,
     getCountedDrawerCents,
+    getPaymentBreakdownAmountCents,
     sumCashSalesNetCents,
     toCurrencyCents,
 } from '../lib/cashReconciliation';
@@ -121,6 +122,13 @@ function parseLocalDateInput(value: string, endOfDay = false): Date {
         parsed.setHours(0, 0, 0, 0);
     }
     return parsed;
+}
+
+function formatPaymentMethodLabel(method: string) {
+    if (method === 'cash') return 'Cash';
+    if (method === 'check') return 'Check';
+    if (method === 'split') return 'Split';
+    return 'Card';
 }
 
 export function Sales() {
@@ -454,14 +462,29 @@ export function Sales() {
     ), [allFilteredSales, filteredRefunds, giftCardSales, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal]);
 
     const cashReconciliation = useMemo(() => {
-        const cashSales = allFilteredSales.filter((sale) => sale.payment_method === 'cash');
+        const cashSales = allFilteredSales.filter((sale) => (
+            sale.payment_method === 'cash'
+            || (sale.payment_method === 'split' && getPaymentBreakdownAmountCents(sale, 'cash') > 0)
+        ));
         const cashSalesCount = cashSales.length;
         const cashReceivedGrossCents = cashSales.reduce(
-            (sum, sale) => sum + toCurrencyCents(sale.cash_tendered ?? 0),
+            (sum, sale) => {
+                if (sale.payment_method === 'split') {
+                    const cashEntry = sale.payment_breakdown?.find((entry) => entry.method === 'cash');
+                    return sum + toCurrencyCents(cashEntry?.tendered ?? cashEntry?.amount ?? 0);
+                }
+                return sum + toCurrencyCents(sale.cash_tendered ?? 0);
+            },
             0
         );
         const changeGivenCents = cashSales.reduce(
-            (sum, sale) => sum + toCurrencyCents(sale.change_given ?? 0),
+            (sum, sale) => {
+                if (sale.payment_method === 'split') {
+                    const cashEntry = sale.payment_breakdown?.find((entry) => entry.method === 'cash');
+                    return sum + toCurrencyCents(cashEntry?.change ?? 0);
+                }
+                return sum + toCurrencyCents(sale.change_given ?? 0);
+            },
             0
         );
         const cashSalesNetCents = sumCashSalesNetCents(cashSales);
@@ -586,15 +609,18 @@ export function Sales() {
     }, [activeTab, dateRange.start, dateRange.end, allFilteredSales, getSalesTrend, getSalesByCategory, getBusyTimeAnalytics, isEmployeeView]);
 
     const paymentTotals = useMemo(() => {
-        const cashSalesTotal = allFilteredSales
-            .filter((sale) => sale.payment_method === 'cash')
-            .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
-        const cardSalesTotal = allFilteredSales
-            .filter((sale) => sale.payment_method === 'card')
-            .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
-        const checkSalesTotal = allFilteredSales
-            .filter((sale) => sale.payment_method === 'check')
-            .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+        const cashSalesTotal = allFilteredSales.reduce((sum, sale) => {
+            if (sale.payment_method === 'split') return sum + (getPaymentBreakdownAmountCents(sale, 'cash') / 100);
+            return sale.payment_method === 'cash' ? sum + Number(sale.total || 0) : sum;
+        }, 0);
+        const cardSalesTotal = allFilteredSales.reduce((sum, sale) => {
+            if (sale.payment_method === 'split') return sum + (getPaymentBreakdownAmountCents(sale, 'card') / 100);
+            return sale.payment_method === 'card' ? sum + Number(sale.total || 0) : sum;
+        }, 0);
+        const checkSalesTotal = allFilteredSales.reduce((sum, sale) => {
+            if (sale.payment_method === 'split') return sum + (getPaymentBreakdownAmountCents(sale, 'check') / 100);
+            return sale.payment_method === 'check' ? sum + Number(sale.total || 0) : sum;
+        }, 0);
 
         const cashRefundTotal = filteredRefunds
             .filter((refund) => refund.payment_method === 'cash')
@@ -653,8 +679,11 @@ export function Sales() {
             const orderDiscountRatio = subtotalAfterItemDiscounts > 0 ? orderDiscountTotal / subtotalAfterItemDiscounts : 0;
             const saleNetSubtotal = Math.max(0, subtotalAfterItemDiscounts - orderDiscountTotal);
             const saleTax = Number(sale.tax_amount || 0);
-            const totalSaleFee = sale.payment_method === 'card'
-                ? calculateStripeTerminalProcessingFee(Number(sale.total || saleNetSubtotal))
+            const cardTenderAmount = sale.payment_method === 'split'
+                ? getPaymentBreakdownAmountCents(sale, 'card') / 100
+                : Number(sale.total || saleNetSubtotal);
+            const totalSaleFee = (sale.payment_method === 'card' || cardTenderAmount > 0)
+                ? calculateStripeTerminalProcessingFee(cardTenderAmount)
                 : 0;
 
             for (const item of saleItems) {
@@ -665,7 +694,7 @@ export function Sales() {
 
                 const itemTaxPortion = saleNetSubtotal > 0 ? (netLineTotal / saleNetSubtotal) * saleTax : 0;
                 const itemCreditCardFee =
-                    sale.payment_method === 'card' && item.consignor_pays_card_fee
+                    (sale.payment_method === 'card' || cardTenderAmount > 0) && item.consignor_pays_card_fee
                         ? (saleNetSubtotal > 0 ? totalSaleFee * (netLineTotal / saleNetSubtotal) : 0)
                         : 0;
 
@@ -819,9 +848,7 @@ export function Sales() {
     };
 
     const formatPaymentMethod = (method: string) => {
-        if (method === 'cash') return 'Cash';
-        if (method === 'check') return 'Check';
-        return 'Card';
+        return formatPaymentMethodLabel(method);
     };
 
     const handleSaveCheckNumber = async () => {
@@ -878,6 +905,14 @@ export function Sales() {
             cardFeeAmount: sale.card_fee_amount ? Number(sale.card_fee_amount) : 0,
             cardLast4: sale.card_last4 || undefined,
             paymentMethod: sale.payment_method,
+            paymentBreakdown: sale.payment_breakdown?.map((entry) => ({
+                method: entry.method,
+                amount: Number(entry.amount || 0),
+                tendered: entry.tendered == null ? null : Number(entry.tendered || 0),
+                change: entry.change == null ? null : Number(entry.change || 0),
+                check_number: entry.check_number || null,
+                card_last4: entry.card_last4 || null,
+            })),
             checkNumber: sale.check_number || undefined,
             cashTendered: sale.cash_tendered ? Number(sale.cash_tendered) : undefined,
             changeGiven: sale.change_given ? Number(sale.change_given) : undefined,
@@ -2246,9 +2281,19 @@ export function Sales() {
                                 <div>
                                     Payment Method: <span className="font-medium text-[var(--color-foreground)]">{formatPaymentMethod(selectedSale.payment_method)}</span>
                                 </div>
-                                {selectedSale.payment_method === 'card' && (
+                                {(selectedSale.payment_method === 'card' || selectedSale.payment_method === 'split') && (
                                     <div>
                                         Card Fee: {formatCurrency(Number(selectedSale.card_fee_amount || 0))}
+                                    </div>
+                                )}
+                                {selectedSale.payment_method === 'split' && selectedSale.payment_breakdown && (
+                                    <div className="space-y-1">
+                                        {selectedSale.payment_breakdown.map((entry, index) => (
+                                            <div key={`${entry.method}-${index}`}>
+                                                {formatPaymentMethod(entry.method)}: {formatCurrency(Number(entry.amount || 0))}
+                                                {entry.method === 'check' && entry.check_number ? ` #${entry.check_number}` : ''}
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
                                 {selectedSale.cash_tendered !== null && (
@@ -2885,10 +2930,15 @@ function SaleRow({
                         {/* Payment Info */}
                         <div className="mt-3 pt-3 border-t border-[var(--color-border)] text-sm text-[var(--color-muted)] space-y-1">
                             <div>
-                                Payment: {sale.payment_method === 'cash' ? 'Cash' : sale.payment_method === 'check' ? 'Check' : 'Card'}
+                                Payment: {formatPaymentMethodLabel(sale.payment_method)}
                             </div>
-                            {sale.payment_method === 'card' && (
+                            {(sale.payment_method === 'card' || sale.payment_method === 'split') && (
                                 <div>Card Fee: {formatCurrency(Number(sale.card_fee_amount || 0))}</div>
+                            )}
+                            {sale.payment_method === 'split' && sale.payment_breakdown && (
+                                <div>
+                                    {sale.payment_breakdown.map((entry) => `${formatPaymentMethodLabel(entry.method)} ${formatCurrency(Number(entry.amount || 0))}`).join(' / ')}
+                                </div>
                             )}
                             {sale.cash_tendered !== null && (
                                 <div className="flex gap-4">

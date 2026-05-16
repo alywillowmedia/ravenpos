@@ -164,7 +164,20 @@ export function generateEmailHTML(receipt: ReceiptData): string {
     `;
     }).join('');
 
-    const paymentHTML = receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined
+    const splitPaymentHTML = receipt.paymentBreakdown?.map((entry) => {
+        const label = entry.method === 'cash' ? 'Cash' : entry.method === 'check' ? 'Check' : 'Card';
+        const suffix = entry.method === 'check' && entry.check_number ? ` #${entry.check_number}` : '';
+        return `
+            <tr>
+                <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">${label}${suffix}</td>
+                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">${formatCurrency(entry.amount)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    const paymentHTML = receipt.paymentMethod === 'split' && splitPaymentHTML
+        ? splitPaymentHTML
+        : receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined
         ? `
             <tr>
                 <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Cash Tendered</td>

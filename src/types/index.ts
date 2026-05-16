@@ -113,7 +113,17 @@ export interface Dealer {
 
 export type DealerInput = Omit<Dealer, 'id' | 'created_at' | 'updated_at'>;
 
-export type PaymentMethod = 'cash' | 'card' | 'check';
+export type PaymentMethod = 'cash' | 'card' | 'check' | 'split';
+
+export interface PaymentBreakdownEntry {
+    method: 'cash' | 'card' | 'check';
+    amount: number;
+    tendered?: number | null;
+    change?: number | null;
+    check_number?: string | null;
+    stripe_payment_intent_id?: string | null;
+    card_last4?: string | null;
+}
 
 // Discount types for POS
 export type DiscountType = 'percentage' | 'fixed';
@@ -163,6 +173,7 @@ export interface Sale {
     gift_card_used?: number;
     card_fee_amount?: number;
     payment_method: PaymentMethod;
+    payment_breakdown?: PaymentBreakdownEntry[] | null;
     check_number?: string | null;
     cash_tendered: number | null;
     change_given: number | null;

@@ -182,8 +182,27 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
             <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>Payment</span>
-                    <span>{receipt.paymentMethod.toUpperCase()}</span>
+                    <span>{receipt.paymentMethod === 'split' ? 'SPLIT' : receipt.paymentMethod.toUpperCase()}</span>
                 </div>
+                {receipt.paymentMethod === 'split' && receipt.paymentBreakdown && (
+                    <>
+                        {receipt.paymentBreakdown.map((entry, index) => (
+                            <div key={`${entry.method}-${index}`} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span>
+                                    {entry.method === 'cash' ? 'Cash' : entry.method === 'check' ? 'Check' : 'Card'}
+                                    {entry.method === 'check' && entry.check_number ? ` #${entry.check_number}` : ''}
+                                </span>
+                                <span>{formatCurrency(entry.amount)}</span>
+                            </div>
+                        ))}
+                        {(receipt.changeGiven || 0) > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                                <span>Change</span>
+                                <span>{formatCurrency(receipt.changeGiven ?? 0)}</span>
+                            </div>
+                        )}
+                    </>
+                )}
                 {receipt.paymentMethod === 'card' && maskedCard && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span>Card</span>

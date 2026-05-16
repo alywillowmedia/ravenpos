@@ -32,7 +32,7 @@ import { createReceiptData } from '../lib/printReceipt';
 import { createInvoiceEmailDataFromCart } from '../lib/invoice';
 import { supabase } from '../lib/supabase';
 import { getOfflineSalesSyncStatus, syncOfflineCashSalesQueue } from '../lib/offlineCashSales';
-import type { CartItem, Item, Sale, Customer, CustomerInput, PaymentMethod, Discount, DiscountType, Invoice, InvoiceRecipientType } from '../types';
+import type { CartItem, Item, Sale, Customer, CustomerInput, PaymentMethod, PaymentBreakdownEntry, Discount, DiscountType, Invoice, InvoiceRecipientType } from '../types';
 import type { ReceiptData } from '../types/receipt';
 import type { InvoiceEmailData } from '../types/invoice';
 import type { OfflineSalesSyncStatus } from '../types/offline';
@@ -94,6 +94,10 @@ export function POS() {
     // Payment method state
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card');
     const [checkNumber, setCheckNumber] = useState('');
+    const [splitCashAmount, setSplitCashAmount] = useState('');
+    const [splitCashTendered, setSplitCashTendered] = useState('');
+    const [splitCheckAmount, setSplitCheckAmount] = useState('');
+    const [splitCheckNumber, setSplitCheckNumber] = useState('');
     const [isCollectingCard, setIsCollectingCard] = useState(false);
     const [showReaderModal, setShowReaderModal] = useState(false);
     const [showReaderSetupModal, setShowReaderSetupModal] = useState(false);
@@ -219,10 +223,31 @@ export function POS() {
     const cashPrice = Math.max(0, Math.round((total - appliedGiftCardAmount - appliedStoreCredit) * 100) / 100);
     const cardFeeAmount = calculateCardSurchargeAmount(cashPrice, cardFeeRatio);
     const cardPrice = Math.max(0, Math.round((cashPrice + cardFeeAmount) * 100) / 100);
-    const amountDue = paymentMethod === 'card' ? cardPrice : cashPrice;
+    const parsedSplitCashAmount = Math.max(0, parseFloat(splitCashAmount) || 0);
+    const parsedSplitCheckAmount = Math.max(0, parseFloat(splitCheckAmount) || 0);
+    const splitCashApplied = Math.min(parsedSplitCashAmount, cashPrice);
+    const splitCheckApplied = Math.min(parsedSplitCheckAmount, Math.max(0, cashPrice - splitCashApplied));
+    const splitCardBaseAmount = Math.max(0, Math.round((cashPrice - splitCashApplied - splitCheckApplied) * 100) / 100);
+    const splitCardFeeAmount = calculateCardSurchargeAmount(splitCardBaseAmount, cardFeeRatio);
+    const splitCardTotal = Math.max(0, Math.round((splitCardBaseAmount + splitCardFeeAmount) * 100) / 100);
+    const splitTotal = Math.max(0, Math.round((cashPrice + splitCardFeeAmount) * 100) / 100);
+    const amountDue = paymentMethod === 'card'
+        ? cardPrice
+        : paymentMethod === 'split'
+            ? splitTotal
+            : cashPrice;
+    const activeCardFeeAmount = paymentMethod === 'card'
+        ? cardFeeAmount
+        : paymentMethod === 'split'
+            ? splitCardFeeAmount
+            : 0;
     const cardFeeDifference = Math.max(0, Math.round((cardPrice - cashPrice) * 100) / 100);
     const cashAmount = parseFloat(cashTendered) || 0;
     const change = cashAmount - amountDue;
+    const splitTenderedCash = Math.max(0, parseFloat(splitCashTendered) || 0);
+    const splitCashChange = Math.max(0, Math.round((splitTenderedCash - splitCashApplied) * 100) / 100);
+    const splitCashShort = Math.max(0, Math.round((splitCashApplied - splitTenderedCash) * 100) / 100);
+    const splitTenderCount = [splitCashApplied, splitCheckApplied, splitCardTotal].filter((amount) => amount > 0).length;
 
     const refreshOfflineSalesStatus = useCallback(async () => {
         if (!isElectronRuntime) return;
@@ -456,8 +481,8 @@ export function POS() {
             discountTotal,
             total,
             cashPrice,
-            cardFeeAmount,
-            cardPrice,
+            cardFeeAmount: activeCardFeeAmount,
+            cardPrice: amountDue,
             amountDue,
             paymentMethod,
             appliedStoreCredit,
@@ -474,8 +499,7 @@ export function POS() {
         discountTotal,
         total,
         cashPrice,
-        cardFeeAmount,
-        cardPrice,
+        activeCardFeeAmount,
         amountDue,
         paymentMethod,
         appliedStoreCredit,
@@ -906,9 +930,130 @@ export function POS() {
         setCompletedSale(sale ? { ...sale, check_number: checkNumber.trim() || null } : null);
     };
 
+    const handleCompleteSplitSale = async () => {
+        if (isOfflineMode) {
+            setScanError('Offline mode supports cash sales only.');
+            return;
+        }
+        if (cart.length === 0) return;
+        if (splitTenderCount < 2) {
+            setScanError('Split payment needs at least two payment types.');
+            return;
+        }
+        if (splitCashApplied > 0 && splitTenderedCash < splitCashApplied) {
+            setScanError('Insufficient cash for split payment.');
+            return;
+        }
+        if (splitCardTotal > 0 && !connectedReader) {
+            setScanError('No card reader connected');
+            return;
+        }
+
+        setScanError(null);
+
+        let paymentIntentId: string | undefined;
+        let cardLast4: string | undefined;
+
+        if (splitCardTotal > 0) {
+            setIsCollectingCard(true);
+            const cardResult = await collectCardPayment(Math.round(splitCardTotal * 100));
+            if (cardResult.error) {
+                setScanError(cardResult.error);
+                setIsCollectingCard(false);
+                return;
+            }
+            paymentIntentId = cardResult.paymentIntentId || undefined;
+            cardLast4 = cardResult.cardLast4;
+        }
+
+        const paymentBreakdown: PaymentBreakdownEntry[] = [
+            ...(splitCashApplied > 0 ? [{
+                method: 'cash' as const,
+                amount: splitCashApplied,
+                tendered: splitTenderedCash,
+                change: splitCashChange,
+            }] : []),
+            ...(splitCheckApplied > 0 ? [{
+                method: 'check' as const,
+                amount: splitCheckApplied,
+                check_number: splitCheckNumber.trim() || null,
+            }] : []),
+            ...(splitCardTotal > 0 ? [{
+                method: 'card' as const,
+                amount: splitCardTotal,
+                stripe_payment_intent_id: paymentIntentId || null,
+                card_last4: cardLast4 || null,
+            }] : []),
+        ];
+
+        const { data: sale, error } = await completeSale(
+            cart,
+            subtotal,
+            taxTotal,
+            splitTotal,
+            splitCashApplied > 0 ? splitTenderedCash : 0,
+            splitCashApplied > 0 ? splitCashChange : 0,
+            selectedCustomer?.id,
+            'split',
+            paymentIntentId,
+            orderDiscounts,
+            appliedStoreCredit,
+            splitCardFeeAmount,
+            appliedGiftCard?.code,
+            appliedGiftCardAmount,
+            splitCheckNumber.trim() || undefined,
+            userRecord?.id,
+            employee?.id,
+            paymentBreakdown
+        );
+
+        if (splitCardTotal > 0) {
+            setIsCollectingCard(false);
+        }
+
+        if (error) {
+            setScanError(error);
+            return;
+        }
+
+        if (sale) {
+            const saleWithSplit: Sale = {
+                ...sale,
+                payment_breakdown: paymentBreakdown,
+                card_last4: cardLast4 || null,
+                check_number: splitCheckNumber.trim() || null,
+            };
+            const receiptData = createReceiptData(saleWithSplit, cart);
+            setCompletedReceiptData(receiptData);
+            setCompletedCart([...cart]);
+            setShowReceiptDelivery(true);
+            if (selectedCustomer && appliedStoreCredit > 0) {
+                setSelectedCustomer({
+                    ...selectedCustomer,
+                    store_credit: Math.max(0, availableStoreCredit - appliedStoreCredit),
+                });
+            }
+            if (appliedGiftCard && appliedGiftCardAmount > 0) {
+                const remaining = Math.max(0, appliedGiftCard.balance - appliedGiftCardAmount);
+                setAppliedGiftCard(remaining > 0 ? { ...appliedGiftCard, balance: remaining } : null);
+            }
+        }
+
+        setCompletedSale(sale ? {
+            ...sale,
+            payment_breakdown: paymentBreakdown,
+            card_last4: cardLast4 || null,
+            check_number: splitCheckNumber.trim() || null,
+        } : null);
+    };
+
     const handleNewSale = () => {
         setCart([]);
         setCashTendered('');
+        setSplitCashAmount('');
+        setSplitCashTendered('');
+        setSplitCheckAmount('');
+        setSplitCheckNumber('');
         setCompletedSale(null);
         setCompletedReceiptData(null);
         setCompletedCart([]);
@@ -1611,11 +1756,11 @@ export function POS() {
                                     <span>-{formatCurrency(appliedGiftCardAmount)}</span>
                                 </div>
                             )}
-                            {cardFeeAmount > 0 && (
+                            {activeCardFeeAmount > 0 && (
                                 <>
                                     <div className="flex justify-between text-sm text-[var(--color-warning)]">
                                         <span>Card Processing Fee</span>
-                                        <span>{formatCurrency(cardFeeAmount)}</span>
+                                        <span>{formatCurrency(activeCardFeeAmount)}</span>
                                     </div>
                                     <div className="flex justify-between text-sm text-[var(--color-muted)]">
                                         <span>Cash Price</span>
@@ -1624,7 +1769,7 @@ export function POS() {
                                 </>
                             )}
                             <div className="flex justify-between text-2xl font-bold pt-3 border-t border-[var(--color-border)]">
-                                <span>{paymentMethod === 'card' ? 'Card Total' : 'Amount Due'}</span>
+                                <span>{paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Amount Due'}</span>
                                 <span className="text-[var(--color-primary)]">
                                     {formatCurrency(amountDue)}
                                 </span>
@@ -1723,6 +1868,17 @@ export function POS() {
                                     <CardIcon />
                                     Card
                                 </button>
+                                <button
+                                    onClick={() => setPaymentMethod('split')}
+                                    disabled={isOfflineMode}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'split'
+                                        ? 'bg-[var(--color-primary)] text-white'
+                                        : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
+                                        } ${isOfflineMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    <SplitIcon />
+                                    Split
+                                </button>
                             </div>
 
                             {paymentMethod === 'cash' ? (
@@ -1819,6 +1975,165 @@ export function POS() {
                                             isLoading={isProcessing}
                                         >
                                             Complete Check Sale
+                                        </Button>
+                                    </div>
+                                </>
+                            ) : paymentMethod === 'split' ? (
+                                <>
+                                    <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-4">
+                                        <div className="rounded-lg border border-[var(--color-border)] p-3 space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <p className="text-sm font-medium">Cash Portion</p>
+                                                <span className="text-xs text-[var(--color-muted)]">
+                                                    Applies before check/card
+                                                </span>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <Input
+                                                    label="Cash Applied"
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    value={splitCashAmount}
+                                                    onChange={(e) => setSplitCashAmount(e.target.value)}
+                                                    leftIcon={<span className="text-[var(--color-muted)]">$</span>}
+                                                    placeholder="0.00"
+                                                />
+                                                <Input
+                                                    label="Cash Tendered"
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    value={splitCashTendered}
+                                                    onChange={(e) => setSplitCashTendered(e.target.value)}
+                                                    leftIcon={<span className="text-[var(--color-muted)]">$</span>}
+                                                    placeholder="0.00"
+                                                />
+                                            </div>
+                                            {splitCashApplied > 0 && (
+                                                <div className="flex justify-between text-xs">
+                                                    <span className={splitCashShort > 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-muted)]'}>
+                                                        {splitCashShort > 0 ? 'Cash short' : 'Cash change'}
+                                                    </span>
+                                                    <span className={splitCashShort > 0 ? 'text-[var(--color-danger)] font-medium' : 'text-[var(--color-success)] font-medium'}>
+                                                        {formatCurrency(splitCashShort > 0 ? splitCashShort : splitCashChange)}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="rounded-lg border border-[var(--color-border)] p-3 space-y-3">
+                                            <p className="text-sm font-medium">Check Portion</p>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <Input
+                                                    label="Check Amount"
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    value={splitCheckAmount}
+                                                    onChange={(e) => setSplitCheckAmount(e.target.value)}
+                                                    leftIcon={<span className="text-[var(--color-muted)]">$</span>}
+                                                    placeholder="0.00"
+                                                />
+                                                <Input
+                                                    label="Check #"
+                                                    value={splitCheckNumber}
+                                                    onChange={(e) => setSplitCheckNumber(e.target.value)}
+                                                    placeholder="Optional"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="rounded-lg border border-[var(--color-border)] p-3 space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <p className="text-sm font-medium">Card Remainder</p>
+                                                <span className="text-sm font-semibold">{formatCurrency(splitCardTotal)}</span>
+                                            </div>
+                                            {splitCardFeeAmount > 0 && (
+                                                <div className="flex justify-between text-xs text-[var(--color-muted)]">
+                                                    <span>Includes card fee</span>
+                                                    <span>{formatCurrency(splitCardFeeAmount)}</span>
+                                                </div>
+                                            )}
+                                            {splitCardTotal > 0 && (
+                                                <>
+                                                    {connectedReader ? (
+                                                        <div className="flex items-center justify-between p-2 rounded-lg bg-[var(--color-success-bg)] border border-[var(--color-success)]/20">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-2 h-2 rounded-full bg-[var(--color-success)]" />
+                                                                <span className="text-sm font-medium">{connectedReader.label}</span>
+                                                            </div>
+                                                            <button
+                                                                onClick={handleDisconnectReader}
+                                                                className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+                                                            >
+                                                                Disconnect
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <button
+                                                            onClick={handleDiscoverReaders}
+                                                            className="w-full p-3 rounded-lg border-2 border-dashed border-[var(--color-border)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 transition-colors text-sm text-[var(--color-muted)]"
+                                                        >
+                                                            {terminalStatus === 'discovering' ? (
+                                                                <span className="flex items-center justify-center gap-2">
+                                                                    <LoadingSpinner size={16} />
+                                                                    Searching for readers...
+                                                                </span>
+                                                            ) : (
+                                                                '+ Connect Card Reader'
+                                                            )}
+                                                        </button>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+
+                                        <div className="rounded-lg bg-[var(--color-surface)] p-3 space-y-2 text-sm">
+                                            <div className="flex justify-between">
+                                                <span className="text-[var(--color-muted)]">Cash</span>
+                                                <span>{formatCurrency(splitCashApplied)}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-[var(--color-muted)]">Check</span>
+                                                <span>{formatCurrency(splitCheckApplied)}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-[var(--color-muted)]">Card</span>
+                                                <span>{formatCurrency(splitCardTotal)}</span>
+                                            </div>
+                                            <div className="flex justify-between font-semibold pt-2 border-t border-[var(--color-border)]">
+                                                <span>Total Collected</span>
+                                                <span>{formatCurrency(splitCashApplied + splitCheckApplied + splitCardTotal)}</span>
+                                            </div>
+                                        </div>
+
+                                        {isCollectingCard && (
+                                            <div className="text-center">
+                                                <LoadingSpinner size={32} />
+                                                <p className="mt-3 text-sm font-medium">
+                                                    {terminalStatus === 'collecting' && 'Present card on reader...'}
+                                                    {terminalStatus === 'processing' && 'Processing payment...'}
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="pt-3 border-t border-[var(--color-border)] mt-3 shrink-0">
+                                        <Button
+                                            size="xl"
+                                            className="w-full"
+                                            onClick={handleCompleteSplitSale}
+                                            disabled={
+                                                cart.length === 0
+                                                || splitTenderCount < 2
+                                                || splitCashShort > 0
+                                                || (splitCardTotal > 0 && !connectedReader)
+                                                || isCollectingCard
+                                            }
+                                            isLoading={isCollectingCard || isProcessing}
+                                        >
+                                            {isCollectingCard ? 'Processing...' : `Complete Split Sale`}
                                         </Button>
                                     </div>
                                 </>
@@ -2429,6 +2744,17 @@ function CheckIcon() {
     return (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m20 6-11 11-5-5" />
+        </svg>
+    );
+}
+
+function SplitIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 3h5v5" />
+            <path d="M8 3H3v5" />
+            <path d="M12 21v-7a4 4 0 0 0-4-4H3" />
+            <path d="M12 14a4 4 0 0 1 4-4h5" />
         </svg>
     );
 }

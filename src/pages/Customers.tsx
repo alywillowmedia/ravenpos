@@ -577,7 +577,9 @@ export function Customers() {
                                     ? 'Cash'
                                     : selectedOrder.payment_method === 'check'
                                         ? 'Check'
-                                        : 'Card'}
+                                        : selectedOrder.payment_method === 'split'
+                                            ? 'Split'
+                                            : 'Card'}
                             </p>
                             {selectedOrder.payment_method === 'cash' && (
                                 <p className="text-sm text-[var(--color-muted)] mt-1">

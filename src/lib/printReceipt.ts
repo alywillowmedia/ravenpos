@@ -159,6 +159,14 @@ export function createReceiptData(
         cardFeeAmount: sale.card_fee_amount ? Number(sale.card_fee_amount) : 0,
         cardLast4: sale.card_last4 || undefined,
         paymentMethod: sale.payment_method,
+        paymentBreakdown: sale.payment_breakdown?.map((entry) => ({
+            method: entry.method,
+            amount: Number(entry.amount || 0),
+            tendered: entry.tendered == null ? null : Number(entry.tendered || 0),
+            change: entry.change == null ? null : Number(entry.change || 0),
+            check_number: entry.check_number || null,
+            card_last4: entry.card_last4 || null,
+        })),
         checkNumber: sale.check_number || undefined,
         cashTendered: sale.cash_tendered ? Number(sale.cash_tendered) : undefined,
         changeGiven: sale.change_given ? Number(sale.change_given) : undefined,
@@ -223,7 +231,45 @@ function generateReceiptHTML(receipt: ReceiptData): string {
     `;
     }).join('');
 
-    const paymentHTML = receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined
+    const splitPaymentHTML = receipt.paymentBreakdown?.map((entry) => {
+        if (entry.method === 'cash') {
+            return `
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Cash</span>
+                    <span>${formatCurrency(entry.amount)}</span>
+                </div>
+                ${entry.tendered && entry.tendered > entry.amount ? `
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Cash Tendered</span>
+                        <span>${formatCurrency(entry.tendered)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Change</span>
+                        <span>${formatCurrency(entry.change || 0)}</span>
+                    </div>
+                ` : ''}
+            `;
+        }
+        if (entry.method === 'check') {
+            return `
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Check</span>
+                    <span>${formatCurrency(entry.amount)}${entry.check_number ? ` #${escapeHtml(entry.check_number)}` : ''}</span>
+                </div>
+            `;
+        }
+        const entryMaskedCard = formatCardLast4(entry.card_last4 || undefined);
+        return `
+            <div style="display: flex; justify-content: space-between;">
+                <span>Card</span>
+                <span>${formatCurrency(entry.amount)}${entryMaskedCard ? ` ${entryMaskedCard}` : ''}</span>
+            </div>
+        `;
+    }).join('');
+
+    const paymentHTML = receipt.paymentMethod === 'split' && splitPaymentHTML
+        ? splitPaymentHTML
+        : receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined
         ? `
             <div style="display: flex; justify-content: space-between;">
                 <span>Cash</span>
@@ -353,7 +399,7 @@ function generateReceiptHTML(receipt: ReceiptData): string {
         <div>
             <div style="display: flex; justify-content: space-between;">
                 <span>Payment</span>
-                <span>${receipt.paymentMethod.toUpperCase()}</span>
+                <span>${receipt.paymentMethod === 'split' ? 'SPLIT' : receipt.paymentMethod.toUpperCase()}</span>
             </div>
             ${receipt.paymentMethod === 'card' && maskedCard ? `
                 <div style="display: flex; justify-content: space-between;">

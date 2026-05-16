@@ -1,6 +1,6 @@
-import { fromCurrencyCents, getNetCashSaleCents, toCurrencyCents } from './cashReconciliation';
+import { fromCurrencyCents, getNetCashSaleCents, getPaymentBreakdownAmountCents, toCurrencyCents } from './cashReconciliation';
 
-type PaymentMethod = 'cash' | 'card' | 'check';
+type PaymentMethod = 'cash' | 'card' | 'check' | 'split';
 
 interface SaleLike {
     subtotal?: number | string | null;
@@ -12,6 +12,10 @@ interface SaleLike {
     payment_method?: PaymentMethod | string | null;
     cash_tendered?: number | string | null;
     change_given?: number | string | null;
+    payment_breakdown?: Array<{
+        method?: string | null;
+        amount?: number | string | null;
+    }> | null;
 }
 
 interface RefundLike {
@@ -92,22 +96,34 @@ export function calculateTillAccountabilityMetrics(
         + giftCertificatesSoldCents;
 
     const cashSalesNetCents = input.sales
-        .filter((sale) => sale.payment_method === 'cash')
-        .reduce((sum, sale) => sum + getNetCashSaleCents(sale), 0);
+        .reduce((sum, sale) => {
+            if (sale.payment_method === 'split') {
+                return sum + getPaymentBreakdownAmountCents(sale, 'cash');
+            }
+            return sale.payment_method === 'cash' ? sum + getNetCashSaleCents(sale) : sum;
+        }, 0);
     const cashRefundsCents = input.refunds
         .filter((refund) => refund.payment_method === 'cash')
         .reduce((sum, refund) => sum + toCurrencyCents(refund.refund_amount || 0), 0);
 
     const checkSalesNetCents = input.sales
-        .filter((sale) => sale.payment_method === 'check')
-        .reduce((sum, sale) => sum + toCurrencyCents(sale.total || 0), 0);
+        .reduce((sum, sale) => {
+            if (sale.payment_method === 'split') {
+                return sum + getPaymentBreakdownAmountCents(sale, 'check');
+            }
+            return sale.payment_method === 'check' ? sum + toCurrencyCents(sale.total || 0) : sum;
+        }, 0);
     const checkRefundsCents = input.refunds
         .filter((refund) => refund.payment_method === 'check')
         .reduce((sum, refund) => sum + toCurrencyCents(refund.refund_amount || 0), 0);
 
     const cardSalesNetCents = input.sales
-        .filter((sale) => sale.payment_method === 'card')
-        .reduce((sum, sale) => sum + toCurrencyCents(sale.total || 0), 0);
+        .reduce((sum, sale) => {
+            if (sale.payment_method === 'split') {
+                return sum + getPaymentBreakdownAmountCents(sale, 'card');
+            }
+            return sale.payment_method === 'card' ? sum + toCurrencyCents(sale.total || 0) : sum;
+        }, 0);
     const cardRefundsCents = input.refunds
         .filter((refund) => refund.payment_method === 'card')
         .reduce((sum, refund) => sum + toCurrencyCents(refund.refund_amount || 0), 0);

@@ -107,6 +107,29 @@ export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
                         <span>Total</span>
                         <span>{formatCurrency(receiptData.total)}</span>
                     </div>
+                    {sale.payment_method === 'split' && sale.payment_breakdown && sale.payment_breakdown.length > 0 && (
+                        <div className="pt-2 border-t border-dashed border-[var(--color-border)] mt-2 space-y-1">
+                            <div className="flex justify-between">
+                                <span>Paid by</span>
+                                <span>Split</span>
+                            </div>
+                            {sale.payment_breakdown.map((entry, index) => (
+                                <div key={`${entry.method}-${index}`} className="flex justify-between text-[var(--color-muted)]">
+                                    <span>
+                                        {entry.method === 'cash' ? 'Cash' : entry.method === 'check' ? 'Check' : 'Card'}
+                                        {entry.method === 'check' && entry.check_number ? ` #${entry.check_number}` : ''}
+                                    </span>
+                                    <span>{formatCurrency(Number(entry.amount || 0))}</span>
+                                </div>
+                            ))}
+                            {(sale.change_given || 0) > 0 && (
+                                <div className="flex justify-between font-bold text-[var(--color-success)]">
+                                    <span>Change</span>
+                                    <span>{formatCurrency(Number(sale.change_given))}</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
                     {sale.payment_method === 'cash' && (
                         <>
                             <div className="flex justify-between pt-2 border-t border-dashed border-[var(--color-border)] mt-2">

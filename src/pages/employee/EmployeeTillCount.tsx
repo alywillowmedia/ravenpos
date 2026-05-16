@@ -82,7 +82,7 @@ export function EmployeeTillCount() {
                 supabase.rpc('get_chat_admin_contacts'),
                 supabase
                     .from('sales')
-                    .select('subtotal, tax_amount, total, discount_total, card_fee_amount, store_credit_used, payment_method, cash_tendered, change_given')
+                    .select('subtotal, tax_amount, total, discount_total, card_fee_amount, store_credit_used, payment_method, payment_breakdown, cash_tendered, change_given')
                     .gte('completed_at', startIso)
                     .lte('completed_at', endIso),
                 supabase

@@ -2,6 +2,14 @@ interface CashSaleLike {
     cash_tendered?: number | string | null;
     change_given?: number | string | null;
     total?: number | string | null;
+    payment_breakdown?: PaymentBreakdownLike[] | null;
+}
+
+interface PaymentBreakdownLike {
+    method?: string | null;
+    amount?: number | string | null;
+    tendered?: number | string | null;
+    change?: number | string | null;
 }
 
 function toSafeNumber(value: number | string | null | undefined): number {
@@ -18,6 +26,11 @@ export function fromCurrencyCents(cents: number): number {
 }
 
 export function getNetCashSaleCents(sale: CashSaleLike): number {
+    const cashBreakdown = sale.payment_breakdown?.find((entry) => entry.method === 'cash');
+    if (cashBreakdown) {
+        return toCurrencyCents(cashBreakdown.amount);
+    }
+
     const tendered = toCurrencyCents(sale.cash_tendered);
     const change = toCurrencyCents(sale.change_given);
     const total = toCurrencyCents(sale.total);
@@ -26,6 +39,15 @@ export function getNetCashSaleCents(sale: CashSaleLike): number {
 
 export function sumCashSalesNetCents(sales: CashSaleLike[]): number {
     return sales.reduce((sum, sale) => sum + getNetCashSaleCents(sale), 0);
+}
+
+export function getPaymentBreakdownAmountCents(
+    sale: { payment_breakdown?: PaymentBreakdownLike[] | null },
+    method: 'cash' | 'card' | 'check'
+): number {
+    return (sale.payment_breakdown || [])
+        .filter((entry) => entry.method === method)
+        .reduce((sum, entry) => sum + toCurrencyCents(entry.amount), 0);
 }
 
 export function getExpectedCashFromSalesCents(input: {

@@ -270,7 +270,7 @@ export function Display() {
                         {cardFeeAmount > 0 && (
                             <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 space-y-1.5">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-sm text-[var(--color-muted)] flex items-center gap-2"><CreditCard size={14} /> Card Total</span>
+                                    <span className="text-sm text-[var(--color-muted)] flex items-center gap-2"><CreditCard size={14} /> {paymentMethod === 'split' ? 'Split Total' : 'Card Total'}</span>
                                     <span className="font-semibold">{formatCurrency(cardPrice)}</span>
                                 </div>
                                 <div className="flex items-center justify-between">
@@ -287,7 +287,7 @@ export function Display() {
                     <div className="p-5 md:p-6 bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-primary-hover)] text-[var(--color-primary-foreground)] mt-auto">
                         <div className="flex justify-between items-end mb-1">
                             <span className="text-base md:text-lg font-medium opacity-90">
-                                {paymentMethod === 'card' ? 'Card Total' : 'Total Due'}
+                                {paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Total Due'}
                             </span>
                             <span className="text-4xl md:text-5xl font-bold">{formatCurrency(amountDue)}</span>
                         </div>
