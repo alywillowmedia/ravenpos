@@ -611,19 +611,13 @@ export function useMessaging({ portalBasePath }: UseMessagingOptions) {
             return { error: `Message cannot exceed ${MAX_MESSAGE_LENGTH} characters.` };
         }
 
-        const payload = actor.type === 'user'
-            ? {
-                thread_id: state.activeThreadId,
-                sender_type: 'user',
-                sender_user_id: actor.id,
-                body: trimmed,
-            }
-            : {
-                thread_id: state.activeThreadId,
-                sender_type: 'employee',
-                sender_employee_id: actor.id,
-                body: trimmed,
-            };
+        const payload = {
+            thread_id: state.activeThreadId,
+            sender_type: actor.type,
+            sender_user_id: actor.type === 'user' ? actor.id : null,
+            sender_employee_id: actor.type === 'employee' ? actor.id : null,
+            body: trimmed,
+        };
 
         const { error } = await supabase
             .from('chat_messages')
