@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Monitor as MonitorIcon } from 'lucide-react';
+import { FolderOpen as FolderOpenIcon, Monitor as MonitorIcon, Save as SaveIcon, Trash2 as TrashIcon } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
@@ -27,11 +27,12 @@ import { useStripeTerminal } from '../hooks/useStripeTerminal';
 import { createCartItem, calculateCartTotals, calculateVendorSubtotal } from '../lib/tax';
 import { createDiscount, formatDiscountLabel } from '../lib/discounts';
 import { calculateCardSurchargeAmount } from '../lib/cardFees';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, formatDateTime } from '../lib/utils';
 import { createReceiptData } from '../lib/printReceipt';
 import { createInvoiceEmailDataFromCart } from '../lib/invoice';
 import { supabase } from '../lib/supabase';
 import { getOfflineSalesSyncStatus, syncOfflineCashSalesQueue } from '../lib/offlineCashSales';
+import { deletePosSavedCart, listPosSavedCarts, restorePosSavedCart, savePosCart, type PosSavedCart } from '../lib/posSavedCarts';
 import type { CartItem, Item, Sale, Customer, CustomerInput, PaymentMethod, PaymentBreakdownEntry, Discount, DiscountType, Invoice, InvoiceRecipientType } from '../types';
 import type { ReceiptData } from '../types/receipt';
 import type { InvoiceEmailData } from '../types/invoice';
@@ -105,6 +106,13 @@ export function POS() {
     const [showGiftCardSaleModal, setShowGiftCardSaleModal] = useState(false);
     const [showCustomItemModal, setShowCustomItemModal] = useState(false);
     const [showSmartSearch, setShowSmartSearch] = useState(false);
+    const [showSaveCartModal, setShowSaveCartModal] = useState(false);
+    const [showSavedCartsModal, setShowSavedCartsModal] = useState(false);
+    const [savedCartName, setSavedCartName] = useState('');
+    const [savedCarts, setSavedCarts] = useState<PosSavedCart[]>([]);
+    const [isSavingCart, setIsSavingCart] = useState(false);
+    const [isLoadingSavedCarts, setIsLoadingSavedCarts] = useState(false);
+    const [activeSavedCartId, setActiveSavedCartId] = useState<string | null>(null);
     const [customItemForm, setCustomItemForm] = useState({
         name: '',
         price: '',
@@ -1190,6 +1198,151 @@ export function POS() {
         setCart(prev => prev.map((ci, i) => (i === itemIndex ? updatedItem : ci)));
     };
 
+    const getDefaultSavedCartName = () => {
+        const time = new Intl.DateTimeFormat('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+        }).format(new Date());
+        return selectedCustomer?.name ? `${selectedCustomer.name} - ${time}` : `Cart - ${time}`;
+    };
+
+    const openSaveCartModal = () => {
+        if (cart.length === 0) return;
+        setSavedCartName(getDefaultSavedCartName());
+        setShowSaveCartModal(true);
+        setScanError(null);
+    };
+
+    const loadSavedCarts = useCallback(async () => {
+        setIsLoadingSavedCarts(true);
+        const { data, error } = await listPosSavedCarts();
+        setIsLoadingSavedCarts(false);
+
+        if (error) {
+            setScanError(error);
+            return;
+        }
+
+        setSavedCarts(data);
+    }, []);
+
+    useEffect(() => {
+        if (!showSavedCartsModal) return;
+        void loadSavedCarts();
+    }, [loadSavedCarts, showSavedCartsModal]);
+
+    const resetTenderStateForRestoredCart = () => {
+        setCashTendered('');
+        setSplitCashAmount('');
+        setSplitCashTendered('');
+        setSplitCheckAmount('');
+        setSplitCheckNumber('');
+        setUseStoreCredit(true);
+        setGiftCardInput('');
+        setGiftCardError(null);
+        setIsApplyingGiftCard(false);
+        setAppliedGiftCard(null);
+        setPaymentMethod('card');
+        setCheckNumber('');
+        setIsCollectingCard(false);
+        setCompletedSale(null);
+        setCompletedReceiptData(null);
+        setCompletedCart([]);
+        setShowReceiptDelivery(false);
+        setDiscountTarget(null);
+    };
+
+    const handleSaveCartForLater = async () => {
+        if (cart.length === 0) return;
+
+        setIsSavingCart(true);
+        const { error } = await savePosCart({
+            name: savedCartName,
+            cart,
+            orderDiscounts,
+            dealerDiscountEnabled,
+            selectedCustomer,
+            subtotal,
+            total,
+            createdByUserId: userRecord?.id,
+            createdByEmployeeId: employee?.id,
+        });
+        setIsSavingCart(false);
+
+        if (error) {
+            setScanError(error);
+            return;
+        }
+
+        setShowSaveCartModal(false);
+        setCart([]);
+        setOrderDiscounts([]);
+        setDealerDiscountEnabled(false);
+        setSelectedCustomer(null);
+        setCustomerSearch('');
+        resetTenderStateForRestoredCart();
+        setScanError('Cart saved for later.');
+        await loadSavedCarts();
+    };
+
+    const handleOpenSavedCart = async (savedCart: PosSavedCart) => {
+        setActiveSavedCartId(savedCart.id);
+        const { data, error } = await restorePosSavedCart(savedCart);
+        setActiveSavedCartId(null);
+
+        if (error || !data) {
+            setScanError(error || 'Unable to open saved cart');
+            return;
+        }
+
+        if (data.cart.length === 0) {
+            setScanError('No available items remain in that saved cart.');
+            return;
+        }
+
+        let restoredCustomer: Customer | null = null;
+        if (savedCart.customer_id) {
+            const { data: customer } = await supabase
+                .from('customers')
+                .select('*')
+                .eq('id', savedCart.customer_id)
+                .maybeSingle();
+            restoredCustomer = customer as Customer | null;
+        }
+
+        setCart(data.cart);
+        setOrderDiscounts(data.orderDiscounts);
+        setDealerDiscountEnabled(data.dealerDiscountEnabled);
+        setSelectedCustomer(restoredCustomer);
+        setCustomerSearch('');
+        resetTenderStateForRestoredCart();
+        setShowSavedCartsModal(false);
+
+        if (data.unavailableCount > 0 || data.adjustedCount > 0) {
+            const notes = [
+                data.unavailableCount > 0 ? `${data.unavailableCount} unavailable item${data.unavailableCount === 1 ? '' : 's'} skipped` : '',
+                data.adjustedCount > 0 ? `${data.adjustedCount} item${data.adjustedCount === 1 ? '' : 's'} quantity-adjusted` : '',
+            ].filter(Boolean).join('; ');
+            setScanError(`Saved cart opened. ${notes}.`);
+            return;
+        }
+
+        setScanError(null);
+    };
+
+    const handleDeleteSavedCart = async (savedCartId: string) => {
+        setActiveSavedCartId(savedCartId);
+        const { error } = await deletePosSavedCart(savedCartId);
+        setActiveSavedCartId(null);
+
+        if (error) {
+            setScanError(error);
+            return;
+        }
+
+        setSavedCarts((prev) => prev.filter((savedCart) => savedCart.id !== savedCartId));
+    };
+
     const quickCashAmounts = [1, 5, 10, 20, 50, 100];
     const dealerDiscountEligibleItems = cart.filter((cartItem) =>
         Number((cartItem.item.consignor as { dealer_discount_percent?: number } | undefined)?.dealer_discount_percent || 0) > 0
@@ -1296,6 +1449,24 @@ export function POS() {
                 className="shrink-0 pb-4 mb-4"
                 actions={
                     <div className="flex gap-2">
+                        <Button
+                            variant="ghost"
+                            onClick={openSaveCartModal}
+                            disabled={cart.length === 0 || isOfflineMode}
+                            title={isOfflineMode ? 'Saved carts require internet' : 'Save cart for later'}
+                        >
+                            <SaveIcon className="h-4 w-4" />
+                            Save Cart
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            onClick={() => setShowSavedCartsModal(true)}
+                            disabled={isOfflineMode}
+                            title={isOfflineMode ? 'Saved carts require internet' : 'Open saved carts'}
+                        >
+                            <FolderOpenIcon className="h-4 w-4" />
+                            Saved Carts
+                        </Button>
                         <Button
                             variant="ghost"
                             onClick={() => setShowInvoiceModal(true)}
@@ -2229,6 +2400,112 @@ export function POS() {
                 </div>
             </div>
             </div>
+
+            {/* Save Cart Modal */}
+            <Modal
+                isOpen={showSaveCartModal}
+                onClose={() => setShowSaveCartModal(false)}
+                title="Save Cart"
+                size="sm"
+            >
+                <div className="space-y-4">
+                    <Input
+                        label="Cart Name"
+                        value={savedCartName}
+                        onChange={(e) => setSavedCartName(e.target.value)}
+                        placeholder="Customer name or quick note"
+                    />
+                    <div className="rounded-lg bg-[var(--color-surface)] p-3 text-sm space-y-2">
+                        <div className="flex justify-between">
+                            <span className="text-[var(--color-muted)]">Items</span>
+                            <span>{cart.reduce((sum, item) => sum + item.quantity, 0)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-[var(--color-muted)]">Total</span>
+                            <span className="font-semibold">{formatCurrency(total)}</span>
+                        </div>
+                        {selectedCustomer && (
+                            <div className="flex justify-between gap-3">
+                                <span className="text-[var(--color-muted)]">Customer</span>
+                                <span className="truncate text-right">{selectedCustomer.name}</span>
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowSaveCartModal(false)}
+                            className="flex-1"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleSaveCartForLater}
+                            isLoading={isSavingCart}
+                            className="flex-1"
+                        >
+                            Save for Later
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Saved Carts Modal */}
+            <Modal
+                isOpen={showSavedCartsModal}
+                onClose={() => setShowSavedCartsModal(false)}
+                title="Saved Carts"
+                size="lg"
+            >
+                {isLoadingSavedCarts ? (
+                    <div className="flex items-center justify-center py-10">
+                        <LoadingSpinner size={32} />
+                    </div>
+                ) : savedCarts.length === 0 ? (
+                    <div className="py-10 text-center">
+                        <FolderOpenIcon className="mx-auto h-10 w-10 text-[var(--color-muted)]" />
+                        <p className="mt-3 text-sm text-[var(--color-muted)]">No saved carts yet.</p>
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {savedCarts.map((savedCart) => (
+                            <div
+                                key={savedCart.id}
+                                className="flex items-center gap-3 rounded-lg border border-[var(--color-border)] p-3"
+                            >
+                                <div className="min-w-0 flex-1">
+                                    <p className="truncate font-medium">{savedCart.name}</p>
+                                    <p className="text-xs text-[var(--color-muted)]">
+                                        {savedCart.item_count} item{savedCart.item_count === 1 ? '' : 's'} · {formatCurrency(savedCart.total)} · {formatDateTime(savedCart.created_at)}
+                                    </p>
+                                    {savedCart.customer_name && (
+                                        <p className="truncate text-xs text-[var(--color-muted)]">
+                                            Customer: {savedCart.customer_name}
+                                        </p>
+                                    )}
+                                </div>
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => void handleOpenSavedCart(savedCart)}
+                                    isLoading={activeSavedCartId === savedCart.id}
+                                    disabled={activeSavedCartId !== null}
+                                >
+                                    {cart.length > 0 ? 'Replace Cart' : 'Open'}
+                                </Button>
+                                <button
+                                    onClick={() => void handleDeleteSavedCart(savedCart.id)}
+                                    disabled={activeSavedCartId !== null}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-muted)] transition-colors hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                                    title="Delete saved cart"
+                                >
+                                    <TrashIcon className="h-4 w-4" />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </Modal>
 
             {/* Reader Selection Modal */}
             <Modal
