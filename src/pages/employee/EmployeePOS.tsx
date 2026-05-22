@@ -187,34 +187,25 @@ export function EmployeePOS() {
         setScanError(null);
 
         try {
-            // Insert sale with employee tracking
-            const { data: sale, error: saleError } = await supabase
-                .from('sales')
-                .insert({
-                    customer_id: selectedCustomer?.id || null,
-                    subtotal,
-                    tax_amount: taxTotal,
-                    total,
-                    discounts: [],
-                    discount_total: discountTotal,
-                    payment_method: paymentMethod,
-                    cash_tendered: paymentMethod === 'cash' ? cashAmount : null,
-                    change_given: paymentMethod === 'cash' ? change : null,
-                    processed_by_employee: employee?.id, // Track which employee processed
-                    ...(paymentMethod === 'check' ? { check_number: checkNumber.trim() || null } : {}),
-                })
-                .select()
-                .single();
-
-            if (saleError || !sale) {
-                setScanError(formatSupabaseError(saleError, 'Failed to complete sale'));
-                setIsProcessing(false);
-                return;
-            }
+            const saleId = crypto.randomUUID();
+            const salePayload = {
+                id: saleId,
+                customer_id: selectedCustomer?.id || null,
+                subtotal,
+                tax_amount: taxTotal,
+                total,
+                discounts: [],
+                discount_total: discountTotal,
+                payment_method: paymentMethod,
+                cash_tendered: paymentMethod === 'cash' ? cashAmount : null,
+                change_given: paymentMethod === 'cash' ? change : null,
+                processed_by_employee: employee?.id, // Track which employee processed
+                ...(paymentMethod === 'check' ? { check_number: checkNumber.trim() || null } : {}),
+            };
 
             // Insert sale items
             const saleItems = cart.map((ci) => ({
-                sale_id: sale.id,
+                sale_id: saleId,
                 item_id: ci.item.id,
                 consignor_id: ci.item.consignor_id,
                 sku: ci.item.sku,
@@ -222,18 +213,23 @@ export function EmployeePOS() {
                 price: ci.item.price,
                 quantity: ci.quantity,
                 commission_split: ci.item.consignor?.commission_split ?? 0.6,
+                consignor_pays_card_fee: ci.item.consignor?.consignor_pays_card_fee ?? false,
                 discount_type: ci.discount?.type,
                 discount_value: ci.discount?.value,
                 discount_amount: ci.discount?.calculatedAmount ?? 0,
                 discount_reason: ci.discount?.reason,
             }));
 
-            const { error: itemsError } = await supabase
-                .from('sale_items')
-                .insert(saleItems);
+            const { data: sale, error: saleError } = await supabase.rpc('create_pos_sale_with_items', {
+                p_sale: salePayload,
+                p_sale_items: saleItems,
+            });
 
-            if (itemsError) {
-                console.error('Failed to insert sale items:', itemsError);
+            if (saleError || !sale) {
+                console.error('Failed to create sale:', saleError);
+                setScanError(formatSupabaseError(saleError, 'Sale could not be completed because its items could not be saved.'));
+                setIsProcessing(false);
+                return;
             }
 
             // Update inventory quantities

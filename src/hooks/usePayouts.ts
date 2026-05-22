@@ -8,6 +8,7 @@ import type {
     Consignor,
     BalanceDisposition,
     PaymentMethod,
+    PaymentBreakdownEntry,
     VendorLedgerEntry,
 } from '../types';
 import {
@@ -43,6 +44,7 @@ interface SaleItemWithJoins {
         total: number;
         discount_total?: number;
         payment_method: PaymentMethod;
+        payment_breakdown?: PaymentBreakdownEntry[] | null;
     };
     consignor: Consignor;
 }
@@ -72,8 +74,90 @@ interface VendorLedgerEntryRecord {
     created_at: string;
 }
 
+export interface UnattributedPayoutSale {
+    id: string;
+    completed_at: string;
+    subtotal: number;
+    total: number;
+    payment_method: PaymentMethod;
+}
+
+const SUPABASE_PAGE_SIZE = 1000;
+
+type SupabasePagedQuery<T> = {
+    range: (from: number, to: number) => PromiseLike<{
+        data: T[] | null;
+        error: unknown;
+    }>;
+};
+
+async function fetchAllRows<T>(createQuery: () => SupabasePagedQuery<T>): Promise<T[]> {
+    const rows: T[] = [];
+
+    for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+        const to = from + SUPABASE_PAGE_SIZE - 1;
+        const { data, error } = await createQuery().range(from, to);
+
+        if (error) throw error;
+
+        const page = data || [];
+        rows.push(...page);
+
+        if (page.length < SUPABASE_PAGE_SIZE) break;
+    }
+
+    return rows;
+}
+
 function roundCurrency(value: number): number {
     return Number(value.toFixed(2));
+}
+
+function getCardTenderAmount(sale: SaleItemWithJoins['sale'], saleNetSubtotal: number): number {
+    if (sale.payment_method === 'split') {
+        return (sale.payment_breakdown || [])
+            .filter((entry) => entry.method === 'card')
+            .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    }
+
+    return sale.payment_method === 'card' ? Number(sale.total || saleNetSubtotal) : 0;
+}
+
+function getPayoutPeriodBounds(summary: ConsignorPayoutSummary): { start: string; end: string } {
+    const saleDates = summary.salesSinceLastPayout
+        .map((item) => new Date(item.saleDate))
+        .filter((date) => Number.isFinite(date.getTime()))
+        .sort((a, b) => a.getTime() - b.getTime());
+
+    const now = new Date();
+    const start = saleDates[0]
+        || (summary.lastPayout ? getCoveredThroughDate(summary.lastPayout) : null)
+        || now;
+    const latestSaleDate = saleDates[saleDates.length - 1];
+    const end = latestSaleDate && latestSaleDate < now ? latestSaleDate : now;
+
+    return {
+        start: start.toISOString(),
+        end: end.toISOString(),
+    };
+}
+
+function clampPeriodEndToNow(periodEnd: string): string {
+    const parsed = new Date(periodEnd);
+    if (Number.isNaN(parsed.getTime())) return new Date().toISOString();
+
+    const now = new Date();
+    return parsed > now ? now.toISOString() : parsed.toISOString();
+}
+
+function getCoveredThroughDate(payout: Pick<Payout, 'period_end' | 'paid_at'>): Date | null {
+    const paidAt = new Date(payout.paid_at);
+    const periodEnd = new Date(payout.period_end || payout.paid_at);
+    if (Number.isNaN(paidAt.getTime()) && Number.isNaN(periodEnd.getTime())) return null;
+    if (Number.isNaN(periodEnd.getTime())) return paidAt;
+    if (Number.isNaN(paidAt.getTime())) return periodEnd;
+
+    return periodEnd > paidAt ? paidAt : periodEnd;
 }
 
 function getDueBoothRentMonths(
@@ -146,6 +230,7 @@ function getDeferredBalanceCarryover(consignorPayouts: Payout[]): number {
 export function usePayouts() {
     const [payouts, setPayouts] = useState<Payout[]>([]);
     const [consignorSummaries, setConsignorSummaries] = useState<ConsignorPayoutSummary[]>([]);
+    const [unattributedSales, setUnattributedSales] = useState<UnattributedPayoutSale[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -156,30 +241,32 @@ export function usePayouts() {
             setError(null);
 
             // Fetch all active consignors
-            const { data: consignors, error: consignorError } = await supabase
+            const activeConsignors = await fetchAllRows<Consignor>(() => supabase
                 .from('consignors')
                 .select('*')
                 .eq('is_active', true)
-                .order('consignor_number');
-
-            if (consignorError) throw consignorError;
-
-            const activeConsignors = (consignors || []) as Consignor[];
+                .order('consignor_number')
+            );
             const today = getLocalDateString();
             const consignorIds = activeConsignors.map((consignor) => consignor.id);
 
             let effectiveConsignors = activeConsignors;
             if (consignorIds.length > 0) {
-                const { data: scheduleData, error: scheduleError } = await supabase
-                    .from('consignor_rate_schedules')
-                    .select('id, consignor_id, effective_date, commission_split, booth_square_feet, booth_cost_per_square_foot, monthly_booth_rent, created_at, updated_at')
-                    .in('consignor_id', consignorIds)
-                    .lte('effective_date', today);
-
-                if (scheduleError && !isMissingRateScheduleTable(scheduleError)) throw scheduleError;
+                let scheduleData: ConsignorRateSchedule[] = [];
+                try {
+                    scheduleData = await fetchAllRows<ConsignorRateSchedule>(() => supabase
+                        .from('consignor_rate_schedules')
+                        .select('id, consignor_id, effective_date, commission_split, booth_square_feet, booth_cost_per_square_foot, monthly_booth_rent, created_at, updated_at')
+                        .in('consignor_id', consignorIds)
+                        .lte('effective_date', today)
+                        .order('effective_date')
+                    );
+                } catch (scheduleError) {
+                    if (!isMissingRateScheduleTable(scheduleError)) throw scheduleError;
+                }
 
                 const schedulesByConsignor = new Map<string, ConsignorRateSchedule[]>();
-                for (const schedule of (scheduleData || []) as ConsignorRateSchedule[]) {
+                for (const schedule of scheduleData) {
                     const existing = schedulesByConsignor.get(schedule.consignor_id) || [];
                     existing.push(schedule);
                     schedulesByConsignor.set(schedule.consignor_id, existing);
@@ -195,54 +282,63 @@ export function usePayouts() {
             }
 
             // Fetch all payouts to get last payout dates
-            const { data: allPayouts, error: payoutError } = await supabase
+            const allPayouts = await fetchAllRows<Payout>(() => supabase
                 .from('payouts')
                 .select(`
                     *,
                     consignor:consignors(*)
                 `)
-                .order('paid_at', { ascending: false });
-
-            if (payoutError) throw payoutError;
+                .order('paid_at', { ascending: false })
+            );
 
             // Fetch all sale items with sale data (including payment_method for fee calc)
-            const { data: saleItems, error: saleItemsError } = await supabase
+            const saleItems = await fetchAllRows<SaleItemWithJoins>(() => supabase
                 .from('sale_items')
                 .select(`
                     *,
-                    sale:sales(id, completed_at, tax_amount, subtotal, total, discount_total, payment_method)
-                `);
+                    sale:sales(id, completed_at, tax_amount, subtotal, total, discount_total, payment_method, payment_breakdown)
+                `)
+                .order('id')
+            );
 
-            if (saleItemsError) throw saleItemsError;
+            const recentSalesCutoff = new Date();
+            recentSalesCutoff.setDate(recentSalesCutoff.getDate() - 30);
+            const { data: payoutOrphanSales, error: payoutOrphanSalesError } = await supabase.rpc(
+                'get_payout_orphan_sales',
+                { p_since: recentSalesCutoff.toISOString() }
+            );
+
+            if (payoutOrphanSalesError) throw payoutOrphanSalesError;
+            setUnattributedSales((payoutOrphanSales || []) as UnattributedPayoutSale[]);
 
             // Fetch all refunds to check for refunded items
-            const { data: refunds, error: refundsError } = await supabase
+            const refunds = await fetchAllRows<{ items: Array<{ sale_item_id: string; quantity: number }> | null }>(() => supabase
                 .from('refunds')
-                .select('*');
+                .select('*')
+                .order('id')
+            );
 
-            if (refundsError) throw refundsError;
-
-            const { data: boothRentPayments, error: boothRentError } = await supabase
+            const boothRentPayments = await fetchAllRows<BoothRentPaymentRecord>(() => supabase
                 .from('booth_rent_payments')
-                .select('id, consignor_id, period_month, period_year');
+                .select('id, consignor_id, period_month, period_year')
+                .order('id')
+            );
 
-            if (boothRentError) throw boothRentError;
-
-            const { data: marketingAllocations, error: marketingAllocationsError } = await supabase
+            const marketingAllocations = await fetchAllRows<MarketingAllocationRecord>(() => supabase
                 .from('marketing_fee_allocations')
-                .select('id, consignor_id, amount, deducted_payout_id');
+                .select('id, consignor_id, amount, deducted_payout_id')
+                .order('id')
+            );
 
-            if (marketingAllocationsError) throw marketingAllocationsError;
-
-            const { data: vendorLedgerEntries, error: vendorLedgerEntriesError } = await supabase
+            const vendorLedgerEntries = await fetchAllRows<VendorLedgerEntryRecord>(() => supabase
                 .from('vendor_ledger_entries')
-                .select('id, consignor_id, description, amount, deducted_payout_id, deducted_at, created_by, created_at');
-
-            if (vendorLedgerEntriesError) throw vendorLedgerEntriesError;
+                .select('id, consignor_id, description, amount, deducted_payout_id, deducted_at, created_by, created_at')
+                .order('id')
+            );
 
             // Build a map of refunded sale_item_ids to refunded quantities
             const refundedItemsMap = new Map<string, number>();
-            for (const refund of refunds || []) {
+            for (const refund of refunds) {
                 const items = refund.items as Array<{ sale_item_id: string; quantity: number }>;
                 for (const item of items || []) {
                     const current = refundedItemsMap.get(item.sale_item_id) || 0;
@@ -254,23 +350,23 @@ export function usePayouts() {
             const summaries: ConsignorPayoutSummary[] = [];
 
             for (const consignor of effectiveConsignors) {
-                const consignorPayouts = (allPayouts || []).filter((p) => p.consignor_id === consignor.id);
+                const consignorPayouts = allPayouts.filter((p) => p.consignor_id === consignor.id);
                 // allPayouts is already ordered by paid_at DESC.
                 const lastPayout = consignorPayouts[0] || null;
                 const lastPayoutBoundary = consignorPayouts.reduce<Date | null>((latest, payout) => {
-                    const boundaryCandidate = new Date(payout.period_end || payout.paid_at);
-                    if (Number.isNaN(boundaryCandidate.getTime())) return latest;
+                    const boundaryCandidate = getCoveredThroughDate(payout);
+                    if (!boundaryCandidate) return latest;
                     if (!latest || boundaryCandidate > latest) return boundaryCandidate;
                     return latest;
                 }, null);
                 const lastPayoutDate = lastPayoutBoundary || new Date(0);
                 const deferredCarryover = getDeferredBalanceCarryover(consignorPayouts);
-                const consignorBoothRentPayments = (boothRentPayments || []).filter(
+                const consignorBoothRentPayments = boothRentPayments.filter(
                     (payment: BoothRentPaymentRecord) => payment.consignor_id === consignor.id
                 );
 
                 // Filter sale items for this consignor since last payout
-                const consignorSaleItems = (saleItems || [])
+                const consignorSaleItems = saleItems
                     .filter((item: SaleItemWithJoins) => {
                         if (item.consignor_id !== consignor.id) return false;
                         if (!item.sale) return false;
@@ -293,7 +389,7 @@ export function usePayouts() {
 
                 // Group all items by sale_id so per-sale discount/tax/fee allocation is accurate.
                 const itemsBySale = new Map<string, SaleItemWithJoins[]>();
-                for (const item of (saleItems || []) as SaleItemWithJoins[]) {
+                for (const item of saleItems) {
                     const existing = itemsBySale.get(item.sale_id) || [];
                     existing.push(item);
                     itemsBySale.set(item.sale_id, existing);
@@ -324,7 +420,7 @@ export function usePayouts() {
                     saleFinancialContext.set(saleId, { orderDiscountRatio, netSubtotal });
                 }
 
-                for (const item of consignorSaleItems as SaleItemWithJoins[]) {
+                for (const item of consignorSaleItems) {
                     const rawLineTotal = Number(item.price) * item.quantity;
                     const itemDiscount = Math.max(0, Math.min(Number(item.discount_amount || 0), rawLineTotal));
                     const lineAfterItemDiscount = Math.max(0, rawLineTotal - itemDiscount);
@@ -335,10 +431,9 @@ export function usePayouts() {
 
                     // Calculate proportional credit card fee for this item
                     let itemCreditCardFee = 0;
-                    if (item.sale.payment_method === 'card' && item.consignor_pays_card_fee) {
-                        const saleTotal = item.sale.total || saleNetSubtotal;
-                        // Total fee for the entire sale
-                        const totalSaleFee = calculateStripeTerminalProcessingFee(saleTotal);
+                    const cardTenderAmount = getCardTenderAmount(item.sale, saleNetSubtotal);
+                    if (cardTenderAmount > 0 && item.consignor_pays_card_fee) {
+                        const totalSaleFee = calculateStripeTerminalProcessingFee(cardTenderAmount);
                         // This item's proportional share of the fee
                         itemCreditCardFee = saleNetSubtotal > 0 ? totalSaleFee * (netLineTotal / saleNetSubtotal) : 0;
                     }
@@ -424,7 +519,7 @@ export function usePayouts() {
                 pendingFromSales = Math.max(0, pendingFromSales - boothRentDeduction);
 
                 // Marketing fee deduction: deduct unpaid allocations, limited by remaining available amount.
-                const pendingMarketingAllocations = (marketingAllocations || [])
+                const pendingMarketingAllocations = marketingAllocations
                     .filter((allocation: MarketingAllocationRecord) =>
                         allocation.consignor_id === consignor.id && !allocation.deducted_payout_id
                     )
@@ -442,7 +537,7 @@ export function usePayouts() {
 
                 pendingFromSales = Math.max(0, pendingFromSales - marketingFeeDeduction);
 
-                const unpaidLedgerEntries = (vendorLedgerEntries || [])
+                const unpaidLedgerEntries = vendorLedgerEntries
                     .filter((entry: VendorLedgerEntryRecord) =>
                         entry.consignor_id === consignor.id && !entry.deducted_payout_id
                     )
@@ -492,7 +587,7 @@ export function usePayouts() {
             summaries.sort((a, b) => b.pendingAmount - a.pendingAmount);
 
             setConsignorSummaries(summaries);
-            setPayouts(allPayouts || []);
+            setPayouts(allPayouts);
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to calculate payouts';
             setError(message);
@@ -516,20 +611,15 @@ export function usePayouts() {
     ): Promise<{ success: boolean; error?: string }> => {
         try {
             // Determine period dates
-            const periodStart = options?.periodStartOverride || (summary.lastPayout
-                ? summary.lastPayout.paid_at
-                : summary.salesSinceLastPayout.length > 0
-                    ? summary.salesSinceLastPayout[summary.salesSinceLastPayout.length - 1].saleDate
-                    : new Date().toISOString());
-            const periodEnd = options?.periodEndOverride || new Date().toISOString();
+            const payoutPeriod = getPayoutPeriodBounds(summary);
+            const periodStart = options?.periodStartOverride || payoutPeriod.start;
+            const periodEnd = options?.periodEndOverride
+                ? clampPeriodEndToNow(options.periodEndOverride)
+                : payoutPeriod.end;
 
             // Determine if this is a partial payout
             const isPartial = customAmount !== undefined && customAmount < summary.pendingAmount;
             const payoutAmount = customAmount !== undefined ? customAmount : summary.pendingAmount;
-            const isDeferredPartial = isPartial && (balanceDisposition || 'deferred') === 'deferred';
-            const appliedBoothRentDeduction = isDeferredPartial ? 0 : summary.boothRentDeduction;
-            const appliedMarketingFeeDeduction = isDeferredPartial ? 0 : summary.marketingFeeDeduction;
-            const appliedLedgerDeduction = isDeferredPartial ? 0 : summary.ledgerDeduction;
 
             const payoutData: PayoutInput = {
                 consignor_id: consignorId,
@@ -542,9 +632,9 @@ export function usePayouts() {
                 tax_collected: summary.taxCollected,
                 store_share: summary.storeShare,
                 credit_card_fees: summary.creditCardFees,
-                booth_rent_deduction: appliedBoothRentDeduction,
-                marketing_fee_deduction: appliedMarketingFeeDeduction,
-                ledger_deduction: appliedLedgerDeduction,
+                booth_rent_deduction: summary.boothRentDeduction,
+                marketing_fee_deduction: summary.marketingFeeDeduction,
+                ledger_deduction: summary.ledgerDeduction,
                 notes: notes || null,
                 paid_at: new Date().toISOString(),
                 original_amount_due: isPartial ? summary.pendingAmount : null,
@@ -561,7 +651,7 @@ export function usePayouts() {
 
             if (insertError) throw insertError;
 
-            if (!isDeferredPartial && summary.boothRentMonthsToDeduct.length > 0) {
+            if (summary.boothRentMonthsToDeduct.length > 0) {
                 const monthlyBoothRent = Number(summary.consignor.monthly_booth_rent || 0);
                 if (monthlyBoothRent > 0) {
                     const boothRentRows = summary.boothRentMonthsToDeduct.map((period) => ({
@@ -581,7 +671,7 @@ export function usePayouts() {
                 }
             }
 
-            if (!isDeferredPartial && summary.marketingAllocationIdsToDeduct.length > 0) {
+            if (summary.marketingAllocationIdsToDeduct.length > 0) {
                 const { error: marketingUpdateError } = await supabase
                     .from('marketing_fee_allocations')
                     .update({
@@ -594,7 +684,7 @@ export function usePayouts() {
                 if (marketingUpdateError) throw marketingUpdateError;
             }
 
-            if (!isDeferredPartial && summary.ledgerEntryIdsToDeduct.length > 0) {
+            if (summary.ledgerEntryIdsToDeduct.length > 0) {
                 const { error: ledgerUpdateError } = await supabase
                     .from('vendor_ledger_entries')
                     .update({
@@ -687,6 +777,7 @@ export function usePayouts() {
     return {
         payouts,
         consignorSummaries,
+        unattributedSales,
         isLoading,
         error,
         refetch: calculateConsignorSummaries,

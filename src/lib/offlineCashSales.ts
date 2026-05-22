@@ -74,23 +74,28 @@ export async function getOfflineUnsyncedCashNetTotal(options?: {
 async function syncSingleQueueEntry(entry: OfflineCashSaleQueueEntry): Promise<void> {
     const { sale, sale_items, inventory_adjustments } = entry.payload;
 
-    const { error: saleInsertError } = await supabase
-        .from('sales')
-        .insert(sale);
+    const { error: saleCreateError } = await supabase.rpc('create_pos_sale_with_items', {
+        p_sale: sale,
+        p_sale_items: sale_items,
+    });
 
-    if (saleInsertError && !isDuplicateKeyError(saleInsertError)) {
-        throw saleInsertError;
-    }
+    if (saleCreateError) {
+        if (!isDuplicateKeyError(saleCreateError)) {
+            throw saleCreateError;
+        }
 
-    const { error: saleItemsError } = await supabase
-        .from('sale_items')
-        .upsert(sale_items, {
-            onConflict: 'id',
-            ignoreDuplicates: true,
-        });
+        // The sale may already have synced before the local queue status updated.
+        // Make a retry idempotent by ensuring the item rows exist.
+        const { error: saleItemsError } = await supabase
+            .from('sale_items')
+            .upsert(sale_items, {
+                onConflict: 'id',
+                ignoreDuplicates: true,
+            });
 
-    if (saleItemsError) {
-        throw saleItemsError;
+        if (saleItemsError) {
+            throw saleItemsError;
+        }
     }
 
     for (const adjustment of inventory_adjustments) {

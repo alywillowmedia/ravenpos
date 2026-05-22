@@ -35,6 +35,7 @@ export function Payouts() {
     const {
         consignorSummaries,
         payouts,
+        unattributedSales,
         isLoading,
         markAsPaid,
         createLedgerEntry,
@@ -247,6 +248,11 @@ export function Payouts() {
     const filteredPayoutHistory = useMemo(
         () => payouts.filter((payout) => matchesDateRange(payout.paid_at)),
         [payouts, dateRange.start, dateRange.end]
+    );
+
+    const unattributedSalesInRange = useMemo(
+        () => unattributedSales.filter((sale) => matchesDateRange(sale.completed_at)),
+        [unattributedSales, dateRange.start, dateRange.end]
     );
 
     useEffect(() => {
@@ -624,6 +630,58 @@ export function Payouts() {
                 />
             </div>
 
+            {unattributedSalesInRange.length > 0 && (
+                <div className="mb-6 rounded-xl border border-[var(--color-warning)] bg-[var(--color-warning-bg)] p-4">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div>
+                            <p className="font-semibold text-[var(--color-warning)]">
+                                {unattributedSalesInRange.length} recent sale{unattributedSalesInRange.length === 1 ? '' : 's'} cannot be included in payouts
+                            </p>
+                            <p className="text-sm text-[var(--color-muted)]">
+                                These transactions do not have sale item rows attached, so there is no consignor to pay yet.
+                            </p>
+                        </div>
+                        <div className="text-sm text-[var(--color-warning)] font-semibold">
+                            {formatCurrency(unattributedSalesInRange.reduce((sum, sale) => sum + Number(sale.subtotal || 0), 0))}
+                        </div>
+                    </div>
+                    <div className="mt-3 max-h-80 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-card)]/70">
+                        <table className="w-full text-sm">
+                            <thead className="sticky top-0 bg-[var(--color-card)]">
+                                <tr>
+                                    <th className="px-3 py-2 text-left font-medium text-[var(--color-muted)]">Sale ID</th>
+                                    <th className="px-3 py-2 text-left font-medium text-[var(--color-muted)]">Completed</th>
+                                    <th className="px-3 py-2 text-left font-medium text-[var(--color-muted)]">Method</th>
+                                    <th className="px-3 py-2 text-right font-medium text-[var(--color-muted)]">Subtotal</th>
+                                    <th className="px-3 py-2 text-right font-medium text-[var(--color-muted)]">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {unattributedSalesInRange.map((sale) => (
+                                    <tr key={sale.id} className="border-t border-[var(--color-border)]">
+                                        <td className="px-3 py-2 font-mono text-xs text-[var(--color-muted)]">
+                                            {sale.id}
+                                        </td>
+                                        <td className="px-3 py-2 whitespace-nowrap">
+                                            {new Date(sale.completed_at).toLocaleString()}
+                                        </td>
+                                        <td className="px-3 py-2 capitalize">
+                                            {sale.payment_method}
+                                        </td>
+                                        <td className="px-3 py-2 text-right font-semibold">
+                                            {formatCurrency(Number(sale.subtotal || 0))}
+                                        </td>
+                                        <td className="px-3 py-2 text-right">
+                                            {formatCurrency(Number(sale.total || 0))}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
             {/* Content */}
             {isLoading ? (
                 <div className="flex justify-center py-12">
@@ -918,7 +976,7 @@ export function Payouts() {
                         <div className="bg-[var(--color-warning-bg)] rounded-lg p-4 border border-[var(--color-warning)]">
                             <p className="text-sm text-[var(--color-warning)] font-medium">
                                 {isDateScopedPendingView
-                                    ? `This payout is scoped to ${selectedRangeLabel}. It will be recorded in history with this exact period.`
+                                    ? `This payout is scoped to ${selectedRangeLabel}. If the range extends past right now, the recorded coverage will stop at the current time so later sales can still appear.`
                                     : useCustomAmount && balanceDisposition === 'forgiven'
                                     ? 'This will record a partial payout and forgive the remaining balance. The forgiven amount will not be owed to the consignor.'
                                     : useCustomAmount && balanceDisposition === 'deferred'

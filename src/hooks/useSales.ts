@@ -188,43 +188,38 @@ export function useSales() {
                 creditDeducted = true;
             }
 
-            // Create sale record with discounts
-            const { data: sale, error: saleError } = await supabase
-                .from('sales')
-                .insert({
-                    subtotal,
-                    tax_amount: taxTotal,
-                    total,
-                    payment_method: paymentMethod,
-                    cash_tendered: paymentMethod === 'cash' || paymentMethod === 'split' ? cashTendered : null,
-                    change_given: paymentMethod === 'cash' || paymentMethod === 'split' ? changeGiven : null,
-                    stripe_payment_intent_id: stripePaymentIntentId || null,
-                    customer_id: customerId || null,
-                    discounts: orderDiscounts.map(d => ({
-                        type: d.type,
-                        value: d.value,
-                        reason: d.reason,
-                        calculatedAmount: d.calculatedAmount
-                    })),
-                    discount_total: discountTotal,
-                    store_credit_used: roundedStoreCreditUsed,
-                    gift_card_used: roundedGiftCardUsed,
-                    card_fee_amount: roundedCardFeeAmount,
-                    payment_breakdown: normalizedPaymentBreakdown && normalizedPaymentBreakdown.length > 0
-                        ? normalizedPaymentBreakdown
-                        : null,
-                    processed_by_user: processedByUserId || null,
-                    processed_by_employee: processedByEmployeeId || null,
-                    ...(paymentMethod === 'check' || paymentMethod === 'split' ? { check_number: checkNumber?.trim() || null } : {}),
-                })
-                .select()
-                .single();
-
-            if (saleError) throw saleError;
+            const saleId = crypto.randomUUID();
+            const salePayload = {
+                id: saleId,
+                subtotal,
+                tax_amount: taxTotal,
+                total,
+                payment_method: paymentMethod,
+                cash_tendered: paymentMethod === 'cash' || paymentMethod === 'split' ? cashTendered : null,
+                change_given: paymentMethod === 'cash' || paymentMethod === 'split' ? changeGiven : null,
+                stripe_payment_intent_id: stripePaymentIntentId || null,
+                customer_id: customerId || null,
+                discounts: orderDiscounts.map(d => ({
+                    type: d.type,
+                    value: d.value,
+                    reason: d.reason,
+                    calculatedAmount: d.calculatedAmount
+                })),
+                discount_total: discountTotal,
+                store_credit_used: roundedStoreCreditUsed,
+                gift_card_used: roundedGiftCardUsed,
+                card_fee_amount: roundedCardFeeAmount,
+                payment_breakdown: normalizedPaymentBreakdown && normalizedPaymentBreakdown.length > 0
+                    ? normalizedPaymentBreakdown
+                    : null,
+                processed_by_user: processedByUserId || null,
+                processed_by_employee: processedByEmployeeId || null,
+                ...(paymentMethod === 'check' || paymentMethod === 'split' ? { check_number: checkNumber?.trim() || null } : {}),
+            };
 
             // Create sale items with discount data
             const saleItems: Omit<SaleItem, 'id'>[] = cartItems.map((cartItem) => ({
-                sale_id: sale.id,
+                sale_id: saleId,
                 item_id: cartItem.item.is_custom_sale_item ? null : cartItem.item.id,
                 consignor_id: cartItem.item.consignor_id,
                 sku: cartItem.item.sku,
@@ -245,11 +240,12 @@ export function useSales() {
                     (((cartItem.dealerDiscountAmount || 0) > 0) ? 'Dealer discount' : undefined),
             }));
 
-            const { error: itemsError } = await supabase
-                .from('sale_items')
-                .insert(saleItems);
+            const { data: sale, error: saleError } = await supabase.rpc('create_pos_sale_with_items', {
+                p_sale: salePayload,
+                p_sale_items: saleItems,
+            });
 
-            if (itemsError) throw itemsError;
+            if (saleError) throw saleError;
 
             // Decrement inventory quantities and sync to Shopify
             for (const cartItem of cartItems) {

@@ -10,7 +10,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { calculateStripeTerminalProcessingFee } from '../../lib/cardFees';
 import { formatCurrency } from '../../lib/utils';
-import type { Payout, Consignor, PaymentMethod } from '../../types';
+import type { Payout, Consignor, PaymentMethod, PaymentBreakdownEntry } from '../../types';
 
 interface SaleItemForPayout {
     id: string;
@@ -20,11 +20,131 @@ interface SaleItemForPayout {
     price: number;
     quantity: number;
     commission_split: number;
+    line_total: number;
     completed_at: string;
     payment_method: PaymentMethod;
-    sale_subtotal: number;
-    sale_total: number;
+    card_tender_amount: number;
+    sale_net_subtotal: number;
     consignor_pays_card_fee: boolean;
+    credit_card_fee: number;
+    refunded_quantity: number;
+}
+
+interface SaleFinancialContext {
+    orderDiscountRatio: number;
+    netSubtotal: number;
+}
+
+interface SaleItemFinancialRow {
+    id: string;
+    sale_id: string;
+    price: number;
+    quantity: number;
+    discount_amount?: number | null;
+}
+
+function getJoinedSaleData(salesData: unknown): {
+    completed_at: string;
+    payment_method: PaymentMethod;
+    subtotal: number;
+    total: number;
+    discount_total: number;
+    payment_breakdown: PaymentBreakdownEntry[] | null;
+} {
+    const sale = Array.isArray(salesData) ? salesData[0] : salesData;
+    if (!sale || typeof sale !== 'object' || !('completed_at' in sale)) {
+        return {
+            completed_at: '',
+            payment_method: 'cash',
+            subtotal: 0,
+            total: 0,
+            discount_total: 0,
+            payment_breakdown: null,
+        };
+    }
+
+    const parsed = sale as {
+        completed_at: string;
+        payment_method: PaymentMethod;
+        subtotal: number;
+        total: number;
+        discount_total?: number | null;
+        payment_breakdown?: PaymentBreakdownEntry[] | null;
+    };
+
+    return {
+        completed_at: parsed.completed_at,
+        payment_method: parsed.payment_method,
+        subtotal: Number(parsed.subtotal || 0),
+        total: Number(parsed.total || 0),
+        discount_total: Number(parsed.discount_total || 0),
+        payment_breakdown: parsed.payment_breakdown || null,
+    };
+}
+
+function getCardTenderAmount(
+    paymentMethod: PaymentMethod,
+    saleTotal: number,
+    saleNetSubtotal: number,
+    paymentBreakdown: PaymentBreakdownEntry[] | null
+): number {
+    if (paymentMethod === 'split') {
+        return (paymentBreakdown || [])
+            .filter((entry) => entry.method === 'card')
+            .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    }
+
+    return paymentMethod === 'card' ? Number(saleTotal || saleNetSubtotal) : 0;
+}
+
+function buildSaleFinancialContext(
+    saleIds: string[],
+    allSaleItems: SaleItemFinancialRow[],
+    saleDiscountTotals: Map<string, number>
+): Map<string, SaleFinancialContext> {
+    const itemsBySale = new Map<string, SaleItemFinancialRow[]>();
+    for (const item of allSaleItems) {
+        const existing = itemsBySale.get(item.sale_id) || [];
+        existing.push(item);
+        itemsBySale.set(item.sale_id, existing);
+    }
+
+    const context = new Map<string, SaleFinancialContext>();
+    for (const saleId of saleIds) {
+        const itemsForSale = itemsBySale.get(saleId) || [];
+        let subtotalAfterItemDiscounts = 0;
+        let totalItemDiscounts = 0;
+
+        for (const item of itemsForSale) {
+            const rawLineTotal = Number(item.price || 0) * Number(item.quantity || 0);
+            const itemDiscount = Math.max(0, Math.min(Number(item.discount_amount || 0), rawLineTotal));
+            subtotalAfterItemDiscounts += Math.max(0, rawLineTotal - itemDiscount);
+            totalItemDiscounts += itemDiscount;
+        }
+
+        const saleDiscountTotal = Math.max(0, Number(saleDiscountTotals.get(saleId) || 0));
+        const orderDiscountTotal = Math.max(
+            0,
+            Math.min(saleDiscountTotal - totalItemDiscounts, subtotalAfterItemDiscounts)
+        );
+        const orderDiscountRatio = subtotalAfterItemDiscounts > 0
+            ? orderDiscountTotal / subtotalAfterItemDiscounts
+            : 0;
+        const netSubtotal = Math.max(0, subtotalAfterItemDiscounts - orderDiscountTotal);
+        context.set(saleId, { orderDiscountRatio, netSubtotal });
+    }
+
+    return context;
+}
+
+function getCoveredThroughDate(payout: Pick<Payout, 'period_end' | 'paid_at'>): Date | null {
+    const paidAt = new Date(payout.paid_at);
+    const periodEnd = new Date(payout.period_end || payout.paid_at);
+    if (Number.isNaN(paidAt.getTime()) && Number.isNaN(periodEnd.getTime())) return null;
+    if (Number.isNaN(periodEnd.getTime())) return paidAt;
+    if (Number.isNaN(paidAt.getTime())) return periodEnd;
+
+    return periodEnd > paidAt ? paidAt : periodEnd;
 }
 
 export function VendorPayouts() {
@@ -61,8 +181,8 @@ export function VendorPayouts() {
             // paid_at reflects when payment was made, but period_end reflects what sales
             // were already included in that payout.
             const lastPayoutDate = (payoutData || []).reduce<Date | null>((latestBoundary, payout) => {
-                const boundaryCandidate = new Date(payout.period_end || payout.paid_at);
-                if (Number.isNaN(boundaryCandidate.getTime())) return latestBoundary;
+                const boundaryCandidate = getCoveredThroughDate(payout);
+                if (!boundaryCandidate) return latestBoundary;
                 if (!latestBoundary || boundaryCandidate > latestBoundary) return boundaryCandidate;
                 return latestBoundary;
             }, null) || new Date(0);
@@ -70,30 +190,70 @@ export function VendorPayouts() {
             // Fetch sales since last payout (including payment_method for fee calc)
             const { data: saleItems } = await supabase
                 .from('sale_items')
-                .select('id, sale_id, name, sku, price, quantity, commission_split, consignor_pays_card_fee, sales!inner(completed_at, payment_method, subtotal, total)')
+                .select('id, sale_id, name, sku, price, quantity, commission_split, discount_amount, consignor_pays_card_fee, sales!inner(completed_at, payment_method, subtotal, total, discount_total, payment_breakdown)')
                 .eq('consignor_id', userRecord.consignor_id);
+
+            const saleIds = Array.from(new Set((saleItems || []).map((item) => item.sale_id).filter(Boolean)));
+            const saleDiscountTotals = new Map<string, number>();
+            for (const item of saleItems || []) {
+                const sale = getJoinedSaleData(item.sales);
+                saleDiscountTotals.set(item.sale_id, sale.discount_total);
+            }
+
+            let allSaleItemsForContext: SaleItemFinancialRow[] = [];
+            if (saleIds.length > 0) {
+                const { data: allItems } = await supabase
+                    .from('sale_items')
+                    .select('id, sale_id, price, quantity, discount_amount')
+                    .in('sale_id', saleIds);
+                allSaleItemsForContext = (allItems || []) as SaleItemFinancialRow[];
+            }
+
+            const saleFinancialContext = buildSaleFinancialContext(
+                saleIds,
+                allSaleItemsForContext,
+                saleDiscountTotals
+            );
+
+            const refundedItemsMap = new Map<string, number>();
+            if (saleIds.length > 0) {
+                const { data: refunds } = await supabase
+                    .from('refunds')
+                    .select('items')
+                    .in('sale_id', saleIds);
+
+                for (const refund of refunds || []) {
+                    const items = refund.items as Array<{ sale_item_id: string; quantity: number }> | null | undefined;
+                    for (const item of items || []) {
+                        const current = refundedItemsMap.get(item.sale_item_id) || 0;
+                        refundedItemsMap.set(item.sale_item_id, current + Number(item.quantity || 0));
+                    }
+                }
+            }
 
             // Filter to items since last payout
             const pendingItems = (saleItems || [])
                 .map((item) => {
-                    const salesData = item.sales as unknown;
-                    let completedAt = '';
-                    let paymentMethod: PaymentMethod = 'cash';
-                    let saleSubtotal = Number(item.price) * item.quantity;
-                    let saleTotal = saleSubtotal;
-                    if (Array.isArray(salesData) && salesData.length > 0) {
-                        const sale = salesData[0] as { completed_at: string; payment_method: string; subtotal: number; total: number };
-                        completedAt = sale.completed_at;
-                        paymentMethod = sale.payment_method as PaymentMethod;
-                        saleSubtotal = sale.subtotal || saleSubtotal;
-                        saleTotal = sale.total || saleSubtotal;
-                    } else if (salesData && typeof salesData === 'object' && 'completed_at' in salesData) {
-                        const sale = salesData as { completed_at: string; payment_method: string; subtotal: number; total: number };
-                        completedAt = sale.completed_at;
-                        paymentMethod = sale.payment_method as PaymentMethod;
-                        saleSubtotal = sale.subtotal || saleSubtotal;
-                        saleTotal = sale.total || saleSubtotal;
-                    }
+                    const sale = getJoinedSaleData(item.sales);
+                    const rawLineTotal = Number(item.price) * Number(item.quantity);
+                    const itemDiscount = Math.max(0, Math.min(Number(item.discount_amount || 0), rawLineTotal));
+                    const lineAfterItemDiscount = Math.max(0, rawLineTotal - itemDiscount);
+                    const saleContext = saleFinancialContext.get(item.sale_id);
+                    const orderDiscountRatio = saleContext?.orderDiscountRatio || 0;
+                    const lineTotal = lineAfterItemDiscount * (1 - orderDiscountRatio);
+                    const saleNetSubtotal = saleContext?.netSubtotal || lineTotal;
+                    const cardTenderAmount = getCardTenderAmount(
+                        sale.payment_method,
+                        sale.total,
+                        saleNetSubtotal,
+                        sale.payment_breakdown
+                    );
+                    const creditCardFee = cardTenderAmount > 0 && Boolean(item.consignor_pays_card_fee)
+                        ? (saleNetSubtotal > 0
+                            ? calculateStripeTerminalProcessingFee(cardTenderAmount) * (lineTotal / saleNetSubtotal)
+                            : 0)
+                        : 0;
+
                     return {
                         id: item.id,
                         sale_id: item.sale_id,
@@ -102,11 +262,14 @@ export function VendorPayouts() {
                         price: Number(item.price),
                         quantity: item.quantity,
                         commission_split: Number(item.commission_split),
-                        completed_at: completedAt,
-                        payment_method: paymentMethod,
-                        sale_subtotal: saleSubtotal,
-                        sale_total: saleTotal,
+                        line_total: lineTotal,
+                        completed_at: sale.completed_at,
+                        payment_method: sale.payment_method,
+                        card_tender_amount: cardTenderAmount,
+                        sale_net_subtotal: saleNetSubtotal,
                         consignor_pays_card_fee: Boolean(item.consignor_pays_card_fee),
+                        credit_card_fee: creditCardFee,
+                        refunded_quantity: refundedItemsMap.get(item.id) || 0,
                     };
                 })
                 .filter((item) => new Date(item.completed_at) > lastPayoutDate)
@@ -121,13 +284,12 @@ export function VendorPayouts() {
 
     // Calculate pending balance with credit card fee deductions
     const calculateItemEarnings = (item: SaleItemForPayout) => {
-        const lineTotal = item.price * item.quantity;
-        let fee = 0;
-        if (item.payment_method === 'card' && item.consignor_pays_card_fee) {
-            const totalSaleFee = calculateStripeTerminalProcessingFee(item.sale_total || item.sale_subtotal);
-            fee = item.sale_subtotal > 0 ? totalSaleFee * (lineTotal / item.sale_subtotal) : 0;
-        }
-        return (lineTotal * item.commission_split) - fee;
+        const effectiveQuantity = Math.max(0, item.quantity - item.refunded_quantity);
+        const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
+        const effectiveLineTotal = item.line_total * effectiveRatio;
+        const effectiveFee = item.credit_card_fee * effectiveRatio;
+
+        return (effectiveLineTotal * item.commission_split) - effectiveFee;
     };
 
     const pendingBalance = pendingSales.reduce(
@@ -137,22 +299,26 @@ export function VendorPayouts() {
 
     const pendingCreditCardFees = pendingSales.reduce(
         (sum, item) => {
-            if (item.payment_method === 'card' && item.consignor_pays_card_fee) {
-                const lineTotal = item.price * item.quantity;
-                const totalSaleFee = calculateStripeTerminalProcessingFee(item.sale_total || item.sale_subtotal);
-                return sum + (item.sale_subtotal > 0 ? totalSaleFee * (lineTotal / item.sale_subtotal) : 0);
-            }
-            return sum;
+            const effectiveQuantity = Math.max(0, item.quantity - item.refunded_quantity);
+            const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
+            return sum + (item.credit_card_fee * effectiveRatio);
         },
         0
     );
 
     const pendingGrossSales = pendingSales.reduce(
-        (sum, item) => sum + item.price * item.quantity,
+        (sum, item) => {
+            const effectiveQuantity = Math.max(0, item.quantity - item.refunded_quantity);
+            const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
+            return sum + (item.line_total * effectiveRatio);
+        },
         0
     );
 
-    const pendingItemCount = pendingSales.reduce((sum, item) => sum + item.quantity, 0);
+    const pendingItemCount = pendingSales.reduce(
+        (sum, item) => sum + Math.max(0, item.quantity - item.refunded_quantity),
+        0
+    );
 
     // Calculate total paid all time
     const totalPaidAllTime = payouts.reduce((sum, p) => sum + Number(p.amount), 0);
@@ -252,7 +418,10 @@ export function VendorPayouts() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {pendingSales.map((item) => (
+                                    {pendingSales.map((item) => {
+                                        const effectiveQuantity = Math.max(0, item.quantity - item.refunded_quantity);
+
+                                        return (
                                         <tr key={item.id} className="border-t border-[var(--color-border)]">
                                             <td className="px-3 py-2 text-[var(--color-muted)]">
                                                 {new Date(item.completed_at).toLocaleDateString()}
@@ -263,7 +432,14 @@ export function VendorPayouts() {
                                                     {item.sku}
                                                 </p>
                                             </td>
-                                            <td className="px-3 py-2 text-center">{item.quantity}</td>
+                                            <td className="px-3 py-2 text-center">
+                                                {effectiveQuantity}
+                                                {item.refunded_quantity > 0 && (
+                                                    <span className="block text-xs text-[var(--color-danger)]">
+                                                        -{item.refunded_quantity} refunded
+                                                    </span>
+                                                )}
+                                            </td>
                                             <td className="px-3 py-2 text-right">
                                                 {formatCurrency(item.price)}
                                             </td>
@@ -271,7 +447,8 @@ export function VendorPayouts() {
                                                 {formatCurrency(calculateItemEarnings(item))}
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
