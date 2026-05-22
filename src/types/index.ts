@@ -413,6 +413,7 @@ export type BoothRentPaymentInput = Omit<BoothRentPayment, 'id' | 'created_at'>;
 // Calculated payout data for a consignor (before payment)
 export interface ConsignorPayoutSummary {
     consignor: Consignor;
+    deferredBalanceCarryover: number;
     pendingFromSales: number;
     pendingAmount: number;
     grossSales: number;

@@ -208,7 +208,11 @@ function getDeferredBalanceCarryover(consignorPayouts: Payout[]): number {
 
     for (const payout of payoutTimeline) {
         if (!payout.is_partial) {
-            deferredBalanceOutstanding = 0;
+            const isDateRangePayout = payout.notes?.startsWith('[Range Payout:') === true;
+            const includesDeferredCarryover = payout.notes?.includes('[Deferred Carryover Included]') === true;
+            if (!isDateRangePayout || includesDeferredCarryover) {
+                deferredBalanceOutstanding = 0;
+            }
             continue;
         }
 
@@ -561,6 +565,7 @@ export function usePayouts() {
 
                 summaries.push({
                     consignor,
+                    deferredBalanceCarryover: roundCurrency(deferredCarryover),
                     pendingFromSales: roundCurrency(pendingAmount),
                     pendingAmount: finalPendingAmount,
                     grossSales,

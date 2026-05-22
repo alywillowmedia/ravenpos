@@ -167,8 +167,9 @@ export function Payouts() {
             if (salesInRange.length === 0) continue;
 
             const salesSet = new Set<string>();
-            let pendingFromSales = 0;
-            let pendingAmount = 0;
+            const deferredBalanceCarryover = Number(summary.deferredBalanceCarryover || 0);
+            let pendingFromSales = deferredBalanceCarryover;
+            let pendingAmount = deferredBalanceCarryover;
             let grossSales = 0;
             let taxCollected = 0;
             let storeShare = 0;
@@ -196,6 +197,7 @@ export function Payouts() {
 
             const scopedSummary: ConsignorPayoutSummary = {
                 ...summary,
+                deferredBalanceCarryover: roundCurrency(deferredBalanceCarryover),
                 pendingFromSales: roundCurrency(pendingFromSales),
                 pendingAmount: roundCurrency(pendingAmount),
                 grossSales: roundCurrency(grossSales),
@@ -274,13 +276,19 @@ export function Payouts() {
         const amountToPay = useCustomAmount && customAmount
             ? parseFloat(customAmount)
             : undefined;
+        const includesDeferredCarryover = Number(selectedConsignor.deferredBalanceCarryover || 0) > 0;
+        const payoutNotesForRecord = isDateScopedPendingView && dateRange.start && dateRange.end
+            ? [
+                `[Range Payout: ${selectedRangeLabel}]`,
+                includesDeferredCarryover ? '[Deferred Carryover Included]' : '',
+                payoutNotes,
+            ].filter(Boolean).join(' ')
+            : (payoutNotes || undefined);
 
         const result = await markAsPaid(
             selectedConsignor.consignor.id,
             selectedConsignor,
-            isDateScopedPendingView && dateRange.start && dateRange.end
-                ? `[Range Payout: ${selectedRangeLabel}]${payoutNotes ? ` ${payoutNotes}` : ''}`
-                : (payoutNotes || undefined),
+            payoutNotesForRecord,
             amountToPay,
             useCustomAmount ? partialReason : undefined,
             useCustomAmount ? balanceDisposition : undefined,
@@ -346,7 +354,7 @@ export function Payouts() {
     };
 
     const printPayoutReport = (summary: ConsignorPayoutSummary) => {
-        const { consignor, pendingAmount, pendingFromSales, grossSales, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, ledgerDeduction, salesSinceLastPayout, lastPayout } = summary;
+        const { consignor, deferredBalanceCarryover, pendingAmount, pendingFromSales, grossSales, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, ledgerDeduction, salesSinceLastPayout, lastPayout } = summary;
         const saleDates = salesSinceLastPayout.map((item) => new Date(item.saleDate).getTime()).filter((value) => Number.isFinite(value));
         const periodStart = saleDates.length > 0
             ? new Date(Math.min(...saleDates)).toLocaleDateString()
@@ -452,6 +460,12 @@ export function Payouts() {
                     <div class="summary-row deduction">
                         <span>Credit Card Fees:</span>
                         <span>-$${creditCardFees.toFixed(2)}</span>
+                    </div>
+                    ` : ''}
+                    ${deferredBalanceCarryover > 0 ? `
+                    <div class="summary-row">
+                        <span>Deferred Balance Carryover:</span>
+                        <span>$${deferredBalanceCarryover.toFixed(2)}</span>
                     </div>
                     ` : ''}
                     ${boothRentDeduction > 0 ? `
@@ -1113,7 +1127,7 @@ function ConsignorPayoutDetail({
     isDateScoped: boolean;
     selectedRangeLabel: string;
 }) {
-    const { consignor, pendingAmount, pendingFromSales, grossSales, taxCollected, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, ledgerDeduction, salesCount, itemsSold, salesSinceLastPayout } = summary;
+    const { consignor, deferredBalanceCarryover, pendingAmount, pendingFromSales, grossSales, taxCollected, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, ledgerDeduction, salesCount, itemsSold, salesSinceLastPayout } = summary;
     const consignorAddress = [
         consignor.address,
         consignor.address_line_2,
@@ -1173,6 +1187,23 @@ function ConsignorPayoutDetail({
                     </p>
                 </div>
             </div>
+            {deferredBalanceCarryover > 0 && (
+                <div className="rounded-lg border border-[var(--color-warning)] bg-[var(--color-warning-bg)] p-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium text-[var(--color-warning)]">
+                            Deferred balance from earlier partial payout
+                        </span>
+                        <span className="font-semibold text-[var(--color-warning)]">
+                            {formatCurrency(deferredBalanceCarryover)}
+                        </span>
+                    </div>
+                    {isDateScoped && (
+                        <p className="mt-1 text-xs text-[var(--color-muted)]">
+                            Included with this scoped payout so the earlier unpaid balance is not dropped.
+                        </p>
+                    )}
+                </div>
+            )}
             {(boothRentDeduction > 0 || marketingFeeDeduction > 0 || ledgerDeduction > 0) && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div className="bg-[var(--color-surface)] rounded-lg p-3">
@@ -1331,7 +1362,9 @@ function ConsignorPayoutDetail({
                             (() => {
                                 const rangeMatch = payout.notes?.match(/^\[Range Payout: ([^\]]+)\]/);
                                 const rangeLabel = rangeMatch?.[1] || null;
-                                const cleanedNotes = payout.notes?.replace(/^\[Range Payout: [^\]]+\]\s*/, '') || '';
+                                const cleanedNotes = payout.notes
+                                    ?.replace(/^\[Range Payout: [^\]]+\]\s*/, '')
+                                    .replace(/^\[Deferred Carryover Included\]\s*/, '') || '';
                                 return (
                             <div
                                 key={payout.id}
@@ -1538,7 +1571,9 @@ function PayoutHistoryList({
                 (() => {
                     const rangeMatch = payout.notes?.match(/^\[Range Payout: ([^\]]+)\]/);
                     const rangeLabel = rangeMatch?.[1] || null;
-                    const cleanedNotes = payout.notes?.replace(/^\[Range Payout: [^\]]+\]\s*/, '') || '';
+                    const cleanedNotes = payout.notes
+                        ?.replace(/^\[Range Payout: [^\]]+\]\s*/, '')
+                        .replace(/^\[Deferred Carryover Included\]\s*/, '') || '';
                     return (
                 <div
                     key={payout.id}
