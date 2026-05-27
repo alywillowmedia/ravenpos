@@ -230,6 +230,7 @@ export function EmployeePortalDashboard() {
         const dayOffOverrideDates = new Set(
             dayOffOverrides.filter((override) => override.is_day_off).map((override) => override.shift_date)
         );
+        const oneTimeOverrideDates = new Set(oneTimeShifts.map((shift) => shift.shift_date));
 
         for (const shift of oneTimeShifts) {
             if (dayOffOverrideDates.has(shift.shift_date)) continue;
@@ -248,6 +249,7 @@ export function EmployeePortalDashboard() {
                 const date = parseDateKey(dateKey);
                 if (!matchesRecurringOnDate(recurring, date, dateKey)) continue;
                 if (dayOffOverrideDates.has(dateKey)) continue;
+                if (oneTimeOverrideDates.has(dateKey)) continue;
 
                 shifts.push({
                     id: `${recurring.id}-${dateKey}`,
