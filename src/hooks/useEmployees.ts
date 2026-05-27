@@ -2,10 +2,58 @@
 // Handles CRUD operations and fetching employee data with stats
 
 import { useState, useCallback, useEffect } from 'react';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { hashPin, generateSalt } from '../lib/employeeAuth';
 import { getSundaySaturdayWeekDateRange } from '../lib/timeCalculations';
 import type { Employee, EmployeeWithStats, TimeEntry, EmployeeInput } from '../types/employee';
+
+async function getFunctionErrorMessage(error: FunctionsHttpError): Promise<string | null> {
+    try {
+        const payload = await error.context.clone().json();
+        if (payload?.error) {
+            return payload.error;
+        }
+    } catch {
+        // Fall through to text parsing.
+    }
+
+    try {
+        const text = await error.context.clone().text();
+        return text || null;
+    } catch {
+        return null;
+    }
+}
+
+async function invokeEmployeeAccountManagement(body: object): Promise<{ error: string | null }> {
+    const invoke = () => supabase.functions.invoke('manage-employee-account', { body });
+
+    let { data, error } = await invoke();
+
+    if (error instanceof FunctionsHttpError && error.context.status === 401) {
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        if (!refreshError && refreshData.session) {
+            const retry = await invoke();
+            data = retry.data;
+            error = retry.error;
+        }
+    }
+
+    if (error) {
+        if (error instanceof FunctionsHttpError) {
+            return { error: await getFunctionErrorMessage(error) || error.message };
+        }
+
+        return { error: error.message || 'Request failed' };
+    }
+
+    if (data?.error) {
+        return { error: data.error };
+    }
+
+    return { error: null };
+}
 
 export function useEmployees() {
     const [employees, setEmployees] = useState<EmployeeWithStats[]>([]);
@@ -142,32 +190,23 @@ export function useEmployees() {
         }
     };
 
-    // Delete employee and keep historical sales rows by nulling attribution first
-    const deleteEmployee = async (id: string): Promise<{ error: string | null }> => {
+    // Archive employee while preserving historical time/payroll records.
+    const archiveEmployee = async (id: string): Promise<{ error: string | null }> => {
         try {
-            const { error: clearSalesError } = await supabase
-                .from('sales')
-                .update({ processed_by_employee: null })
-                .eq('processed_by_employee', id);
+            const { error: archiveError } = await invokeEmployeeAccountManagement({
+                action: 'archive_employee',
+                employeeId: id,
+            });
 
-            if (clearSalesError) {
-                return { error: clearSalesError.message };
+            if (archiveError) {
+                return { error: archiveError };
             }
 
-            const { error: deleteError } = await supabase
-                .from('employees')
-                .delete()
-                .eq('id', id);
-
-            if (deleteError) {
-                return { error: deleteError.message };
-            }
-
-            setEmployees((prev) => prev.filter((employee) => employee.id !== id));
+            await fetchEmployees();
             return { error: null };
         } catch (err) {
             console.error(err);
-            return { error: 'Failed to delete employee' };
+            return { error: 'Failed to archive employee' };
         }
     };
 
@@ -340,7 +379,7 @@ export function useEmployees() {
         fetchEmployees,
         createEmployee,
         updateEmployee,
-        deleteEmployee,
+        archiveEmployee,
         getEmployee,
         getTimeEntries,
         manualClockOut,

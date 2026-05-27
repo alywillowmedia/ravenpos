@@ -41,7 +41,7 @@ export function Employees() {
         error,
         createEmployee,
         updateEmployee,
-        deleteEmployee,
+        archiveEmployee,
         getTimeEntries,
         manualClockOut,
         getEmployeeSales,
@@ -149,7 +149,7 @@ export function Employees() {
         setDeleteEmployeeError(null);
         setIsDeletingEmployee(true);
 
-        const { error: deletionError } = await deleteEmployee(deleteTarget.id);
+        const { error: deletionError } = await archiveEmployee(deleteTarget.id);
 
         setIsDeletingEmployee(false);
         if (deletionError) {
@@ -157,9 +157,6 @@ export function Employees() {
             return;
         }
 
-        if (viewingEmployee?.id === deleteTarget.id) {
-            setViewingEmployee(null);
-        }
         setDeleteTarget(null);
         setTimeEntryCount(0);
     };
@@ -390,16 +387,18 @@ export function Employees() {
                                                 >
                                                     Edit
                                                 </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => {
-                                                        setDeleteEmployeeError(null);
-                                                        setDeleteTarget(emp);
-                                                    }}
-                                                >
-                                                    Delete
-                                                </Button>
+                                                {emp.is_active && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            setDeleteEmployeeError(null);
+                                                            setDeleteTarget(emp);
+                                                        }}
+                                                    >
+                                                        Archive
+                                                    </Button>
+                                                )}
                                                 {emp.clockStatus === 'clocked_in' && (
                                                     <Button
                                                         variant="secondary"
@@ -529,14 +528,17 @@ export function Employees() {
                 isLoading={isDeletingEmployee}
                 targetName={deleteTarget?.name || ''}
                 itemCount={timeEntryCount}
-                title="Delete Employee"
-                warningIntro={`Deleting ${deleteTarget?.name || 'this employee'} will permanently remove:`}
+                title="Archive Employee"
+                warningLabel="This removes active access but keeps historical records"
+                warningIntro={`Archiving ${deleteTarget?.name || 'this employee'} will:`}
                 consequences={[
-                    'Their employee profile and PIN access',
-                    `${timeEntryCount} saved time entr${timeEntryCount === 1 ? 'y' : 'ies'} and schedule records`,
-                    'Employee portal links and active sessions',
-                    'Sales history remains, but employee attribution will be cleared',
+                    `Keep ${timeEntryCount} saved time entr${timeEntryCount === 1 ? 'y' : 'ies'}, payroll records, payouts, and past history for reference`,
+                    'Mark the employee inactive so they no longer appear as an active worker',
+                    'Remove PIN sessions and employee portal access',
+                    'Close any open shift and clear future schedule assignments',
                 ]}
+                confirmActionLabel="Archive"
+                confirmButtonLabel="Archive Employee"
                 description={deleteEmployeeError || undefined}
             />
 

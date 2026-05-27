@@ -16,6 +16,7 @@ interface DeleteConfirmationModalProps {
     consequences?: string[];
     confirmActionLabel?: string;
     confirmButtonLabel?: string;
+    warningLabel?: string;
 }
 
 export function DeleteConfirmationModal({
@@ -31,6 +32,7 @@ export function DeleteConfirmationModal({
     consequences,
     confirmActionLabel = 'Delete',
     confirmButtonLabel = 'Permanently Delete',
+    warningLabel = 'WARNING: This action cannot be undone',
 }: DeleteConfirmationModalProps) {
     const [confirmText, setConfirmText] = useState('');
     const requiredText = `${confirmActionLabel} ${targetName}`;
@@ -65,7 +67,7 @@ export function DeleteConfirmationModal({
                 {/* Warning Message */}
                 <div className="p-4 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger)]">
                     <p className="text-sm font-semibold text-[var(--color-danger)] mb-2">
-                        WARNING: This action cannot be undone
+                        {warningLabel}
                     </p>
                     <p className="text-sm text-[var(--color-danger)]">
                         {warningHeading}

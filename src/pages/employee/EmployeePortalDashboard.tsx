@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -127,6 +128,14 @@ function formatDate(dateKey: string) {
     return parseDateKey(dateKey).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+function formatWeekRange(startDateKey: string, endDateKey: string) {
+    const start = parseDateKey(startDateKey);
+    const end = parseDateKey(endDateKey);
+    const startLabel = start.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    const endLabel = end.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return `${startLabel} - ${endLabel}`;
+}
+
 function toHours(start: string, end: string) {
     const [sh = '0', sm = '0'] = start.split(':');
     const [eh = '0', em = '0'] = end.split(':');
@@ -204,20 +213,31 @@ export function EmployeePortalDashboard() {
         reason: '',
     });
     const [activeHubTab, setActiveHubTab] = useState<EmployeeHubTab>('schedule');
+    const [selectedWeekStartKey, setSelectedWeekStartKey] = useState(() => toDateKey(startOfWeekMonday(new Date())));
 
     const employeeId = userRecord?.employee_id || userRecord?.linked_employee_id || null;
     const canSwitchViews = portalChoices.length > 1;
 
     const today = useMemo(() => new Date(), []);
     const todayKey = toDateKey(today);
-    const scheduleRangeStart = startOfWeekMonday(today);
-    const scheduleRangeEnd = addDays(scheduleRangeStart, 27);
+    const currentWeekStartKey = toDateKey(startOfWeekMonday(today));
+    const scheduleRangeStart = parseDateKey(selectedWeekStartKey);
+    const scheduleRangeEnd = addDays(scheduleRangeStart, 6);
     const scheduleRangeStartKey = toDateKey(scheduleRangeStart);
     const scheduleRangeEndKey = toDateKey(scheduleRangeEnd);
+    const weekRangeLabel = formatWeekRange(scheduleRangeStartKey, scheduleRangeEndKey);
+    const selectedWeekOffset = Math.round((toDateKeyDayNumber(selectedWeekStartKey) - toDateKeyDayNumber(currentWeekStartKey)) / 7);
+    const selectedWeekLabel = selectedWeekOffset === 0
+        ? 'This Week'
+        : selectedWeekOffset === 1
+            ? 'Next Week'
+            : selectedWeekOffset === -1
+                ? 'Last Week'
+                : 'Selected Week';
 
     const displayedDays = useMemo(
-        () => Array.from({ length: 28 }, (_, index) => toDateKey(addDays(scheduleRangeStart, index))),
-        [scheduleRangeStart]
+        () => Array.from({ length: 7 }, (_, index) => toDateKey(addDays(parseDateKey(selectedWeekStartKey), index))),
+        [selectedWeekStartKey]
     );
 
     useEffect(() => {
@@ -292,17 +312,14 @@ export function EmployeePortalDashboard() {
     );
 
     const mobileScheduleDays = useMemo(
-        () => displayedDays.filter((day) => day >= todayKey && (shiftsByDate.get(day)?.length || 0) > 0),
-        [displayedDays, shiftsByDate, todayKey]
+        () => displayedDays.filter((day) => (shiftsByDate.get(day)?.length || 0) > 0),
+        [displayedDays, shiftsByDate]
     );
 
-    const scheduledHoursNextWeek = useMemo(() => {
-        const nextWeekStart = toDateKey(addDays(startOfWeekMonday(new Date()), 7));
-        const nextWeekEnd = toDateKey(addDays(parseDateKey(nextWeekStart), 6));
-        return displayShifts
-            .filter((shift) => shift.shift_date >= nextWeekStart && shift.shift_date <= nextWeekEnd)
-            .reduce((sum, shift) => sum + toHours(shift.start_time, shift.end_time), 0);
-    }, [displayShifts]);
+    const scheduledHoursSelectedWeek = useMemo(
+        () => displayShifts.reduce((sum, shift) => sum + toHours(shift.start_time, shift.end_time), 0),
+        [displayShifts]
+    );
 
     const estimatedPay = useMemo(() => {
         const hourlyRate = profile?.hourly_rate || 0;
@@ -421,6 +438,18 @@ export function EmployeePortalDashboard() {
         void loadDashboard();
         void loadTimeOffRequests();
     }, [loadDashboard, loadTimeOffRequests]);
+
+    const goToPreviousScheduleWeek = () => {
+        setSelectedWeekStartKey((current) => toDateKey(addDays(parseDateKey(current), -7)));
+    };
+
+    const goToNextScheduleWeek = () => {
+        setSelectedWeekStartKey((current) => toDateKey(addDays(parseDateKey(current), 7)));
+    };
+
+    const goToCurrentScheduleWeek = () => {
+        setSelectedWeekStartKey(currentWeekStartKey);
+    };
 
     const handleProfilePhotoChange = async (url: string | null) => {
         if (!userRecord?.id) return;
@@ -667,19 +696,54 @@ export function EmployeePortalDashboard() {
                             </Card>
                             <Card variant="outlined">
                                 <CardContent className="p-4">
-                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Scheduled Next Week</p>
-                                    <p className="text-2xl font-semibold mt-1">{scheduledHoursNextWeek.toFixed(2)}h</p>
+                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Scheduled {selectedWeekLabel}</p>
+                                    <p className="text-2xl font-semibold mt-1">{scheduledHoursSelectedWeek.toFixed(2)}h</p>
+                                    <p className="mt-1 text-xs text-[var(--color-muted)]">{weekRangeLabel}</p>
                                 </CardContent>
                             </Card>
                         </div>
 
                         <Card variant="outlined">
-                            <CardHeader>
-                                <CardTitle className="text-base">Upcoming Schedule</CardTitle>
+                            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <CardTitle className="text-base">Schedule</CardTitle>
+                                    <p className="mt-1 text-sm text-[var(--color-muted)]">{selectedWeekLabel} • {weekRangeLabel}</p>
+                                </div>
+                                <div className="grid grid-cols-[44px_1fr_44px] gap-2 sm:flex sm:items-center">
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        size="sm"
+                                        className="px-0"
+                                        onClick={goToPreviousScheduleWeek}
+                                        aria-label="Previous week"
+                                    >
+                                        <ChevronLeft className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant={selectedWeekStartKey === currentWeekStartKey ? 'primary' : 'secondary'}
+                                        size="sm"
+                                        onClick={goToCurrentScheduleWeek}
+                                        leftIcon={<CalendarDays className="h-4 w-4" />}
+                                    >
+                                        This Week
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        size="sm"
+                                        className="px-0"
+                                        onClick={goToNextScheduleWeek}
+                                        aria-label="Next week"
+                                    >
+                                        <ChevronRight className="h-4 w-4" />
+                                    </Button>
+                                </div>
                             </CardHeader>
                             <CardContent>
                                 {displayShifts.length === 0 ? (
-                                    <p className="text-sm text-[var(--color-muted)]">No upcoming shifts in the next 4 weeks.</p>
+                                    <p className="text-sm text-[var(--color-muted)]">No shifts scheduled for this week.</p>
                                 ) : (
                                     <>
                                         <div className="hidden md:block">
@@ -738,7 +802,7 @@ export function EmployeePortalDashboard() {
 
                                         <div className="space-y-2 md:hidden">
                                             {mobileScheduleDays.length === 0 ? (
-                                                <p className="text-sm text-[var(--color-muted)]">No upcoming shifts in the next 4 weeks.</p>
+                                                <p className="text-sm text-[var(--color-muted)]">No shifts scheduled for this week.</p>
                                             ) : (
                                                 mobileScheduleDays.map((day) => {
                                                     const dayShifts = shiftsByDate.get(day) || [];
