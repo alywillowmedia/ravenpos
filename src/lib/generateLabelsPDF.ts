@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import JsBarcode from 'jsbarcode';
 import type { Item } from '../types';
+import { getAppliedCompareAtPrice } from './itemPricing';
 
 // Avery 5160 specifications (in inches, converted to points: 1 inch = 72 points)
 const INCH = 72;
@@ -149,11 +150,27 @@ function drawLabel(
     }
 
     // Row 1: Price (top right, bold, prominent)
+    const compareAtPrice = getAppliedCompareAtPrice(item);
     pdf.setFontSize(11);
     pdf.setFont('helvetica', 'bold');
     const price = formatCurrency(Number(item.price));
     const priceWidth = pdf.getTextWidth(price);
     pdf.text(price, x + width - padding - priceWidth, innerY + 7);
+
+    if (compareAtPrice !== null) {
+        const compareText = formatCurrency(compareAtPrice);
+        pdf.setFontSize(7);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(120);
+        const compareWidth = pdf.getTextWidth(compareText);
+        const compareX = x + width - padding - priceWidth - compareWidth - 4;
+        const compareY = innerY + 7;
+        pdf.text(compareText, compareX, compareY);
+        pdf.setDrawColor(120);
+        pdf.setLineWidth(0.45);
+        pdf.line(compareX, compareY - 2, compareX + compareWidth, compareY - 2);
+        pdf.setTextColor(0);
+    }
 
     // Row 2: Item name (bold, larger) - LEFT SIDE
     pdf.setFontSize(9);
@@ -302,6 +319,7 @@ function drawShelfLabel(
     pdf.setLineWidth(0.55);
     pdf.roundedRect(priceX, bottomY + 5, priceWidth, bottomHeight - 9, 3, 3);
 
+    const compareAtPrice = getAppliedCompareAtPrice(item);
     const price = formatCurrency(Number(item.price));
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(price.length > 7 ? 11 : 13);
@@ -310,8 +328,22 @@ function drawShelfLabel(
     pdf.text(
         price,
         priceX + Math.max(3, (priceWidth - priceWidthText) / 2),
-        bottomY + bottomHeight / 2 + 5
+        bottomY + bottomHeight / 2 + (compareAtPrice !== null ? 9 : 5)
     );
+    if (compareAtPrice !== null) {
+        const compareText = formatCurrency(compareAtPrice);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(110);
+        const compareWidth = pdf.getTextWidth(compareText);
+        const compareX = priceX + Math.max(3, (priceWidth - compareWidth) / 2);
+        const compareY = bottomY + bottomHeight / 2 - 5;
+        pdf.text(compareText, compareX, compareY);
+        pdf.setDrawColor(110);
+        pdf.setLineWidth(0.4);
+        pdf.line(compareX, compareY - 2, compareX + compareWidth, compareY - 2);
+        pdf.setTextColor(0);
+    }
 }
 
 /**

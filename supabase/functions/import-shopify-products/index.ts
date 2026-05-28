@@ -155,6 +155,7 @@ Deno.serve(async (req) => {
                         sku: variant.sku || `SHOP-${variant.id}`,
                         category: product.product_type || 'Other',
                         price: parseFloat(variant.price),
+                        compare_at_price: variant.compare_at_price ? parseFloat(variant.compare_at_price) : null,
                         quantity: variant.inventory_quantity,
                         image_url: imageUrl,
                         is_listed: true,

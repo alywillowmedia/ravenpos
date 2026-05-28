@@ -21,6 +21,7 @@ import { useCategories } from '../hooks/useCategories';
 import { useBulkEdit } from '../hooks/useBulkEdit';
 import { useToast } from '../contexts/ToastContext';
 import { formatCurrency } from '../lib/utils';
+import { getAppliedCompareAtPrice } from '../lib/itemPricing';
 import type { Item, ItemInput } from '../types';
 
 function formatAddedDate(value: string): string {
@@ -410,7 +411,14 @@ export function Inventory() {
                 minWidth: '96px',
                 sortable: true,
                 render: (item) => (
-                    <span className="font-medium">{formatCurrency(Number(item.price))}</span>
+                    <div className="flex flex-col">
+                        {getAppliedCompareAtPrice(item) !== null && (
+                            <span className="text-xs text-[var(--color-muted)] line-through">
+                                {formatCurrency(getAppliedCompareAtPrice(item)!)}
+                            </span>
+                        )}
+                        <span className="font-medium">{formatCurrency(Number(item.price))}</span>
+                    </div>
                 ),
             },
             {

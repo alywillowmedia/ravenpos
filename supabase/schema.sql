@@ -54,6 +54,7 @@ CREATE TABLE items (
   quantity INTEGER DEFAULT 1,
   qty_unlabeled INTEGER DEFAULT 0,
   price DECIMAL(10,2) NOT NULL,
+  compare_at_price DECIMAL(10,2),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

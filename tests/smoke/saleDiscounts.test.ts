@@ -17,6 +17,7 @@ function buildItem(overrides: Partial<Item> = {}): Item {
         quantity: 10,
         qty_unlabeled: 10,
         price: 100,
+        compare_at_price: null,
         image_url: null,
         is_listed: true,
         show_in_public_browse: true,

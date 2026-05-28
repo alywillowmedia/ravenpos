@@ -20,6 +20,7 @@ interface BatchRow {
     category: string;
     quantity: number | '';
     price: number | '';
+    compare_at_price: number | '';
 }
 
 const createEmptyRow = (): BatchRow => ({
@@ -32,6 +33,7 @@ const createEmptyRow = (): BatchRow => ({
     category: 'Other',
     quantity: 1,
     price: 0,
+    compare_at_price: '',
 });
 
 export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatchEntryProps) {
@@ -83,8 +85,8 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
             e.preventDefault();
             const rowIndex = rows.findIndex((r) => r.id === rowId);
 
-            // If on last row and pressing enter in price field, add new row
-            if (field === 'price' && rowIndex === rows.length - 1) {
+            // If on last row and pressing enter in final pricing field, add new row
+            if (field === 'compare_at_price' && rowIndex === rows.length - 1) {
                 addRow();
             } else {
                 // Move to next field or next row
@@ -105,11 +107,19 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
             ...row,
             quantity: row.quantity === '' ? 1 : row.quantity,
             price: row.price === '' ? 0 : row.price,
+            compare_at_price: row.compare_at_price === '' ? null : row.compare_at_price,
         }));
+        const invalidCompareAtRow = normalizedRows.find(
+            (row) => row.compare_at_price !== null && row.compare_at_price <= row.price
+        );
         const validRows = normalizedRows.filter((row) => row.name.trim() && row.price > 0);
 
         if (validRows.length === 0) {
             setError('Please add at least one item with a name and price');
+            return;
+        }
+        if (invalidCompareAtRow) {
+            setError('Compare-at price must be higher than the actual price');
             return;
         }
 
@@ -140,7 +150,7 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
 
             <div className="space-y-2">
                 {/* Header */}
-                <div className="hidden sm:grid sm:grid-cols-[repeat(13,minmax(0,1fr))] gap-1.5 text-[11px] font-medium text-[var(--color-muted)] px-1">
+                <div className="hidden sm:grid sm:grid-cols-[repeat(15,minmax(0,1fr))] gap-1.5 text-[11px] font-medium text-[var(--color-muted)] px-1">
                     <div className="col-span-2">SKU</div>
                     <div className="col-span-2">Name *</div>
                     <div className="col-span-1">Variant</div>
@@ -149,6 +159,7 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
                     <div className="col-span-2">Category</div>
                     <div className="col-span-1">Qty</div>
                     <div className="col-span-2">Price *</div>
+                    <div className="col-span-2">Compare-at</div>
                     <div className="col-span-1"></div>
                 </div>
 
@@ -156,7 +167,7 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
                 {rows.map((row) => (
                     <div
                         key={row.id}
-                        className="grid grid-cols-12 sm:grid-cols-[repeat(13,minmax(0,1fr))] gap-1.5 items-center p-1.5 rounded-lg bg-[var(--color-surface-hover)]/50 hover:bg-[var(--color-surface-hover)] transition-colors"
+                        className="grid grid-cols-12 sm:grid-cols-[repeat(15,minmax(0,1fr))] gap-1.5 items-center p-1.5 rounded-lg bg-[var(--color-surface-hover)]/50 hover:bg-[var(--color-surface-hover)] transition-colors"
                     >
                         <div className="col-span-12 sm:col-span-2">
                             <Input
@@ -254,6 +265,25 @@ export function VendorBatchEntry({ categories, onSubmit, onCancel }: VendorBatch
                                     }
                                 }}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'price')}
+                                inputSize="sm"
+                                className="md:text-xs"
+                                leftIcon={<span className="text-[var(--color-muted)] text-xs">$</span>}
+                            />
+                        </div>
+                        <div className="col-span-6 sm:col-span-2">
+                            <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="Optional"
+                                value={row.compare_at_price}
+                                onChange={(e) => updateRow(row.id, 'compare_at_price', parseDecimalInput(e.target.value))}
+                                onBlur={() => {
+                                    if (row.compare_at_price === 0) {
+                                        updateRow(row.id, 'compare_at_price', '');
+                                    }
+                                }}
+                                onKeyDown={(e) => handleKeyDown(e, row.id, 'compare_at_price')}
                                 inputSize="sm"
                                 className="md:text-xs"
                                 leftIcon={<span className="text-[var(--color-muted)] text-xs">$</span>}

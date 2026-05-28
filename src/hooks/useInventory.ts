@@ -137,6 +137,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
           quantity,
           qty_unlabeled,
           price,
+          compare_at_price,
           created_at,
           updated_at,
           consignor:consignors(id, consignor_number, name)
@@ -231,6 +232,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
           quantity,
           qty_unlabeled,
           price,
+          compare_at_price,
           created_at,
           updated_at,
           consignor:consignors(id, consignor_number, name)
@@ -387,6 +389,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                     quantity: itemQuantity,
                     qty_unlabeled: itemQuantity, // New items need labels for full quantity
                     price: input.price,
+                    compare_at_price: input.compare_at_price ?? null,
                     image_url: input.image_url || null,
                     show_in_public_browse: input.show_in_public_browse ?? true,
                     storefront_featured: input.storefront_featured ?? false,
@@ -425,6 +428,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                     quantity: itemQuantity,
                     qty_unlabeled: itemQuantity, // New items need labels for full quantity
                     price: input.price,
+                    compare_at_price: input.compare_at_price ?? null,
                     image_url: input.image_url || null,
                     show_in_public_browse: input.show_in_public_browse ?? true,
                     storefront_featured: input.storefront_featured ?? false,

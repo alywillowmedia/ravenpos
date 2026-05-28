@@ -26,6 +26,7 @@ interface MappedItem {
     category: string;
     quantity: number;
     price: number;
+    compare_at_price: number | null;
     image_url: string | null;
 }
 
@@ -59,6 +60,7 @@ export function ImportCSV() {
     const [categoryColumn, setCategoryColumn] = useState('');
     const [quantityColumn, setQuantityColumn] = useState('');
     const [priceColumn, setPriceColumn] = useState('');
+    const [compareAtPriceColumn, setCompareAtPriceColumn] = useState('');
     const [imageColumn, setImageColumn] = useState('');
 
     const downloadTemplate = () => {
@@ -133,7 +135,11 @@ export function ImportCSV() {
                 setDetail2Column(findColumn(['detail 2', 'other details 2', 'other_details_2'], ['detail 2', 'detail2', 'other details 2', 'other_details_2']));
                 setCategoryColumn(findColumn(['category'], ['category', 'type', 'cat']));
                 setQuantityColumn(findColumn(['quantity', 'qty'], ['quantity', 'qty', 'stock', 'count']));
-                setPriceColumn(findColumn(['price'], ['price', 'cost', 'amount', 'value']));
+                setPriceColumn(findColumn(['price'], ['price', 'cost', 'amount']));
+                setCompareAtPriceColumn(findColumn(
+                    ['compare at price', 'compare-at price', 'compare_at_price', 'value', 'retail value', 'msrp'],
+                    ['compare', 'value', 'msrp', 'retail']
+                ));
                 setImageColumn(findColumn(['image src', 'image url'], ['image', 'photo', 'picture', 'img']));
             },
         });
@@ -149,6 +155,13 @@ export function ImportCSV() {
         const items: MappedItem[] = csvData.map((row, index) => {
             const rawPrice = row[priceColumn] || '0';
             const price = parseFloat(rawPrice.replace(/[^0-9.-]/g, '')) || 0;
+            const rawCompareAtPrice = compareAtPriceColumn ? row[compareAtPriceColumn] || '' : '';
+            const parsedCompareAtPrice = rawCompareAtPrice
+                ? parseFloat(rawCompareAtPrice.replace(/[^0-9.-]/g, ''))
+                : NaN;
+            const compareAtPrice = Number.isFinite(parsedCompareAtPrice) && parsedCompareAtPrice > price
+                ? parsedCompareAtPrice
+                : null;
 
             const rawQty = quantityColumn ? row[quantityColumn] : '1';
             const quantity = parseInt(rawQty, 10) || 1;
@@ -168,6 +181,7 @@ export function ImportCSV() {
                 category,
                 quantity,
                 price,
+                compare_at_price: compareAtPrice,
                 image_url: imageColumn ? row[imageColumn]?.trim() || null : null,
             };
         }).filter((item) => item.name && item.price > 0);
@@ -204,6 +218,7 @@ export function ImportCSV() {
             category: item.category,
             quantity: item.quantity,
             price: item.price,
+            compare_at_price: item.compare_at_price,
             image_url: item.image_url,
         }));
 
@@ -253,6 +268,13 @@ export function ImportCSV() {
             );
             if (imageIdx !== -1 && !imageColumn) {
                 setImageColumn(headers[imageIdx]);
+            }
+
+            const compareAtIdx = lowerHeaders.findIndex(h =>
+                h === 'variant compare at price' || h === 'compare at price' || h === 'compare_at_price'
+            );
+            if (compareAtIdx !== -1 && !compareAtPriceColumn) {
+                setCompareAtPriceColumn(headers[compareAtIdx]);
             }
 
             // Check for warnings
@@ -305,6 +327,12 @@ export function ImportCSV() {
             header: 'Price',
             width: '100px',
             render: (item) => formatCurrency(item.price),
+        },
+        {
+            key: 'compare_at_price',
+            header: 'Compare-at',
+            width: '110px',
+            render: (item) => item.compare_at_price ? formatCurrency(item.compare_at_price) : '—',
         },
     ];
 
@@ -517,6 +545,12 @@ export function ImportCSV() {
                                 options={headerOptions}
                                 value={priceColumn}
                                 onChange={(e) => setPriceColumn(e.target.value)}
+                            />
+                            <Select
+                                label="Compare-at"
+                                options={headerOptions}
+                                value={compareAtPriceColumn}
+                                onChange={(e) => setCompareAtPriceColumn(e.target.value)}
                             />
                             <Select
                                 label="Image URL"

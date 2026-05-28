@@ -33,7 +33,7 @@ export function ChangeSummaryModal({
 
     const formatValue = (field: string, value: unknown): string => {
         if (value === null || value === undefined) return '—';
-        if (field === 'price') return formatCurrency(Number(value));
+        if (field === 'price' || field === 'compare_at_price') return formatCurrency(Number(value));
         if (field === 'is_listed') return value ? 'Active' : 'Inactive';
         return String(value);
     };
@@ -42,6 +42,7 @@ export function ChangeSummaryModal({
         const labels: Record<string, string> = {
             variant_summary: 'Shelf Description',
             price: 'Price',
+            compare_at_price: 'Compare-at',
             quantity: 'Quantity',
             category: 'Category',
             is_listed: 'Status',

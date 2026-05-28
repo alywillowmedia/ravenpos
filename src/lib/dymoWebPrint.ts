@@ -262,6 +262,7 @@ export async function printDymoLabelsDirect(
         const data = createDymoLabelObjectData(item);
         for (let i = 0; i < printQuantity; i++) {
             label.setObjectText('VENDOR', data.VENDOR);
+            label.setObjectText('COMPARE_AT_PRICE', data.COMPARE_AT_PRICE);
             label.setObjectText('PRICE', data.PRICE);
             label.setObjectText('NAME', data.NAME);
             label.setObjectText('VARIANT', data.VARIANT);

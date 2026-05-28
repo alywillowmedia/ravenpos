@@ -117,6 +117,7 @@ export interface ShopifyVariant {
     title: string;
     sku: string;
     price: string;
+    compare_at_price: string | null;
     inventory_item_id: number;
     inventory_quantity: number;
     barcode: string | null;

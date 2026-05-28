@@ -65,6 +65,7 @@ export interface Item {
     quantity: number;
     qty_unlabeled: number;
     price: number;
+    compare_at_price: number | null;
     image_url: string | null;
     is_listed: boolean;
     show_in_public_browse: boolean;

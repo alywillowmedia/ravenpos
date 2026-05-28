@@ -15,6 +15,7 @@ import { VendorBatchEntry } from '../../components/vendor/VendorBatchEntry';
 import { Tabs } from '../../components/ui/Tabs';
 import { Card, CardContent } from '../../components/ui/Card';
 import { InventoryDiscountsTab } from '../../components/inventory/InventoryDiscountsTab';
+import { getAppliedCompareAtPrice } from '../../lib/itemPricing';
 import type { Item } from '../../types';
 
 export function VendorInventory() {
@@ -141,7 +142,16 @@ export function VendorInventory() {
             header: 'Price',
             width: '100px',
             sortable: true,
-            render: (item) => formatCurrency(Number(item.price)),
+            render: (item) => (
+                <div className="flex flex-col">
+                    {getAppliedCompareAtPrice(item) !== null && (
+                        <span className="text-xs text-[var(--color-muted)] line-through">
+                            {formatCurrency(getAppliedCompareAtPrice(item)!)}
+                        </span>
+                    )}
+                    <span>{formatCurrency(Number(item.price))}</span>
+                </div>
+            ),
         },
         {
             key: 'actions',

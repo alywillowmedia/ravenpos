@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import JsBarcode from 'jsbarcode';
 import type { Item } from '../../types';
 import { formatCurrency } from '../../lib/utils';
+import { getAppliedCompareAtPrice } from '../../lib/itemPricing';
 
 interface LabelItem extends Item {
     printQuantity?: number;
@@ -99,6 +100,7 @@ interface BarcodeLabelProps {
 function BarcodeLabel({ item }: BarcodeLabelProps) {
     const barcodeRef = useRef<SVGSVGElement>(null);
     const vendorName = item.consignor?.name || item.consignor?.consignor_number || '';
+    const compareAtPrice = getAppliedCompareAtPrice(item);
 
     useEffect(() => {
         if (barcodeRef.current) {
@@ -150,12 +152,31 @@ function BarcodeLabel({ item }: BarcodeLabelProps) {
                 </span>
                 <span
                     style={{
-                        fontSize: '12px',
-                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        gap: '4px',
                         whiteSpace: 'nowrap',
                     }}
                 >
-                    {formatCurrency(Number(item.price))}
+                    {compareAtPrice !== null && (
+                        <span
+                            style={{
+                                fontSize: '8px',
+                                color: '#777',
+                                textDecoration: 'line-through',
+                            }}
+                        >
+                            {formatCurrency(compareAtPrice)}
+                        </span>
+                    )}
+                    <span
+                        style={{
+                            fontSize: '12px',
+                            fontWeight: 700,
+                        }}
+                    >
+                        {formatCurrency(Number(item.price))}
+                    </span>
                 </span>
             </div>
 

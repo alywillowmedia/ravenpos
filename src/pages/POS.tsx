@@ -632,6 +632,7 @@ export function POS() {
             quantity: 99999,
             qty_unlabeled: 0,
             price,
+            compare_at_price: null,
             image_url: null,
             is_listed: false,
             show_in_public_browse: false,

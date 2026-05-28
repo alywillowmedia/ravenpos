@@ -1,5 +1,6 @@
 import type { Item } from '../types';
 import { formatCurrency } from './utils';
+import { getAppliedCompareAtPrice } from './itemPricing';
 
 /**
  * DYMO label object names used by the template below.
@@ -7,6 +8,7 @@ import { formatCurrency } from './utils';
  */
 export interface DymoLabelObjectData {
     VENDOR: string;
+    COMPARE_AT_PRICE: string;
     PRICE: string;
     NAME: string;
     VARIANT: string;
@@ -41,6 +43,7 @@ function trimTo(value: string, max: number): string {
 export function createDymoLabelObjectData(item: Item): DymoLabelObjectData {
     const consignor = item.consignor as { consignor_number?: string; name?: string } | undefined;
     const vendor = consignor?.name || consignor?.consignor_number || '';
+    const compareAtPrice = getAppliedCompareAtPrice(item);
 
     const detailLines: string[] = [];
     if (item.other_details_1?.trim()) detailLines.push(`- ${item.other_details_1.trim()}`);
@@ -48,6 +51,7 @@ export function createDymoLabelObjectData(item: Item): DymoLabelObjectData {
 
     return {
         VENDOR: trimTo(vendor, 38),
+        COMPARE_AT_PRICE: compareAtPrice !== null ? formatCurrency(compareAtPrice) : '',
         PRICE: formatCurrency(Number(item.price)),
         NAME: trimTo(item.name, 42),
         VARIANT: trimTo(item.variant_summary?.trim() || '', 40),
@@ -57,13 +61,19 @@ export function createDymoLabelObjectData(item: Item): DymoLabelObjectData {
     };
 }
 
-function xmlTextElement(value: string, fontFamily: string, fontSize: number, isBold = false): string {
+function xmlTextElement(
+    value: string,
+    fontFamily: string,
+    fontSize: number,
+    isBold = false,
+    isStrikeout = false
+): string {
     return `
       <StyledText>
         <Element>
           <String>${escapeXml(value)}</String>
           <Attributes>
-            <Font Family="${fontFamily}" Size="${fontSize}" Bold="${isBold ? 'True' : 'False'}" Italic="False" Underline="False" Strikeout="False" />
+            <Font Family="${fontFamily}" Size="${fontSize}" Bold="${isBold ? 'True' : 'False'}" Italic="False" Underline="False" Strikeout="${isStrikeout ? 'True' : 'False'}" />
             <ForeColor Alpha="255" Red="0" Green="0" Blue="0" />
           </Attributes>
         </Element>
@@ -78,6 +88,7 @@ function xmlTextElement(value: string, fontFamily: string, fontSize: number, isB
 export function buildDymo30252TemplateXml(defaults: Partial<DymoLabelObjectData> = {}): string {
     const data: DymoLabelObjectData = {
         VENDOR: defaults.VENDOR ?? 'Vendor',
+        COMPARE_AT_PRICE: defaults.COMPARE_AT_PRICE ?? '',
         PRICE: defaults.PRICE ?? '$0.00',
         NAME: defaults.NAME ?? 'Item Name',
         VARIANT: defaults.VARIANT ?? '',
@@ -113,6 +124,23 @@ export function buildDymo30252TemplateXml(defaults: Partial<DymoLabelObjectData>
   </ObjectInfo>
   <ObjectInfo>
     <TextObject>
+      <Name>COMPARE_AT_PRICE</Name>
+      <ForeColor Alpha="255" Red="110" Green="110" Blue="110" />
+      <BackColor Alpha="0" Red="255" Green="255" Blue="255" />
+      <LinkedObjectName></LinkedObjectName>
+      <Rotation>Rotation0</Rotation>
+      <IsMirrored>False</IsMirrored>
+      <IsVariable>True</IsVariable>
+      <HorizontalAlignment>Right</HorizontalAlignment>
+      <VerticalAlignment>Middle</VerticalAlignment>
+      <TextFitMode>ShrinkToFit</TextFitMode>
+      <UseFullFontHeight>True</UseFullFontHeight>
+      <Verticalized>False</Verticalized>${xmlTextElement(data.COMPARE_AT_PRICE, 'Arial', 8, false, true)}
+    </TextObject>
+    <Bounds X="2920" Y="50" Width="760" Height="220" />
+  </ObjectInfo>
+  <ObjectInfo>
+    <TextObject>
       <Name>PRICE</Name>
       <ForeColor Alpha="255" Red="0" Green="0" Blue="0" />
       <BackColor Alpha="0" Red="255" Green="255" Blue="255" />
@@ -126,7 +154,7 @@ export function buildDymo30252TemplateXml(defaults: Partial<DymoLabelObjectData>
       <UseFullFontHeight>True</UseFullFontHeight>
       <Verticalized>False</Verticalized>${xmlTextElement(data.PRICE, 'Arial', 15, true)}
     </TextObject>
-    <Bounds X="3300" Y="30" Width="1620" Height="320" />
+    <Bounds X="3680" Y="30" Width="1240" Height="320" />
   </ObjectInfo>
   <ObjectInfo>
     <TextObject>
@@ -255,12 +283,13 @@ function escapeCsv(value: string): string {
 
 export function buildDymoPrintDataCsv(items: DymoLabelItem[]): string {
     const rows = expandToDymoRows(items);
-    const header = ['VENDOR', 'PRICE', 'NAME', 'VARIANT', 'SKU', 'DETAILS', 'BARCODE'];
+    const header = ['VENDOR', 'COMPARE_AT_PRICE', 'PRICE', 'NAME', 'VARIANT', 'SKU', 'DETAILS', 'BARCODE'];
     const lines = [header.join(',')];
 
     for (const row of rows) {
         lines.push([
             row.VENDOR,
+            row.COMPARE_AT_PRICE,
             row.PRICE,
             row.NAME,
             row.VARIANT,

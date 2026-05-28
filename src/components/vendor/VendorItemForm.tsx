@@ -22,6 +22,7 @@ interface VendorItemFormData {
     category: string;
     quantity: number | '';
     price: number | '';
+    compare_at_price: number | '';
     image_url: string | null;
 }
 
@@ -39,6 +40,7 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
         category: item?.category || 'Other',
         quantity: item?.quantity ?? 1,
         price: item?.price ?? 0,
+        compare_at_price: item?.compare_at_price ?? '',
         image_url: item?.image_url || null,
     });
 
@@ -60,6 +62,7 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
 
         const normalizedQuantity = formData.quantity === '' ? 1 : formData.quantity;
         const normalizedPrice = formData.price === '' ? 0 : formData.price;
+        const normalizedCompareAtPrice = formData.compare_at_price === '' ? null : formData.compare_at_price;
 
         if (!formData.name.trim()) {
             setError('Name is required');
@@ -70,12 +73,17 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
             setError('Price must be greater than 0');
             return;
         }
+        if (normalizedCompareAtPrice !== null && normalizedCompareAtPrice <= normalizedPrice) {
+            setError('Compare-at price must be higher than the actual price');
+            return;
+        }
 
         setIsSubmitting(true);
         const result = await onSubmit({
             ...formData,
             quantity: normalizedQuantity,
             price: normalizedPrice,
+            compare_at_price: normalizedCompareAtPrice,
         });
         setIsSubmitting(false);
 
@@ -186,6 +194,20 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
                             }}
                         />
                     </div>
+                    <Input
+                        label="Compare-at Price (optional)"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.compare_at_price}
+                        onChange={(e) => updateField('compare_at_price', parseDecimalInput(e.target.value))}
+                        onBlur={() => {
+                            if (formData.compare_at_price === 0) {
+                                updateField('compare_at_price', '');
+                            }
+                        }}
+                        hint="Shows as a slashed value on labels when higher than price."
+                    />
                 </div>
 
                 {/* Right Column: Image Upload */}

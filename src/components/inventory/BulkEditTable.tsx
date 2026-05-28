@@ -109,7 +109,7 @@ export function BulkEditTable({
 
             {/* Spreadsheet table */}
             <div className="overflow-auto max-h-[66vh]">
-                <table className="w-full min-w-[1120px] table-fixed">
+                <table className="w-full min-w-[1240px] table-fixed">
                     <thead className="sticky top-0 z-10">
                         <tr className="bg-[var(--color-surface)] border-b border-[var(--color-border)]">
                             <th className="sticky left-0 z-20 bg-[var(--color-surface)] px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[220px]">
@@ -123,6 +123,9 @@ export function BulkEditTable({
                             </th>
                             <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[108px]">
                                 Price
+                            </th>
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[120px]">
+                                Compare-at
                             </th>
                             <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[86px]">
                                 Qty
@@ -228,6 +231,35 @@ export function BulkEditTable({
                                                 }}
                                                 inputSize="sm"
                                                 className="pl-6 w-full"
+                                            />
+                                        </div>
+                                    </td>
+
+                                    {/* Compare-at price (editable) */}
+                                    <td className="px-3 py-2">
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] text-sm">
+                                                $
+                                            </span>
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                value={String(getFieldValue(item, 'compare_at_price') ?? '')}
+                                                onChange={(e) => {
+                                                    const newValue = e.target.value === ''
+                                                        ? null
+                                                        : parseFloat(e.target.value) || 0;
+                                                    onStageChange(
+                                                        item.id,
+                                                        'compare_at_price',
+                                                        newValue,
+                                                        item.compare_at_price
+                                                    );
+                                                }}
+                                                inputSize="sm"
+                                                className="pl-6 w-full"
+                                                placeholder="Optional"
                                             />
                                         </div>
                                     </td>
