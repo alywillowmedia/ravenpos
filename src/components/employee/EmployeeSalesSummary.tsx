@@ -16,6 +16,9 @@ interface EmployeeSalesSummaryProps {
     employeeId: string | null;
     employeeName?: string | null;
     days?: number;
+    startDate?: Date;
+    endDateExclusive?: Date;
+    rangeLabel?: string;
 }
 
 const DEFAULT_DAYS = 7;
@@ -32,10 +35,18 @@ function formatPaymentMethod(method: string) {
     return 'Card';
 }
 
-export function EmployeeSalesSummary({ employeeId, employeeName, days = DEFAULT_DAYS }: EmployeeSalesSummaryProps) {
+export function EmployeeSalesSummary({
+    employeeId,
+    employeeName,
+    days = DEFAULT_DAYS,
+    startDate,
+    endDateExclusive,
+    rangeLabel,
+}: EmployeeSalesSummaryProps) {
     const [sales, setSales] = useState<EmployeeSaleRecord[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const periodLabel = rangeLabel || `Last ${days} Days`;
 
     useEffect(() => {
         const loadSales = async () => {
@@ -50,14 +61,15 @@ export function EmployeeSalesSummary({ employeeId, employeeName, days = DEFAULT_
             setError(null);
 
             const now = new Date();
-            const start = startOfDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)));
+            const start = startDate ? startOfDay(startDate) : startOfDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)));
+            const endExclusive = endDateExclusive || now;
 
             const { data, error: salesError } = await supabase
                 .from('sales')
                 .select('id, completed_at, total, payment_method')
                 .eq('processed_by_employee', employeeId)
                 .gte('completed_at', start.toISOString())
-                .lte('completed_at', now.toISOString())
+                .lt('completed_at', endExclusive.toISOString())
                 .order('completed_at', { ascending: false });
 
             if (salesError) {
@@ -72,7 +84,7 @@ export function EmployeeSalesSummary({ employeeId, employeeName, days = DEFAULT_
         };
 
         void loadSales();
-    }, [days, employeeId]);
+    }, [days, employeeId, endDateExclusive, startDate]);
 
     const totals = useMemo(() => {
         return sales.reduce(
@@ -95,8 +107,9 @@ export function EmployeeSalesSummary({ employeeId, employeeName, days = DEFAULT_
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Card variant="outlined">
                     <CardContent className="p-4">
-                        <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Sales ({days} Days)</p>
+                        <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Sales</p>
                         <p className="text-2xl font-semibold mt-1">{sales.length}</p>
+                        <p className="mt-1 text-xs text-[var(--color-muted)]">{periodLabel}</p>
                     </CardContent>
                 </Card>
                 <Card variant="outlined">
@@ -124,7 +137,7 @@ export function EmployeeSalesSummary({ employeeId, employeeName, days = DEFAULT_
             <Card variant="outlined">
                 <CardHeader>
                     <CardTitle className="text-base">
-                        {employeeName ? `${employeeName}'s` : 'My'} Attributed Sales (Last {days} Days)
+                        {employeeName ? `${employeeName}'s` : 'My'} Attributed Sales ({periodLabel})
                     </CardTitle>
                 </CardHeader>
                 <CardContent>

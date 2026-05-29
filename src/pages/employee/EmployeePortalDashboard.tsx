@@ -144,6 +144,24 @@ function toHours(start: string, end: string) {
     return Math.max(0, endMinutes - startMinutes) / 60;
 }
 
+function getTimeEntryHoursForRange(entry: TimeEntry, rangeStart: Date, rangeEndExclusive: Date) {
+    const clockIn = new Date(entry.clock_in);
+    const rawClockOut = entry.clock_out ? new Date(entry.clock_out) : new Date();
+    const clippedStartMs = Math.max(clockIn.getTime(), rangeStart.getTime());
+    const clippedEndMs = Math.min(rawClockOut.getTime(), rangeEndExclusive.getTime());
+
+    if (clippedEndMs <= clippedStartMs) return 0;
+
+    const isFullyInsideRange = clockIn.getTime() >= rangeStart.getTime()
+        && rawClockOut.getTime() <= rangeEndExclusive.getTime();
+
+    if (isFullyInsideRange && entry.total_hours !== null && entry.total_hours !== undefined) {
+        return Number(entry.total_hours || 0);
+    }
+
+    return (clippedEndMs - clippedStartMs) / (1000 * 60 * 60);
+}
+
 function matchesRecurringOnDate(shift: RecurringShift, date: Date, dateKey: string) {
     if (dateKey < shift.active_from) return false;
     if (shift.active_until && dateKey > shift.active_until) return false;
@@ -187,7 +205,7 @@ export function EmployeePortalDashboard() {
     const [oneTimeShifts, setOneTimeShifts] = useState<OneTimeShift[]>([]);
     const [recurringShifts, setRecurringShifts] = useState<RecurringShift[]>([]);
     const [dayOffOverrides, setDayOffOverrides] = useState<DayOffOverride[]>([]);
-    const [weekHoursWorked, setWeekHoursWorked] = useState(0);
+    const [selectedWeekHoursWorked, setSelectedWeekHoursWorked] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -221,10 +239,11 @@ export function EmployeePortalDashboard() {
     const today = useMemo(() => new Date(), []);
     const todayKey = toDateKey(today);
     const currentWeekStartKey = toDateKey(startOfWeekMonday(today));
-    const scheduleRangeStart = parseDateKey(selectedWeekStartKey);
-    const scheduleRangeEnd = addDays(scheduleRangeStart, 6);
+    const scheduleRangeStart = useMemo(() => parseDateKey(selectedWeekStartKey), [selectedWeekStartKey]);
+    const scheduleRangeEnd = useMemo(() => addDays(scheduleRangeStart, 6), [scheduleRangeStart]);
     const scheduleRangeStartKey = toDateKey(scheduleRangeStart);
     const scheduleRangeEndKey = toDateKey(scheduleRangeEnd);
+    const scheduleRangeEndExclusive = useMemo(() => addDays(scheduleRangeStart, 7), [scheduleRangeStart]);
     const weekRangeLabel = formatWeekRange(scheduleRangeStartKey, scheduleRangeEndKey);
     const selectedWeekOffset = Math.round((toDateKeyDayNumber(selectedWeekStartKey) - toDateKeyDayNumber(currentWeekStartKey)) / 7);
     const selectedWeekLabel = selectedWeekOffset === 0
@@ -323,8 +342,8 @@ export function EmployeePortalDashboard() {
 
     const estimatedPay = useMemo(() => {
         const hourlyRate = profile?.hourly_rate || 0;
-        return weekHoursWorked * hourlyRate;
-    }, [profile?.hourly_rate, weekHoursWorked]);
+        return selectedWeekHoursWorked * hourlyRate;
+    }, [profile?.hourly_rate, selectedWeekHoursWorked]);
 
     const loadTimeOffRequests = useCallback(async () => {
         if (!employeeId) {
@@ -361,8 +380,8 @@ export function EmployeePortalDashboard() {
         setIsLoading(true);
         setError(null);
 
-        const weekStart = startOfWeekMonday(new Date());
-        const nowIso = new Date().toISOString();
+        const selectedWeekStartIso = scheduleRangeStart.toISOString();
+        const selectedWeekEndExclusiveIso = scheduleRangeEndExclusive.toISOString();
 
         const [profileResult, oneTimeResult, recurringResult, dayOffOverridesResult, timeEntriesResult] = await Promise.all([
             supabase
@@ -399,8 +418,8 @@ export function EmployeePortalDashboard() {
                 .from('time_entries')
                 .select('id, clock_in, clock_out, total_hours')
                 .eq('employee_id', employeeId)
-                .gte('clock_in', weekStart.toISOString())
-                .lte('clock_in', nowIso),
+                .lt('clock_in', selectedWeekEndExclusiveIso)
+                .or(`clock_out.is.null,clock_out.gte.${selectedWeekStartIso}`),
         ]);
 
         if (profileResult.error || oneTimeResult.error || recurringResult.error || dayOffOverridesResult.error || timeEntriesResult.error) {
@@ -417,22 +436,12 @@ export function EmployeePortalDashboard() {
 
         const entries = (timeEntriesResult.data || []) as TimeEntry[];
         const hours = entries.reduce((sum, entry) => {
-            if (entry.total_hours !== null && entry.total_hours !== undefined) {
-                return sum + entry.total_hours;
-            }
-
-            if (!entry.clock_out) {
-                const start = new Date(entry.clock_in);
-                const now = new Date();
-                return sum + Math.max(0, (now.getTime() - start.getTime()) / (1000 * 60 * 60));
-            }
-
-            return sum;
+            return sum + getTimeEntryHoursForRange(entry, scheduleRangeStart, scheduleRangeEndExclusive);
         }, 0);
 
-        setWeekHoursWorked(Math.round(hours * 100) / 100);
+        setSelectedWeekHoursWorked(Math.round(hours * 100) / 100);
         setIsLoading(false);
-    }, [employeeId, scheduleRangeEndKey, scheduleRangeStartKey]);
+    }, [employeeId, scheduleRangeEndExclusive, scheduleRangeEndKey, scheduleRangeStart, scheduleRangeStartKey]);
 
     useEffect(() => {
         void loadDashboard();
@@ -684,14 +693,16 @@ export function EmployeePortalDashboard() {
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <Card variant="outlined">
                                 <CardContent className="p-4">
-                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Hours Worked This Week</p>
-                                    <p className="text-2xl font-semibold mt-1">{weekHoursWorked.toFixed(2)}</p>
+                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Hours Worked {selectedWeekLabel}</p>
+                                    <p className="text-2xl font-semibold mt-1">{selectedWeekHoursWorked.toFixed(2)}</p>
+                                    <p className="mt-1 text-xs text-[var(--color-muted)]">{weekRangeLabel}</p>
                                 </CardContent>
                             </Card>
                             <Card variant="outlined">
                                 <CardContent className="p-4">
-                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Estimated Pay So Far</p>
+                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Estimated Pay {selectedWeekLabel}</p>
                                     <p className="text-2xl font-semibold mt-1">${estimatedPay.toFixed(2)}</p>
+                                    <p className="mt-1 text-xs text-[var(--color-muted)]">{weekRangeLabel}</p>
                                 </CardContent>
                             </Card>
                             <Card variant="outlined">
@@ -962,7 +973,9 @@ export function EmployeePortalDashboard() {
                     <EmployeeSalesSummary
                         employeeId={employeeId}
                         employeeName={profile?.name}
-                        days={7}
+                        startDate={scheduleRangeStart}
+                        endDateExclusive={scheduleRangeEndExclusive}
+                        rangeLabel={weekRangeLabel}
                     />
                 )}
 
