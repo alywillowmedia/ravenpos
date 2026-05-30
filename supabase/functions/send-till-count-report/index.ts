@@ -11,6 +11,7 @@ interface TillBreakdownLine {
 
 interface TillReport {
   countedAt: string
+  businessDate?: string
   expectedFromSales: number
   checkCount?: number
   checkTotal?: number
@@ -54,6 +55,19 @@ function formatDate(value: string, timezone?: string): string {
   )
 }
 
+function formatBusinessDate(value: string | undefined): string {
+  if (!value) return ''
+  const parts = value.split('-').map(Number)
+  const [year, month, day] = parts
+  if (!year || !month || !day) return value
+
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+}
+
 function sanitizeName(value: string | undefined): string {
   if (!value) return ''
   return value.trim()
@@ -62,6 +76,7 @@ function sanitizeName(value: string | undefined): string {
 function buildEmailHtml(payload: RequestBody): string {
   const { adminName, employeeName, report, timezone } = payload
   const createdAt = formatDate(report.countedAt, timezone)
+  const businessDate = formatBusinessDate(report.businessDate)
   const varianceColor = report.variance > 0.009 ? '#16a34a' : report.variance < -0.009 ? '#dc2626' : '#111827'
   const varianceLabel = `${report.variance >= 0 ? '+' : ''}${formatCurrency(report.variance)}`
   const rows = report.denominationBreakdown
@@ -98,6 +113,7 @@ function buildEmailHtml(payload: RequestBody): string {
         <td style="padding:16px 24px;border-bottom:1px dashed #d1d5db;">
           <p style="margin:0 0 4px 0;font-size:13px;color:#4b5563;">To: ${sanitizeName(adminName) || payload.adminEmail}</p>
           <p style="margin:0;font-size:13px;color:#4b5563;">Submitted By: ${sanitizeName(employeeName) || 'Employee'}</p>
+          ${businessDate ? `<p style="margin:4px 0 0 0;font-size:13px;color:#4b5563;">Sales Date: ${businessDate}</p>` : ''}
         </td>
       </tr>
       <tr>
@@ -190,7 +206,7 @@ Deno.serve(async (req) => {
     }
 
     const html = buildEmailHtml(body)
-    const subjectDate = formatDate(body.report.countedAt, body.timezone)
+    const subjectDate = formatBusinessDate(body.report.businessDate) || formatDate(body.report.countedAt, body.timezone)
 
     const resendResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',

@@ -41,13 +41,35 @@ function isMissingDealerPurchasesTableError(message?: string): boolean {
     return text.includes('dealer_purchases') && (text.includes('does not exist') || text.includes('not found'));
 }
 
-function getTodayRangeIso(): { startIso: string; endIso: string } {
-    const now = new Date();
-    const start = new Date(now);
+function getLocalDateInputValue(date: Date = new Date()): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function getDateFromInputValue(value: string): Date {
+    const [year, month, day] = value.split('-').map(Number);
+    if (!year || !month || !day) return new Date();
+    return new Date(year, month - 1, day);
+}
+
+function getDayRangeIso(dateValue: string): { startIso: string; endIso: string } {
+    const day = getDateFromInputValue(dateValue);
+    const start = new Date(day);
     start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
+    const end = new Date(day);
     end.setHours(23, 59, 59, 999);
     return { startIso: start.toISOString(), endIso: end.toISOString() };
+}
+
+function formatBusinessDate(dateValue: string): string {
+    return getDateFromInputValue(dateValue).toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
 }
 
 export function EmployeeTillCount() {
@@ -57,6 +79,7 @@ export function EmployeeTillCount() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSendingEmail, setIsSendingEmail] = useState(false);
     const [openingFloatInput, setOpeningFloatInput] = useState('');
+    const [selectedDate, setSelectedDate] = useState(() => getLocalDateInputValue());
     const [expectedCashFromSales, setExpectedCashFromSales] = useState(0);
     const [offlineUnsyncedCashNetTotal, setOfflineUnsyncedCashNetTotal] = useState(0);
     const [accountability, setAccountability] = useState<TillAccountabilityMetrics>(() =>
@@ -76,7 +99,7 @@ export function EmployeeTillCount() {
     useEffect(() => {
         const loadPageData = async () => {
             setIsLoading(true);
-            const { startIso, endIso } = getTodayRangeIso();
+            const { startIso, endIso } = getDayRangeIso(selectedDate);
 
             const [adminsResult, salesResult, refundsResult, dealerPurchasesResult, giftCardsResult, offlineUnsyncedCashTotal] = await Promise.all([
                 supabase.rpc('get_chat_admin_contacts'),
@@ -153,7 +176,7 @@ export function EmployeeTillCount() {
         };
 
         void loadPageData();
-    }, [toast]);
+    }, [selectedDate, toast]);
 
     const countedTotal = useMemo(() => fromCurrencyCents(
         getCountedDrawerCents(CASH_DENOMINATIONS, denominationCounts)
@@ -164,6 +187,7 @@ export function EmployeeTillCount() {
     const checkTotal = Math.max(0, Number.parseFloat(checkAmountInput) || 0);
     const expectedDrawerTotal = fromCurrencyCents(toCurrencyCents(openingFloat) + toCurrencyCents(expectedCashFromSales));
     const variance = fromCurrencyCents(toCurrencyCents(countedTotal) - toCurrencyCents(expectedDrawerTotal));
+    const selectedBusinessDateLabel = formatBusinessDate(selectedDate);
 
     const adminOptions = [
         { value: '', label: admins.length > 0 ? 'Select admin' : 'No admins available' },
@@ -215,6 +239,7 @@ export function EmployeeTillCount() {
                 employeeName: employee?.name || 'Employee',
                 report: {
                     countedAt,
+                    businessDate: selectedDate,
                     expectedFromSales: expectedCashFromSales,
                     checkCount,
                     checkTotal,
@@ -273,6 +298,7 @@ export function EmployeeTillCount() {
             },
             {
                 countedAt: new Date().toISOString(),
+                businessDate: selectedDate,
                 expectedFromSales: expectedCashFromSales,
                 checkCount,
                 checkTotal,
@@ -324,7 +350,16 @@ export function EmployeeTillCount() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                         <div>
-                            <p className="text-xs text-[var(--color-muted)]">From Today&apos;s Cash Activity (sales - refunds - dealer buys)</p>
+                            <div className="mb-3 max-w-56">
+                                <Input
+                                    type="date"
+                                    label="Till Date"
+                                    value={selectedDate}
+                                    onChange={(event) => setSelectedDate(event.target.value || getLocalDateInputValue())}
+                                    disabled={isLoading}
+                                />
+                            </div>
+                            <p className="text-xs text-[var(--color-muted)]">From {selectedBusinessDateLabel} Cash Activity (sales - refunds - dealer buys)</p>
                             <p className="text-2xl font-bold">
                                 {isLoading ? 'Loading...' : formatCurrency(expectedCashFromSales)}
                             </p>

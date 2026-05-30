@@ -8,6 +8,7 @@ export interface TillBreakdownLine {
 
 export interface TillCountReport {
     countedAt: string;
+    businessDate?: string;
     expectedFromSales: number;
     checkCount: number;
     checkTotal: number;
@@ -68,6 +69,19 @@ function formatDateTime(value: string, timezone?: string): string {
     });
 }
 
+function formatBusinessDate(value?: string): string {
+    if (!value) return '';
+    const [year, month, day] = value.split('-').map(Number);
+    if (!year || !month || !day) return value;
+
+    return new Date(year, month - 1, day).toLocaleDateString([], {
+        weekday: 'long',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    });
+}
+
 function buildReceiptHtml(meta: TillCountReceiptMeta, report: TillCountReport): string {
     const varianceColor =
         report.variance > 0.009
@@ -112,10 +126,11 @@ function buildReceiptHtml(meta: TillCountReceiptMeta, report: TillCountReport): 
       <div class="muted">${formatDateTime(report.countedAt, meta.timezone)}</div>
     </div>
 
-    <div class="section">
-      <div><span class="muted">Submitted By:</span> ${escapeHtml(meta.submittedBy || 'Employee')}</div>
-      ${meta.recipientName ? `<div><span class="muted">For:</span> ${escapeHtml(meta.recipientName)}</div>` : ''}
-    </div>
+      <div class="section">
+        <div><span class="muted">Submitted By:</span> ${escapeHtml(meta.submittedBy || 'Employee')}</div>
+        ${meta.recipientName ? `<div><span class="muted">For:</span> ${escapeHtml(meta.recipientName)}</div>` : ''}
+        ${report.businessDate ? `<div><span class="muted">Sales Date:</span> ${escapeHtml(formatBusinessDate(report.businessDate))}</div>` : ''}
+      </div>
 
     <div class="section">
       <table>
