@@ -7,15 +7,26 @@ import { Modal } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
 import { EmptyState, UsersIcon } from '../components/ui/EmptyState';
 import { ConsignorForm } from '../components/consignors/ConsignorForm';
+import { ConsignorExportOptionsModal } from '../components/consignors/ConsignorExportOptionsModal';
 import { DeleteConfirmationModal } from '../components/ui/DeleteConfirmationModal';
 import { useConsignors } from '../hooks/useConsignors';
 import { isConsignorScheduled } from '../lib/consignorStatus';
 import { getConsignorDisplayName, getConsignorPayToName } from '../lib/consignors';
+import { downloadCsv } from '../lib/csvExport';
+import {
+    CONSIGNORS_SUMMARY_EXPORT_FIELD_GROUPS,
+    DEFAULT_CONSIGNORS_SUMMARY_EXPORT_FIELDS,
+    buildConsignorsSummaryCsvRows,
+    buildConsignorsSummaryFilename,
+    type ConsignorsSummaryExportField,
+} from '../lib/consignorReports';
 import { supabase } from '../lib/supabase';
+import { useToast } from '../contexts/ToastContext';
 import type { Consignor, ConsignorInput } from '../types';
 
 export function Consignors() {
     const navigate = useNavigate();
+    const toast = useToast();
     const { consignors, isLoading, error, createConsignor, deleteConsignor } = useConsignors();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isAddConsignorDirty, setIsAddConsignorDirty] = useState(false);
@@ -23,6 +34,11 @@ export function Consignors() {
     const [isDeleting, setIsDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const [itemCount, setItemCount] = useState(0);
+    const [isExporting, setIsExporting] = useState(false);
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [selectedExportFields, setSelectedExportFields] = useState<ConsignorsSummaryExportField[]>(
+        DEFAULT_CONSIGNORS_SUMMARY_EXPORT_FIELDS
+    );
 
     // Fetch item count when deleteTarget changes
     useEffect(() => {
@@ -84,6 +100,31 @@ export function Consignors() {
         }
 
         setDeleteTarget(null);
+    };
+
+    const handleExportConsignorsCsv = async () => {
+        if (consignors.length === 0 || selectedExportFields.length === 0) return;
+
+        setIsExporting(true);
+        try {
+            const rows = await buildConsignorsSummaryCsvRows(consignors, selectedExportFields);
+            downloadCsv(buildConsignorsSummaryFilename(), rows);
+            setIsExportModalOpen(false);
+            toast.success('Consignor report exported', `${consignors.length} consignor${consignors.length === 1 ? '' : 's'} included.`);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Please try again.';
+            toast.error('Unable to export consignors', message);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const toggleExportField = (field: ConsignorsSummaryExportField) => {
+        setSelectedExportFields((current) =>
+            current.includes(field)
+                ? current.filter((selectedField) => selectedField !== field)
+                : [...current, field]
+        );
     };
 
     const columns: Column<Consignor>[] = [
@@ -182,10 +223,20 @@ export function Consignors() {
                 title="Consignors"
                 description="Manage your vendors and their commission splits."
                 actions={
-                    <Button onClick={openAddConsignorModal}>
-                        <PlusIcon />
-                        Add Consignor
-                    </Button>
+                    <>
+                        <Button
+                            variant="secondary"
+                            onClick={() => setIsExportModalOpen(true)}
+                            disabled={isLoading || consignors.length === 0}
+                        >
+                            <DownloadIcon />
+                            Export CSV
+                        </Button>
+                        <Button onClick={openAddConsignorModal}>
+                            <PlusIcon />
+                            Add Consignor
+                        </Button>
+                    </>
                 }
             />
 
@@ -253,6 +304,20 @@ export function Consignors() {
                 itemCount={itemCount}
                 description={deleteError || undefined}
             />
+
+            <ConsignorExportOptionsModal
+                isOpen={isExportModalOpen}
+                title="Export Consignors"
+                description="Choose which fields to include in the consignor CSV report."
+                groups={CONSIGNORS_SUMMARY_EXPORT_FIELD_GROUPS}
+                selectedOptions={selectedExportFields}
+                isExporting={isExporting}
+                onToggle={toggleExportField}
+                onSelectAll={() => setSelectedExportFields(DEFAULT_CONSIGNORS_SUMMARY_EXPORT_FIELDS)}
+                onClear={() => setSelectedExportFields([])}
+                onClose={() => setIsExportModalOpen(false)}
+                onExport={handleExportConsignorsCsv}
+            />
         </div>
     );
 }
@@ -261,6 +326,16 @@ function PlusIcon() {
     return (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14M5 12h14" />
+        </svg>
+    );
+}
+
+function DownloadIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <path d="M7 10l5 5 5-5" />
+            <path d="M12 15V3" />
         </svg>
     );
 }

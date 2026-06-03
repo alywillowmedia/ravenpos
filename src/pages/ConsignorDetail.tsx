@@ -10,6 +10,7 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { EmptyState, PackageIcon } from '../components/ui/EmptyState';
 import { Input, Textarea } from '../components/ui/Input';
 import { ConsignorForm } from '../components/consignors/ConsignorForm';
+import { ConsignorExportOptionsModal } from '../components/consignors/ConsignorExportOptionsModal';
 import { VendorCredentials } from '../components/consignors/VendorCredentials';
 import { useConsignors } from '../hooks/useConsignors';
 import { useInventory } from '../hooks/useInventory';
@@ -19,6 +20,15 @@ import { supabase } from '../lib/supabase';
 import { getLocalDateString } from '../lib/consignorRateSchedules';
 import { isConsignorScheduled } from '../lib/consignorStatus';
 import { getConsignorDisplayName, getConsignorPayToName } from '../lib/consignors';
+import { downloadCsv } from '../lib/csvExport';
+import {
+    CONSIGNOR_DETAIL_EXPORT_SECTION_GROUPS,
+    DEFAULT_CONSIGNOR_DETAIL_EXPORT_SECTIONS,
+    buildConsignorDetailCsvRows,
+    buildConsignorDetailFilename,
+    type ConsignorDetailExportSection,
+} from '../lib/consignorReports';
+import { useToast } from '../contexts/ToastContext';
 import type { Consignor, Item, BoothRentPayment, ConsignorInput } from '../types';
 
 const MONTH_NAMES = [
@@ -29,6 +39,7 @@ const MONTH_NAMES = [
 export function ConsignorDetail() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const toast = useToast();
     const { getConsignorById, updateConsignor } = useConsignors();
     const { items, isLoading: itemsLoading } = useInventory(id);
     const {
@@ -62,6 +73,11 @@ export function ConsignorDetail() {
     const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<BoothRentPayment | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [selectedExportSections, setSelectedExportSections] = useState<ConsignorDetailExportSection[]>(
+        DEFAULT_CONSIGNOR_DETAIL_EXPORT_SECTIONS
+    );
 
     useEffect(() => {
         const fetchConsignor = async () => {
@@ -190,6 +206,31 @@ export function ConsignorDetail() {
         await deletePayment(deleteTarget.id);
         setIsDeleting(false);
         setDeleteTarget(null);
+    };
+
+    const handleExportConsignorCsv = async () => {
+        if (!consignor || selectedExportSections.length === 0) return;
+
+        setIsExporting(true);
+        try {
+            const rows = await buildConsignorDetailCsvRows(consignor, selectedExportSections);
+            downloadCsv(buildConsignorDetailFilename(consignor), rows);
+            setIsExportModalOpen(false);
+            toast.success('Consignor report exported', `${getConsignorDisplayName(consignor)} CSV is ready.`);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Please try again.';
+            toast.error('Unable to export consignor', message);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const toggleExportSection = (section: ConsignorDetailExportSection) => {
+        setSelectedExportSections((current) =>
+            current.includes(section)
+                ? current.filter((selectedSection) => selectedSection !== section)
+                : [...current, section]
+        );
     };
 
     if (isLoading) {
@@ -327,9 +368,15 @@ export function ConsignorDetail() {
                 title={getConsignorDisplayName(consignor)}
                 description={`Consignor ${consignor.consignor_number}`}
                 actions={
-                    <Button variant="secondary" onClick={() => setIsEditModalOpen(true)}>
-                        Edit
-                    </Button>
+                    <>
+                        <Button variant="secondary" onClick={() => setIsExportModalOpen(true)}>
+                            <DownloadIcon />
+                            Export CSV
+                        </Button>
+                        <Button variant="secondary" onClick={() => setIsEditModalOpen(true)}>
+                            Edit
+                        </Button>
+                    </>
                 }
             />
 
@@ -638,6 +685,20 @@ export function ConsignorDetail() {
                     </Button>
                 </ModalFooter>
             </Modal>
+
+            <ConsignorExportOptionsModal
+                isOpen={isExportModalOpen}
+                title="Export Consignor Report"
+                description="Choose which sections to include in this consignor CSV report."
+                groups={CONSIGNOR_DETAIL_EXPORT_SECTION_GROUPS}
+                selectedOptions={selectedExportSections}
+                isExporting={isExporting}
+                onToggle={toggleExportSection}
+                onSelectAll={() => setSelectedExportSections(DEFAULT_CONSIGNOR_DETAIL_EXPORT_SECTIONS)}
+                onClear={() => setSelectedExportSections([])}
+                onClose={() => setIsExportModalOpen(false)}
+                onExport={handleExportConsignorCsv}
+            />
         </div>
     );
 }
@@ -646,6 +707,16 @@ function PlusIcon() {
     return (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14M5 12h14" />
+        </svg>
+    );
+}
+
+function DownloadIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <path d="M7 10l5 5 5-5" />
+            <path d="M12 15V3" />
         </svg>
     );
 }
