@@ -3,22 +3,63 @@ import { Header } from '../components/layout/Header';
 import { Table, type Column } from '../components/ui/Table';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { Modal } from '../components/ui/Modal';
+import { Modal, ModalFooter } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
+import { Select } from '../components/ui/Select';
 import { useInvoices } from '../hooks/useInvoices';
+import { useCustomers } from '../hooks/useCustomers';
+import { useConsignors } from '../hooks/useConsignors';
 import { formatCurrency, formatDateTime } from '../lib/utils';
+import { getConsignorDisplayName } from '../lib/consignors';
 import { createInvoiceEmailDataFromItems } from '../lib/invoice';
 import { InvoiceDeliveryModal } from '../components/invoice/InvoiceDeliveryModal';
-import type { Invoice, InvoiceItem } from '../types';
+import { useToast } from '../contexts/ToastContext';
+import type { Invoice, InvoiceItem, InvoiceRecipientType } from '../types';
+
+const formatInvoiceNumber = (invoiceId: string) => invoiceId.slice(0, 8).toUpperCase();
+
+const getInvoiceStatusLabel = (invoice: Invoice) => {
+    if (invoice.status === 'paid') return 'Paid';
+    if (invoice.status === 'partially_paid') return 'Partially Paid';
+    return 'Unpaid';
+};
+
+const getInvoiceStatusVariant = (invoice: Invoice): 'success' | 'info' | 'warning' => {
+    if (invoice.status === 'paid') return 'success';
+    if (invoice.status === 'partially_paid') return 'info';
+    return 'warning';
+};
+
+const getInvoiceBalanceDue = (invoice: Invoice) =>
+    Math.max(0, Number(invoice.total) - Number(invoice.amount_paid || 0));
 
 export function Invoices() {
-    const { fetchInvoices, fetchInvoiceItems, updateInvoiceStatus, isLoading } = useInvoices();
+    const {
+        fetchInvoices,
+        fetchInvoiceItems,
+        updateInvoiceRecipient,
+        updateInvoiceStatus,
+        applyInvoicePayment,
+        isLoading,
+    } = useInvoices();
+    const { customers, isLoading: isLoadingCustomers } = useCustomers();
+    const { consignors, isLoading: isLoadingConsignors } = useConsignors();
+    const toast = useToast();
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
     const [selectedItems, setSelectedItems] = useState<InvoiceItem[]>([]);
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isLoadingDetails, setIsLoadingDetails] = useState(false);
     const [isDeliveryOpen, setIsDeliveryOpen] = useState(false);
+    const [collectingInvoice, setCollectingInvoice] = useState<Invoice | null>(null);
+    const [paymentAmount, setPaymentAmount] = useState('');
+    const [paymentError, setPaymentError] = useState<string | null>(null);
+    const [isApplyingPayment, setIsApplyingPayment] = useState(false);
+    const [recipientEditorInvoice, setRecipientEditorInvoice] = useState<Invoice | null>(null);
+    const [recipientType, setRecipientType] = useState<InvoiceRecipientType>('customer');
+    const [recipientId, setRecipientId] = useState('');
+    const [recipientError, setRecipientError] = useState<string | null>(null);
+    const [isUpdatingRecipient, setIsUpdatingRecipient] = useState(false);
 
     const loadInvoices = async () => {
         const { data } = await fetchInvoices();
@@ -31,6 +72,8 @@ export function Invoices() {
 
     const handleViewDetails = async (invoice: Invoice) => {
         setSelectedInvoice(invoice);
+        setPaymentAmount('');
+        setPaymentError(null);
         setIsDetailsOpen(true);
         setIsLoadingDetails(true);
         const { data } = await fetchInvoiceItems(invoice.id);
@@ -46,10 +89,128 @@ export function Invoices() {
             if (selectedInvoice?.id === data.id) {
                 setSelectedInvoice(data);
             }
+            if (collectingInvoice?.id === data.id) {
+                setCollectingInvoice(data);
+            }
         }
     };
 
+    const openCollectPayment = (invoice: Invoice) => {
+        const balanceDue = getInvoiceBalanceDue(invoice);
+        setCollectingInvoice(invoice);
+        setPaymentAmount(balanceDue > 0 ? balanceDue.toFixed(2) : '');
+        setPaymentError(null);
+    };
+
+    const closeCollectPayment = () => {
+        setCollectingInvoice(null);
+        setPaymentAmount('');
+        setPaymentError(null);
+    };
+
+    const handleApplyPayment = async () => {
+        if (!collectingInvoice || isApplyingPayment) return;
+
+        const amount = Number(paymentAmount);
+        const balanceDue = getInvoiceBalanceDue(collectingInvoice);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            setPaymentError('Enter a payment amount greater than 0.');
+            return;
+        }
+        if (amount > balanceDue) {
+            setPaymentError(`Payment cannot exceed the remaining balance of ${formatCurrency(balanceDue)}.`);
+            return;
+        }
+
+        setIsApplyingPayment(true);
+        setPaymentError(null);
+        const { data, error } = await applyInvoicePayment(collectingInvoice.id, amount);
+        if (data) {
+            setInvoices((prev) => prev.map((item) => (item.id === data.id ? data : item)));
+            if (selectedInvoice?.id === data.id) {
+                setSelectedInvoice(data);
+            }
+            closeCollectPayment();
+        } else {
+            setPaymentError(error || 'Failed to apply payment.');
+        }
+        setIsApplyingPayment(false);
+    };
+
+    const openRecipientEditor = (invoice: Invoice) => {
+        setRecipientEditorInvoice(invoice);
+        setRecipientType(invoice.recipient_type);
+        setRecipientId(invoice.recipient_type === 'customer'
+            ? invoice.customer_id || ''
+            : invoice.consignor_id || '');
+        setRecipientError(null);
+    };
+
+    const closeRecipientEditor = () => {
+        setRecipientEditorInvoice(null);
+        setRecipientId('');
+        setRecipientError(null);
+    };
+
+    const handleUpdateRecipient = async () => {
+        if (!recipientEditorInvoice || !recipientId || isUpdatingRecipient) return;
+
+        const recipient = recipientType === 'customer'
+            ? customers.find((customer) => customer.id === recipientId)
+            : consignors.find((consignor) => consignor.id === recipientId);
+
+        if (!recipient) {
+            setRecipientError(`Select a valid ${recipientType}.`);
+            return;
+        }
+
+        setIsUpdatingRecipient(true);
+        setRecipientError(null);
+        const recipientName = recipientType === 'customer'
+            ? recipient.name
+            : getConsignorDisplayName(recipient);
+        const { data, error } = await updateInvoiceRecipient(recipientEditorInvoice.id, {
+            recipientType,
+            recipientId,
+            recipientName,
+            recipientEmail: recipient.email,
+        });
+
+        if (data) {
+            setInvoices((prev) => prev.map((invoice) => (invoice.id === data.id ? data : invoice)));
+            if (selectedInvoice?.id === data.id) {
+                setSelectedInvoice(data);
+            }
+            if (collectingInvoice?.id === data.id) {
+                setCollectingInvoice(data);
+            }
+            closeRecipientEditor();
+            toast.success('Invoice recipient updated', `${recipientName} is now assigned to this invoice.`);
+        } else {
+            setRecipientError(error || 'Failed to update invoice recipient.');
+        }
+        setIsUpdatingRecipient(false);
+    };
+
+    const recipientOptions = recipientType === 'customer'
+        ? customers.map((customer) => ({
+            value: customer.id,
+            label: `${customer.name}${customer.email ? ` - ${customer.email}` : ''}`,
+        }))
+        : consignors.map((consignor) => ({
+            value: consignor.id,
+            label: `${consignor.consignor_number} - ${getConsignorDisplayName(consignor)}${consignor.is_active ? '' : ' (Inactive)'}`,
+        }));
+
     const columns: Column<Invoice>[] = useMemo(() => [
+        {
+            key: 'id',
+            header: 'Invoice #',
+            sortable: true,
+            render: (invoice) => (
+                <span className="font-mono text-sm">#{formatInvoiceNumber(invoice.id)}</span>
+            ),
+        },
         {
             key: 'created_at',
             header: 'Created',
@@ -72,15 +233,24 @@ export function Invoices() {
             key: 'total',
             header: 'Total',
             sortable: true,
-            render: (invoice) => formatCurrency(Number(invoice.total)),
+            render: (invoice) => (
+                <div className="text-right sm:text-left">
+                    <p>{formatCurrency(Number(invoice.total))}</p>
+                    {Number(invoice.amount_paid || 0) > 0 && (
+                        <p className="text-xs text-[var(--color-muted)]">
+                            {formatCurrency(Number(invoice.amount_paid || 0))} paid
+                        </p>
+                    )}
+                </div>
+            ),
         },
         {
             key: 'status',
             header: 'Status',
             sortable: true,
             render: (invoice) => (
-                <Badge variant={invoice.status === 'paid' ? 'success' : 'warning'}>
-                    {invoice.status === 'paid' ? 'Paid' : 'Unpaid'}
+                <Badge variant={getInvoiceStatusVariant(invoice)}>
+                    {getInvoiceStatusLabel(invoice)}
                 </Badge>
             ),
         },
@@ -95,9 +265,9 @@ export function Invoices() {
                     <Button
                         size="sm"
                         variant={invoice.status === 'paid' ? 'secondary' : 'success'}
-                        onClick={() => handleTogglePaid(invoice)}
+                        onClick={() => invoice.status === 'paid' ? handleTogglePaid(invoice) : openCollectPayment(invoice)}
                     >
-                        {invoice.status === 'paid' ? 'Mark Unpaid' : 'Mark Paid'}
+                        {invoice.status === 'paid' ? 'Mark Unpaid' : 'Collect Payment'}
                     </Button>
                 </div>
             ),
@@ -118,29 +288,39 @@ export function Invoices() {
                 keyExtractor={(invoice) => invoice.id}
                 searchable
                 searchPlaceholder="Search invoices..."
-                searchKeys={['recipient_name', 'recipient_email', 'status']}
+                searchKeys={['id', 'recipient_name', 'recipient_email', 'status']}
                 emptyMessage="No invoices found"
                 isLoading={isLoading}
             />
 
             <Modal
                 isOpen={isDetailsOpen}
-                onClose={() => setIsDetailsOpen(false)}
+                onClose={() => {
+                    setIsDetailsOpen(false);
+                    setPaymentAmount('');
+                    setPaymentError(null);
+                }}
                 title="Invoice Details"
                 size="lg"
             >
                 {!selectedInvoice ? null : (
                     <div className="space-y-4">
                         <div className="flex items-start justify-between gap-4">
-                            <div>
-                                <p className="text-sm text-[var(--color-muted)]">Recipient</p>
-                                <p className="text-lg font-semibold">{selectedInvoice.recipient_name}</p>
-                                <p className="text-xs text-[var(--color-muted)]">
-                                    {selectedInvoice.recipient_type === 'vendor' ? 'Vendor' : 'Customer'}
-                                </p>
+                            <div className="space-y-3">
+                                <div>
+                                    <p className="text-sm text-[var(--color-muted)]">Invoice #</p>
+                                    <p className="font-mono text-lg font-semibold">#{formatInvoiceNumber(selectedInvoice.id)}</p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-[var(--color-muted)]">Recipient</p>
+                                    <p className="text-lg font-semibold">{selectedInvoice.recipient_name}</p>
+                                    <p className="text-xs text-[var(--color-muted)]">
+                                        {selectedInvoice.recipient_type === 'vendor' ? 'Vendor' : 'Customer'}
+                                    </p>
+                                </div>
                             </div>
-                            <Badge variant={selectedInvoice.status === 'paid' ? 'success' : 'warning'}>
-                                {selectedInvoice.status === 'paid' ? 'Paid' : 'Unpaid'}
+                            <Badge variant={getInvoiceStatusVariant(selectedInvoice)}>
+                                {getInvoiceStatusLabel(selectedInvoice)}
                             </Badge>
                         </div>
 
@@ -180,6 +360,14 @@ export function Invoices() {
                                 <span className="text-[var(--color-muted)]">Tax</span>
                                 <span>{formatCurrency(Number(selectedInvoice.tax_amount))}</span>
                             </div>
+                            <div className="flex justify-between">
+                                <span className="text-[var(--color-muted)]">Amount Paid</span>
+                                <span>{formatCurrency(Number(selectedInvoice.amount_paid || 0))}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-[var(--color-muted)]">Balance Due</span>
+                                <span>{formatCurrency(getInvoiceBalanceDue(selectedInvoice))}</span>
+                            </div>
                             <div className="flex justify-between text-base font-semibold pt-2 border-t border-dashed border-[var(--color-border)]">
                                 <span>Total</span>
                                 <span>{formatCurrency(Number(selectedInvoice.total))}</span>
@@ -190,16 +378,164 @@ export function Invoices() {
                         </div>
 
                         <div className="flex flex-wrap gap-2">
+                            <Button variant="secondary" onClick={() => openRecipientEditor(selectedInvoice)}>
+                                Change Recipient
+                            </Button>
                             <Button variant="secondary" onClick={() => setIsDeliveryOpen(true)}>
                                 Email Invoice
                             </Button>
                             <Button
                                 variant={selectedInvoice.status === 'paid' ? 'secondary' : 'success'}
-                                onClick={() => handleTogglePaid(selectedInvoice)}
+                                onClick={() => selectedInvoice.status === 'paid'
+                                    ? handleTogglePaid(selectedInvoice)
+                                    : openCollectPayment(selectedInvoice)}
                             >
-                                {selectedInvoice.status === 'paid' ? 'Mark Unpaid' : 'Mark Paid'}
+                                {selectedInvoice.status === 'paid' ? 'Mark Unpaid' : 'Collect Payment'}
                             </Button>
                         </div>
+                    </div>
+                )}
+            </Modal>
+
+            <Modal
+                isOpen={!!collectingInvoice}
+                onClose={closeCollectPayment}
+                title="Collect Payment"
+                size="md"
+            >
+                {collectingInvoice && (
+                    <div className="space-y-4">
+                        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                                <div>
+                                    <p className="text-sm text-[var(--color-muted)]">Invoice #</p>
+                                    <p className="font-mono text-lg font-semibold">
+                                        #{formatInvoiceNumber(collectingInvoice.id)}
+                                    </p>
+                                </div>
+                                <Badge variant={getInvoiceStatusVariant(collectingInvoice)}>
+                                    {getInvoiceStatusLabel(collectingInvoice)}
+                                </Badge>
+                            </div>
+                            <div>
+                                <p className="text-sm text-[var(--color-muted)]">Recipient</p>
+                                <p className="font-medium">{collectingInvoice.recipient_name}</p>
+                            </div>
+                        </div>
+
+                        <div className="rounded-lg border border-[var(--color-border)] p-4 space-y-2 text-sm">
+                            <div className="flex justify-between">
+                                <span className="text-[var(--color-muted)]">Total</span>
+                                <span>{formatCurrency(Number(collectingInvoice.total))}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-[var(--color-muted)]">Amount Paid</span>
+                                <span>{formatCurrency(Number(collectingInvoice.amount_paid || 0))}</span>
+                            </div>
+                            <div className="flex justify-between text-base font-semibold pt-2 border-t border-dashed border-[var(--color-border)]">
+                                <span>Balance Due</span>
+                                <span>{formatCurrency(getInvoiceBalanceDue(collectingInvoice))}</span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="block text-sm font-medium">Payment Amount</label>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                                <div className="relative flex-1">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]">$</span>
+                                    <input
+                                        type="number"
+                                        min="0.01"
+                                        max={getInvoiceBalanceDue(collectingInvoice)}
+                                        step="0.01"
+                                        value={paymentAmount}
+                                        onChange={(event) => setPaymentAmount(event.target.value)}
+                                        placeholder={getInvoiceBalanceDue(collectingInvoice).toFixed(2)}
+                                        className="w-full pl-7 pr-3 py-2 border border-[var(--color-border)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)]"
+                                    />
+                                </div>
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => setPaymentAmount(getInvoiceBalanceDue(collectingInvoice).toFixed(2))}
+                                >
+                                    Full Balance
+                                </Button>
+                            </div>
+                            {paymentError && (
+                                <p className="text-xs text-[var(--color-danger)]">{paymentError}</p>
+                            )}
+                        </div>
+
+                        <ModalFooter>
+                            <Button variant="secondary" onClick={closeCollectPayment} disabled={isApplyingPayment}>
+                                Cancel
+                            </Button>
+                            <Button
+                                variant="success"
+                                onClick={handleApplyPayment}
+                                disabled={isApplyingPayment || !paymentAmount}
+                            >
+                                {isApplyingPayment ? 'Collecting...' : 'Collect Payment'}
+                            </Button>
+                        </ModalFooter>
+                    </div>
+                )}
+            </Modal>
+
+            <Modal
+                isOpen={!!recipientEditorInvoice}
+                onClose={closeRecipientEditor}
+                title="Change Invoice Recipient"
+                description="Choose the customer or vendor responsible for this invoice."
+                size="md"
+            >
+                {recipientEditorInvoice && (
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium mb-2">Recipient Type</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {(['customer', 'vendor'] as InvoiceRecipientType[]).map((type) => (
+                                    <Button
+                                        key={type}
+                                        type="button"
+                                        variant={recipientType === type ? 'primary' : 'secondary'}
+                                        onClick={() => {
+                                            setRecipientType(type);
+                                            setRecipientId('');
+                                            setRecipientError(null);
+                                        }}
+                                    >
+                                        {type === 'customer' ? 'Customer' : 'Vendor'}
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <Select
+                            label={recipientType === 'customer' ? 'Customer' : 'Vendor'}
+                            value={recipientId}
+                            onChange={(event) => {
+                                setRecipientId(event.target.value);
+                                setRecipientError(null);
+                            }}
+                            options={recipientOptions}
+                            placeholder={`Select a ${recipientType}...`}
+                            disabled={recipientType === 'customer' ? isLoadingCustomers : isLoadingConsignors}
+                            error={recipientError || undefined}
+                        />
+
+                        <ModalFooter>
+                            <Button variant="secondary" onClick={closeRecipientEditor} disabled={isUpdatingRecipient}>
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={handleUpdateRecipient}
+                                isLoading={isUpdatingRecipient}
+                                disabled={!recipientId}
+                            >
+                                Save Recipient
+                            </Button>
+                        </ModalFooter>
                     </div>
                 )}
             </Modal>

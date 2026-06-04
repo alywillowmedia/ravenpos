@@ -1,5 +1,5 @@
 export type InvoiceRecipientType = 'customer' | 'vendor';
-export type InvoiceStatus = 'unpaid' | 'paid';
+export type InvoiceStatus = 'unpaid' | 'partially_paid' | 'paid';
 
 export interface InvoiceEmailItem {
     name: string;

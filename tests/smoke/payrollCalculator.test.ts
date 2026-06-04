@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
     calculatePayroll,
+    calculateCustomStateAnnualTax,
     calculateFederalWithholding,
+    getPayrollAccuracyBasis,
     calculateVirginiaAnnualTax,
     type EmployeePayrollProfile,
     type PayrollBusinessProfile,
@@ -16,6 +18,8 @@ const businessProfile: PayrollBusinessProfile = {
     state_withholding_method: 'custom_rate',
     pay_frequency: 'biweekly',
     state_income_tax_rate: 0.05,
+    custom_state_standard_deduction: 0,
+    custom_state_brackets: [],
     local_income_tax_rate: 0.01,
     state_unemployment_rate: 0.03,
     state_unemployment_wage_base: 12000,
@@ -81,6 +85,29 @@ describe('payroll calculator', () => {
         expect(result.employerSocialSecurityTax).toBe(62);
     });
 
+    it('builds the payroll accuracy basis for the payout preview', () => {
+        const basis = getPayrollAccuracyBasis({
+            hourlyRate: 50,
+            hoursWorked: 40,
+            businessProfile,
+            employeeProfile: buildW2Profile({
+                prior_ytd_wages: 1000,
+                prior_ytd_social_security_wages: 183500,
+                prior_ytd_medicare_wages: 199000,
+                dependents_amount: 260,
+            }),
+            ytdTotals: { wages: 2500, socialSecurityWages: 0, medicareWages: 0 },
+        });
+
+        expect(basis.ytdWagesBefore).toBe(3500);
+        expect(basis.ytdWagesAfter).toBe(5500);
+        expect(basis.annualizedGross).toBe(52000);
+        expect(basis.federalAdjustedAnnualWages).toBe(43400);
+        expect(basis.federalDependentCreditsPerPeriod).toBe(10);
+        expect(basis.socialSecurityTaxableWagesThisCheck).toBe(1000);
+        expect(basis.additionalMedicareTaxableWagesThisCheck).toBe(1000);
+    });
+
     it('applies additional medicare tax above threshold', () => {
         const result = calculatePayroll({
             hourlyRate: 100,
@@ -122,6 +149,42 @@ describe('payroll calculator', () => {
 
     it('matches Virginia annual tax schedule example', () => {
         expect(calculateVirginiaAnnualTax(90000)).toBe(4918);
+    });
+
+    it('applies custom progressive state brackets', () => {
+        expect(calculateCustomStateAnnualTax(20_000, [
+            { threshold: 0, baseTax: 0, rate: 0.02 },
+            { threshold: 3_000, baseTax: 60, rate: 0.03 },
+            { threshold: 5_000, baseTax: 120, rate: 0.05 },
+            { threshold: 17_000, baseTax: 720, rate: 0.0575 },
+        ])).toBe(892.5);
+    });
+
+    it('uses custom progressive brackets for per-paycheck state withholding', () => {
+        const customBracketBusiness: PayrollBusinessProfile = {
+            ...businessProfile,
+            tax_state: 'VA',
+            state_withholding_method: 'custom_brackets',
+            state_income_tax_rate: 0,
+            custom_state_standard_deduction: 3_000,
+            custom_state_brackets: [
+                { threshold: 0, baseTax: 0, rate: 0.02 },
+                { threshold: 3_000, baseTax: 60, rate: 0.03 },
+                { threshold: 5_000, baseTax: 120, rate: 0.05 },
+                { threshold: 17_000, baseTax: 720, rate: 0.0575 },
+            ],
+        };
+
+        const result = calculatePayroll({
+            hourlyRate: 20_000 / 26 / 40,
+            hoursWorked: 40,
+            businessProfile: customBracketBusiness,
+            employeeProfile: buildW2Profile(),
+            ytdTotals: { wages: 0, socialSecurityWages: 0, medicareWages: 0 },
+        });
+
+        expect(result.grossPay).toBe(769.23);
+        expect(result.stateWithholding).toBe(27.69);
     });
 
     it('uses Virginia brackets when selected', () => {

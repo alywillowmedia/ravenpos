@@ -10,6 +10,7 @@ import type {
     PaymentMethod,
     PaymentBreakdownEntry,
     VendorLedgerEntry,
+    VendorInvoiceDeduction,
 } from '../types';
 import {
     applyEffectiveConsignorTerms,
@@ -74,6 +75,17 @@ interface VendorLedgerEntryRecord {
     created_at: string;
 }
 
+interface VendorInvoiceRecord {
+    id: string;
+    consignor_id: string | null;
+    recipient_name: string;
+    total: number;
+    amount_paid: number;
+    status: 'unpaid' | 'partially_paid' | 'paid';
+    notes: string | null;
+    created_at: string;
+}
+
 export interface UnattributedPayoutSale {
     id: string;
     completed_at: string;
@@ -111,6 +123,16 @@ async function fetchAllRows<T>(createQuery: () => SupabasePagedQuery<T>): Promis
 
 function roundCurrency(value: number): number {
     return Number(value.toFixed(2));
+}
+
+function formatInvoiceNumber(invoiceId: string): string {
+    return invoiceId.slice(0, 8).toUpperCase();
+}
+
+function getInvoiceStatusFromPayment(amountPaid: number, total: number): 'unpaid' | 'partially_paid' | 'paid' {
+    if (amountPaid <= 0) return 'unpaid';
+    if (amountPaid >= total) return 'paid';
+    return 'partially_paid';
 }
 
 function getCardTenderAmount(sale: SaleItemWithJoins['sale'], saleNetSubtotal: number): number {
@@ -340,6 +362,14 @@ export function usePayouts() {
                 .order('id')
             );
 
+            const vendorInvoices = await fetchAllRows<VendorInvoiceRecord>(() => supabase
+                .from('invoices')
+                .select('id, consignor_id, recipient_name, total, amount_paid, status, notes, created_at')
+                .eq('recipient_type', 'vendor')
+                .in('status', ['unpaid', 'partially_paid'])
+                .order('created_at', { ascending: true })
+            );
+
             // Build a map of refunded sale_item_ids to refunded quantities
             const refundedItemsMap = new Map<string, number>();
             for (const refund of refunds) {
@@ -390,6 +420,8 @@ export function usePayouts() {
                 const marketingAllocationIdsToDeduct: string[] = [];
                 const ledgerEntryIdsToDeduct: string[] = [];
                 const pendingLedgerEntries: VendorLedgerEntry[] = [];
+                const invoiceDeductionsToApply: VendorInvoiceDeduction[] = [];
+                const pendingInvoiceDeductions: VendorInvoiceDeduction[] = [];
 
                 // Group all items by sale_id so per-sale discount/tax/fee allocation is accurate.
                 const itemsBySale = new Map<string, SaleItemWithJoins[]>();
@@ -561,7 +593,35 @@ export function usePayouts() {
                     pendingLedgerEntries.push(entry as VendorLedgerEntry);
                 }
 
-                const finalPendingAmount = roundCurrency(Math.max(0, pendingFromSales - ledgerDeduction));
+                pendingFromSales = Math.max(0, pendingFromSales - ledgerDeduction);
+
+                const unpaidVendorInvoices = vendorInvoices
+                    .filter((invoice) => invoice.consignor_id === consignor.id)
+                    .sort((a, b) => {
+                        if (a.created_at !== b.created_at) return a.created_at.localeCompare(b.created_at);
+                        return a.id.localeCompare(b.id);
+                    });
+
+                for (const invoice of unpaidVendorInvoices) {
+                    const total = Number(invoice.total || 0);
+                    const amountPaid = Number(invoice.amount_paid || 0);
+                    const balanceDue = roundCurrency(Math.max(0, total - amountPaid));
+                    if (balanceDue <= 0) continue;
+
+                    pendingInvoiceDeductions.push({
+                        invoice_id: invoice.id,
+                        invoice_number: formatInvoiceNumber(invoice.id),
+                        recipient_name: invoice.recipient_name,
+                        total,
+                        amount_paid: amountPaid,
+                        balance_due: balanceDue,
+                        amount_to_apply: 0,
+                        created_at: invoice.created_at,
+                        notes: invoice.notes,
+                    });
+                }
+
+                const finalPendingAmount = roundCurrency(Math.max(0, pendingFromSales));
 
                 summaries.push({
                     consignor,
@@ -575,6 +635,7 @@ export function usePayouts() {
                     boothRentDeduction,
                     marketingFeeDeduction,
                     ledgerDeduction: roundCurrency(ledgerDeduction),
+                    invoiceDeduction: 0,
                     salesCount: salesSet.size,
                     itemsSold,
                     lastPayout,
@@ -585,6 +646,8 @@ export function usePayouts() {
                     marketingAllocationIdsToDeduct,
                     ledgerEntryIdsToDeduct,
                     pendingLedgerEntries,
+                    invoiceDeductionsToApply,
+                    pendingInvoiceDeductions,
                 });
             }
 
@@ -615,6 +678,42 @@ export function usePayouts() {
         }
     ): Promise<{ success: boolean; error?: string }> => {
         try {
+            const invoiceDeductionsToApply = summary.invoiceDeductionsToApply.filter(
+                (deduction) => Number(deduction.amount_to_apply || 0) > 0
+            );
+            const invoiceDeduction = roundCurrency(invoiceDeductionsToApply.reduce(
+                (sum, deduction) => sum + Number(deduction.amount_to_apply || 0),
+                0
+            ));
+            const currentInvoicesById = new Map<string, Pick<VendorInvoiceRecord, 'id' | 'consignor_id' | 'total' | 'amount_paid' | 'status'>>();
+
+            if (invoiceDeductionsToApply.length > 0) {
+                const { data: currentInvoices, error: invoiceFetchError } = await supabase
+                    .from('invoices')
+                    .select('id, consignor_id, total, amount_paid, status')
+                    .in('id', invoiceDeductionsToApply.map((deduction) => deduction.invoice_id));
+
+                if (invoiceFetchError) throw invoiceFetchError;
+
+                for (const invoice of currentInvoices || []) {
+                    currentInvoicesById.set(invoice.id, invoice as Pick<VendorInvoiceRecord, 'id' | 'consignor_id' | 'total' | 'amount_paid' | 'status'>);
+                }
+
+                for (const deduction of invoiceDeductionsToApply) {
+                    const currentInvoice = currentInvoicesById.get(deduction.invoice_id);
+                    const currentBalance = currentInvoice
+                        ? roundCurrency(Math.max(0, Number(currentInvoice.total) - Number(currentInvoice.amount_paid || 0)))
+                        : 0;
+
+                    if (!currentInvoice || currentInvoice.consignor_id !== consignorId || currentInvoice.status === 'paid') {
+                        return { success: false, error: `Invoice #${deduction.invoice_number} is no longer available for this payout` };
+                    }
+                    if (Number(deduction.amount_to_apply) > currentBalance) {
+                        return { success: false, error: `Invoice #${deduction.invoice_number} exceeds its current ${currentBalance.toFixed(2)} balance` };
+                    }
+                }
+            }
+
             // Determine period dates
             const payoutPeriod = getPayoutPeriodBounds(summary);
             const periodStart = options?.periodStartOverride || payoutPeriod.start;
@@ -625,6 +724,9 @@ export function usePayouts() {
             // Determine if this is a partial payout
             const isPartial = customAmount !== undefined && customAmount < summary.pendingAmount;
             const payoutAmount = customAmount !== undefined ? customAmount : summary.pendingAmount;
+            if (!Number.isFinite(payoutAmount) || payoutAmount < 0 || payoutAmount > summary.pendingAmount) {
+                return { success: false, error: 'Payout amount must be within the remaining available payout' };
+            }
 
             const payoutData: PayoutInput = {
                 consignor_id: consignorId,
@@ -640,6 +742,7 @@ export function usePayouts() {
                 booth_rent_deduction: summary.boothRentDeduction,
                 marketing_fee_deduction: summary.marketingFeeDeduction,
                 ledger_deduction: summary.ledgerDeduction,
+                invoice_deduction: invoiceDeduction,
                 notes: notes || null,
                 paid_at: new Date().toISOString(),
                 original_amount_due: isPartial ? summary.pendingAmount : null,
@@ -700,6 +803,45 @@ export function usePayouts() {
                     .is('deducted_payout_id', null);
 
                 if (ledgerUpdateError) throw ledgerUpdateError;
+            }
+
+            if (invoiceDeductionsToApply.length > 0) {
+                const now = new Date().toISOString();
+                const deductionRows = invoiceDeductionsToApply.map((deduction) => ({
+                    invoice_id: deduction.invoice_id,
+                    payout_id: insertedPayout.id,
+                    consignor_id: consignorId,
+                    amount: deduction.amount_to_apply,
+                    created_at: now,
+                }));
+
+                const { error: deductionInsertError } = await supabase
+                    .from('invoice_payout_deductions')
+                    .insert(deductionRows);
+
+                if (deductionInsertError) throw deductionInsertError;
+
+                for (const deduction of invoiceDeductionsToApply) {
+                    const currentInvoice = currentInvoicesById.get(deduction.invoice_id);
+                    if (!currentInvoice) {
+                        throw new Error(`Invoice #${deduction.invoice_number} is no longer available`);
+                    }
+                    const total = Number(currentInvoice.total || 0);
+                    const nextAmountPaid = roundCurrency(
+                        Math.min(total, Number(currentInvoice.amount_paid || 0) + Number(deduction.amount_to_apply || 0))
+                    );
+                    const nextStatus = getInvoiceStatusFromPayment(nextAmountPaid, total);
+                    const { error: invoiceUpdateError } = await supabase
+                        .from('invoices')
+                        .update({
+                            amount_paid: nextAmountPaid,
+                            status: nextStatus,
+                            paid_at: nextStatus === 'paid' ? now : null,
+                        })
+                        .eq('id', deduction.invoice_id);
+
+                    if (invoiceUpdateError) throw invoiceUpdateError;
+                }
             }
 
             // Refresh data

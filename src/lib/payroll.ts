@@ -1,6 +1,6 @@
 export type PayFrequency = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly';
 export type TaxClassification = 'w2' | '1099';
-export type StateWithholdingMethod = 'custom_rate' | 'virginia_brackets';
+export type StateWithholdingMethod = 'custom_rate' | 'custom_brackets' | 'virginia_brackets';
 export type FederalFilingStatus =
     | 'single'
     | 'married_filing_jointly'
@@ -16,10 +16,18 @@ export interface PayrollBusinessProfile {
     state_withholding_method: StateWithholdingMethod;
     pay_frequency: PayFrequency;
     state_income_tax_rate: number;
+    custom_state_standard_deduction?: number;
+    custom_state_brackets?: CustomStateWithholdingBracket[];
     local_income_tax_rate: number;
     state_unemployment_rate: number;
     state_unemployment_wage_base: number;
     futa_rate: number;
+}
+
+export interface CustomStateWithholdingBracket {
+    threshold: number;
+    baseTax: number;
+    rate: number;
 }
 
 export interface EmployeePayrollProfile {
@@ -75,6 +83,26 @@ export interface PayrollCalculationResult {
     employerSutaTax: number;
 }
 
+export interface PayrollAccuracyBasis {
+    isW2: boolean;
+    payPeriods: number;
+    ytdWagesBefore: number;
+    ytdWagesAfter: number;
+    annualizedGross: number;
+    federalStandardDeduction: number;
+    federalAdjustedAnnualWages: number;
+    federalDependentCreditsPerPeriod: number;
+    socialSecurityWagesBefore: number;
+    socialSecurityTaxableWagesThisCheck: number;
+    socialSecurityWagesAfter: number;
+    medicareWagesBefore: number;
+    additionalMedicareTaxableWagesThisCheck: number;
+    stateAnnualDeduction: number;
+    stateAnnualizedTaxableIncome: number;
+    stateBracketCount: number;
+    stateAdditionalWithholding: number;
+}
+
 const PAY_PERIODS_PER_YEAR: Record<PayFrequency, number> = {
     weekly: 52,
     biweekly: 26,
@@ -82,11 +110,11 @@ const PAY_PERIODS_PER_YEAR: Record<PayFrequency, number> = {
     monthly: 12,
 };
 
-const SOCIAL_SECURITY_RATE = 0.062;
-const MEDICARE_RATE = 0.0145;
-const ADDITIONAL_MEDICARE_RATE = 0.009;
-const ADDITIONAL_MEDICARE_THRESHOLD = 200000;
-const SOCIAL_SECURITY_WAGE_BASE_2026 = 184500;
+export const SOCIAL_SECURITY_RATE = 0.062;
+export const MEDICARE_RATE = 0.0145;
+export const ADDITIONAL_MEDICARE_RATE = 0.009;
+export const ADDITIONAL_MEDICARE_THRESHOLD = 200000;
+export const SOCIAL_SECURITY_WAGE_BASE_2026 = 184500;
 const FUTA_WAGE_BASE = 7000;
 const BACKUP_WITHHOLDING_RATE = 0.24;
 
@@ -325,6 +353,58 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
     };
 }
 
+export function getPayrollAccuracyBasis(input: PayrollCalculationInput): PayrollAccuracyBasis {
+    const grossPay = roundCurrency(input.hourlyRate * input.hoursWorked);
+    const isW2 = input.employeeProfile.tax_classification === 'w2';
+    const payPeriods = getPayPeriodsPerYear(input.businessProfile.pay_frequency);
+    const annualizedGross = grossPay * payPeriods;
+    const ytdWagesBefore = input.employeeProfile.prior_ytd_wages + input.ytdTotals.wages;
+    const socialSecurityWagesBefore = input.employeeProfile.prior_ytd_social_security_wages + input.ytdTotals.socialSecurityWages;
+    const medicareWagesBefore = input.employeeProfile.prior_ytd_medicare_wages + input.ytdTotals.medicareWages;
+    const federalStandardDeduction = input.employeeProfile.step_2_checked
+        ? 0
+        : STANDARD_DEDUCTION_ADJUSTMENTS_2026[input.employeeProfile.federal_filing_status];
+    const federalAdjustedAnnualWages = input.employeeProfile.federal_exempt
+        ? 0
+        : Math.max(
+            0,
+            annualizedGross
+                + input.employeeProfile.other_income
+                - input.employeeProfile.deductions
+                - federalStandardDeduction,
+        );
+    const socialSecurityTaxableWagesThisCheck = isW2
+        ? Math.max(0, Math.min(grossPay, SOCIAL_SECURITY_WAGE_BASE_2026 - socialSecurityWagesBefore))
+        : 0;
+    const additionalMedicareThresholdRemaining = Math.max(0, ADDITIONAL_MEDICARE_THRESHOLD - medicareWagesBefore);
+    const additionalMedicareTaxableWagesThisCheck = isW2
+        ? Math.max(0, grossPay - additionalMedicareThresholdRemaining)
+        : 0;
+    const stateAnnualDeduction = getStateAnnualDeduction(input);
+
+    return {
+        isW2,
+        payPeriods,
+        ytdWagesBefore: roundCurrency(ytdWagesBefore),
+        ytdWagesAfter: roundCurrency(ytdWagesBefore + grossPay),
+        annualizedGross: roundCurrency(annualizedGross),
+        federalStandardDeduction: roundCurrency(federalStandardDeduction),
+        federalAdjustedAnnualWages: roundCurrency(federalAdjustedAnnualWages),
+        federalDependentCreditsPerPeriod: roundCurrency(input.employeeProfile.dependents_amount / payPeriods),
+        socialSecurityWagesBefore: roundCurrency(socialSecurityWagesBefore),
+        socialSecurityTaxableWagesThisCheck: roundCurrency(socialSecurityTaxableWagesThisCheck),
+        socialSecurityWagesAfter: roundCurrency(socialSecurityWagesBefore + socialSecurityTaxableWagesThisCheck),
+        medicareWagesBefore: roundCurrency(medicareWagesBefore),
+        additionalMedicareTaxableWagesThisCheck: roundCurrency(additionalMedicareTaxableWagesThisCheck),
+        stateAnnualDeduction: roundCurrency(stateAnnualDeduction),
+        stateAnnualizedTaxableIncome: roundCurrency(Math.max(0, annualizedGross - stateAnnualDeduction)),
+        stateBracketCount: Array.isArray(input.businessProfile.custom_state_brackets)
+            ? input.businessProfile.custom_state_brackets.length
+            : 0,
+        stateAdditionalWithholding: roundCurrency(input.employeeProfile.state_additional_withholding),
+    };
+}
+
 export function calculateVirginiaAnnualTax(virginiaTaxableIncome: number): number {
     const income = Math.max(0, virginiaTaxableIncome);
 
@@ -341,6 +421,36 @@ export function calculateVirginiaAnnualTax(virginiaTaxableIncome: number): numbe
     }
 
     return Math.round(720 + (income - 17000) * 0.0575);
+}
+
+export function calculateCustomStateAnnualTax(
+    taxableIncome: number,
+    brackets: CustomStateWithholdingBracket[] = [],
+): number {
+    const income = Math.max(0, taxableIncome);
+    const sortedBrackets = brackets
+        .map((bracket) => ({
+            threshold: Math.max(0, Number(bracket.threshold || 0)),
+            baseTax: Math.max(0, Number(bracket.baseTax || 0)),
+            rate: Math.max(0, normalizeRate(Number(bracket.rate || 0))),
+        }))
+        .filter((bracket) => Number.isFinite(bracket.threshold) && Number.isFinite(bracket.baseTax) && Number.isFinite(bracket.rate))
+        .sort((a, b) => a.threshold - b.threshold);
+
+    if (sortedBrackets.length === 0) {
+        return 0;
+    }
+
+    let activeBracket = sortedBrackets[0];
+    for (const bracket of sortedBrackets) {
+        if (income >= bracket.threshold) {
+            activeBracket = bracket;
+        } else {
+            break;
+        }
+    }
+
+    return roundCurrency(activeBracket.baseTax + ((income - activeBracket.threshold) * activeBracket.rate));
 }
 
 export function calculateFederalWithholding(
@@ -439,9 +549,35 @@ function calculateStateWithholding(
         return roundCurrency(annualVirginiaTax / payPeriods + additionalWithholding);
     }
 
+    if (input.businessProfile.state_withholding_method === 'custom_brackets') {
+        const payPeriods = getPayPeriodsPerYear(input.businessProfile.pay_frequency);
+        const annualizedGross = grossPay * payPeriods;
+        const annualDeduction = Number(input.businessProfile.custom_state_standard_deduction || 0);
+        const annualizedTaxableIncome = Math.max(0, annualizedGross - annualDeduction);
+        const annualStateTax = calculateCustomStateAnnualTax(
+            annualizedTaxableIncome,
+            input.businessProfile.custom_state_brackets || [],
+        );
+        return roundCurrency(annualStateTax / payPeriods + additionalWithholding);
+    }
+
     return roundCurrency(
         grossPay * normalizeRate(input.businessProfile.state_income_tax_rate) + additionalWithholding,
     );
+}
+
+function getStateAnnualDeduction(input: PayrollCalculationInput): number {
+    if (input.businessProfile.state_withholding_method === 'virginia_brackets') {
+        return VIRGINIA_STANDARD_DEDUCTION
+            + (input.employeeProfile.state_personal_exemptions * VIRGINIA_PERSONAL_EXEMPTION_AMOUNT)
+            + (input.employeeProfile.state_additional_exemptions * VIRGINIA_AGE_BLIND_EXEMPTION_AMOUNT);
+    }
+
+    if (input.businessProfile.state_withholding_method === 'custom_brackets') {
+        return Number(input.businessProfile.custom_state_standard_deduction || 0);
+    }
+
+    return 0;
 }
 
 function normalizeRate(rate: number): number {

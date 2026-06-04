@@ -16,6 +16,19 @@ interface CreateInvoiceInput {
     notes?: string | null;
 }
 
+interface UpdateInvoiceRecipientInput {
+    recipientType: InvoiceRecipientType;
+    recipientId: string;
+    recipientName: string;
+    recipientEmail?: string | null;
+}
+
+const getInvoicePaymentStatus = (amountPaid: number, total: number): InvoiceStatus => {
+    if (amountPaid <= 0) return 'unpaid';
+    if (amountPaid >= total) return 'paid';
+    return 'partially_paid';
+};
+
 export function useInvoices() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -110,13 +123,53 @@ export function useInvoices() {
         }
     }, []);
 
-    const updateInvoiceStatus = useCallback(async (invoiceId: string, status: InvoiceStatus) => {
+    const updateInvoiceRecipient = useCallback(async (invoiceId: string, input: UpdateInvoiceRecipientInput) => {
         try {
+            const recipientId = input.recipientId.trim();
+            const recipientName = input.recipientName.trim();
+            if (!recipientId || !recipientName) {
+                return { data: null, error: 'Select an invoice recipient' };
+            }
+
+            const isCustomer = input.recipientType === 'customer';
+            const { data, error: updateError } = await supabase
+                .from('invoices')
+                .update({
+                    recipient_type: input.recipientType,
+                    customer_id: isCustomer ? recipientId : null,
+                    consignor_id: isCustomer ? null : recipientId,
+                    recipient_name: recipientName,
+                    recipient_email: input.recipientEmail?.trim() || null,
+                })
+                .eq('id', invoiceId)
+                .select('*, customer:customers(*), consignor:consignors(*)')
+                .single();
+
+            if (updateError) throw updateError;
+
+            return { data: data as Invoice, error: null };
+        } catch (err) {
+            const message = formatSupabaseError(err, 'Failed to update invoice recipient');
+            return { data: null, error: message };
+        }
+    }, []);
+
+    const updateInvoiceStatus = useCallback(async (invoiceId: string, status: Exclude<InvoiceStatus, 'partially_paid'>) => {
+        try {
+            const { data: existingInvoice, error: fetchError } = await supabase
+                .from('invoices')
+                .select('total')
+                .eq('id', invoiceId)
+                .single();
+
+            if (fetchError) throw fetchError;
+
             const isPaid = status === 'paid';
             const { data, error: updateError } = await supabase
                 .from('invoices')
                 .update({
                     status,
+                    amount_paid: isPaid ? Number(existingInvoice.total || 0) : 0,
                     paid_at: isPaid ? new Date().toISOString() : null,
                 })
                 .eq('id', invoiceId)
@@ -132,12 +185,54 @@ export function useInvoices() {
         }
     }, []);
 
+    const applyInvoicePayment = useCallback(async (invoiceId: string, amount: number) => {
+        try {
+            const numericAmount = Number(amount);
+            if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+                return { data: null, error: 'Payment amount must be greater than 0' };
+            }
+
+            const { data: existingInvoice, error: fetchError } = await supabase
+                .from('invoices')
+                .select('total, amount_paid')
+                .eq('id', invoiceId)
+                .single();
+
+            if (fetchError) throw fetchError;
+
+            const total = Number(existingInvoice.total || 0);
+            const currentAmountPaid = Number(existingInvoice.amount_paid || 0);
+            const nextAmountPaid = Math.min(total, Number((currentAmountPaid + numericAmount).toFixed(2)));
+            const nextStatus = getInvoicePaymentStatus(nextAmountPaid, total);
+
+            const { data, error: updateError } = await supabase
+                .from('invoices')
+                .update({
+                    amount_paid: nextAmountPaid,
+                    status: nextStatus,
+                    paid_at: nextStatus === 'paid' ? new Date().toISOString() : null,
+                })
+                .eq('id', invoiceId)
+                .select('*')
+                .single();
+
+            if (updateError) throw updateError;
+
+            return { data: data as Invoice, error: null };
+        } catch (err) {
+            const message = formatSupabaseError(err, 'Failed to apply invoice payment');
+            return { data: null, error: message };
+        }
+    }, []);
+
     return {
         isLoading,
         error,
         createInvoice,
         fetchInvoices,
         fetchInvoiceItems,
+        updateInvoiceRecipient,
         updateInvoiceStatus,
+        applyInvoicePayment,
     };
 }

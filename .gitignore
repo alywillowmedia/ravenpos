@@ -51,3 +51,5 @@ alywillow_products_import_ready_notes.md
 scripts/generate_alywillow_barcode_notebook.py
 scripts/__pycache__/
 Trace-20260408T222338.json.gz
+hours_payout/employee_payouts_rows.sql
+hours_payout/time_entries_rows.sql

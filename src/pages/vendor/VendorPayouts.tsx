@@ -6,9 +6,15 @@ import { Modal, ModalFooter } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { CompletedPayoutDetails } from '../../components/payouts/CompletedPayoutDetails';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { calculateStripeTerminalProcessingFee } from '../../lib/cardFees';
+import { printCompletedPayoutReport } from '../../lib/completedPayoutReport';
+import {
+    loadCompletedPayoutDetails,
+    type CompletedPayoutDetails as CompletedPayoutDetailsData,
+} from '../../lib/consignorReports';
 import { formatCurrency } from '../../lib/utils';
 import type { Payout, Consignor, PaymentMethod, PaymentBreakdownEntry } from '../../types';
 
@@ -154,6 +160,9 @@ export function VendorPayouts() {
     const [pendingSales, setPendingSales] = useState<SaleItemForPayout[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedPayout, setSelectedPayout] = useState<Payout | null>(null);
+    const [completedPayoutDetails, setCompletedPayoutDetails] = useState<CompletedPayoutDetailsData | null>(null);
+    const [completedPayoutError, setCompletedPayoutError] = useState<string | null>(null);
+    const [isLoadingCompletedPayout, setIsLoadingCompletedPayout] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -281,6 +290,29 @@ export function VendorPayouts() {
 
         fetchData();
     }, [userRecord?.consignor_id]);
+
+    const openCompletedPayout = async (payout: Payout) => {
+        setSelectedPayout(payout);
+        setCompletedPayoutDetails(null);
+        setCompletedPayoutError(null);
+        setIsLoadingCompletedPayout(true);
+
+        try {
+            const details = await loadCompletedPayoutDetails(payout);
+            setCompletedPayoutDetails(details);
+        } catch (err) {
+            setCompletedPayoutError(err instanceof Error ? err.message : 'Could not load completed payout details.');
+        } finally {
+            setIsLoadingCompletedPayout(false);
+        }
+    };
+
+    const closeCompletedPayout = () => {
+        setSelectedPayout(null);
+        setCompletedPayoutDetails(null);
+        setCompletedPayoutError(null);
+        setIsLoadingCompletedPayout(false);
+    };
 
     // Calculate pending balance with credit card fee deductions
     const calculateItemEarnings = (item: SaleItemForPayout) => {
@@ -473,7 +505,7 @@ export function VendorPayouts() {
                             {payouts.map((payout) => (
                                 <button
                                     key={payout.id}
-                                    onClick={() => setSelectedPayout(payout)}
+                                    onClick={() => openCompletedPayout(payout)}
                                     className="w-full text-left p-4 rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-surface)] transition-colors"
                                 >
                                     <div className="flex items-center justify-between">
@@ -511,118 +543,36 @@ export function VendorPayouts() {
             {/* Payout Detail Modal */}
             <Modal
                 isOpen={!!selectedPayout}
-                onClose={() => setSelectedPayout(null)}
-                title="Payout Receipt"
-                size="md"
+                onClose={closeCompletedPayout}
+                title="Completed Payout Report"
+                description="Review the saved payout totals, linked deductions, and sales included in its recorded period."
+                size="4xl"
             >
                 {selectedPayout && (
-                    <div className="space-y-6">
-                        {/* Header */}
-                        <div className="text-center pb-4 border-b border-[var(--color-border)]">
-                            <div className="w-16 h-16 rounded-full bg-[var(--color-success)]/10 text-[var(--color-success)] flex items-center justify-center mx-auto mb-3">
-                                <CheckCircleIcon />
-                            </div>
-                            <p className="text-3xl font-bold text-[var(--color-success)]">
-                                {formatCurrency(selectedPayout.amount)}
-                            </p>
-                            <p className="text-sm text-[var(--color-muted)] mt-1">
-                                Paid on{' '}
-                                {new Date(selectedPayout.paid_at).toLocaleDateString('en-US', {
-                                    weekday: 'long',
-                                    year: 'numeric',
-                                    month: 'long',
-                                    day: 'numeric',
-                                })}
-                            </p>
-                        </div>
-
-                        {/* Details Grid */}
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-[var(--color-surface)] rounded-lg p-3">
-                                <p className="text-xs text-[var(--color-muted)]">Period</p>
-                                <p className="font-medium text-sm">
-                                    {new Date(selectedPayout.period_start).toLocaleDateString()} -{' '}
-                                    {new Date(selectedPayout.period_end).toLocaleDateString()}
-                                </p>
-                            </div>
-                            <div className="bg-[var(--color-surface)] rounded-lg p-3">
-                                <p className="text-xs text-[var(--color-muted)]">Transactions</p>
-                                <p className="font-medium text-sm">{selectedPayout.sales_count} sales</p>
-                            </div>
-                            <div className="bg-[var(--color-surface)] rounded-lg p-3">
-                                <p className="text-xs text-[var(--color-muted)]">Items Sold</p>
-                                <p className="font-medium text-sm">{selectedPayout.items_sold} items</p>
-                            </div>
-                            <div className="bg-[var(--color-surface)] rounded-lg p-3">
-                                <p className="text-xs text-[var(--color-muted)]">Gross Sales</p>
-                                <p className="font-medium text-sm">{formatCurrency(selectedPayout.gross_sales)}</p>
-                            </div>
-                        </div>
-
-                        {/* Breakdown */}
-                        <div className="border-t border-[var(--color-border)] pt-4 space-y-2">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-[var(--color-muted)]">Gross Sales</span>
-                                <span>{formatCurrency(selectedPayout.gross_sales)}</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                                <span className="text-[var(--color-muted)]">Store Share</span>
-                                <span className="text-[var(--color-muted)]">
-                                    -{formatCurrency(selectedPayout.store_share)}
-                                </span>
-                            </div>
-                            {(selectedPayout.credit_card_fees || 0) > 0 && (
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-[var(--color-muted)]">Card Fees</span>
-                                    <span className="text-[var(--color-muted)]">
-                                        -{formatCurrency(selectedPayout.credit_card_fees || 0)}
-                                    </span>
-                                </div>
-                            )}
-                            {(selectedPayout.booth_rent_deduction || 0) > 0 && (
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-[var(--color-muted)]">Booth Rent</span>
-                                    <span className="text-[var(--color-muted)]">
-                                        -{formatCurrency(selectedPayout.booth_rent_deduction || 0)}
-                                    </span>
-                                </div>
-                            )}
-                            {(selectedPayout.marketing_fee_deduction || 0) > 0 && (
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-[var(--color-muted)]">Marketing Fees</span>
-                                    <span className="text-[var(--color-muted)]">
-                                        -{formatCurrency(selectedPayout.marketing_fee_deduction || 0)}
-                                    </span>
-                                </div>
-                            )}
-                            {(selectedPayout.ledger_deduction || 0) > 0 && (
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-[var(--color-muted)]">Ledger Deductions</span>
-                                    <span className="text-[var(--color-muted)]">
-                                        -{formatCurrency(selectedPayout.ledger_deduction || 0)}
-                                    </span>
-                                </div>
-                            )}
-                            <div className="flex justify-between font-semibold pt-2 border-t border-[var(--color-border)]">
-                                <span>Your Payout</span>
-                                <span className="text-[var(--color-success)]">
-                                    {formatCurrency(selectedPayout.amount)}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Notes */}
-                        {selectedPayout.notes && (
-                            <div className="bg-[var(--color-surface)] rounded-lg p-3">
-                                <p className="text-xs text-[var(--color-muted)] mb-1">Notes</p>
-                                <p className="text-sm">{selectedPayout.notes}</p>
-                            </div>
-                        )}
-                    </div>
+                    <CompletedPayoutDetails
+                        payout={selectedPayout}
+                        details={completedPayoutDetails}
+                        isLoading={isLoadingCompletedPayout}
+                        error={completedPayoutError}
+                    />
                 )}
                 <ModalFooter>
-                    <Button variant="secondary" onClick={() => setSelectedPayout(null)}>
+                    <Button variant="secondary" onClick={closeCompletedPayout}>
                         Close
+                    </Button>
+                    <Button
+                        onClick={() => {
+                            if (selectedPayout) {
+                                printCompletedPayoutReport(
+                                    selectedPayout,
+                                    completedPayoutDetails || { saleLines: [], deductions: [] },
+                                    consignor
+                                );
+                            }
+                        }}
+                        disabled={isLoadingCompletedPayout}
+                    >
+                        Print Report
                     </Button>
                 </ModalFooter>
             </Modal>
@@ -663,24 +613,6 @@ function CheckIcon() {
             strokeLinejoin="round"
         >
             <polyline points="20 6 9 17 4 12" />
-        </svg>
-    );
-}
-
-function CheckCircleIcon() {
-    return (
-        <svg
-            width="32"
-            height="32"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-            <polyline points="22 4 12 14.01 9 11.01" />
         </svg>
     );
 }

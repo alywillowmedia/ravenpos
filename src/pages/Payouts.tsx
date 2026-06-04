@@ -5,10 +5,16 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
+import { CompletedPayoutDetails } from '../components/payouts/CompletedPayoutDetails';
 import { usePayouts } from '../hooks/usePayouts';
+import { printCompletedPayoutReport } from '../lib/completedPayoutReport';
+import {
+    loadCompletedPayoutDetails,
+    type CompletedPayoutDetails as CompletedPayoutDetailsData,
+} from '../lib/consignorReports';
 import { formatCurrency } from '../lib/utils';
 import { getConsignorDisplayName, getConsignorPayToName } from '../lib/consignors';
-import type { ConsignorPayoutSummary, Payout, BalanceDisposition, VendorLedgerEntry } from '../types';
+import type { ConsignorPayoutSummary, Payout, BalanceDisposition, VendorLedgerEntry, VendorInvoiceDeduction } from '../types';
 
 type ViewMode = 'pending' | 'history';
 type DatePreset = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
@@ -63,6 +69,12 @@ export function Payouts() {
     const [ledgerAmount, setLedgerAmount] = useState('');
     const [ledgerError, setLedgerError] = useState<string | null>(null);
     const [isAddingLedgerItem, setIsAddingLedgerItem] = useState(false);
+    const [invoiceApplicationAmounts, setInvoiceApplicationAmounts] = useState<Record<string, string>>({});
+    const [payoutError, setPayoutError] = useState<string | null>(null);
+    const [selectedHistoryPayout, setSelectedHistoryPayout] = useState<Payout | null>(null);
+    const [completedPayoutDetails, setCompletedPayoutDetails] = useState<CompletedPayoutDetailsData | null>(null);
+    const [completedPayoutError, setCompletedPayoutError] = useState<string | null>(null);
+    const [isLoadingCompletedPayout, setIsLoadingCompletedPayout] = useState(false);
 
     const totals = getTotals();
     const dateRange = useMemo(() => {
@@ -135,9 +147,60 @@ export function Payouts() {
 
     const roundCurrency = (value: number) => Number(value.toFixed(2));
     const isDateScopedPendingView = Boolean(dateRange.start || dateRange.end);
+    const canRecordPayout = (summary: ConsignorPayoutSummary) => summary.pendingAmount > 0;
     const selectedRangeLabel = (dateRange.start && dateRange.end)
         ? `${dateRange.start.toLocaleDateString()} - ${dateRange.end.toLocaleDateString()}`
         : 'All Time';
+    const selectedInvoiceApplication = useMemo(() => {
+        if (!selectedConsignor) {
+            return { summary: null, total: 0, error: null as string | null };
+        }
+
+        const deductions: VendorInvoiceDeduction[] = [];
+        let total = 0;
+        let error: string | null = null;
+
+        for (const invoice of selectedConsignor.pendingInvoiceDeductions) {
+            const rawAmount = invoiceApplicationAmounts[invoice.invoice_id];
+            if (!rawAmount) continue;
+
+            const amount = roundCurrency(Number(rawAmount));
+            if (!Number.isFinite(amount) || amount <= 0) {
+                error ||= `Enter a valid amount for invoice #${invoice.invoice_number}.`;
+                continue;
+            }
+            if (amount > invoice.balance_due) {
+                error ||= `Invoice #${invoice.invoice_number} cannot exceed its ${formatCurrency(invoice.balance_due)} balance.`;
+                continue;
+            }
+
+            total = roundCurrency(total + amount);
+            deductions.push({ ...invoice, amount_to_apply: amount });
+        }
+
+        if (total > selectedConsignor.pendingAmount) {
+            error = `Invoice applications cannot exceed the ${formatCurrency(selectedConsignor.pendingAmount)} available payout.`;
+        }
+
+        return {
+            summary: {
+                ...selectedConsignor,
+                pendingAmount: roundCurrency(Math.max(0, selectedConsignor.pendingAmount - total)),
+                invoiceDeduction: total,
+                invoiceDeductionsToApply: deductions,
+            },
+            total,
+            error,
+        };
+    }, [invoiceApplicationAmounts, selectedConsignor]);
+    const selectedPayoutSummary = selectedInvoiceApplication.summary;
+    const customPayoutAmountInvalid = useCustomAmount && (
+        !customAmount
+        || !Number.isFinite(Number(customAmount))
+        || Number(customAmount) <= 0
+        || !selectedPayoutSummary
+        || Number(customAmount) > selectedPayoutSummary.pendingAmount
+    );
 
     // Filter consignors by search
     const filteredSummaries = useMemo(() => {
@@ -207,6 +270,7 @@ export function Payouts() {
                 boothRentDeduction: 0,
                 marketingFeeDeduction: 0,
                 ledgerDeduction: 0,
+                invoiceDeduction: 0,
                 salesCount: salesSet.size,
                 itemsSold,
                 salesSinceLastPayout: salesInRange,
@@ -214,6 +278,8 @@ export function Payouts() {
                 marketingAllocationIdsToDeduct: [] as string[],
                 ledgerEntryIdsToDeduct: [] as string[],
                 pendingLedgerEntries: [] as VendorLedgerEntry[],
+                invoiceDeductionsToApply: [],
+                pendingInvoiceDeductions: summary.pendingInvoiceDeductions,
             };
 
             scopedSummaries.push(scopedSummary);
@@ -269,14 +335,15 @@ export function Payouts() {
     }, [pendingDisplaySummaries, pendingSummariesInRange, isDateScopedPendingView, selectedConsignor]);
 
     const handleMarkAsPaid = async () => {
-        if (!selectedConsignor) return;
+        if (!selectedPayoutSummary || selectedInvoiceApplication.error) return;
 
         setIsProcessing(true);
+        setPayoutError(null);
 
         const amountToPay = useCustomAmount && customAmount
             ? parseFloat(customAmount)
             : undefined;
-        const includesDeferredCarryover = Number(selectedConsignor.deferredBalanceCarryover || 0) > 0;
+        const includesDeferredCarryover = Number(selectedPayoutSummary.deferredBalanceCarryover || 0) > 0;
         const payoutNotesForRecord = isDateScopedPendingView && dateRange.start && dateRange.end
             ? [
                 `[Range Payout: ${selectedRangeLabel}]`,
@@ -286,8 +353,8 @@ export function Payouts() {
             : (payoutNotes || undefined);
 
         const result = await markAsPaid(
-            selectedConsignor.consignor.id,
-            selectedConsignor,
+            selectedPayoutSummary.consignor.id,
+            selectedPayoutSummary,
             payoutNotesForRecord,
             amountToPay,
             useCustomAmount ? partialReason : undefined,
@@ -311,6 +378,10 @@ export function Payouts() {
             setLedgerDescription('');
             setLedgerAmount('');
             setLedgerError(null);
+            setInvoiceApplicationAmounts({});
+            setPayoutError(null);
+        } else {
+            setPayoutError(result.error || 'Failed to record payout.');
         }
         setIsProcessing(false);
     };
@@ -348,13 +419,71 @@ export function Payouts() {
     };
 
     const openPayModal = (summary: ConsignorPayoutSummary) => {
-        if (summary.pendingAmount <= 0) return;
+        if (!canRecordPayout(summary)) return;
         setSelectedConsignor(summary);
+        setInvoiceApplicationAmounts({});
+        setPayoutError(null);
         setShowPayModal(true);
     };
 
+    const setInvoiceApplicationAmount = (invoiceId: string, amount: string) => {
+        setInvoiceApplicationAmounts((current) => ({
+            ...current,
+            [invoiceId]: amount,
+        }));
+    };
+
+    const clearInvoiceApplication = (invoiceId: string) => {
+        setInvoiceApplicationAmounts((current) => {
+            const next = { ...current };
+            delete next[invoiceId];
+            return next;
+        });
+    };
+
+    const applyMaximumInvoiceAmount = (invoice: VendorInvoiceDeduction) => {
+        if (!selectedConsignor) return;
+
+        const otherApplications = selectedConsignor.pendingInvoiceDeductions.reduce((sum, pendingInvoice) => {
+            if (pendingInvoice.invoice_id === invoice.invoice_id) return sum;
+            const amount = Number(invoiceApplicationAmounts[pendingInvoice.invoice_id] || 0);
+            return Number.isFinite(amount) && amount > 0
+                ? sum + Math.min(amount, pendingInvoice.balance_due)
+                : sum;
+        }, 0);
+        const available = roundCurrency(Math.max(0, selectedConsignor.pendingAmount - otherApplications));
+        const amount = roundCurrency(Math.min(invoice.balance_due, available));
+
+        if (amount > 0) {
+            setInvoiceApplicationAmount(invoice.invoice_id, amount.toFixed(2));
+        }
+    };
+
+    const openCompletedPayout = async (payout: Payout) => {
+        setSelectedHistoryPayout(payout);
+        setCompletedPayoutDetails(null);
+        setCompletedPayoutError(null);
+        setIsLoadingCompletedPayout(true);
+
+        try {
+            const details = await loadCompletedPayoutDetails(payout);
+            setCompletedPayoutDetails(details);
+        } catch (err) {
+            setCompletedPayoutError(err instanceof Error ? err.message : 'Could not load completed payout details.');
+        } finally {
+            setIsLoadingCompletedPayout(false);
+        }
+    };
+
+    const closeCompletedPayout = () => {
+        setSelectedHistoryPayout(null);
+        setCompletedPayoutDetails(null);
+        setCompletedPayoutError(null);
+        setIsLoadingCompletedPayout(false);
+    };
+
     const printPayoutReport = (summary: ConsignorPayoutSummary) => {
-        const { consignor, deferredBalanceCarryover, pendingAmount, pendingFromSales, grossSales, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, ledgerDeduction, salesSinceLastPayout, lastPayout } = summary;
+        const { consignor, deferredBalanceCarryover, pendingAmount, pendingFromSales, grossSales, storeShare, creditCardFees, boothRentDeduction, marketingFeeDeduction, ledgerDeduction, invoiceDeduction, salesSinceLastPayout, lastPayout } = summary;
         const saleDates = salesSinceLastPayout.map((item) => new Date(item.saleDate).getTime()).filter((value) => Number.isFinite(value));
         const periodStart = saleDates.length > 0
             ? new Date(Math.min(...saleDates)).toLocaleDateString()
@@ -484,6 +613,12 @@ export function Payouts() {
                     <div class="summary-row deduction">
                         <span>Ledger Deductions:</span>
                         <span>-$${ledgerDeduction.toFixed(2)}</span>
+                    </div>
+                    ` : ''}
+                    ${invoiceDeduction > 0 ? `
+                    <div class="summary-row deduction">
+                        <span>Invoice Deductions:</span>
+                        <span>-$${invoiceDeduction.toFixed(2)}</span>
                     </div>
                     ` : ''}
                     <div class="summary-row total">
@@ -730,6 +865,7 @@ export function Payouts() {
                 <PayoutHistoryList
                     payouts={filteredPayoutHistory}
                     searchQuery={searchQuery}
+                    onViewPayout={openCompletedPayout}
                 />
             )}
 
@@ -764,6 +900,9 @@ export function Payouts() {
                             onAmountChange={setLedgerAmount}
                             onSubmit={handleAddLedgerItem}
                         />
+                        <InvoiceDeductionPreview
+                            pendingDeductions={selectedConsignor.pendingInvoiceDeductions}
+                        />
                     </div>
                 )}
                 <ModalFooter>
@@ -784,13 +923,49 @@ export function Payouts() {
                             Print Report
                         </Button>
                     )}
-                    {selectedConsignor && selectedConsignor.pendingAmount > 0 && (
-                        <Button variant="success" onClick={() => setShowPayModal(true)}>
+                    {selectedConsignor && canRecordPayout(selectedConsignor) && (
+                        <Button variant="success" onClick={() => openPayModal(selectedConsignor)}>
                             <DollarIcon />
                             Mark as Paid
                         </Button>
                     )}
                 </ModalFooter>
+            </Modal>
+
+            <Modal
+                isOpen={!!selectedHistoryPayout}
+                onClose={closeCompletedPayout}
+                title={`Completed Payout: ${selectedHistoryPayout?.consignor ? getConsignorDisplayName(selectedHistoryPayout.consignor) : 'Vendor'}`}
+                description="Review the saved payout totals, linked deductions, and sales included in its recorded period."
+                size="4xl"
+            >
+                {selectedHistoryPayout && (
+                    <>
+                        <CompletedPayoutDetails
+                            payout={selectedHistoryPayout}
+                            details={completedPayoutDetails}
+                            isLoading={isLoadingCompletedPayout}
+                            error={completedPayoutError}
+                        />
+                        <ModalFooter>
+                            <Button variant="secondary" onClick={closeCompletedPayout}>
+                                Close
+                            </Button>
+                            <Button
+                                onClick={() => {
+                                    printCompletedPayoutReport(
+                                        selectedHistoryPayout,
+                                        completedPayoutDetails || { saleLines: [], deductions: [] }
+                                    );
+                                }}
+                                disabled={isLoadingCompletedPayout}
+                            >
+                                <PrintIcon />
+                                Print Report
+                            </Button>
+                        </ModalFooter>
+                    </>
+                )}
             </Modal>
 
             {/* Mark as Paid Confirmation Modal */}
@@ -803,11 +978,13 @@ export function Payouts() {
                     setCustomAmount('');
                     setPartialReason('');
                     setBalanceDisposition('deferred');
+                    setInvoiceApplicationAmounts({});
+                    setPayoutError(null);
                 }}
                 title="Confirm Payout"
-                size="md"
+                size="lg"
             >
-                {selectedConsignor && (
+                {selectedConsignor && selectedPayoutSummary && (
                     <div className="space-y-6">
                         <div className="bg-[var(--color-surface)] rounded-lg p-4">
                             <p className="text-sm text-[var(--color-muted)] mb-1">
@@ -836,7 +1013,7 @@ export function Payouts() {
                                     Amount Due
                                 </p>
                                 <p className={`text-2xl font-bold ${useCustomAmount ? 'text-[var(--color-muted)] line-through' : 'text-[var(--color-success)]'}`}>
-                                    {formatCurrency(selectedConsignor.pendingAmount)}
+                                    {formatCurrency(selectedPayoutSummary.pendingAmount)}
                                 </p>
                             </div>
                             <div className="bg-[var(--color-surface)] rounded-lg p-4">
@@ -848,31 +1025,52 @@ export function Payouts() {
                                 </p>
                             </div>
                         </div>
-                        {(selectedConsignor.boothRentDeduction > 0 || selectedConsignor.marketingFeeDeduction > 0 || selectedConsignor.ledgerDeduction > 0) && (
+                        {(selectedPayoutSummary.boothRentDeduction > 0 || selectedPayoutSummary.marketingFeeDeduction > 0 || selectedPayoutSummary.ledgerDeduction > 0 || selectedPayoutSummary.invoiceDeduction > 0) && (
                             <div className="rounded-lg p-3 bg-[var(--color-surface)] border border-[var(--color-border)] text-sm space-y-1">
                                 <div className="flex justify-between">
                                     <span className="text-[var(--color-muted)]">Before Deductions</span>
-                                    <span>{formatCurrency(selectedConsignor.pendingFromSales)}</span>
+                                    <span>{formatCurrency(selectedPayoutSummary.pendingFromSales)}</span>
                                 </div>
-                                {selectedConsignor.boothRentDeduction > 0 && (
+                                {selectedPayoutSummary.boothRentDeduction > 0 && (
                                     <div className="flex justify-between text-[var(--color-warning)]">
                                         <span>Booth Rent</span>
-                                        <span>-{formatCurrency(selectedConsignor.boothRentDeduction)}</span>
+                                        <span>-{formatCurrency(selectedPayoutSummary.boothRentDeduction)}</span>
                                     </div>
                                 )}
-                                {selectedConsignor.marketingFeeDeduction > 0 && (
+                                {selectedPayoutSummary.marketingFeeDeduction > 0 && (
                                     <div className="flex justify-between text-[var(--color-warning)]">
                                         <span>Marketing Fees</span>
-                                        <span>-{formatCurrency(selectedConsignor.marketingFeeDeduction)}</span>
+                                        <span>-{formatCurrency(selectedPayoutSummary.marketingFeeDeduction)}</span>
                                     </div>
                                 )}
-                                {selectedConsignor.ledgerDeduction > 0 && (
+                                {selectedPayoutSummary.ledgerDeduction > 0 && (
                                     <div className="flex justify-between text-[var(--color-warning)]">
                                         <span>Ledger Deductions</span>
-                                        <span>-{formatCurrency(selectedConsignor.ledgerDeduction)}</span>
+                                        <span>-{formatCurrency(selectedPayoutSummary.ledgerDeduction)}</span>
+                                    </div>
+                                )}
+                                {selectedPayoutSummary.invoiceDeduction > 0 && (
+                                    <div className="flex justify-between text-[var(--color-warning)]">
+                                        <span>Invoice Deductions</span>
+                                        <span>-{formatCurrency(selectedPayoutSummary.invoiceDeduction)}</span>
                                     </div>
                                 )}
                             </div>
+                        )}
+
+                        <InvoiceApplicationManager
+                            invoices={selectedConsignor.pendingInvoiceDeductions}
+                            applications={invoiceApplicationAmounts}
+                            availablePayout={selectedConsignor.pendingAmount}
+                            appliedTotal={selectedInvoiceApplication.total}
+                            error={selectedInvoiceApplication.error}
+                            onAmountChange={setInvoiceApplicationAmount}
+                            onApplyMaximum={applyMaximumInvoiceAmount}
+                            onClear={clearInvoiceApplication}
+                        />
+
+                        {payoutError && (
+                            <p className="text-sm text-[var(--color-danger)]">{payoutError}</p>
                         )}
 
                         {/* Custom Amount Toggle */}
@@ -909,16 +1107,21 @@ export function Payouts() {
                                             type="number"
                                             step="0.01"
                                             min="0"
-                                            max={selectedConsignor.pendingAmount}
+                                            max={selectedPayoutSummary.pendingAmount}
                                             value={customAmount}
                                             onChange={(e) => setCustomAmount(e.target.value)}
-                                            placeholder={selectedConsignor.pendingAmount.toFixed(2)}
+                                            placeholder={selectedPayoutSummary.pendingAmount.toFixed(2)}
                                             className="w-full pl-7 pr-3 py-2 border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)]"
                                         />
                                     </div>
-                                    {customAmount && parseFloat(customAmount) < selectedConsignor.pendingAmount && (
+                                    {customAmount && parseFloat(customAmount) < selectedPayoutSummary.pendingAmount && (
                                         <p className="text-xs text-[var(--color-muted)] mt-1">
-                                            Remaining balance: {formatCurrency(selectedConsignor.pendingAmount - parseFloat(customAmount))}
+                                            Remaining balance: {formatCurrency(selectedPayoutSummary.pendingAmount - parseFloat(customAmount))}
+                                        </p>
+                                    )}
+                                    {customAmount && Number(customAmount) > selectedPayoutSummary.pendingAmount && (
+                                        <p className="text-xs text-[var(--color-danger)] mt-1">
+                                            Custom payout cannot exceed {formatCurrency(selectedPayoutSummary.pendingAmount)} after invoice applications.
                                         </p>
                                     )}
                                 </div>
@@ -1010,6 +1213,8 @@ export function Payouts() {
                             setCustomAmount('');
                             setPartialReason('');
                             setBalanceDisposition('deferred');
+                            setInvoiceApplicationAmounts({});
+                            setPayoutError(null);
                         }}
                         disabled={isProcessing}
                     >
@@ -1018,7 +1223,7 @@ export function Payouts() {
                     <Button
                         variant="success"
                         onClick={handleMarkAsPaid}
-                        disabled={isProcessing || (useCustomAmount && (!customAmount || parseFloat(customAmount) <= 0))}
+                        disabled={isProcessing || customPayoutAmountInvalid || !!selectedInvoiceApplication.error}
                     >
                         {isProcessing ? 'Processing...' : `Confirm Payout${useCustomAmount && customAmount ? ` (${formatCurrency(parseFloat(customAmount))})` : ''}`}
                     </Button>
@@ -1039,6 +1244,7 @@ function ConsignorPayoutRow({
     onMarkAsPaid: () => void;
 }) {
     const { consignor, pendingAmount, grossSales, storeShare, salesCount, itemsSold, lastPayout } = summary;
+    const canRecordPayout = pendingAmount > 0;
 
     return (
         <div className="bg-[var(--color-card)] rounded-xl border border-[var(--color-border)] p-4 h-full flex flex-col">
@@ -1100,10 +1306,10 @@ function ConsignorPayoutRow({
                         Details
                     </Button>
                     <Button
-                        variant={pendingAmount > 0 ? 'success' : 'secondary'}
+                        variant={canRecordPayout ? 'success' : 'secondary'}
                         size="sm"
                         onClick={onMarkAsPaid}
-                        disabled={pendingAmount <= 0}
+                        disabled={!canRecordPayout}
                         className="w-full justify-center"
                     >
                         <DollarIcon />
@@ -1410,7 +1616,7 @@ function ConsignorPayoutDetail({
                                         Note: {cleanedNotes}
                                     </p>
                                 )}
-                                {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0 || (payout.ledger_deduction || 0) > 0) && (
+                                {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0 || (payout.ledger_deduction || 0) > 0 || (payout.invoice_deduction || 0) > 0) && (
                                     <div className="text-xs text-[var(--color-muted)] mt-1 space-y-1">
                                         {(payout.booth_rent_deduction || 0) > 0 && (
                                             <p>Booth rent deducted: -{formatCurrency(Number(payout.booth_rent_deduction || 0))}</p>
@@ -1420,6 +1626,9 @@ function ConsignorPayoutDetail({
                                         )}
                                         {(payout.ledger_deduction || 0) > 0 && (
                                             <p>Ledger deducted: -{formatCurrency(Number(payout.ledger_deduction || 0))}</p>
+                                        )}
+                                        {(payout.invoice_deduction || 0) > 0 && (
+                                            <p>Invoices deducted: -{formatCurrency(Number(payout.invoice_deduction || 0))}</p>
                                         )}
                                     </div>
                                 )}
@@ -1533,13 +1742,161 @@ function LedgerManager({
     );
 }
 
+function InvoiceApplicationManager({
+    invoices,
+    applications,
+    availablePayout,
+    appliedTotal,
+    error,
+    onAmountChange,
+    onApplyMaximum,
+    onClear,
+}: {
+    invoices: VendorInvoiceDeduction[];
+    applications: Record<string, string>;
+    availablePayout: number;
+    appliedTotal: number;
+    error: string | null;
+    onAmountChange: (invoiceId: string, amount: string) => void;
+    onApplyMaximum: (invoice: VendorInvoiceDeduction) => void;
+    onClear: (invoiceId: string) => void;
+}) {
+    if (invoices.length === 0) return null;
+
+    return (
+        <div className="rounded-lg border border-[var(--color-border)] p-4 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <h4 className="font-semibold text-sm">Apply Payout to Invoices</h4>
+                    <p className="text-xs text-[var(--color-muted)]">
+                        Optional. Apply a full invoice balance or enter a partial amount.
+                    </p>
+                </div>
+                <div className="text-right shrink-0">
+                    <p className="text-xs text-[var(--color-muted)]">Applied</p>
+                    <p className="font-semibold text-[var(--color-warning)]">-{formatCurrency(appliedTotal)}</p>
+                    <p className="text-xs text-[var(--color-muted)]">
+                        {formatCurrency(Math.max(0, availablePayout - appliedTotal))} remains
+                    </p>
+                </div>
+            </div>
+
+            <div className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
+                {invoices.map((invoice) => {
+                    const appliedAmount = Number(applications[invoice.invoice_id] || 0);
+                    const validAppliedAmount = Number.isFinite(appliedAmount) && appliedAmount > 0 ? appliedAmount : 0;
+                    const otherApplied = Math.max(0, appliedTotal - validAppliedAmount);
+                    const maximumAvailable = Math.max(0, Math.min(invoice.balance_due, availablePayout - otherApplied));
+                    const hasApplication = Boolean(applications[invoice.invoice_id]);
+
+                    return (
+                        <div key={invoice.invoice_id} className="py-3 grid grid-cols-1 md:grid-cols-[1fr_150px_auto] gap-3 items-center">
+                            <div className="min-w-0">
+                                <p className="font-mono text-xs">#{invoice.invoice_number}</p>
+                                <p className="text-sm font-medium">{formatCurrency(invoice.balance_due)} balance</p>
+                                <p className="text-xs text-[var(--color-muted)]">
+                                    Created {new Date(invoice.created_at).toLocaleDateString()}
+                                </p>
+                            </div>
+                            <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]">$</span>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max={maximumAvailable}
+                                    step="0.01"
+                                    value={applications[invoice.invoice_id] || ''}
+                                    onChange={(event) => onAmountChange(invoice.invoice_id, event.target.value)}
+                                    placeholder="0.00"
+                                    aria-label={`Amount to apply to invoice ${invoice.invoice_number}`}
+                                    className="w-full pl-7 pr-3 py-2 border border-[var(--color-border)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:border-[var(--color-primary)]"
+                                />
+                            </div>
+                            <div className="flex gap-2 md:justify-end">
+                                {hasApplication && (
+                                    <Button size="sm" variant="ghost" onClick={() => onClear(invoice.invoice_id)}>
+                                        Clear
+                                    </Button>
+                                )}
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => onApplyMaximum(invoice)}
+                                    disabled={maximumAvailable <= 0}
+                                >
+                                    {maximumAvailable >= invoice.balance_due ? 'Apply Full' : 'Apply Available'}
+                                </Button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {error && <p className="text-xs text-[var(--color-danger)]">{error}</p>}
+        </div>
+    );
+}
+
+function InvoiceDeductionPreview({
+    pendingDeductions,
+}: {
+    pendingDeductions: VendorInvoiceDeduction[];
+}) {
+    const hasInvoices = pendingDeductions.length > 0;
+
+    return (
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 space-y-3">
+            <div>
+                <h4 className="font-semibold text-sm">Open Vendor Invoices</h4>
+                <p className="text-xs text-[var(--color-muted)]">
+                    These invoices are not deducted automatically. Choose amounts when confirming a payout.
+                </p>
+            </div>
+
+            {hasInvoices ? (
+                <div className="rounded-lg border border-[var(--color-border)] overflow-hidden">
+                    <table className="w-full text-sm">
+                        <thead className="bg-[var(--color-surface)]">
+                            <tr>
+                                <th className="text-left px-3 py-2 font-medium">Invoice</th>
+                                <th className="text-left px-3 py-2 font-medium">Created</th>
+                                <th className="text-right px-3 py-2 font-medium">Balance</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {pendingDeductions.map((deduction) => (
+                                <tr key={deduction.invoice_id} className="border-t border-[var(--color-border)]">
+                                    <td className="px-3 py-2">
+                                        <p className="font-mono text-xs">#{deduction.invoice_number}</p>
+                                        <p className="text-xs text-[var(--color-muted)]">{deduction.recipient_name}</p>
+                                    </td>
+                                    <td className="px-3 py-2 text-[var(--color-muted)]">
+                                        {new Date(deduction.created_at).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                        {formatCurrency(deduction.balance_due)}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            ) : (
+                <p className="text-xs text-[var(--color-muted)]">No open vendor invoices for this consignor.</p>
+            )}
+        </div>
+    );
+}
+
 // Payout History List
 function PayoutHistoryList({
     payouts,
     searchQuery,
+    onViewPayout,
 }: {
     payouts: Payout[];
     searchQuery: string;
+    onViewPayout: (payout: Payout) => void;
 }) {
     const filteredPayouts = useMemo(() => {
         if (!searchQuery) return payouts;
@@ -1575,9 +1932,11 @@ function PayoutHistoryList({
                         ?.replace(/^\[Range Payout: [^\]]+\]\s*/, '')
                         .replace(/^\[Deferred Carryover Included\]\s*/, '') || '';
                     return (
-                <div
+                <button
+                    type="button"
                     key={payout.id}
-                    className="bg-[var(--color-card)] rounded-xl border border-[var(--color-border)] p-4"
+                    onClick={() => onViewPayout(payout)}
+                    className="w-full text-left bg-[var(--color-card)] rounded-xl border border-[var(--color-border)] p-4 transition-colors hover:bg-[var(--color-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
                 >
                     <div className="flex items-center justify-between flex-wrap gap-4">
                         <div className="flex items-center gap-4">
@@ -1665,7 +2024,7 @@ function PayoutHistoryList({
                             Note: {cleanedNotes}
                         </p>
                     )}
-                    {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0 || (payout.ledger_deduction || 0) > 0) && (
+                    {((payout.booth_rent_deduction || 0) > 0 || (payout.marketing_fee_deduction || 0) > 0 || (payout.ledger_deduction || 0) > 0 || (payout.invoice_deduction || 0) > 0) && (
                         <div className="mt-2 pl-14 text-xs text-[var(--color-muted)] space-y-1">
                             {(payout.booth_rent_deduction || 0) > 0 && (
                                 <p>Booth rent deducted: -{formatCurrency(Number(payout.booth_rent_deduction || 0))}</p>
@@ -1676,9 +2035,15 @@ function PayoutHistoryList({
                             {(payout.ledger_deduction || 0) > 0 && (
                                 <p>Ledger deducted: -{formatCurrency(Number(payout.ledger_deduction || 0))}</p>
                             )}
+                            {(payout.invoice_deduction || 0) > 0 && (
+                                <p>Invoices deducted: -{formatCurrency(Number(payout.invoice_deduction || 0))}</p>
+                            )}
                         </div>
                     )}
-                </div>
+                    <p className="mt-3 pl-14 text-xs font-medium text-[var(--color-primary)]">
+                        View payout details and print report
+                    </p>
+                </button>
                     );
                 })()
             ))}

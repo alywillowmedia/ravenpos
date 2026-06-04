@@ -62,7 +62,8 @@ interface ConsignorReportTotals {
     creditCardFees: number;
 }
 
-interface ConsignorReportLine {
+export interface CompletedPayoutSaleLine {
+    saleItemId: string;
     saleDate: string;
     saleId: string;
     sku: string;
@@ -78,9 +79,22 @@ interface ConsignorReportLine {
     creditCardFee: number;
 }
 
+export interface CompletedPayoutDeductionLine {
+    id: string;
+    type: 'booth_rent' | 'marketing' | 'ledger' | 'invoice';
+    label: string;
+    description: string | null;
+    amount: number;
+}
+
+export interface CompletedPayoutDetails {
+    saleLines: CompletedPayoutSaleLine[];
+    deductions: CompletedPayoutDeductionLine[];
+}
+
 interface ConsignorReportData {
     totalsByConsignor: Map<string, ConsignorReportTotals>;
-    linesByConsignor: Map<string, ConsignorReportLine[]>;
+    linesByConsignor: Map<string, CompletedPayoutSaleLine[]>;
     inventoryByConsignor: Map<string, Item[]>;
     payoutsByConsignor: Map<string, Payout[]>;
     boothRentPaymentsByConsignor: Map<string, BoothRentPayment[]>;
@@ -428,7 +442,7 @@ async function fetchConsignorReportData(consignorIds: string[]): Promise<Consign
     );
     const refundedItemsMap = getRefundedQuantities(refunds);
     const totalsByConsignor = new Map<string, ConsignorReportTotals>();
-    const linesByConsignor = new Map<string, ConsignorReportLine[]>();
+    const linesByConsignor = new Map<string, CompletedPayoutSaleLine[]>();
     const inventoryByConsignor = new Map<string, Item[]>();
     const payoutsByConsignor = new Map<string, Payout[]>();
     const boothRentPaymentsByConsignor = new Map<string, BoothRentPayment[]>();
@@ -491,6 +505,7 @@ async function fetchConsignorReportData(consignorIds: string[]): Promise<Consign
         }
 
         addToMapArray(linesByConsignor, item.consignor_id, {
+            saleItemId: item.id,
             saleDate: sale.completed_at,
             saleId: item.sale_id,
             sku: item.sku || '',
@@ -527,6 +542,108 @@ async function fetchConsignorReportData(consignorIds: string[]): Promise<Consign
         payoutsByConsignor,
         boothRentPaymentsByConsignor,
     };
+}
+
+function getJoinedRecord<T>(value: T | T[] | null | undefined): T | null {
+    if (!value) return null;
+    return Array.isArray(value) ? value[0] || null : value;
+}
+
+export async function loadCompletedPayoutDetails(payout: Payout): Promise<CompletedPayoutDetails> {
+    const payoutIdFragment = payout.id.slice(0, 8);
+    const [reportData, boothRentPayments, marketingAllocations, ledgerEntries, invoiceDeductions] = await Promise.all([
+        fetchConsignorReportData([payout.consignor_id]),
+        fetchAllRows<{
+            id: string;
+            amount: number | string;
+            period_month: number;
+            period_year: number;
+            notes: string | null;
+        }>(() => supabase
+            .from('booth_rent_payments')
+            .select('id, amount, period_month, period_year, notes')
+            .eq('consignor_id', payout.consignor_id)
+            .ilike('notes', `%${payoutIdFragment}%`)
+            .order('period_year')
+            .order('period_month')
+        ),
+        fetchAllRows<{
+            id: string;
+            amount: number | string;
+            marketing_fee: { title: string; description: string | null } | Array<{ title: string; description: string | null }> | null;
+        }>(() => supabase
+            .from('marketing_fee_allocations')
+            .select('id, amount, marketing_fee:marketing_fees(title, description)')
+            .eq('deducted_payout_id', payout.id)
+            .order('created_at')
+        ),
+        fetchAllRows<{
+            id: string;
+            description: string;
+            amount: number | string;
+        }>(() => supabase
+            .from('vendor_ledger_entries')
+            .select('id, description, amount')
+            .eq('deducted_payout_id', payout.id)
+            .order('created_at')
+        ),
+        fetchAllRows<{
+            id: string;
+            amount: number | string;
+            invoice: { id: string; recipient_name: string; notes: string | null } | Array<{ id: string; recipient_name: string; notes: string | null }> | null;
+        }>(() => supabase
+            .from('invoice_payout_deductions')
+            .select('id, amount, invoice:invoices(id, recipient_name, notes)')
+            .eq('payout_id', payout.id)
+            .order('created_at')
+        ),
+    ]);
+
+    const periodStart = new Date(payout.period_start).getTime();
+    const periodEnd = new Date(payout.period_end).getTime();
+    const saleLines = (reportData.linesByConsignor.get(payout.consignor_id) || []).filter((line) => {
+        const saleDate = new Date(line.saleDate).getTime();
+        return Number.isFinite(saleDate) && saleDate >= periodStart && saleDate <= periodEnd;
+    });
+
+    const deductions: CompletedPayoutDeductionLine[] = [
+        ...boothRentPayments.map((payment) => ({
+            id: payment.id,
+            type: 'booth_rent' as const,
+            label: `Booth Rent ${payment.period_month}/${payment.period_year}`,
+            description: payment.notes,
+            amount: Number(payment.amount || 0),
+        })),
+        ...marketingAllocations.map((allocation) => {
+            const fee = getJoinedRecord(allocation.marketing_fee);
+            return {
+                id: allocation.id,
+                type: 'marketing' as const,
+                label: fee?.title || 'Marketing Fee',
+                description: fee?.description || null,
+                amount: Number(allocation.amount || 0),
+            };
+        }),
+        ...ledgerEntries.map((entry) => ({
+            id: entry.id,
+            type: 'ledger' as const,
+            label: entry.description,
+            description: null,
+            amount: Number(entry.amount || 0),
+        })),
+        ...invoiceDeductions.map((deduction) => {
+            const invoice = getJoinedRecord(deduction.invoice);
+            return {
+                id: deduction.id,
+                type: 'invoice' as const,
+                label: invoice ? `Invoice #${invoice.id.slice(0, 8).toUpperCase()}` : 'Vendor Invoice',
+                description: invoice?.notes || invoice?.recipient_name || null,
+                amount: Number(deduction.amount || 0),
+            };
+        }),
+    ];
+
+    return { saleLines, deductions };
 }
 
 export function buildConsignorsSummaryFilename(): string {
@@ -809,7 +926,7 @@ export async function buildConsignorDetailCsvRows(
     if (selectedSections.has('payouts')) {
         appendBlankRow(rows);
         rows.push(['Payouts']);
-        rows.push(['Paid At', 'Amount', 'Period Start', 'Period End', 'Sales Count', 'Items Sold', 'Gross Sales', 'Store Share', 'Card Fees', 'Booth Rent Deduction', 'Marketing Fee Deduction', 'Ledger Deduction', 'Notes']);
+        rows.push(['Paid At', 'Amount', 'Period Start', 'Period End', 'Sales Count', 'Items Sold', 'Gross Sales', 'Store Share', 'Card Fees', 'Booth Rent Deduction', 'Marketing Fee Deduction', 'Ledger Deduction', 'Invoice Deduction', 'Notes']);
         for (const payout of payouts) {
             rows.push([
                 new Date(payout.paid_at).toLocaleDateString(),
@@ -824,6 +941,7 @@ export async function buildConsignorDetailCsvRows(
                 Number(payout.booth_rent_deduction || 0).toFixed(2),
                 Number(payout.marketing_fee_deduction || 0).toFixed(2),
                 Number(payout.ledger_deduction || 0).toFixed(2),
+                Number(payout.invoice_deduction || 0).toFixed(2),
                 payout.notes || '',
             ]);
         }

@@ -283,7 +283,7 @@ export interface Refund {
 }
 
 export type InvoiceRecipientType = 'customer' | 'vendor';
-export type InvoiceStatus = 'unpaid' | 'paid';
+export type InvoiceStatus = 'unpaid' | 'partially_paid' | 'paid';
 
 export interface InvoiceItem {
     id: string;
@@ -313,6 +313,7 @@ export interface Invoice {
     subtotal: number;
     tax_amount: number;
     total: number;
+    amount_paid: number;
     notes?: string | null;
     paid_at: string | null;
     created_at: string;
@@ -383,6 +384,7 @@ export interface Payout {
     booth_rent_deduction?: number;
     marketing_fee_deduction?: number;
     ledger_deduction?: number;
+    invoice_deduction?: number;
     notes: string | null;
     paid_at: string;
     created_at: string;
@@ -424,6 +426,7 @@ export interface ConsignorPayoutSummary {
     boothRentDeduction: number;
     marketingFeeDeduction: number;
     ledgerDeduction: number;
+    invoiceDeduction: number;
     salesCount: number;
     itemsSold: number;
     lastPayout: Payout | null;
@@ -432,6 +435,8 @@ export interface ConsignorPayoutSummary {
     marketingAllocationIdsToDeduct: string[];
     ledgerEntryIdsToDeduct: string[];
     pendingLedgerEntries: VendorLedgerEntry[];
+    invoiceDeductionsToApply: VendorInvoiceDeduction[];
+    pendingInvoiceDeductions: VendorInvoiceDeduction[];
 }
 
 export interface MarketingFee {
@@ -463,6 +468,18 @@ export interface VendorLedgerEntry {
     deducted_at: string | null;
     created_by: string | null;
     created_at: string;
+}
+
+export interface VendorInvoiceDeduction {
+    invoice_id: string;
+    invoice_number: string;
+    recipient_name: string;
+    total: number;
+    amount_paid: number;
+    balance_due: number;
+    amount_to_apply: number;
+    created_at: string;
+    notes?: string | null;
 }
 
 // Detailed sale item for payout breakdown
