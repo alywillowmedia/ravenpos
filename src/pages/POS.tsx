@@ -30,6 +30,7 @@ import { calculateCardSurchargeAmount } from '../lib/cardFees';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import { createReceiptData } from '../lib/printReceipt';
 import { createInvoiceEmailDataFromCart } from '../lib/invoice';
+import { printInvoice } from '../lib/printInvoice';
 import { supabase } from '../lib/supabase';
 import { getOfflineSalesSyncStatus, syncOfflineCashSalesQueue } from '../lib/offlineCashSales';
 import { deletePosSavedCart, listPosSavedCarts, restorePosSavedCart, savePosCart, type PosSavedCart } from '../lib/posSavedCarts';
@@ -1143,6 +1144,14 @@ export function POS() {
             setInvoiceNote('');
             setSelectedInvoiceVendorId('');
         }
+    };
+
+    const handlePrintCompletedInvoice = () => {
+        if (!completedInvoice || !completedInvoiceEmail) {
+            return { success: false, error: 'Invoice details are unavailable.' };
+        }
+
+        return printInvoice(completedInvoice, completedInvoiceEmail.items);
     };
 
     // Discount handlers
@@ -2856,6 +2865,7 @@ export function POS() {
                 invoice={completedInvoiceEmail}
                 recipientEmail={completedInvoice?.recipient_email || null}
                 recipientName={completedInvoice?.recipient_name || null}
+                onPrint={handlePrintCompletedInvoice}
             />
 
             {/* Discount Modal */}

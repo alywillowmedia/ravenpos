@@ -12,6 +12,7 @@ interface InvoiceDeliveryModalProps {
     recipientEmail?: string | null;
     recipientName?: string | null;
     onRecipientEmailUpdate?: (email: string) => Promise<void>;
+    onPrint?: () => { success: boolean; error?: string };
 }
 
 type DeliveryStatus = 'idle' | 'sending' | 'success' | 'error';
@@ -23,6 +24,7 @@ export function InvoiceDeliveryModal({
     recipientEmail,
     recipientName,
     onRecipientEmailUpdate,
+    onPrint,
 }: InvoiceDeliveryModalProps) {
     const [status, setStatus] = useState<DeliveryStatus>('idle');
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -68,10 +70,21 @@ export function InvoiceDeliveryModal({
         }
     };
 
+    const handlePrint = () => {
+        const result = onPrint?.();
+        if (result?.success) {
+            setStatus('idle');
+            setErrorMessage(null);
+        } else if (result) {
+            setStatus('error');
+            setErrorMessage(result.error || 'Failed to print invoice');
+        }
+    };
+
     const isLoading = status === 'sending';
 
     return (
-        <Modal isOpen={isOpen} onClose={handleClose} title="Invoice Email" size="md">
+        <Modal isOpen={isOpen} onClose={handleClose} title="Invoice Delivery" size="md">
             <div className="space-y-6">
                 {status === 'success' && successMessage && (
                     <div className="p-4 rounded-lg bg-[var(--color-success-bg)] text-[var(--color-success)] text-sm">
@@ -142,23 +155,35 @@ export function InvoiceDeliveryModal({
                     </div>
                 )}
 
-                {recipientEmail && (
+                {(recipientEmail || onPrint) && (
                     <div className="grid grid-cols-2 gap-3">
-                        <Button
-                            onClick={handleSend}
-                            isLoading={isLoading}
-                            disabled={isLoading || !hasEmail}
-                            className="col-span-2 flex items-center justify-center gap-2"
-                        >
-                            Email Invoice
-                        </Button>
+                        {recipientEmail && (
+                            <Button
+                                onClick={handleSend}
+                                isLoading={isLoading}
+                                disabled={isLoading || !hasEmail}
+                                className={onPrint ? '' : 'col-span-2'}
+                            >
+                                Email Invoice
+                            </Button>
+                        )}
+                        {onPrint && (
+                            <Button
+                                variant="secondary"
+                                onClick={handlePrint}
+                                disabled={isLoading}
+                                className={recipientEmail ? '' : 'col-span-2'}
+                            >
+                                Print Invoice
+                            </Button>
+                        )}
                         <Button
                             variant="ghost"
                             onClick={handleClose}
                             disabled={isLoading}
                             className="col-span-2"
                         >
-                            Skip
+                            Close
                         </Button>
                     </div>
                 )}

@@ -12,6 +12,7 @@ import { useConsignors } from '../hooks/useConsignors';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import { getConsignorDisplayName } from '../lib/consignors';
 import { createInvoiceEmailDataFromItems } from '../lib/invoice';
+import { printInvoice } from '../lib/printInvoice';
 import { InvoiceDeliveryModal } from '../components/invoice/InvoiceDeliveryModal';
 import { useToast } from '../contexts/ToastContext';
 import type { Invoice, InvoiceItem, InvoiceRecipientType } from '../types';
@@ -92,6 +93,17 @@ export function Invoices() {
             if (collectingInvoice?.id === data.id) {
                 setCollectingInvoice(data);
             }
+        }
+    };
+
+    const handlePrintInvoice = () => {
+        if (!selectedInvoice || isLoadingDetails) return;
+
+        const result = printInvoice(selectedInvoice, selectedItems);
+        if (result.success) {
+            toast.success('Print dialog opened', `Invoice #${formatInvoiceNumber(selectedInvoice.id)} is ready to print.`);
+        } else {
+            toast.error('Unable to print invoice', result.error || 'Please try again.');
         }
     };
 
@@ -384,6 +396,9 @@ export function Invoices() {
                             <Button variant="secondary" onClick={() => setIsDeliveryOpen(true)}>
                                 Email Invoice
                             </Button>
+                            <Button variant="secondary" onClick={handlePrintInvoice} disabled={isLoadingDetails}>
+                                Print Invoice
+                            </Button>
                             <Button
                                 variant={selectedInvoice.status === 'paid' ? 'secondary' : 'success'}
                                 onClick={() => selectedInvoice.status === 'paid'
@@ -546,6 +561,9 @@ export function Invoices() {
                 invoice={invoiceEmailData}
                 recipientEmail={selectedInvoice?.recipient_email || null}
                 recipientName={selectedInvoice?.recipient_name || null}
+                onPrint={() => selectedInvoice
+                    ? printInvoice(selectedInvoice, selectedItems)
+                    : { success: false, error: 'Invoice details are unavailable.' }}
             />
         </div>
     );
