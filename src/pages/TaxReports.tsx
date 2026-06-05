@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Header } from '../components/layout/Header';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -25,22 +25,11 @@ import { formatCurrency } from '../lib/utils';
 
 type ReportMode = 'year' | 'custom';
 
-function toLocalDateInput(date: Date): string {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
 function getYearRange(year: number): { startDate: string; endDate: string } {
     return {
         startDate: `${year}-01-01`,
         endDate: `${year}-12-31`,
     };
-}
-
-function getPreviousCalendarYear(): number {
-    return new Date().getFullYear() - 1;
 }
 
 function getYearOptions(): Array<{ value: string; label: string }> {
@@ -73,15 +62,14 @@ function filterRows(rows: ConsignorTaxReportRow[], query: string): ConsignorTaxR
 
 export function TaxReports() {
     const toast = useToast();
-    const previousYear = getPreviousCalendarYear();
-    const previousYearRange = getYearRange(previousYear);
     const [mode, setMode] = useState<ReportMode>('year');
-    const [selectedYear, setSelectedYear] = useState(String(previousYear));
-    const [startDate, setStartDate] = useState(previousYearRange.startDate);
-    const [endDate, setEndDate] = useState(previousYearRange.endDate);
-    const [reviewThreshold, setReviewThreshold] = useState(String(getDefaultConsignorTaxReviewThreshold(previousYear)));
+    const [selectedYear, setSelectedYear] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [reviewThreshold, setReviewThreshold] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [report, setReport] = useState<ConsignorTaxReport | null>(null);
+    const [selectedConsignorIds, setSelectedConsignorIds] = useState<Set<string>>(new Set());
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -89,17 +77,35 @@ export function TaxReports() {
         () => (report ? filterRows(report.rows, searchQuery) : []),
         [report, searchQuery]
     );
-    const visibleReport = useMemo<ConsignorTaxReport | null>(
-        () => report ? { ...report, rows: visibleRows } : null,
-        [report, visibleRows]
+    const selectedRows = useMemo(
+        () => (report ? report.rows.filter((row) => selectedConsignorIds.has(row.consignor.id)) : []),
+        [report, selectedConsignorIds]
     );
+    const selectedReport = useMemo<ConsignorTaxReport | null>(
+        () => report ? { ...report, rows: selectedRows } : null,
+        [report, selectedRows]
+    );
+    const visibleSelectedCount = visibleRows.filter((row) => selectedConsignorIds.has(row.consignor.id)).length;
+    const allVisibleRowsSelected = visibleRows.length > 0 && visibleSelectedCount === visibleRows.length;
+    const canGenerate = (mode === 'year'
+        ? Boolean(selectedYear)
+        : Boolean(startDate && endDate))
+        && Boolean(reviewThreshold);
 
     const loadReport = async () => {
-        const threshold = Number(reviewThreshold);
+        if (mode === 'year' && !selectedYear) {
+            setError('Choose a tax year before generating the report.');
+            return;
+        }
         if (!startDate || !endDate) {
             setError('Choose a valid report date range.');
             return;
         }
+        if (!reviewThreshold) {
+            setError('Enter a 1099 review amount before generating the report.');
+            return;
+        }
+        const threshold = Number(reviewThreshold);
         if (new Date(startDate) > new Date(endDate)) {
             setError('Report start date must be before the end date.');
             return;
@@ -118,6 +124,7 @@ export function TaxReports() {
                 reviewThreshold: threshold,
             });
             setReport(nextReport);
+            setSelectedConsignorIds(new Set(nextReport.rows.map((row) => row.consignor.id)));
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Unable to load tax reports.';
             setError(message);
@@ -127,24 +134,22 @@ export function TaxReports() {
         }
     };
 
-    useEffect(() => {
-        loadReport();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
     const handleModeChange = (nextMode: ReportMode) => {
         setMode(nextMode);
+        setReport(null);
+        setSelectedConsignorIds(new Set());
+        setSearchQuery('');
+        setError(null);
         if (nextMode === 'year') {
-            const year = Number(selectedYear);
-            const range = getYearRange(year);
-            setStartDate(range.startDate);
-            setEndDate(range.endDate);
-            setReviewThreshold(String(getDefaultConsignorTaxReviewThreshold(year)));
+            setSelectedYear('');
+            setStartDate('');
+            setEndDate('');
+            setReviewThreshold('');
         } else {
-            const today = new Date();
-            const start = new Date(today.getFullYear(), today.getMonth(), 1);
-            setStartDate(toLocalDateInput(start));
-            setEndDate(toLocalDateInput(today));
+            setSelectedYear('');
+            setStartDate('');
+            setEndDate('');
+            setReviewThreshold('');
         }
     };
 
@@ -155,23 +160,60 @@ export function TaxReports() {
         setStartDate(range.startDate);
         setEndDate(range.endDate);
         setReviewThreshold(String(getDefaultConsignorTaxReviewThreshold(year)));
+        setReport(null);
+        setSelectedConsignorIds(new Set());
+        setSearchQuery('');
+        setError(null);
+    };
+
+    const handleSelectAll = () => {
+        if (!report) return;
+        setSelectedConsignorIds(new Set(report.rows.map((row) => row.consignor.id)));
+    };
+
+    const handleDeselectAll = () => {
+        setSelectedConsignorIds(new Set());
+    };
+
+    const handleToggleConsignor = (consignorId: string) => {
+        setSelectedConsignorIds((current) => {
+            const next = new Set(current);
+            if (next.has(consignorId)) {
+                next.delete(consignorId);
+            } else {
+                next.add(consignorId);
+            }
+            return next;
+        });
+    };
+
+    const handleToggleVisibleRows = () => {
+        setSelectedConsignorIds((current) => {
+            const next = new Set(current);
+            if (allVisibleRowsSelected) {
+                visibleRows.forEach((row) => next.delete(row.consignor.id));
+            } else {
+                visibleRows.forEach((row) => next.add(row.consignor.id));
+            }
+            return next;
+        });
     };
 
     const handleExportSummary = () => {
-        if (!visibleReport) return;
-        downloadCsv(buildConsignorTaxSummaryFilename(visibleReport), buildConsignorTaxSummaryCsvRows(visibleReport));
-        toast.success('Tax summary exported', `${visibleReport.rows.length} consignor row${visibleReport.rows.length === 1 ? '' : 's'} included.`);
+        if (!selectedReport || selectedReport.rows.length === 0) return;
+        downloadCsv(buildConsignorTaxSummaryFilename(selectedReport), buildConsignorTaxSummaryCsvRows(selectedReport));
+        toast.success('Tax summary exported', `${selectedReport.rows.length} consignor row${selectedReport.rows.length === 1 ? '' : 's'} included.`);
     };
 
     const handleExportDetail = () => {
-        if (!visibleReport) return;
-        downloadCsv(buildConsignorTaxDetailFilename(visibleReport), buildConsignorTaxDetailCsvRows(visibleReport));
-        toast.success('Tax detail exported', `${visibleReport.rows.length} consignor row${visibleReport.rows.length === 1 ? '' : 's'} included.`);
+        if (!selectedReport || selectedReport.rows.length === 0) return;
+        downloadCsv(buildConsignorTaxDetailFilename(selectedReport), buildConsignorTaxDetailCsvRows(selectedReport));
+        toast.success('Tax detail exported', `${selectedReport.rows.length} consignor row${selectedReport.rows.length === 1 ? '' : 's'} included.`);
     };
 
     const handlePrintStatements = () => {
-        if (!report) return;
-        const printed = printConsignorTaxStatements(report, visibleRows.map((row) => row.consignor.id));
+        if (!report || selectedRows.length === 0) return;
+        const printed = printConsignorTaxStatements(report, selectedRows.map((row) => row.consignor.id));
         if (!printed) {
             toast.error('Unable to print statements', 'Allow pop-ups for RavenPOS, then try again.');
         }
@@ -187,7 +229,7 @@ export function TaxReports() {
                         <Button
                             variant="secondary"
                             onClick={handlePrintStatements}
-                            disabled={!report || visibleRows.length === 0 || isLoading}
+                            disabled={!report || selectedRows.length === 0 || isLoading}
                         >
                             <PrintIcon />
                             Print Statements
@@ -195,14 +237,14 @@ export function TaxReports() {
                         <Button
                             variant="secondary"
                             onClick={handleExportDetail}
-                            disabled={!report || visibleRows.length === 0 || isLoading}
+                            disabled={!report || selectedRows.length === 0 || isLoading}
                         >
                             <DownloadIcon />
                             Export Detail CSV
                         </Button>
                         <Button
                             onClick={handleExportSummary}
-                            disabled={!report || visibleRows.length === 0 || isLoading}
+                            disabled={!report || selectedRows.length === 0 || isLoading}
                         >
                             <DownloadIcon />
                             Export Summary CSV
@@ -211,11 +253,12 @@ export function TaxReports() {
                 }
             />
 
-            <Card variant="outlined" className="mb-6">
-                <CardContent className="pt-6">
-                    <div className="grid gap-4 lg:grid-cols-[160px_160px_1fr_1fr_170px_auto]">
+            <Card variant="outlined" padding="sm" className="mb-4">
+                <CardContent>
+                    <div className="grid items-start gap-3 lg:grid-cols-[140px_130px_160px_160px_170px_auto]">
                         <Select
                             label="Mode"
+                            selectSize="sm"
                             value={mode}
                             onChange={(event) => handleModeChange(event.target.value as ReportMode)}
                             options={[
@@ -225,14 +268,17 @@ export function TaxReports() {
                         />
                         <Select
                             label="Year"
+                            selectSize="sm"
                             value={selectedYear}
                             onChange={(event) => handleYearChange(event.target.value)}
                             options={getYearOptions()}
+                            placeholder="Select year..."
                             disabled={mode !== 'year'}
                         />
                         <Input
                             label="Start Date"
                             type="date"
+                            inputSize="sm"
                             value={startDate}
                             onChange={(event) => setStartDate(event.target.value)}
                             disabled={mode !== 'custom'}
@@ -240,6 +286,7 @@ export function TaxReports() {
                         <Input
                             label="End Date"
                             type="date"
+                            inputSize="sm"
                             value={endDate}
                             onChange={(event) => setEndDate(event.target.value)}
                             disabled={mode !== 'custom'}
@@ -247,14 +294,20 @@ export function TaxReports() {
                         <Input
                             label="1099 Review Amount"
                             type="number"
+                            inputSize="sm"
                             min="0"
                             step="0.01"
                             value={reviewThreshold}
                             onChange={(event) => setReviewThreshold(event.target.value)}
-                            hint="Flags consignors whose paid payouts or earned sales meet this amount."
                         />
                         <div className="flex items-end">
-                            <Button onClick={loadReport} isLoading={isLoading} className="w-full">
+                            <Button
+                                onClick={loadReport}
+                                isLoading={isLoading}
+                                disabled={!canGenerate}
+                                size="sm"
+                                className="w-full"
+                            >
                                 Generate
                             </Button>
                         </div>
@@ -274,7 +327,7 @@ export function TaxReports() {
                 </div>
             ) : report ? (
                 <>
-                    <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                    <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                         <SummaryCard title="Consignors" value={String(report.totals.consignorCount)} />
                         <SummaryCard title="Gross Sales" value={formatCurrency(report.totals.sales.grossSales)} />
                         <SummaryCard title="Consignor Earnings" value={formatCurrency(report.totals.sales.consignorEarnings)} />
@@ -282,20 +335,44 @@ export function TaxReports() {
                         <SummaryCard title="Needs Review" value={`${report.totals.reviewCount} / W-9 ${report.totals.missingW9Count}`} />
                     </div>
 
-                    <div className="mb-4 max-w-xl">
-                        <Input
-                            label="Search Consignors"
-                            placeholder="Search by name, ID, email, or booth..."
-                            value={searchQuery}
-                            onChange={(event) => setSearchQuery(event.target.value)}
-                        />
+                    <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                        <div className="max-w-xl flex-1">
+                            <Input
+                                aria-label="Search consignors"
+                                inputSize="sm"
+                                placeholder="Search by name, ID, email, or booth..."
+                                value={searchQuery}
+                                onChange={(event) => setSearchQuery(event.target.value)}
+                            />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm text-[var(--color-muted)]">
+                                {selectedRows.length} of {report.rows.length} selected
+                            </span>
+                            <Button type="button" variant="secondary" size="sm" onClick={handleSelectAll}>
+                                Select All
+                            </Button>
+                            <Button type="button" variant="secondary" size="sm" onClick={handleDeselectAll}>
+                                Deselect All
+                            </Button>
+                        </div>
                     </div>
 
                     <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
-                        <div className="max-h-[calc(100vh-360px)] min-h-[320px] overflow-auto">
-                            <table className="w-full min-w-[1120px] text-sm">
+                        <div className="max-h-[calc(100vh-290px)] min-h-[420px] overflow-auto">
+                            <table className="w-full min-w-[1180px] text-sm">
                                 <thead className="sticky top-0 z-20 border-b border-[var(--color-border)] bg-[var(--color-surface)] text-left text-xs uppercase text-[var(--color-muted)] shadow-sm">
                                     <tr>
+                                        <th className="w-12 bg-[var(--color-surface)] px-4 py-3 font-semibold">
+                                            <input
+                                                type="checkbox"
+                                                checked={allVisibleRowsSelected}
+                                                onChange={handleToggleVisibleRows}
+                                                disabled={visibleRows.length === 0}
+                                                aria-label="Select visible consignors"
+                                                className="h-4 w-4 rounded border-[var(--color-border)] accent-[var(--color-primary)]"
+                                            />
+                                        </th>
                                         <th className="bg-[var(--color-surface)] px-4 py-3 font-semibold">Consignor</th>
                                         <th className="bg-[var(--color-surface)] px-4 py-3 font-semibold">W-9</th>
                                         <th className="bg-[var(--color-surface)] px-4 py-3 text-right font-semibold">Sales</th>
@@ -310,6 +387,15 @@ export function TaxReports() {
                                 <tbody className="divide-y divide-[var(--color-border)]">
                                     {visibleRows.map((row) => (
                                         <tr key={row.consignor.id} className="hover:bg-[var(--color-surface-hover)]">
+                                            <td className="px-4 py-3">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedConsignorIds.has(row.consignor.id)}
+                                                    onChange={() => handleToggleConsignor(row.consignor.id)}
+                                                    aria-label={`Select ${getConsignorDisplayName(row.consignor)}`}
+                                                    className="h-4 w-4 rounded border-[var(--color-border)] accent-[var(--color-primary)]"
+                                                />
+                                            </td>
                                             <td className="px-4 py-3">
                                                 <p className="font-medium text-[var(--color-foreground)]">
                                                     {getConsignorDisplayName(row.consignor)}
@@ -355,7 +441,7 @@ export function TaxReports() {
             ) : (
                 <EmptyState
                     title="No tax report loaded"
-                    description="Generate a report to review consignor sales and payouts."
+                    description="Choose a tax year, then generate a report to review consignor sales and payouts."
                 />
             )}
         </div>
@@ -364,12 +450,12 @@ export function TaxReports() {
 
 function SummaryCard({ title, value }: { title: string; value: string }) {
     return (
-        <Card variant="outlined">
-            <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-[var(--color-muted)]">{title}</CardTitle>
+        <Card variant="outlined" padding="sm">
+            <CardHeader className="mb-1">
+                <CardTitle className="text-xs font-semibold uppercase text-[var(--color-muted)]">{title}</CardTitle>
             </CardHeader>
             <CardContent>
-                <p className="text-2xl font-semibold text-[var(--color-foreground)]">{value}</p>
+                <p className="text-xl font-semibold text-[var(--color-foreground)]">{value}</p>
             </CardContent>
         </Card>
     );
