@@ -37,6 +37,7 @@ import { AdminProfile } from './pages/AdminProfile';
 import { EmailCampaigns } from './pages/EmailCampaigns';
 import { MarketingFees } from './pages/MarketingFees';
 import { Invoices } from './pages/Invoices';
+import { TaxReports } from './pages/TaxReports';
 import { Dealers } from './pages/Dealers';
 import { DealerPurchases } from './pages/DealerPurchases';
 import { PreviewComponents } from './pages/PreviewComponents';
@@ -141,6 +142,7 @@ export default function App() {
                         <Route path="sales" element={<Sales />} />
                         <Route path="payouts" element={<Payouts />} />
                         <Route path="finances/invoices" element={<Invoices />} />
+                        <Route path="finances/tax-reports" element={<TaxReports />} />
                         <Route path="finances/categories" element={<CategoryTaxSettings />} />
                         <Route path="finances/marketing-fees" element={<MarketingFees />} />
                         <Route path="customers" element={<Customers />} />

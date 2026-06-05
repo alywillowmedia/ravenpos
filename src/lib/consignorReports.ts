@@ -52,7 +52,7 @@ interface RefundRow {
     items: Array<{ sale_item_id: string; quantity: number }> | null;
 }
 
-interface ConsignorReportTotals {
+export interface ConsignorReportTotals {
     salesCount: number;
     itemsSold: number;
     totalSales: number;
@@ -92,12 +92,70 @@ export interface CompletedPayoutDetails {
     deductions: CompletedPayoutDeductionLine[];
 }
 
-interface ConsignorReportData {
+export interface ConsignorReportData {
     totalsByConsignor: Map<string, ConsignorReportTotals>;
     linesByConsignor: Map<string, CompletedPayoutSaleLine[]>;
     inventoryByConsignor: Map<string, Item[]>;
     payoutsByConsignor: Map<string, Payout[]>;
     boothRentPaymentsByConsignor: Map<string, BoothRentPayment[]>;
+}
+
+export interface ConsignorTaxReportOptions {
+    startDate: string;
+    endDate: string;
+    reviewThreshold: number;
+    generatedAt?: Date;
+}
+
+export interface ConsignorTaxReportSalesTotals {
+    salesCount: number;
+    itemsSold: number;
+    grossSales: number;
+    taxCollected: number;
+    consignorEarnings: number;
+    storeShare: number;
+    cardFeesDeducted: number;
+}
+
+export interface ConsignorTaxReportPayoutTotals {
+    payoutCount: number;
+    totalPaid: number;
+    grossSales: number;
+    taxCollected: number;
+    storeShare: number;
+    cardFeesDeducted: number;
+    boothRentDeductions: number;
+    marketingFeeDeductions: number;
+    ledgerDeductions: number;
+    invoiceDeductions: number;
+    totalDeductions: number;
+}
+
+export interface ConsignorTaxReportRow {
+    consignor: Consignor;
+    salesLines: CompletedPayoutSaleLine[];
+    payouts: Payout[];
+    salesTotals: ConsignorTaxReportSalesTotals;
+    payoutTotals: ConsignorTaxReportPayoutTotals;
+    earnedLessPaid: number;
+    missingW9: boolean;
+    thresholdReview: boolean;
+    thresholdBasis: string;
+}
+
+export interface ConsignorTaxReport {
+    startDate: string;
+    endDate: string;
+    reviewThreshold: number;
+    generatedAt: string;
+    rows: ConsignorTaxReportRow[];
+    totals: {
+        sales: ConsignorTaxReportSalesTotals;
+        payouts: ConsignorTaxReportPayoutTotals;
+        consignorCount: number;
+        reviewCount: number;
+        missingW9Count: number;
+    };
 }
 
 interface SaleFinancialContext {
@@ -254,6 +312,19 @@ function roundCurrency(value: number): number {
     return Number(value.toFixed(2));
 }
 
+function escapeHtml(value: unknown): string {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function money(value: number | null | undefined): string {
+    return Number(value || 0).toFixed(2);
+}
+
 function getStatusLabel(consignor: Consignor): string {
     if (!consignor.is_active) return 'Inactive';
     if (isConsignorScheduled(consignor)) return 'Scheduled';
@@ -373,6 +444,230 @@ function safeFilenamePart(value: string): string {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
         .slice(0, 60) || 'consignor';
+}
+
+function parseReportDate(value: string, endOfDay = false): Date {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        const [year, month, day] = value.split('-').map(Number);
+        const parsed = new Date(year, month - 1, day);
+        parsed.setHours(endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+        return parsed;
+    }
+
+    const parsed = new Date(value);
+    if (!Number.isFinite(parsed.getTime())) return new Date(NaN);
+    if (endOfDay) parsed.setHours(23, 59, 59, 999);
+    return parsed;
+}
+
+function isDateInReportRange(value: string, startDate: string, endDate: string): boolean {
+    const target = new Date(value);
+    const start = parseReportDate(startDate);
+    const end = parseReportDate(endDate, true);
+
+    if (!Number.isFinite(target.getTime())) return false;
+    if (Number.isFinite(start.getTime()) && target < start) return false;
+    if (Number.isFinite(end.getTime()) && target > end) return false;
+    return true;
+}
+
+function emptyTaxSalesTotals(): ConsignorTaxReportSalesTotals {
+    return {
+        salesCount: 0,
+        itemsSold: 0,
+        grossSales: 0,
+        taxCollected: 0,
+        consignorEarnings: 0,
+        storeShare: 0,
+        cardFeesDeducted: 0,
+    };
+}
+
+function emptyTaxPayoutTotals(): ConsignorTaxReportPayoutTotals {
+    return {
+        payoutCount: 0,
+        totalPaid: 0,
+        grossSales: 0,
+        taxCollected: 0,
+        storeShare: 0,
+        cardFeesDeducted: 0,
+        boothRentDeductions: 0,
+        marketingFeeDeductions: 0,
+        ledgerDeductions: 0,
+        invoiceDeductions: 0,
+        totalDeductions: 0,
+    };
+}
+
+function addTaxSalesTotals(
+    totals: ConsignorTaxReportSalesTotals,
+    next: ConsignorTaxReportSalesTotals
+): ConsignorTaxReportSalesTotals {
+    return {
+        salesCount: totals.salesCount + next.salesCount,
+        itemsSold: totals.itemsSold + next.itemsSold,
+        grossSales: roundCurrency(totals.grossSales + next.grossSales),
+        taxCollected: roundCurrency(totals.taxCollected + next.taxCollected),
+        consignorEarnings: roundCurrency(totals.consignorEarnings + next.consignorEarnings),
+        storeShare: roundCurrency(totals.storeShare + next.storeShare),
+        cardFeesDeducted: roundCurrency(totals.cardFeesDeducted + next.cardFeesDeducted),
+    };
+}
+
+function addTaxPayoutTotals(
+    totals: ConsignorTaxReportPayoutTotals,
+    next: ConsignorTaxReportPayoutTotals
+): ConsignorTaxReportPayoutTotals {
+    return {
+        payoutCount: totals.payoutCount + next.payoutCount,
+        totalPaid: roundCurrency(totals.totalPaid + next.totalPaid),
+        grossSales: roundCurrency(totals.grossSales + next.grossSales),
+        taxCollected: roundCurrency(totals.taxCollected + next.taxCollected),
+        storeShare: roundCurrency(totals.storeShare + next.storeShare),
+        cardFeesDeducted: roundCurrency(totals.cardFeesDeducted + next.cardFeesDeducted),
+        boothRentDeductions: roundCurrency(totals.boothRentDeductions + next.boothRentDeductions),
+        marketingFeeDeductions: roundCurrency(totals.marketingFeeDeductions + next.marketingFeeDeductions),
+        ledgerDeductions: roundCurrency(totals.ledgerDeductions + next.ledgerDeductions),
+        invoiceDeductions: roundCurrency(totals.invoiceDeductions + next.invoiceDeductions),
+        totalDeductions: roundCurrency(totals.totalDeductions + next.totalDeductions),
+    };
+}
+
+function getSalesTotalsForTaxReport(lines: CompletedPayoutSaleLine[]): ConsignorTaxReportSalesTotals {
+    const saleIds = new Set<string>();
+    const totals = emptyTaxSalesTotals();
+
+    for (const line of lines) {
+        const effectiveQuantity = Math.max(0, Number(line.quantity || 0) - Number(line.refundedQuantity || 0));
+        if (effectiveQuantity > 0) saleIds.add(line.saleId);
+
+        totals.itemsSold += effectiveQuantity;
+        totals.grossSales += Number(line.lineTotal || 0);
+        totals.taxCollected += Number(line.taxAmount || 0);
+        totals.consignorEarnings += Number(line.consignorShare || 0);
+        totals.storeShare += Number(line.storeShare || 0);
+        totals.cardFeesDeducted += Number(line.creditCardFee || 0);
+    }
+
+    return {
+        salesCount: saleIds.size,
+        itemsSold: totals.itemsSold,
+        grossSales: roundCurrency(totals.grossSales),
+        taxCollected: roundCurrency(totals.taxCollected),
+        consignorEarnings: roundCurrency(totals.consignorEarnings),
+        storeShare: roundCurrency(totals.storeShare),
+        cardFeesDeducted: roundCurrency(totals.cardFeesDeducted),
+    };
+}
+
+function getPayoutTotalsForTaxReport(payouts: Payout[]): ConsignorTaxReportPayoutTotals {
+    const totals = emptyTaxPayoutTotals();
+
+    for (const payout of payouts) {
+        totals.payoutCount += 1;
+        totals.totalPaid += Number(payout.amount || 0);
+        totals.grossSales += Number(payout.gross_sales || 0);
+        totals.taxCollected += Number(payout.tax_collected || 0);
+        totals.storeShare += Number(payout.store_share || 0);
+        totals.cardFeesDeducted += Number(payout.credit_card_fees || 0);
+        totals.boothRentDeductions += Number(payout.booth_rent_deduction || 0);
+        totals.marketingFeeDeductions += Number(payout.marketing_fee_deduction || 0);
+        totals.ledgerDeductions += Number(payout.ledger_deduction || 0);
+        totals.invoiceDeductions += Number(payout.invoice_deduction || 0);
+    }
+
+    totals.totalDeductions = totals.boothRentDeductions
+        + totals.marketingFeeDeductions
+        + totals.ledgerDeductions
+        + totals.invoiceDeductions;
+
+    return {
+        payoutCount: totals.payoutCount,
+        totalPaid: roundCurrency(totals.totalPaid),
+        grossSales: roundCurrency(totals.grossSales),
+        taxCollected: roundCurrency(totals.taxCollected),
+        storeShare: roundCurrency(totals.storeShare),
+        cardFeesDeducted: roundCurrency(totals.cardFeesDeducted),
+        boothRentDeductions: roundCurrency(totals.boothRentDeductions),
+        marketingFeeDeductions: roundCurrency(totals.marketingFeeDeductions),
+        ledgerDeductions: roundCurrency(totals.ledgerDeductions),
+        invoiceDeductions: roundCurrency(totals.invoiceDeductions),
+        totalDeductions: roundCurrency(totals.totalDeductions),
+    };
+}
+
+function getThresholdBasis(
+    salesTotals: ConsignorTaxReportSalesTotals,
+    payoutTotals: ConsignorTaxReportPayoutTotals,
+    reviewThreshold: number
+): string {
+    const paidMeetsThreshold = payoutTotals.totalPaid >= reviewThreshold;
+    const earnedMeetsThreshold = salesTotals.consignorEarnings >= reviewThreshold;
+
+    if (paidMeetsThreshold && earnedMeetsThreshold) return 'Payouts and earnings met review amount';
+    if (paidMeetsThreshold) return 'Payouts met review amount';
+    if (earnedMeetsThreshold) return 'Earnings met review amount';
+    return '';
+}
+
+export function getDefaultConsignorTaxReviewThreshold(year: number): number {
+    return year >= 2026 ? 2000 : 600;
+}
+
+export function buildConsignorTaxReportFromData(
+    consignors: Consignor[],
+    reportData: ConsignorReportData,
+    options: ConsignorTaxReportOptions
+): ConsignorTaxReport {
+    const rows: ConsignorTaxReportRow[] = [];
+    let totalSales = emptyTaxSalesTotals();
+    let totalPayouts = emptyTaxPayoutTotals();
+    let reviewCount = 0;
+    let missingW9Count = 0;
+
+    for (const consignor of consignors) {
+        const salesLines = (reportData.linesByConsignor.get(consignor.id) || [])
+            .filter((line) => isDateInReportRange(line.saleDate, options.startDate, options.endDate));
+        const payouts = (reportData.payoutsByConsignor.get(consignor.id) || [])
+            .filter((payout) => isDateInReportRange(payout.paid_at, options.startDate, options.endDate));
+        const salesTotals = getSalesTotalsForTaxReport(salesLines);
+        const payoutTotals = getPayoutTotalsForTaxReport(payouts);
+        const thresholdBasis = getThresholdBasis(salesTotals, payoutTotals, options.reviewThreshold);
+        const thresholdReview = thresholdBasis.length > 0;
+        const missingW9 = !consignor.has_w9_filled_out;
+
+        if (thresholdReview) reviewCount += 1;
+        if (missingW9) missingW9Count += 1;
+        totalSales = addTaxSalesTotals(totalSales, salesTotals);
+        totalPayouts = addTaxPayoutTotals(totalPayouts, payoutTotals);
+
+        rows.push({
+            consignor,
+            salesLines,
+            payouts,
+            salesTotals,
+            payoutTotals,
+            earnedLessPaid: roundCurrency(salesTotals.consignorEarnings - payoutTotals.totalPaid),
+            missingW9,
+            thresholdReview,
+            thresholdBasis,
+        });
+    }
+
+    return {
+        startDate: options.startDate,
+        endDate: options.endDate,
+        reviewThreshold: roundCurrency(options.reviewThreshold),
+        generatedAt: (options.generatedAt || new Date()).toISOString(),
+        rows,
+        totals: {
+            sales: totalSales,
+            payouts: totalPayouts,
+            consignorCount: rows.length,
+            reviewCount,
+            missingW9Count,
+        },
+    };
 }
 
 async function fetchConsignorReportData(consignorIds: string[]): Promise<ConsignorReportData> {
@@ -542,6 +837,391 @@ async function fetchConsignorReportData(consignorIds: string[]): Promise<Consign
         payoutsByConsignor,
         boothRentPaymentsByConsignor,
     };
+}
+
+export async function loadConsignorTaxReport(options: ConsignorTaxReportOptions): Promise<ConsignorTaxReport> {
+    const consignors = await fetchAllRows<Consignor>(() => supabase
+        .from('consignors')
+        .select('*')
+        .order('consignor_number')
+    );
+    const reportData = await fetchConsignorReportData(consignors.map((consignor) => consignor.id));
+
+    return buildConsignorTaxReportFromData(consignors, reportData, options);
+}
+
+export function buildConsignorTaxSummaryFilename(report: Pick<ConsignorTaxReport, 'startDate' | 'endDate'>): string {
+    return `consignor-tax-summary-${report.startDate}-to-${report.endDate}-${toLocalDateSlug()}.csv`;
+}
+
+export function buildConsignorTaxDetailFilename(report: Pick<ConsignorTaxReport, 'startDate' | 'endDate'>): string {
+    return `consignor-tax-detail-${report.startDate}-to-${report.endDate}-${toLocalDateSlug()}.csv`;
+}
+
+export function buildConsignorTaxSummaryCsvRows(report: ConsignorTaxReport): CsvCell[][] {
+    const rows: CsvCell[][] = [[
+        'Period Start',
+        'Period End',
+        'Consignor ID',
+        'Name',
+        'Pay To',
+        'Business',
+        'Individual',
+        'Email',
+        'Phone',
+        'Address',
+        'Status',
+        'W-9 On File',
+        'Sales Count',
+        'Items Sold',
+        'Gross Sales',
+        'Tax Collected',
+        'Consignor Earnings',
+        'Store Share',
+        'Card Fees Deducted',
+        'Payout Count',
+        'Total Paid',
+        'Booth Rent Deductions',
+        'Marketing Fee Deductions',
+        'Ledger Deductions',
+        'Invoice Deductions',
+        'Total Deductions',
+        'Earned Less Paid',
+        '1099 Review Amount',
+        'Review Status',
+        'Review Reason',
+    ]];
+
+    for (const row of report.rows) {
+        rows.push([
+            report.startDate,
+            report.endDate,
+            row.consignor.consignor_number,
+            getConsignorDisplayName(row.consignor),
+            getConsignorPayToName(row.consignor),
+            row.consignor.business_name || '',
+            getPersonName(row.consignor),
+            row.consignor.email || '',
+            row.consignor.phone || '',
+            getAddress(row.consignor),
+            getStatusLabel(row.consignor),
+            row.consignor.has_w9_filled_out ? 'Yes' : 'No',
+            row.salesTotals.salesCount,
+            row.salesTotals.itemsSold,
+            row.salesTotals.grossSales.toFixed(2),
+            row.salesTotals.taxCollected.toFixed(2),
+            row.salesTotals.consignorEarnings.toFixed(2),
+            row.salesTotals.storeShare.toFixed(2),
+            row.salesTotals.cardFeesDeducted.toFixed(2),
+            row.payoutTotals.payoutCount,
+            row.payoutTotals.totalPaid.toFixed(2),
+            row.payoutTotals.boothRentDeductions.toFixed(2),
+            row.payoutTotals.marketingFeeDeductions.toFixed(2),
+            row.payoutTotals.ledgerDeductions.toFixed(2),
+            row.payoutTotals.invoiceDeductions.toFixed(2),
+            row.payoutTotals.totalDeductions.toFixed(2),
+            row.earnedLessPaid.toFixed(2),
+            report.reviewThreshold.toFixed(2),
+            row.thresholdReview ? 'Review' : 'Below review amount',
+            row.thresholdBasis,
+        ]);
+    }
+
+    return rows;
+}
+
+export function buildConsignorTaxDetailCsvRows(report: ConsignorTaxReport): CsvCell[][] {
+    const rows: CsvCell[][] = [[
+        'Record Type',
+        'Period Start',
+        'Period End',
+        'Consignor ID',
+        'Name',
+        'Date',
+        'Reference',
+        'SKU',
+        'Item',
+        'Quantity',
+        'Refunded Quantity',
+        'Unit Price',
+        'Gross Sales',
+        'Tax Collected',
+        'Commission %',
+        'Consignor Earnings',
+        'Store Share',
+        'Card Fee Deducted',
+        'Payout Amount',
+        'Booth Rent Deduction',
+        'Marketing Fee Deduction',
+        'Ledger Deduction',
+        'Invoice Deduction',
+        'Notes',
+    ]];
+
+    for (const row of report.rows) {
+        for (const line of row.salesLines) {
+            rows.push([
+                'Sale Line',
+                report.startDate,
+                report.endDate,
+                row.consignor.consignor_number,
+                getConsignorDisplayName(row.consignor),
+                new Date(line.saleDate).toLocaleString(),
+                line.saleId,
+                line.sku,
+                line.itemName,
+                line.quantity,
+                line.refundedQuantity,
+                line.unitPrice.toFixed(2),
+                line.lineTotal.toFixed(2),
+                line.taxAmount.toFixed(2),
+                (line.commissionSplit * 100).toFixed(2),
+                line.consignorShare.toFixed(2),
+                line.storeShare.toFixed(2),
+                line.creditCardFee.toFixed(2),
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+            ]);
+        }
+
+        for (const payout of row.payouts) {
+            rows.push([
+                'Payout',
+                report.startDate,
+                report.endDate,
+                row.consignor.consignor_number,
+                getConsignorDisplayName(row.consignor),
+                new Date(payout.paid_at).toLocaleString(),
+                payout.id,
+                '',
+                '',
+                payout.items_sold,
+                '',
+                '',
+                Number(payout.gross_sales || 0).toFixed(2),
+                Number(payout.tax_collected || 0).toFixed(2),
+                '',
+                '',
+                Number(payout.store_share || 0).toFixed(2),
+                Number(payout.credit_card_fees || 0).toFixed(2),
+                Number(payout.amount || 0).toFixed(2),
+                Number(payout.booth_rent_deduction || 0).toFixed(2),
+                Number(payout.marketing_fee_deduction || 0).toFixed(2),
+                Number(payout.ledger_deduction || 0).toFixed(2),
+                Number(payout.invoice_deduction || 0).toFixed(2),
+                payout.notes || '',
+            ]);
+        }
+
+        if (row.salesLines.length === 0 && row.payouts.length === 0) {
+            rows.push([
+                'No Activity',
+                report.startDate,
+                report.endDate,
+                row.consignor.consignor_number,
+                getConsignorDisplayName(row.consignor),
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+            ]);
+        }
+    }
+
+    return rows;
+}
+
+function formatTaxReportDate(value: string): string {
+    const parsed = parseReportDate(value);
+    return Number.isFinite(parsed.getTime()) ? parsed.toLocaleDateString() : value;
+}
+
+function formatTaxReportDateTime(value: string): string {
+    const parsed = new Date(value);
+    return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString() : value;
+}
+
+function renderMoneyCell(value: number): string {
+    return `$${money(value)}`;
+}
+
+export function printConsignorTaxStatements(report: ConsignorTaxReport, selectedIds?: string[]): boolean {
+    const selectedIdSet = selectedIds && selectedIds.length > 0 ? new Set(selectedIds) : null;
+    const rows = selectedIdSet
+        ? report.rows.filter((row) => selectedIdSet.has(row.consignor.id))
+        : report.rows;
+
+    const statementHtml = rows.map((row) => {
+        const saleRows = row.salesLines.map((line) => {
+            const effectiveQuantity = Math.max(0, Number(line.quantity || 0) - Number(line.refundedQuantity || 0));
+            return `
+                <tr>
+                    <td>${escapeHtml(formatTaxReportDateTime(line.saleDate))}</td>
+                    <td>${escapeHtml(line.sku)}</td>
+                    <td>${escapeHtml(line.itemName)}</td>
+                    <td class="center">${effectiveQuantity}</td>
+                    <td class="right">${renderMoneyCell(line.lineTotal)}</td>
+                    <td class="right">${renderMoneyCell(line.consignorShare)}</td>
+                    <td class="right">${renderMoneyCell(line.taxAmount)}</td>
+                </tr>
+            `;
+        }).join('');
+        const payoutRows = row.payouts.map((payout) => `
+            <tr>
+                <td>${escapeHtml(formatTaxReportDateTime(payout.paid_at))}</td>
+                <td>${escapeHtml(payout.id.slice(0, 8).toUpperCase())}</td>
+                <td class="right">${renderMoneyCell(Number(payout.gross_sales || 0))}</td>
+                <td class="right">${renderMoneyCell(Number(payout.booth_rent_deduction || 0))}</td>
+                <td class="right">${renderMoneyCell(Number(payout.marketing_fee_deduction || 0))}</td>
+                <td class="right">${renderMoneyCell(Number(payout.ledger_deduction || 0) + Number(payout.invoice_deduction || 0))}</td>
+                <td class="right">${renderMoneyCell(Number(payout.amount || 0))}</td>
+            </tr>
+        `).join('');
+
+        return `
+            <section class="statement">
+                <header class="statement-header">
+                    <div>
+                        <h1>Ravenlia Consignor Tax Statement</h1>
+                        <p>${escapeHtml(formatTaxReportDate(report.startDate))} - ${escapeHtml(formatTaxReportDate(report.endDate))}</p>
+                    </div>
+                    <div class="brand">RavenPOS</div>
+                </header>
+
+                <div class="identity">
+                    <div>
+                        <span class="label">Consignor</span>
+                        <strong>${escapeHtml(getConsignorDisplayName(row.consignor))}</strong>
+                        <p>${escapeHtml(row.consignor.consignor_number)}</p>
+                    </div>
+                    <div>
+                        <span class="label">Pay To</span>
+                        <strong>${escapeHtml(getConsignorPayToName(row.consignor))}</strong>
+                        <p>${escapeHtml(getAddress(row.consignor) || 'Address not recorded')}</p>
+                    </div>
+                    <div>
+                        <span class="label">Tax Readiness</span>
+                        <strong>${row.consignor.has_w9_filled_out ? 'W-9 on file' : 'Missing W-9'}</strong>
+                        <p>${row.thresholdReview ? `1099 review: ${escapeHtml(row.thresholdBasis)}` : 'Below review amount'}</p>
+                    </div>
+                </div>
+
+                <div class="summary-grid">
+                    <div><span class="label">Gross Sales Earned</span><strong>${renderMoneyCell(row.salesTotals.grossSales)}</strong></div>
+                    <div><span class="label">Consignor Earnings</span><strong>${renderMoneyCell(row.salesTotals.consignorEarnings)}</strong></div>
+                    <div><span class="label">Payouts Paid</span><strong>${renderMoneyCell(row.payoutTotals.totalPaid)}</strong></div>
+                    <div><span class="label">Earned Less Paid</span><strong>${renderMoneyCell(row.earnedLessPaid)}</strong></div>
+                    <div><span class="label">Sales Tax Collected</span><strong>${renderMoneyCell(row.salesTotals.taxCollected)}</strong></div>
+                    <div><span class="label">Deductions From Payouts</span><strong>${renderMoneyCell(row.payoutTotals.totalDeductions)}</strong></div>
+                </div>
+
+                <h2>Sales Earned During Period</h2>
+                ${row.salesLines.length > 0 ? `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>SKU</th>
+                                <th>Item</th>
+                                <th class="center">Qty</th>
+                                <th class="right">Gross Sales</th>
+                                <th class="right">Earnings</th>
+                                <th class="right">Sales Tax</th>
+                            </tr>
+                        </thead>
+                        <tbody>${saleRows}</tbody>
+                    </table>
+                ` : '<p>No sales were recorded for this consignor during the selected period.</p>'}
+
+                <h2>Payouts Paid During Period</h2>
+                ${row.payouts.length > 0 ? `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Paid At</th>
+                                <th>Payout</th>
+                                <th class="right">Payout Gross Sales</th>
+                                <th class="right">Booth Rent</th>
+                                <th class="right">Marketing</th>
+                                <th class="right">Ledger/Invoice</th>
+                                <th class="right">Paid</th>
+                            </tr>
+                        </thead>
+                        <tbody>${payoutRows}</tbody>
+                    </table>
+                ` : '<p>No payouts were paid to this consignor during the selected period.</p>'}
+
+                <p class="footer">
+                    Sales totals use completed sale dates. Payout totals use paid dates. Sales tax is shown separately and is not included as consignor income.
+                    Generated ${escapeHtml(formatTaxReportDateTime(report.generatedAt))}.
+                </p>
+            </section>
+        `;
+    }).join('');
+
+    const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Consignor Tax Statements</title>
+            <style>
+                * { box-sizing: border-box; }
+                body { color: #111; font-family: Arial, sans-serif; font-size: 11px; margin: 0; padding: 24px; }
+                h1 { font-size: 19px; margin: 0 0 4px; }
+                h2 { border-bottom: 1px solid #bbb; font-size: 13px; margin: 20px 0 8px; padding-bottom: 5px; }
+                p { margin: 3px 0; }
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border-bottom: 1px solid #ddd; padding: 5px; text-align: left; vertical-align: top; }
+                th { background: #f4f4f4; font-size: 10px; text-transform: uppercase; }
+                .statement { break-after: page; page-break-after: always; }
+                .statement:last-child { break-after: auto; page-break-after: auto; }
+                .statement-header { align-items: flex-start; border-bottom: 2px solid #111; display: flex; justify-content: space-between; margin-bottom: 16px; padding-bottom: 10px; }
+                .brand { font-size: 14px; font-weight: bold; text-transform: uppercase; }
+                .identity, .summary-grid { display: grid; gap: 8px 14px; grid-template-columns: repeat(3, 1fr); margin: 12px 0; }
+                .identity div, .summary-grid div { border: 1px solid #ddd; padding: 8px; }
+                .label { color: #666; display: block; font-size: 9px; text-transform: uppercase; }
+                .right { text-align: right; }
+                .center { text-align: center; }
+                .footer { color: #666; font-size: 9px; margin-top: 22px; }
+                @media print {
+                    body { padding: 0; }
+                    @page { margin: 0.5in; }
+                }
+            </style>
+        </head>
+        <body>${statementHtml || '<p>No consignor statements selected.</p>'}</body>
+        </html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return false;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.onload = () => {
+        printWindow.focus();
+        printWindow.print();
+    };
+    return true;
 }
 
 function getJoinedRecord<T>(value: T | T[] | null | undefined): T | null {

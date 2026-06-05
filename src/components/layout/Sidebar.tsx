@@ -51,6 +51,7 @@ const navigation = [
             { name: 'Sales', href: '/admin/sales', icon: ReceiptNavIcon },
             { name: 'Invoices', href: '/admin/finances/invoices', icon: InvoiceIcon },
             { name: 'Payouts', href: '/admin/payouts', icon: PayoutsIcon },
+            { name: 'Tax Reports', href: '/admin/finances/tax-reports', icon: TaxReportIcon },
             { name: 'Marketing Fees', href: '/admin/finances/marketing-fees', icon: MegaphoneIcon },
             { name: 'Categories & Tax', href: '/admin/finances/categories', icon: CategoryIcon },
         ]
@@ -699,6 +700,18 @@ function CategoryIcon() {
             <path d="M21 3h-7v7h7V3Z" />
             <path d="M21 14h-7v7h7v-7Z" />
             <path d="M10 14H3v7h7v-7Z" />
+        </svg>
+    );
+}
+
+function TaxReportIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+            <path d="M14 2v6h6" />
+            <path d="M9 13h6" />
+            <path d="M9 17h4" />
+            <path d="M9 9h1" />
         </svg>
     );
 }
