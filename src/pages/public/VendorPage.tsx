@@ -228,10 +228,10 @@ export function VendorPage() {
                     This vendor doesn't exist or is no longer active.
                 </p>
                 <Link
-                    to="/"
+                    to="/shop"
                     className="inline-flex items-center gap-2 text-[var(--color-primary)] hover:underline"
                 >
-                    ← Back to home
+                    Back to shop
                 </Link>
             </div>
         );
@@ -264,7 +264,7 @@ export function VendorPage() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     {/* Back link floats over the header */}
                     <Link
-                        to="/vendors"
+                        to="/shop/vendors"
                         className={`absolute top-5 left-4 sm:left-6 lg:left-8 inline-flex items-center gap-2 text-sm transition-colors ${hasHeader ? 'text-white/90 hover:text-white drop-shadow' : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}
                     >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

@@ -1,13 +1,13 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { usePublicInventory } from '../../hooks/usePublicInventory';
-import { usePublicStorefrontSettings } from '../../hooks/usePublicStorefrontSettings';
 import { ProductCard } from '../../components/storefront/ProductCard';
-import { HeroSection } from '../../components/storefront/HeroSection';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { buildVendorPath } from '../../lib/storefront';
+
+type ShopPanel = 'categories' | 'vendors' | null;
 
 export function BrowsePage() {
     const location = useLocation();
@@ -26,9 +26,9 @@ export function BrowsePage() {
         pagination,
         setPage,
     } = usePublicInventory();
-    const { settings: homeHeroSettings } = usePublicStorefrontSettings();
 
     const [showFilters, setShowFilters] = useState(false);
+    const [activeShopPanel, setActiveShopPanel] = useState<ShopPanel>(null);
 
     // Calculate category item counts
     const categoriesWithCounts = useMemo(() => {
@@ -113,22 +113,151 @@ export function BrowsePage() {
     // Check if we're showing filtered results or the full homepage
     const isFiltered = hasActiveFilters;
 
+    const shopNavButtons = [
+        { key: 'products', label: 'All Products' },
+        { key: 'categories', label: 'Categories' },
+        { key: 'vendors', label: 'Vendors', count: vendorsWithCounts.length },
+    ] as const;
+
     useEffect(() => {
-        if (filters.search !== querySearch) {
-            updateFilters({ search: querySearch });
-        }
-    }, [filters.search, querySearch, updateFilters]);
+        updateFilters({ search: querySearch });
+    }, [querySearch, updateFilters]);
 
     return (
         <div className="animate-fadeIn">
-            {!isEmbedMode && (
-                <HeroSection
-                    settings={homeHeroSettings}
-                />
-            )}
-
             {/* Main Content */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                {!isEmbedMode && (
+                    <section className="border-b border-[var(--color-border)] py-8 sm:py-10">
+                        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+                            <div className="max-w-2xl">
+                                <p className="ravenlia-eyebrow mb-2">Shop Ravenlia</p>
+                                <h1 className="ravenlia-display text-4xl leading-tight text-[var(--color-foreground)] sm:text-5xl">
+                                    Browse the collection
+                                </h1>
+                                <p className="mt-3 text-[var(--color-muted)]">
+                                    Search current in-store finds, explore categories, and visit vendor storefronts.
+                                </p>
+                            </div>
+
+                            <div className="w-full max-w-xl">
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        placeholder="Search items by name or SKU"
+                                        value={filters.search}
+                                        onChange={(e) => updateFilters({ search: e.target.value })}
+                                        className="w-full rounded-full border border-[var(--color-border)] bg-[var(--color-surface-elevated)] py-3 pl-11 pr-4 text-sm text-[var(--color-foreground)] placeholder-[var(--color-muted)] shadow-[var(--shadow-gallery)] transition-colors focus:outline-none focus:border-[var(--color-foreground)]"
+                                    />
+                                    <svg className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        <nav className="mt-7 flex flex-wrap gap-2" aria-label="Shop navigation">
+                            {shopNavButtons.map((item) => (
+                                <button
+                                    key={item.key}
+                                    type="button"
+                                    onClick={() => {
+                                        if (item.key === 'products') {
+                                            setActiveShopPanel(null);
+                                            document.getElementById('all-products')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                            return;
+                                        }
+                                        setActiveShopPanel((current) => current === item.key ? null : item.key);
+                                    }}
+                                    aria-expanded={item.key === 'products' ? undefined : activeShopPanel === item.key}
+                                    className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition-all ${(item.key === 'products' ? activeShopPanel === null : activeShopPanel === item.key)
+                                        ? 'border-[var(--color-foreground)] bg-[var(--color-foreground)] text-[var(--color-background)] shadow-[var(--shadow-gallery)]'
+                                        : 'border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-[var(--color-foreground)] hover:border-[var(--color-foreground)] hover:shadow-[var(--shadow-gallery)]'
+                                        }`}
+                                >
+                                    {item.label}
+                                    {'count' in item && (
+                                        <span className={`text-xs ${activeShopPanel === item.key ? 'text-[var(--color-background)]/70' : 'text-[var(--color-muted)]'}`}>
+                                            {item.count}
+                                        </span>
+                                    )}
+                                    {item.key !== 'products' && (
+                                        <svg className={`h-3.5 w-3.5 transition-transform ${activeShopPanel === item.key ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                    )}
+                                </button>
+                            ))}
+                        </nav>
+
+                        {activeShopPanel && !isLoading && (
+                            <div className="mt-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-4 shadow-[var(--shadow-gallery)] animate-fadeIn">
+                                {activeShopPanel === 'categories' && (
+                                    <div>
+                                        <div className="mb-3 flex items-center justify-between gap-3">
+                                            <p className="ravenlia-eyebrow">Shop by category</p>
+                                            <Link to="/shop/categories" className="text-sm text-[var(--color-muted)] transition-colors hover:text-[var(--color-foreground)]">
+                                                View all
+                                            </Link>
+                                        </div>
+                                        <div className="flex max-h-44 flex-wrap gap-2 overflow-y-auto pr-1">
+                                            {categoriesWithCounts.map((category) => (
+                                                <Link
+                                                    key={category.name}
+                                                    to={`/shop/category/${encodeURIComponent(category.name)}`}
+                                                    className="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-background)] px-4 py-2 text-sm text-[var(--color-foreground)] transition-all hover:border-[var(--color-foreground)]"
+                                                >
+                                                    {category.name}
+                                                </Link>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeShopPanel === 'vendors' && (
+                                    <div>
+                                        <div className="mb-3 flex items-center justify-between gap-3">
+                                            <p className="ravenlia-eyebrow">Vendor storefronts</p>
+                                            <Link to="/shop/vendors" className="text-sm text-[var(--color-muted)] transition-colors hover:text-[var(--color-foreground)]">
+                                                View all
+                                            </Link>
+                                        </div>
+                                        <div className="grid max-h-72 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+                                            {vendorsWithCounts.map((vendor) => (
+                                                <Link
+                                                    key={vendor.id}
+                                                    to={buildVendorPath(vendor)}
+                                                    className="group flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3 transition-all hover:border-[var(--color-foreground)]"
+                                                >
+                                                    {vendor.storefront_logo_url ? (
+                                                        <img
+                                                            src={vendor.storefront_logo_url}
+                                                            alt={`${vendor.storefront_display_name || vendor.name} logo`}
+                                                            className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-[var(--color-border)]"
+                                                        />
+                                                    ) : (
+                                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-surface)] text-[var(--color-primary)] ring-1 ring-[var(--color-border)]">
+                                                            {(vendor.storefront_display_name || vendor.name).charAt(0).toUpperCase()}
+                                                        </div>
+                                                    )}
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm text-[var(--color-foreground)] group-hover:text-[var(--color-primary)]">
+                                                            {vendor.storefront_display_name || vendor.name}
+                                                        </p>
+                                                        <p className="truncate text-xs text-[var(--color-muted)]">
+                                                            {vendor.booth_location ? `Booth ${vendor.booth_location}` : `${vendor.itemCount} ${vendor.itemCount === 1 ? 'item' : 'items'}`}
+                                                        </p>
+                                                    </div>
+                                                </Link>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </section>
+                )}
+
                 {isEmbedMode && (
                     <section className="pt-8 pb-4">
                         <div className="relative max-w-2xl mx-auto">
@@ -156,71 +285,8 @@ export function BrowsePage() {
                     </section>
                 )}
 
-                {/* Show sections only when not filtering */}
-                {!isFiltered && !isLoading && (categoriesWithCounts.length > 0 || vendorsWithCounts.length > 0) && (
-                    <div className="space-y-16 py-12">
-                        {/* Categories Section */}
-                        {categoriesWithCounts.length > 0 && (
-                            <section id="categories">
-                                <p className="ravenlia-eyebrow mb-2">Browse</p>
-                                <h2 className="text-3xl text-[var(--color-foreground)] mb-6">Shop by Category</h2>
-                                <div className="flex overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 gap-3 snap-x hide-scrollbar">
-                                    {categoriesWithCounts.map((category) => (
-                                        <a
-                                            key={category.name}
-                                            href={`/category/${encodeURIComponent(category.name)}`}
-                                            className="group flex-none snap-start rounded-full border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-5 py-3 text-center transition-all hover:border-[var(--color-foreground)] hover:shadow-[var(--shadow-gallery)]"
-                                        >
-                                            <span className="text-sm text-[var(--color-foreground)] whitespace-nowrap">{category.name}</span>
-                                        </a>
-                                    ))}
-                                </div>
-                            </section>
-                        )}
-
-                        {/* Vendors Section */}
-                        {vendorsWithCounts.length > 0 && (
-                            <section id="vendors">
-                                <p className="ravenlia-eyebrow mb-2">Curated by</p>
-                                <h2 className="text-3xl text-[var(--color-foreground)] mb-8">Meet Our Vendors</h2>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                                    {vendorsWithCounts.slice(0, 8).map((vendor) => (
-                                        <a
-                                            key={vendor.id}
-                                            href={buildVendorPath(vendor)}
-                                            className="group flex items-center gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-4 transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-gallery-lifted)]"
-                                        >
-                                            {vendor.storefront_logo_url ? (
-                                                <img
-                                                    src={vendor.storefront_logo_url}
-                                                    alt={`${vendor.storefront_display_name || vendor.name} logo`}
-                                                    className="w-12 h-12 rounded-full object-cover flex-shrink-0 ring-1 ring-[var(--color-border)]"
-                                                />
-                                            ) : (
-                                                <div className="w-12 h-12 rounded-full bg-[var(--color-surface)] flex items-center justify-center flex-shrink-0 ring-1 ring-[var(--color-border)]">
-                                                    <span className="text-lg text-[var(--color-primary)]">
-                                                        {(vendor.storefront_display_name || vendor.name).charAt(0).toUpperCase()}
-                                                    </span>
-                                                </div>
-                                            )}
-                                            <div className="min-w-0">
-                                                <p className="text-sm text-[var(--color-foreground)] truncate transition-colors group-hover:text-[var(--color-primary)]">
-                                                    {vendor.storefront_display_name || vendor.name}
-                                                </p>
-                                                {vendor.booth_location && (
-                                                    <p className="text-xs text-[var(--color-muted)] mt-0.5">Booth {vendor.booth_location}</p>
-                                                )}
-                                            </div>
-                                        </a>
-                                    ))}
-                                </div>
-                            </section>
-                        )}
-                    </div>
-                )}
-
                 {!isFiltered && !isLoading && featuredItems.length > 0 && (
-                    <section className="py-12 border-t border-[var(--color-border)]">
+                    <section id="featured" className="py-12 border-t border-[var(--color-border)]">
                         <div className="flex items-end justify-between gap-3 mb-8">
                             <div>
                                 <p className="ravenlia-eyebrow mb-2">Hand-selected</p>
@@ -239,7 +305,7 @@ export function BrowsePage() {
                 )}
 
                 {/* Browse All / Search Results Section */}
-                <section className="py-12 border-t border-[var(--color-border)]">
+                <section id="all-products" className="py-12 border-t border-[var(--color-border)]">
                     {/* Section Header */}
                     <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-4 mb-8">
                         <div>

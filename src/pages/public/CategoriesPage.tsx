@@ -58,7 +58,7 @@ export function CategoriesPage() {
                     {categories.map((category) => (
                         <Link
                             key={category}
-                            to={`/category/${encodeURIComponent(category)}`}
+                            to={`/shop/category/${encodeURIComponent(category)}`}
                             className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-5 py-7 text-center text-[var(--color-foreground)] transition-all hover:-translate-y-0.5 hover:border-[var(--color-foreground)] hover:shadow-[var(--shadow-gallery)]"
                         >
                             {category}

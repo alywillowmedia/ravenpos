@@ -1,4 +1,5 @@
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHOP_BASE_PATH = '/shop';
 
 export function slugifyStorefrontName(value: string): string {
     return value
@@ -15,8 +16,8 @@ export function buildVendorPath(vendor: {
     storefront_slug?: string | null;
 }): string {
     const slug = vendor.storefront_slug || slugifyStorefrontName(vendor.storefront_display_name || vendor.name);
-    if (!slug) return `/vendor/${vendor.id}`;
-    return `/vendor/${slug}`;
+    if (!slug) return `${SHOP_BASE_PATH}/vendor/${vendor.id}`;
+    return `${SHOP_BASE_PATH}/vendor/${slug}`;
 }
 
 export function buildItemPath(item: {
@@ -30,7 +31,7 @@ export function buildItemPath(item: {
     } | null;
 }): string {
     if (!item.consignor) {
-        return `/item/${item.id}`;
+        return `${SHOP_BASE_PATH}/item/${item.id}`;
     }
 
     const vendorPath = buildVendorPath({

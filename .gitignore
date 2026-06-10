@@ -9,7 +9,7 @@ coverage
 # Production
 dist
 build
-
+ravenliacom_scrapes
 # Misc
 .DS_Store
 .env

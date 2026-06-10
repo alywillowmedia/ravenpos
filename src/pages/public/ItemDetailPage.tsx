@@ -80,7 +80,7 @@ export function ItemDetailPage() {
                         This item may no longer be available or doesn't exist.
                     </p>
                     <Link
-                        to="/"
+                        to="/shop"
                         className="inline-flex items-center gap-2 px-6 py-3 bg-[var(--color-primary)] text-[var(--color-primary-foreground)] font-medium rounded-xl hover:bg-[var(--color-primary-hover)] transition-colors"
                     >
                         <svg
@@ -114,7 +114,7 @@ export function ItemDetailPage() {
             storefront_display_name: item.consignor.storefront_display_name,
             storefront_slug: item.consignor.storefront_slug,
         })
-        : '/';
+        : '/shop';
 
     const vendorCardInner = (
         <div className="flex items-center gap-3">
@@ -146,7 +146,7 @@ export function ItemDetailPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 animate-fadeIn">
             {/* Back Link */}
             <Link
-                to="/"
+                to="/shop"
                 className="inline-flex items-center gap-2 text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors mb-8"
             >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

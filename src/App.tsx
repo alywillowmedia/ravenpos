@@ -67,6 +67,11 @@ import { VendorPage } from './pages/public/VendorPage';
 import { CategoryPage } from './pages/public/CategoryPage';
 import { CategoriesPage } from './pages/public/CategoriesPage';
 import { VendorsPage } from './pages/public/VendorsPage';
+import { RavenliaHomePage } from './pages/public/RavenliaHomePage';
+import { RavenliaEventsPage } from './pages/public/RavenliaEventsPage';
+import { RavenliaVendorsPage } from './pages/public/RavenliaVendorsPage';
+import { RavenliaContactPage } from './pages/public/RavenliaContactPage';
+import { RavenliaStoryPage } from './pages/public/RavenliaStoryPage';
 
 export default function App() {
     return (
@@ -76,13 +81,30 @@ export default function App() {
                     <Routes>
                     {/* Public Storefront Routes */}
                     <Route element={<PublicLayout />}>
-                        <Route path="/" element={<BrowsePage />} />
-                        <Route path="/categories" element={<CategoriesPage />} />
-                        <Route path="/vendors" element={<VendorsPage />} />
+                        <Route path="/" element={<RavenliaHomePage />} />
+                        <Route path="/shop" element={<BrowsePage />} />
+                        <Route path="/events" element={<RavenliaEventsPage />} />
+                        <Route path="/classes" element={<Navigate to="/events" replace />} />
+                        <Route path="/vendors" element={<RavenliaVendorsPage />} />
+                        <Route path="/contact" element={<RavenliaContactPage />} />
+                        <Route path="/our-story" element={<RavenliaStoryPage />} />
+
+                        <Route path="/shop/categories" element={<CategoriesPage />} />
+                        <Route path="/shop/vendors" element={<VendorsPage />} />
+                        <Route path="/shop/vendor/:vendorSlug/:itemSlug" element={<ItemDetailPage />} />
+                        <Route path="/shop/item/:id" element={<ItemDetailPage />} />
+                        <Route path="/shop/vendor/:id" element={<VendorPage />} />
+                        <Route path="/shop/category/:category" element={<CategoryPage />} />
+
+                        <Route path="/shopping" element={<Navigate to="/shop" replace />} />
+                        <Route path="/categories" element={<Navigate to="/shop/categories" replace />} />
+                        <Route path="/category/:category" element={<CategoryPage />} />
                         <Route path="/vendor/:vendorSlug/:itemSlug" element={<ItemDetailPage />} />
                         <Route path="/item/:id" element={<ItemDetailPage />} />
                         <Route path="/vendor/:id" element={<VendorPage />} />
-                        <Route path="/category/:category" element={<CategoryPage />} />
+                        <Route path="/blog" element={<Navigate to="/" replace />} />
+                        <Route path="/feedback" element={<Navigate to="/contact" replace />} />
+                        <Route path="/white-raven-warehouse" element={<Navigate to="/our-story" replace />} />
                     </Route>
 
                     {/* Login Routes */}

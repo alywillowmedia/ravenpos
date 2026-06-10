@@ -33,7 +33,7 @@ export function CategoryCard({ category }: CategoryCardProps) {
 
     return (
         <Link
-            to={`/category/${encodeURIComponent(category.name)}`}
+            to={`/shop/category/${encodeURIComponent(category.name)}`}
             className="group flex-shrink-0 w-44 overflow-hidden rounded-2xl border border-[var(--color-border)] hover:shadow-lg hover:border-[var(--color-primary)]/30 transition-all duration-300"
         >
             {/* Gradient Header */}
