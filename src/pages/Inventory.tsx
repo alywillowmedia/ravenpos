@@ -44,8 +44,15 @@ export function Inventory() {
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
     const [filterConsignor, setFilterConsignor] = useState('');
     const [filterCategory, setFilterCategory] = useState('');
+    const [inventorySummary, setInventorySummary] = useState({
+        totalItems: 0,
+        totalQuantity: 0,
+        totalValue: 0,
+    });
+    const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+    const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
 
-    const { items, totalCount, isLoading, updateItem, updateItems, deleteItem, fetchMatchingItems } = useInventory({
+    const { items, totalCount, isLoading, updateItem, updateItems, deleteItem, fetchMatchingItems, fetchMatchingSummary } = useInventory({
         paginated: true,
         page: inventoryPage,
         pageSize: inventoryPageSize,
@@ -96,12 +103,42 @@ export function Inventory() {
         setInventoryPage(1);
     }, [debouncedSearchQuery, filterConsignor, filterCategory, inventoryPageSize]);
 
+    useEffect(() => {
+        if (view !== 'products') return;
+
+        let isCurrent = true;
+        setIsSummaryLoading(true);
+
+        fetchMatchingSummary({
+            consignorId: filterConsignor || undefined,
+            category: filterCategory || undefined,
+            searchQuery: debouncedSearchQuery,
+        })
+            .then((summary) => {
+                if (isCurrent) setInventorySummary(summary);
+            })
+            .catch((error) => {
+                console.error('Failed to load inventory summary:', error);
+                if (isCurrent) {
+                    setInventorySummary({ totalItems: 0, totalQuantity: 0, totalValue: 0 });
+                }
+            })
+            .finally(() => {
+                if (isCurrent) setIsSummaryLoading(false);
+            });
+
+        return () => {
+            isCurrent = false;
+        };
+    }, [debouncedSearchQuery, fetchMatchingSummary, filterCategory, filterConsignor, summaryRefreshKey, view]);
+
     const handleUpdate = async (data: Partial<Item>) => {
         if (!editItem) return { error: 'No item' };
         const result = await updateItem(editItem.id, data);
         if (!result.error) {
             setEditItem(null);
             setIsEditItemDirty(false);
+            setSummaryRefreshKey((key) => key + 1);
         }
         return result;
     };
@@ -122,9 +159,12 @@ export function Inventory() {
     const handleDelete = async () => {
         if (!deleteTarget) return;
         setIsDeleting(true);
-        await deleteItem(deleteTarget.id);
+        const result = await deleteItem(deleteTarget.id);
         setIsDeleting(false);
         setDeleteTarget(null);
+        if (!result.error) {
+            setSummaryRefreshKey((key) => key + 1);
+        }
     };
 
     const filteredItems = items;
@@ -228,6 +268,7 @@ export function Inventory() {
             setTransferTargetConsignor('');
             bulkEdit.clearChanges();
             bulkEdit.deselectAll();
+            setSummaryRefreshKey((key) => key + 1);
             toast.success(
                 'Products transferred',
                 `${updates.length} product${updates.length === 1 ? '' : 's'} moved to ${targetLabel}.`
@@ -253,6 +294,7 @@ export function Inventory() {
             bulkEdit.clearChanges();
             bulkEdit.deselectAll();
             bulkEdit.toggleBulkEditMode();
+            setSummaryRefreshKey((key) => key + 1);
             toast.success('Bulk changes saved', `${updates.length} product update${updates.length === 1 ? '' : 's'} applied.`);
         } else {
             console.error('Bulk update errors:', result.errors);
@@ -559,6 +601,23 @@ export function Inventory() {
                     </div>
                 )}
             </div>
+
+            {view === 'products' && (
+                <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-3 text-sm">
+                    <span className="font-medium text-[var(--color-foreground)]">
+                        {inventorySummary.totalItems.toLocaleString()} product{inventorySummary.totalItems === 1 ? '' : 's'}
+                    </span>
+                    <span className="text-[var(--color-muted)]">
+                        {inventorySummary.totalQuantity.toLocaleString()} unit{inventorySummary.totalQuantity === 1 ? '' : 's'}
+                    </span>
+                    <span className="font-medium text-[var(--color-primary)]">
+                        {formatCurrency(inventorySummary.totalValue)} value
+                    </span>
+                    {isSummaryLoading && (
+                        <span className="text-xs text-[var(--color-muted)]">Updating...</span>
+                    )}
+                </div>
+            )}
 
             {view === 'discounts' ? (
                 <InventoryDiscountsTab

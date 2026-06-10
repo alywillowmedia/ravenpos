@@ -30,6 +30,17 @@ interface InventoryFilterOptions {
     category?: string;
 }
 
+interface InventorySummary {
+    totalItems: number;
+    totalQuantity: number;
+    totalValue: number;
+}
+
+interface InventorySummaryRow {
+    quantity: number | null;
+    price: number | null;
+}
+
 function isLabelsPerfDebugEnabled(): boolean {
     if (typeof window === 'undefined') return false;
     try {
@@ -397,6 +408,88 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
 
         return batches.flat();
 	    }, [includeInactiveConsignors]);
+
+    const fetchMatchingSummary = useCallback(async (filters: InventoryFilterOptions = {}): Promise<InventorySummary> => {
+        let countQuery = includeInactiveConsignors
+            ? supabase
+                .from('items')
+                .select('id', { count: 'exact', head: true })
+            : supabase
+                .from('items')
+                .select('id, consignor:consignors!inner(id, is_active)', { count: 'exact', head: true })
+                .eq('consignor.is_active', true);
+
+        countQuery = applyInventoryFilters(countQuery, filters);
+
+        const { count, error: countError } = await countQuery;
+        if (countError) throw countError;
+
+        const totalRows = count || 0;
+        if (totalRows === 0) {
+            return { totalItems: 0, totalQuantity: 0, totalValue: 0 };
+        }
+
+        const ranges: Array<{ from: number; to: number }> = [];
+        for (let from = 0; from < totalRows; from += INVENTORY_FETCH_BATCH_SIZE) {
+            ranges.push({
+                from,
+                to: Math.min(from + INVENTORY_FETCH_BATCH_SIZE - 1, totalRows - 1),
+            });
+        }
+
+        const batches: InventorySummaryRow[][] = new Array(ranges.length);
+        let nextRangeIndex = 0;
+
+        const fetchRange = async (rangeIndex: number) => {
+            const { from, to } = ranges[rangeIndex];
+            let query = includeInactiveConsignors
+                ? supabase
+                    .from('items')
+                    .select('quantity, price')
+                    .order('updated_at', { ascending: false })
+                    .order('id', { ascending: false })
+                    .range(from, to)
+                : supabase
+                    .from('items')
+                    .select('quantity, price, consignor:consignors!inner(id, is_active)')
+                    .eq('consignor.is_active', true)
+                    .order('updated_at', { ascending: false })
+                    .order('id', { ascending: false })
+                    .range(from, to);
+
+            query = applyInventoryFilters(query, filters);
+
+            const { data, error: fetchError } = await query;
+            if (fetchError) throw fetchError;
+            batches[rangeIndex] = (data || []) as InventorySummaryRow[];
+        };
+
+        const workerCount = Math.min(INVENTORY_FETCH_PARALLELISM, ranges.length);
+        await Promise.all(
+            Array.from({ length: workerCount }, async () => {
+                while (true) {
+                    const current = nextRangeIndex;
+                    nextRangeIndex += 1;
+                    if (current >= ranges.length) return;
+                    await fetchRange(current);
+                }
+            })
+        );
+
+        const rows = batches.flat();
+        return rows.reduce(
+            (summary, item) => {
+                const quantity = Number(item.quantity || 0);
+                const price = Number(item.price || 0);
+                return {
+                    totalItems: summary.totalItems + 1,
+                    totalQuantity: summary.totalQuantity + quantity,
+                    totalValue: summary.totalValue + price * quantity,
+                };
+            },
+            { totalItems: 0, totalQuantity: 0, totalValue: 0 }
+        );
+    }, [includeInactiveConsignors]);
 
 	    const verifyActiveConsignorIds = useCallback(async (consignorIds: string[]) => {
 	        const uniqueIds = Array.from(new Set(consignorIds.filter(Boolean)));
@@ -805,6 +898,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
         error,
         fetchItems,
         fetchMatchingItems,
+        fetchMatchingSummary,
         createItem,
         createItems,
         updateItem,
