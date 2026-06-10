@@ -76,22 +76,24 @@ export function useItemSearch() {
             setIsSearching(true);
             setSearchError(null);
 
-            let query = supabase
-                .from('items')
-                .select(`
-          *,
-          consignor:consignors(id, consignor_number, name, commission_split, consignor_pays_card_fee, dealer_discount_percent)
-        `)
-                .gt('quantity', 0)
-                .order('name', { ascending: true });
+	            let query = supabase
+	                .from('items')
+	                .select(`
+	          *,
+	          consignor:consignors!inner(id, consignor_number, name, commission_split, consignor_pays_card_fee, dealer_discount_percent, is_active)
+	        `)
+	                .gt('quantity', 0)
+	                .eq('consignor.is_active', true)
+	                .order('name', { ascending: true });
 
             // Filter by vendor shortcode if provided
             if (vendorShortcode.trim()) {
                 // Match against consignor_number (case-insensitive, prefix match)
-                const { data: consignors, error: consignorError } = await supabase
-                    .from('consignors')
-                    .select('id')
-                    .ilike('consignor_number', `${vendorShortcode.trim()}%`);
+	                const { data: consignors, error: consignorError } = await supabase
+	                    .from('consignors')
+	                    .select('id')
+	                    .eq('is_active', true)
+	                    .ilike('consignor_number', `${vendorShortcode.trim()}%`);
 
                 if (consignorError) throw consignorError;
 
@@ -121,20 +123,22 @@ export function useItemSearch() {
             // Fallback pool: if the direct server filter is too strict, fetch a broader vendor-scoped set
             // and apply fuzzy ranking to recover intended matches.
             if (itemName.trim() && rows.length < 20) {
-                let fallbackQuery = supabase
-                    .from('items')
-                    .select(`
-          *,
-          consignor:consignors(id, consignor_number, name, commission_split, consignor_pays_card_fee, dealer_discount_percent)
-        `)
-                    .gt('quantity', 0)
-                    .order('name', { ascending: true });
+	                let fallbackQuery = supabase
+	                    .from('items')
+	                    .select(`
+	          *,
+	          consignor:consignors!inner(id, consignor_number, name, commission_split, consignor_pays_card_fee, dealer_discount_percent, is_active)
+	        `)
+	                    .gt('quantity', 0)
+	                    .eq('consignor.is_active', true)
+	                    .order('name', { ascending: true });
 
                 if (vendorShortcode.trim()) {
-                    const { data: vendorConsignors, error: vendorConsignorError } = await supabase
-                        .from('consignors')
-                        .select('id')
-                        .ilike('consignor_number', `${vendorShortcode.trim()}%`);
+	                    const { data: vendorConsignors, error: vendorConsignorError } = await supabase
+	                        .from('consignors')
+	                        .select('id')
+	                        .eq('is_active', true)
+	                        .ilike('consignor_number', `${vendorShortcode.trim()}%`);
 
                     if (vendorConsignorError) throw vendorConsignorError;
                     const vendorConsignorIds = (vendorConsignors || []).map((c) => c.id);

@@ -9,6 +9,12 @@ export interface Employee {
     is_active: boolean;
     employer?: 'Ravenlia' | 'Alywillow' | null;
     employment_type?: string | null;
+    address_line_1?: string | null;
+    address_line_2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postal_code?: string | null;
+    country?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -48,6 +54,12 @@ export interface EmployeeInput {
     is_active: boolean;
     employer?: 'Ravenlia' | 'Alywillow' | null;
     employment_type?: string | null;
+    address_line_1?: string | null;
+    address_line_2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postal_code?: string | null;
+    country?: string | null;
 }
 
 export interface EmployeeRole {

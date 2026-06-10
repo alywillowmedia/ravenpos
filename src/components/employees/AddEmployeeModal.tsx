@@ -22,6 +22,12 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee, roleOpti
     const [isActive, setIsActive] = useState(true);
     const [employer, setEmployer] = useState<'Ravenlia' | 'Alywillow' | ''>('');
     const [employmentType, setEmploymentType] = useState('');
+    const [addressLine1, setAddressLine1] = useState('');
+    const [addressLine2, setAddressLine2] = useState('');
+    const [city, setCity] = useState('');
+    const [state, setState] = useState('');
+    const [postalCode, setPostalCode] = useState('');
+    const [country, setCountry] = useState('US');
     const [error, setError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -40,6 +46,12 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee, roleOpti
             setIsActive(employee.is_active);
             setEmployer(employee.employer || '');
             setEmploymentType(employee.employment_type || '');
+            setAddressLine1(employee.address_line_1 || '');
+            setAddressLine2(employee.address_line_2 || '');
+            setCity(employee.city || '');
+            setState(employee.state || '');
+            setPostalCode(employee.postal_code || '');
+            setCountry(employee.country || 'US');
             setPin('');
             setConfirmPin('');
         } else if (isOpen) {
@@ -50,6 +62,12 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee, roleOpti
             setIsActive(true);
             setEmployer('');
             setEmploymentType('');
+            setAddressLine1('');
+            setAddressLine2('');
+            setCity('');
+            setState('');
+            setPostalCode('');
+            setCountry('US');
         }
         setError(null);
     }, [isOpen, employee]);
@@ -92,6 +110,12 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee, roleOpti
                 is_active: isActive,
                 employer: employer || null,
                 employment_type: employmentType || null,
+                address_line_1: addressLine1.trim() || null,
+                address_line_2: addressLine2.trim() || null,
+                city: city.trim() || null,
+                state: state.trim().toUpperCase() || null,
+                postal_code: postalCode.trim() || null,
+                country: country.trim().toUpperCase() || null,
             },
             isEditing && pin ? pin : undefined
         );
@@ -164,6 +188,51 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee, roleOpti
                                 </option>
                             )}
                         </select>
+                    </div>
+                </div>
+
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                    <div className="mb-3">
+                        <p className="text-sm font-semibold">Employee Mailing Address</p>
+                        <p className="mt-1 text-xs text-[var(--color-muted)]">Used on employee paystubs and payroll records.</p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3">
+                        <Input
+                            label="Address Line 1"
+                            value={addressLine1}
+                            onChange={(e) => setAddressLine1(e.target.value)}
+                            placeholder="Street address"
+                        />
+                        <Input
+                            label="Address Line 2"
+                            value={addressLine2}
+                            onChange={(e) => setAddressLine2(e.target.value)}
+                            placeholder="Suite, unit, apartment"
+                        />
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                        <Input
+                            label="City"
+                            value={city}
+                            onChange={(e) => setCity(e.target.value)}
+                        />
+                        <Input
+                            label="State"
+                            value={state}
+                            maxLength={2}
+                            onChange={(e) => setState(e.target.value.toUpperCase())}
+                        />
+                        <Input
+                            label="ZIP / Postal Code"
+                            value={postalCode}
+                            onChange={(e) => setPostalCode(e.target.value)}
+                        />
+                        <Input
+                            label="Country"
+                            value={country}
+                            maxLength={2}
+                            onChange={(e) => setCountry(e.target.value.toUpperCase())}
+                        />
                     </div>
                 </div>
 

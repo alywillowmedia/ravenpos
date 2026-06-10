@@ -53,3 +53,6 @@ scripts/__pycache__/
 Trace-20260408T222338.json.gz
 hours_payout/employee_payouts_rows.sql
 hours_payout/time_entries_rows.sql
+consignor_payout_diffs.csv
+full ALY activity.csv
+Supabase Snippet ALY Activity Export (Consignor Records).csv

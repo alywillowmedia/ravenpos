@@ -21,6 +21,7 @@ interface UseInventoryOptions {
     category?: string;
     autoFetch?: boolean;
     queryProfile?: 'full' | 'labels';
+    includeInactiveConsignors?: boolean;
 }
 
 interface InventoryFilterOptions {
@@ -49,6 +50,19 @@ function isMissingRateScheduleTable(error: unknown): boolean {
 interface FilterableInventoryQuery<T> {
     eq: (column: string, value: string) => T;
     or: (filters: string) => T;
+}
+
+interface ActiveConsignorInventoryQuery<T> {
+    eq: (column: string, value: boolean) => T;
+}
+
+function applyActiveConsignorFilter<T extends ActiveConsignorInventoryQuery<T>>(
+    query: T,
+    includeInactiveConsignors: boolean
+) {
+    return includeInactiveConsignors
+        ? query
+        : query.eq('consignor.is_active', true) as T;
 }
 
 function applyInventoryFilters<T extends FilterableInventoryQuery<T>>(
@@ -91,6 +105,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
         category = '',
         autoFetch = true,
         queryProfile = 'full',
+        includeInactiveConsignors = false,
     } = options;
 
     const [items, setItems] = useState<Item[]>([]);
@@ -126,9 +141,9 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                     ? supabase
                         .from('items')
                         .select(`
-          id,
-          consignor_id,
-          sku,
+	          id,
+	          consignor_id,
+	          sku,
           name,
           variant_summary,
           other_details_1,
@@ -137,23 +152,24 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
           quantity,
           qty_unlabeled,
           price,
-          compare_at_price,
-          created_at,
-          updated_at,
-          consignor:consignors(id, consignor_number, name)
-        `, { count: 'exact' })
+	          compare_at_price,
+	          created_at,
+	          updated_at,
+	          consignor:consignors!inner(id, consignor_number, name, is_active)
+	        `, { count: 'exact' })
                         .order('updated_at', { ascending: false })
                         .order('id', { ascending: false })
                     : supabase
                         .from('items')
                         .select(`
-          *,
-          consignor:consignors(id, consignor_number, name)
-        `, { count: 'exact' })
+	          *,
+	          consignor:consignors!inner(id, consignor_number, name, is_active)
+	        `, { count: 'exact' })
                         .order('updated_at', { ascending: false })
                         .order('id', { ascending: false });
 
-                query = applyInventoryFilters(query, { consignorId, category, searchQuery });
+	                query = applyActiveConsignorFilter(query, includeInactiveConsignors);
+	                query = applyInventoryFilters(query, { consignorId, category, searchQuery });
 
                 const from = (page - 1) * pageSize;
                 const to = from + pageSize - 1;
@@ -178,9 +194,14 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                 return;
             }
 
-            let countQuery = supabase
-                .from('items')
-                .select('id', { count: 'exact', head: true });
+	            let countQuery = includeInactiveConsignors
+	                ? supabase
+	                    .from('items')
+	                    .select('id', { count: 'exact', head: true })
+	                : supabase
+	                    .from('items')
+	                    .select('id, consignor:consignors!inner(id, is_active)', { count: 'exact', head: true })
+	                    .eq('consignor.is_active', true);
 
             countQuery = applyInventoryFilters(countQuery, { consignorId, category, searchQuery });
 
@@ -220,10 +241,10 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                 let query = queryProfile === 'labels'
                     ? supabase
                         .from('items')
-                        .select(`
-          id,
-          consignor_id,
-          sku,
+	                        .select(`
+	          id,
+	          consignor_id,
+	          sku,
           name,
           variant_summary,
           other_details_1,
@@ -232,25 +253,26 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
           quantity,
           qty_unlabeled,
           price,
-          compare_at_price,
-          created_at,
-          updated_at,
-          consignor:consignors(id, consignor_number, name)
-        `)
+	          compare_at_price,
+	          created_at,
+	          updated_at,
+	          consignor:consignors!inner(id, consignor_number, name, is_active)
+	        `)
                         .order('updated_at', { ascending: false })
                         .order('id', { ascending: false })
                         .range(from, to)
                     : supabase
                         .from('items')
-                        .select(`
-          *,
-          consignor:consignors(id, consignor_number, name)
-        `)
+	                        .select(`
+	          *,
+	          consignor:consignors!inner(id, consignor_number, name, is_active)
+	        `)
                         .order('updated_at', { ascending: false })
                         .order('id', { ascending: false })
                         .range(from, to);
 
-                query = applyInventoryFilters(query, { consignorId, category, searchQuery });
+	                query = applyActiveConsignorFilter(query, includeInactiveConsignors);
+	                query = applyInventoryFilters(query, { consignorId, category, searchQuery });
 
                 const { data, error: fetchError } = await query;
                 if (fetchError) throw fetchError;
@@ -305,17 +327,22 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                 console.groupEnd();
             }
         }
-    }, [category, consignorId, page, pageSize, paginated, queryProfile, searchQuery]);
+	    }, [category, consignorId, includeInactiveConsignors, page, pageSize, paginated, queryProfile, searchQuery]);
 
-    useEffect(() => {
-        if (!autoFetch) return;
-        fetchItems();
-    }, [autoFetch, fetchItems]);
+	    useEffect(() => {
+	        if (!autoFetch) return;
+	        fetchItems();
+	    }, [autoFetch, fetchItems]);
 
-    const fetchMatchingItems = useCallback(async (filters: InventoryFilterOptions = {}) => {
-        let countQuery = supabase
-            .from('items')
-            .select('id', { count: 'exact', head: true });
+	    const fetchMatchingItems = useCallback(async (filters: InventoryFilterOptions = {}) => {
+	        let countQuery = includeInactiveConsignors
+	            ? supabase
+	                .from('items')
+	                .select('id', { count: 'exact', head: true })
+	            : supabase
+	                .from('items')
+	                .select('id, consignor:consignors!inner(id, is_active)', { count: 'exact', head: true })
+	                .eq('consignor.is_active', true);
 
         countQuery = applyInventoryFilters(countQuery, filters);
 
@@ -340,15 +367,16 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
             const { from, to } = ranges[rangeIndex];
             let query = supabase
                 .from('items')
-                .select(`
-          *,
-          consignor:consignors(id, consignor_number, name)
-        `)
+	                .select(`
+	          *,
+	          consignor:consignors!inner(id, consignor_number, name, is_active)
+	        `)
                 .order('updated_at', { ascending: false })
                 .order('id', { ascending: false })
                 .range(from, to);
 
-            query = applyInventoryFilters(query, filters);
+	            query = applyActiveConsignorFilter(query, includeInactiveConsignors);
+	            query = applyInventoryFilters(query, filters);
 
             const { data, error: fetchError } = await query;
             if (fetchError) throw fetchError;
@@ -368,11 +396,33 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
         );
 
         return batches.flat();
-    }, []);
+	    }, [includeInactiveConsignors]);
 
-    const createItem = async (input: Partial<ItemInput> & { consignor_id: string; name: string; price: number }, consignorNumber: string) => {
-        try {
-            // Use provided SKU or auto-generate
+	    const verifyActiveConsignorIds = useCallback(async (consignorIds: string[]) => {
+	        const uniqueIds = Array.from(new Set(consignorIds.filter(Boolean)));
+	        if (uniqueIds.length === 0) {
+	            throw new Error('No consignor selected');
+	        }
+
+	        const { data, error: consignorError } = await supabase
+	            .from('consignors')
+	            .select('id, is_active')
+	            .in('id', uniqueIds);
+
+	        if (consignorError) throw consignorError;
+
+	        const activeIds = new Set((data || []).filter((row) => row.is_active).map((row) => row.id));
+	        const inactiveOrMissing = uniqueIds.filter((id) => !activeIds.has(id));
+	        if (inactiveOrMissing.length > 0) {
+	            throw new Error('This vendor is inactive. Reactivate the vendor before adding inventory.');
+	        }
+	    }, []);
+
+	    const createItem = async (input: Partial<ItemInput> & { consignor_id: string; name: string; price: number }, consignorNumber: string) => {
+	        try {
+	            await verifyActiveConsignorIds([input.consignor_id]);
+
+	            // Use provided SKU or auto-generate
             const sku = input.sku?.trim() || generateSKU(consignorNumber);
 
             const itemQuantity = input.quantity ?? 1;
@@ -394,10 +444,10 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                     show_in_public_browse: input.show_in_public_browse ?? true,
                     storefront_featured: input.storefront_featured ?? false,
                 })
-                .select(`
-          *,
-          consignor:consignors(id, consignor_number, name)
-        `)
+	                .select(`
+	          *,
+	          consignor:consignors!inner(id, consignor_number, name, is_active)
+	        `)
                 .single();
 
             if (createError) throw createError;
@@ -410,11 +460,13 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
         }
     };
 
-    const createItems = async (
-        inputs: (Partial<ItemInput> & { consignor_id: string; name: string; price: number; consignorNumber: string })[]
-    ) => {
-        try {
-            const itemsToInsert = inputs.map((input) => {
+	    const createItems = async (
+	        inputs: (Partial<ItemInput> & { consignor_id: string; name: string; price: number; consignorNumber: string })[]
+	    ) => {
+	        try {
+	            await verifyActiveConsignorIds(inputs.map((input) => input.consignor_id));
+
+	            const itemsToInsert = inputs.map((input) => {
                 const itemQuantity = input.quantity ?? 1;
                 return {
                     consignor_id: input.consignor_id,
@@ -438,10 +490,10 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
             const { data, error: createError } = await supabase
                 .from('items')
                 .insert(itemsToInsert)
-                .select(`
-          *,
-          consignor:consignors(id, consignor_number, name)
-        `);
+	                .select(`
+	          *,
+	          consignor:consignors!inner(id, consignor_number, name, is_active)
+	        `);
 
             if (createError) throw createError;
 
@@ -477,10 +529,10 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                 .from('items')
                 .update(finalUpdates)
                 .eq('id', id)
-                .select(`
-          *,
-          consignor:consignors(id, consignor_number, name)
-        `)
+	                .select(`
+	          *,
+	          consignor:consignors!inner(id, consignor_number, name, is_active)
+	        `)
                 .single();
 
             if (updateError) throw updateError;
@@ -539,12 +591,13 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
         try {
             const { data, error: fetchError } = await supabase
                 .from('items')
-                .select(`
-          *,
-          consignor:consignors(id, consignor_number, name, commission_split, consignor_pays_card_fee, dealer_discount_percent)
-        `)
-                .eq('sku', sku)
-                .single();
+	                .select(`
+	          *,
+	          consignor:consignors!inner(id, consignor_number, name, commission_split, consignor_pays_card_fee, dealer_discount_percent, is_active)
+	        `)
+	                .eq('sku', sku)
+	                .eq('consignor.is_active', true)
+	                .single();
 
             if (fetchError) throw fetchError;
 
@@ -652,10 +705,10 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                     const ids = missingIds.slice(i, i + INVENTORY_FETCH_BATCH_SIZE);
                     const { data, error: fetchMissingError } = await supabase
                         .from('items')
-                        .select(`
-          *,
-          consignor:consignors(id, consignor_number, name)
-        `)
+	                        .select(`
+	          *,
+	          consignor:consignors!inner(id, consignor_number, name, is_active)
+	        `)
                         .in('id', ids);
 
                     if (fetchMissingError) throw fetchMissingError;

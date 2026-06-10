@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -29,6 +29,14 @@ import {
     type StateWithholdingMethod,
     type TaxClassification,
 } from '../lib/payroll';
+import {
+    buildPaystubHtml,
+    buildPaystubYtdTotals,
+    formatPaystubAddressLines,
+    getPaystubShortCode,
+    hasPaystubAddress,
+    type PaystubAddress,
+} from '../lib/paystub';
 import { formatCurrency } from '../lib/utils';
 import type { EmployeeWithStats } from '../types/employee';
 
@@ -56,6 +64,11 @@ interface EmployeePayoutRow {
     payout_method: 'direct_deposit' | 'check' | 'cash' | 'other';
     check_number: string | null;
     notes: string | null;
+    employer_name_snapshot: string | null;
+    employer_fein_snapshot: string | null;
+    employer_address_snapshot: PaystubAddress | null;
+    employee_name_snapshot: string | null;
+    employee_address_snapshot: PaystubAddress | null;
 }
 
 interface PayrollTimeEntryRow {
@@ -100,6 +113,12 @@ interface PayrollBusinessProfileForm {
     employer: Employer;
     legal_name: string;
     fein: string;
+    address_line_1: string;
+    address_line_2: string;
+    city: string;
+    state: string;
+    postal_code: string;
+    country: string;
     tax_state: string;
     state_withholding_method: StateWithholdingMethod;
     pay_frequency: PayFrequency;
@@ -187,6 +206,58 @@ function roundHoursToTenth(hours: number): number {
 
 function formatPayoutHours(hours: number): string {
     return `${Number(hours || 0).toFixed(1)} h`;
+}
+
+function trimAddress(address: PaystubAddress): PaystubAddress {
+    return {
+        address_line_1: address.address_line_1?.trim() || null,
+        address_line_2: address.address_line_2?.trim() || null,
+        city: address.city?.trim() || null,
+        state: address.state?.trim().toUpperCase() || null,
+        postal_code: address.postal_code?.trim() || null,
+        country: address.country?.trim().toUpperCase() || null,
+    };
+}
+
+function getBusinessProfileAddress(profile: PayrollBusinessProfile | null): PaystubAddress | null {
+    if (!profile) return null;
+
+    return trimAddress({
+        address_line_1: profile.address_line_1 || null,
+        address_line_2: profile.address_line_2 || null,
+        city: profile.city || null,
+        state: profile.state || null,
+        postal_code: profile.postal_code || null,
+        country: profile.country || null,
+    });
+}
+
+function getBusinessFormAddress(form: PayrollBusinessProfileForm): PaystubAddress {
+    return trimAddress({
+        address_line_1: form.address_line_1,
+        address_line_2: form.address_line_2,
+        city: form.city,
+        state: form.state,
+        postal_code: form.postal_code,
+        country: form.country,
+    });
+}
+
+function getEmployeeAddress(employee: EmployeeWithStats | null): PaystubAddress | null {
+    if (!employee) return null;
+
+    return trimAddress({
+        address_line_1: employee.address_line_1 || null,
+        address_line_2: employee.address_line_2 || null,
+        city: employee.city || null,
+        state: employee.state || null,
+        postal_code: employee.postal_code || null,
+        country: employee.country || null,
+    });
+}
+
+function getSnapshotAddress(snapshot: PaystubAddress | null | undefined, fallback: PaystubAddress | null): PaystubAddress | null {
+    return hasPaystubAddress(snapshot) ? snapshot || null : fallback;
 }
 
 function storedRateToPercentField(rate: number): number {
@@ -300,6 +371,12 @@ function getDefaultBusinessForm(employer: 'Ravenlia' | 'Alywillow'): PayrollBusi
         employer,
         legal_name: employer,
         fein: '',
+        address_line_1: '',
+        address_line_2: '',
+        city: '',
+        state: 'VA',
+        postal_code: '',
+        country: 'US',
         tax_state: 'VA',
         state_withholding_method: 'custom_rate',
         pay_frequency: 'biweekly',
@@ -341,6 +418,12 @@ function mapBusinessProfileToForm(profile: PayrollBusinessProfile): PayrollBusin
         employer: profile.employer,
         legal_name: profile.legal_name,
         fein: profile.fein || '',
+        address_line_1: profile.address_line_1 || '',
+        address_line_2: profile.address_line_2 || '',
+        city: profile.city || '',
+        state: profile.state || '',
+        postal_code: profile.postal_code || '',
+        country: profile.country || 'US',
         tax_state: profile.tax_state,
         state_withholding_method: profile.state_withholding_method || 'custom_rate',
         pay_frequency: profile.pay_frequency,
@@ -428,6 +511,7 @@ export function EmployeePayouts() {
     const { user } = useAuth();
     const toast = useToast();
     const navigate = useNavigate();
+    const location = useLocation();
     const { employeeId } = useParams<{ employeeId?: string }>();
 
     const [searchQuery, setSearchQuery] = useState('');
@@ -527,7 +611,7 @@ export function EmployeePayouts() {
             .order('paid_at', { ascending: false });
 
         if (payoutError) {
-            console.error('Failed to load latest employee payouts', payoutError);
+            console.error('Failed to load latest payroll records', payoutError);
             return;
         }
 
@@ -551,6 +635,13 @@ export function EmployeePayouts() {
     useEffect(() => {
         refreshBusinessProfiles();
     }, [refreshBusinessProfiles]);
+
+    useEffect(() => {
+        if (location.pathname.startsWith('/admin/employees/payouts')) {
+            const nextPath = location.pathname.replace('/admin/employees/payouts', '/admin/employees/payroll');
+            navigate(nextPath, { replace: true });
+        }
+    }, [location.pathname, navigate]);
 
     const loadEmployeeHours = useCallback(async (employeeId: string, start: string, end: string) => {
         const requestId = hoursLoadRequestRef.current + 1;
@@ -638,13 +729,18 @@ export function EmployeePayouts() {
                 employer_suta_tax,
                 payout_method,
                 check_number,
+                employer_name_snapshot,
+                employer_fein_snapshot,
+                employer_address_snapshot,
+                employee_name_snapshot,
+                employee_address_snapshot,
                 notes
             `)
             .eq('employee_id', employeeId)
             .order('paid_at', { ascending: false });
 
         if (historyError) {
-            toast.error('Could not load payout history', historyError.message);
+            toast.error('Could not load payroll history', historyError.message);
             setPayoutHistory([]);
             return;
         }
@@ -734,7 +830,7 @@ export function EmployeePayouts() {
     }, [loadEmployeeHours, loadPayoutHistory, toast]);
 
     const closePayoutWorkspace = () => {
-        navigate('/admin/employees/payouts');
+        navigate('/admin/employees/payroll');
         setActiveEmployee(null);
         setBusinessProfile(null);
         setEmployeePayrollProfile(null);
@@ -766,8 +862,8 @@ export function EmployeePayouts() {
 
         const employee = employees.find((row) => row.id === employeeId);
         if (!employee) {
-            toast.warning('Employee not found for payout');
-            navigate('/admin/employees/payouts');
+            toast.warning('Employee not found for payroll');
+            navigate('/admin/employees/payroll');
             return;
         }
 
@@ -829,6 +925,12 @@ export function EmployeePayouts() {
             employer: businessForm.employer,
             legal_name: businessForm.legal_name.trim(),
             fein: businessForm.fein.trim() || null,
+            address_line_1: businessForm.address_line_1.trim() || null,
+            address_line_2: businessForm.address_line_2.trim() || null,
+            city: businessForm.city.trim() || null,
+            state: businessForm.state.trim().toUpperCase() || null,
+            postal_code: businessForm.postal_code.trim() || null,
+            country: businessForm.country.trim().toUpperCase() || null,
             tax_state: businessForm.tax_state.trim().toUpperCase(),
             state_withholding_method: businessForm.state_withholding_method,
             pay_frequency: businessForm.pay_frequency,
@@ -927,11 +1029,13 @@ export function EmployeePayouts() {
             return;
         }
         if (payoutMethod === 'check' && !checkNumber.trim()) {
-            toast.warning('Enter a check number for check payouts');
+            toast.warning('Enter a check number for check payments');
             return;
         }
 
         setIsRecordingPayout(true);
+        const employerAddressSnapshot = getBusinessProfileAddress(businessProfile);
+        const employeeAddressSnapshot = getEmployeeAddress(activeEmployee);
 
         const payload = {
             employee_id: activeEmployee.id,
@@ -954,6 +1058,11 @@ export function EmployeePayouts() {
             employer_medicare_tax: calculation.employerMedicareTax,
             employer_futa_tax: calculation.employerFutaTax,
             employer_suta_tax: calculation.employerSutaTax,
+            employer_name_snapshot: businessProfile.legal_name,
+            employer_fein_snapshot: businessProfile.fein || null,
+            employer_address_snapshot: employerAddressSnapshot || {},
+            employee_name_snapshot: activeEmployee.name,
+            employee_address_snapshot: employeeAddressSnapshot || {},
             tax_breakdown: {
                 federal_filing_status: employeePayrollProfile.federal_filing_status,
                 tax_classification: employeePayrollProfile.tax_classification,
@@ -989,7 +1098,7 @@ export function EmployeePayouts() {
 
         if (insertError) {
             setIsRecordingPayout(false);
-            toast.error('Could not record payout', insertError.message);
+            toast.error('Could not record payroll', insertError.message);
             return;
         }
 
@@ -1002,110 +1111,27 @@ export function EmployeePayouts() {
         setPayoutNotes('');
         setIsRecordingPayout(false);
         setPayoutWorkspaceTab('history');
-        toast.success('Employee payout recorded');
+        toast.success('Payroll recorded');
     };
 
     const handlePrintPayoutStatement = (row: EmployeePayoutRow) => {
-        if (!activeEmployee || !businessProfile) {
-            toast.warning('Open this employee payout page before printing');
+        if (!activeEmployee || !businessProfile || !employeePayrollProfile) {
+            toast.warning('Open this employee payroll page before printing');
             return;
         }
 
-        const issueDate = new Date(row.paid_at).toLocaleDateString();
-        const periodText = formatDateRange(row.period_start, row.period_end);
-        const methodLabel = getPayoutMethodLabel(row.payout_method);
-        const checkLine = row.check_number ? `Check #: ${row.check_number}` : '';
-
-        const html = `
-            <!doctype html>
-            <html>
-            <head>
-                <meta charset="utf-8" />
-                <title>Employee Payout Statement</title>
-                <style>
-                    body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
-                    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-                    .title { font-size: 20px; font-weight: 700; margin: 0; }
-                    .subtitle { font-size: 12px; color: #4b5563; margin-top: 4px; }
-                    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
-                    .card { border: 1px solid #d1d5db; border-radius: 8px; padding: 10px; }
-                    .label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
-                    .value { font-size: 14px; font-weight: 600; }
-                    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
-                    th, td { border: 1px solid #e5e7eb; padding: 7px 8px; text-align: left; }
-                    th { background: #f3f4f6; font-weight: 700; }
-                    .text-right { text-align: right; }
-                    .total { font-weight: 700; background: #f9fafb; }
-                    .note { margin-top: 10px; font-size: 12px; color: #374151; white-space: pre-wrap; }
-                </style>
-            </head>
-            <body>
-                <div class="header">
-                    <div>
-                        <h1 class="title">Employee Payout Statement</h1>
-                        <div class="subtitle">${businessProfile.legal_name}</div>
-                    </div>
-                    <div class="subtitle">Issued: ${issueDate}</div>
-                </div>
-
-                <div class="grid">
-                    <div class="card">
-                        <div class="label">Employee</div>
-                        <div class="value">${activeEmployee.name}</div>
-                    </div>
-                    <div class="card">
-                        <div class="label">Pay Period</div>
-                        <div class="value">${periodText}</div>
-                    </div>
-                    <div class="card">
-                        <div class="label">Payout Method</div>
-                        <div class="value">${methodLabel}${checkLine ? ` (${checkLine})` : ''}</div>
-                    </div>
-                    <div class="card">
-                        <div class="label">Hours x Rate</div>
-                        <div class="value">${formatPayoutHours(row.hours_worked)} x ${formatCurrency(row.hourly_rate)}</div>
-                    </div>
-                </div>
-
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Description</th>
-                            <th class="text-right">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td>Gross Pay</td><td class="text-right">${formatCurrency(row.gross_pay)}</td></tr>
-                        <tr><td>Federal Withholding</td><td class="text-right">-${formatCurrency(row.federal_withholding)}</td></tr>
-                        <tr><td>Social Security</td><td class="text-right">-${formatCurrency(row.social_security_tax)}</td></tr>
-                        <tr><td>Medicare</td><td class="text-right">-${formatCurrency(row.medicare_tax)}</td></tr>
-                        <tr><td>Additional Medicare</td><td class="text-right">-${formatCurrency(row.additional_medicare_tax)}</td></tr>
-                        <tr><td>State Withholding</td><td class="text-right">-${formatCurrency(row.state_withholding)}</td></tr>
-                        <tr><td>Local Withholding</td><td class="text-right">-${formatCurrency(row.local_withholding)}</td></tr>
-                        <tr><td>1099 Backup Withholding</td><td class="text-right">-${formatCurrency(row.contractor_backup_withholding)}</td></tr>
-                        <tr class="total"><td>Net Pay</td><td class="text-right">${formatCurrency(row.net_pay)}</td></tr>
-                    </tbody>
-                </table>
-
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Employer Tax Summary</th>
-                            <th class="text-right">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td>Employer Social Security</td><td class="text-right">${formatCurrency(row.employer_social_security_tax)}</td></tr>
-                        <tr><td>Employer Medicare</td><td class="text-right">${formatCurrency(row.employer_medicare_tax)}</td></tr>
-                        <tr><td>Employer FUTA</td><td class="text-right">${formatCurrency(row.employer_futa_tax)}</td></tr>
-                        <tr><td>Employer SUTA</td><td class="text-right">${formatCurrency(row.employer_suta_tax)}</td></tr>
-                    </tbody>
-                </table>
-
-                ${row.notes ? `<div class="note"><strong>Notes:</strong> ${row.notes}</div>` : ''}
-            </body>
-            </html>
-        `;
+        const ytdForPaystub = buildPaystubYtdTotals(payoutHistory, row, employeePayrollProfile);
+        const html = buildPaystubHtml({
+            payout: row,
+            employeeName: row.employee_name_snapshot || activeEmployee.name,
+            employeeAddress: getSnapshotAddress(row.employee_address_snapshot, getEmployeeAddress(activeEmployee)),
+            employerName: row.employer_name_snapshot || businessProfile.legal_name,
+            employerFein: row.employer_fein_snapshot || businessProfile.fein || null,
+            employerAddress: getSnapshotAddress(row.employer_address_snapshot, getBusinessProfileAddress(businessProfile)),
+            businessProfile,
+            taxClassification: employeePayrollProfile.tax_classification,
+            ytdTotals: ytdForPaystub,
+        });
 
         const printWindow = window.open('', '_blank');
         if (!printWindow) {
@@ -1124,8 +1150,8 @@ export function EmployeePayouts() {
     return (
         <div className="animate-fadeIn">
             <Header
-                title="Employee Payouts"
-                description="Run employee payroll calculations and record payout history."
+                title="Payroll"
+                description="Run employee payroll calculations, record payroll history, and print paystubs."
                 actions={
                     <div className="text-xs text-[var(--color-muted)] max-w-sm">
                         Federal withholding and FICA are calculated automatically. State and local taxes are based on your configured rates.
@@ -1143,6 +1169,7 @@ export function EmployeePayouts() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {PAYROLL_EMPLOYERS.map((employer) => {
                                     const profile = businessProfiles[employer];
+                                    const hasAddress = hasPaystubAddress(getBusinessProfileAddress(profile));
                                     return (
                                         <div key={employer} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
                                             <div className="flex items-start justify-between gap-3">
@@ -1150,7 +1177,7 @@ export function EmployeePayouts() {
                                                     <div className="font-semibold">{employer}</div>
                                                     <div className="text-xs text-[var(--color-muted)] mt-1">
                                                         {profile
-                                                            ? `${profile.pay_frequency} payroll | ${getStateSourceLabel(profile)}`
+                                                            ? `${profile.pay_frequency} payroll | ${getStateSourceLabel(profile)} | ${hasAddress ? 'Address on file' : 'Address missing'}`
                                                             : 'Configure employer-wide tax rates and pay frequency.'}
                                                     </div>
                                                 </div>
@@ -1222,7 +1249,7 @@ export function EmployeePayouts() {
                                             {latest ? (
                                                 <>
                                                     <div className="flex justify-between">
-                                                        <span className="text-[var(--color-muted)]">Last Payout</span>
+                                                        <span className="text-[var(--color-muted)]">Last Payroll</span>
                                                         <span>{new Date(latest.paidAt).toLocaleDateString()}</span>
                                                     </div>
                                                     <div className="flex justify-between">
@@ -1231,11 +1258,11 @@ export function EmployeePayouts() {
                                                     </div>
                                                 </>
                                             ) : (
-                                                <p className="text-xs text-[var(--color-muted)]">No payout history yet</p>
+                                                <p className="text-xs text-[var(--color-muted)]">No payroll history yet</p>
                                             )}
 
-                                            <Button className="w-full mt-3" onClick={() => navigate(`/admin/employees/payouts/${employee.id}`)}>
-                                                Run Payout
+                                            <Button className="w-full mt-3" onClick={() => navigate(`/admin/employees/payroll/${employee.id}`)}>
+                                                Run Payroll
                                             </Button>
                                         </CardContent>
                                     </Card>
@@ -1254,7 +1281,7 @@ export function EmployeePayouts() {
             >
                 <div className="space-y-4">
                     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-sm text-[var(--color-muted)]">
-                        Configure employer-wide pay frequency, unemployment rates, and state/local withholding sources once. Employee-specific W-4 and VA-4 choices stay in each employee payout setup.
+                        Configure employer-wide pay frequency, unemployment rates, and state/local withholding sources once. Employee-specific W-4 and VA-4 choices stay in each employee payroll setup.
                     </div>
 
                     <BusinessPayrollSetupFields
@@ -1282,11 +1309,11 @@ export function EmployeePayouts() {
                                 onClick={closePayoutWorkspace}
                                 className="mb-3 text-sm font-medium text-[var(--color-primary)] hover:underline"
                             >
-                                Back to payout roster
+                                Back to payroll roster
                             </button>
                             <h2 className="text-2xl font-semibold">{activeEmployee?.name || 'Employee'} Payroll</h2>
                             <p className="text-sm text-[var(--color-muted)] mt-1">
-                                Review timecards, verify rates, preview withholding, and record this employee payout.
+                                Review timecards, verify rates, preview withholding, and record this employee payroll run.
                             </p>
                         </div>
                         {activeEmployee && (
@@ -1294,7 +1321,11 @@ export function EmployeePayouts() {
                                 <SummaryBox label="Employer" value={activeEmployee.employer || 'Not set'} />
                                 <SummaryBox label="Hourly Rate" value={`${formatCurrency(activeEmployee.hourly_rate)}/hr`} />
                                 <SummaryBox label="This Week" value={`${activeEmployee.weeklyHours.toFixed(2)} h`} />
-                                <SummaryBox label="Profile" value={employeePayrollProfile ? 'Configured' : 'Needs setup'} />
+                                <SummaryBox
+                                    label="Paystub Address"
+                                    value={hasPaystubAddress(getEmployeeAddress(activeEmployee)) ? 'On file' : 'Missing'}
+                                    detail={employeePayrollProfile ? 'Tax setup configured' : 'Tax setup needed'}
+                                />
                             </div>
                         )}
                     </div>
@@ -1564,7 +1595,7 @@ export function EmployeePayouts() {
                                             <div>
                                                 <div className="font-semibold text-[var(--color-foreground)]">Business setup required</div>
                                                 <div className="text-[var(--color-muted)] mt-1">
-                                                    Configure {activeEmployee?.employer || 'this employer'} before previewing net pay, employer taxes, or recording this payout.
+                                                    Configure {activeEmployee?.employer || 'this employer'} before previewing net pay, employer taxes, or recording this payroll run.
                                                 </div>
                                             </div>
                                             <Button onClick={() => openBusinessSetup(getPayrollEmployer(activeEmployee?.employer))}>
@@ -1575,13 +1606,13 @@ export function EmployeePayouts() {
                                 ) : !employeePayrollProfile || !calculation || !accuracyBasis ? (
                                     <Card variant="outlined">
                                         <CardContent className="p-4 text-sm text-[var(--color-muted)]">
-                                            Enter hours and ensure employee payroll setup is complete to preview payout calculations.
+                                            Enter hours and ensure employee payroll setup is complete to preview payroll calculations.
                                         </CardContent>
                                     </Card>
                                 ) : (
                                     <Card variant="outlined">
                                         <CardHeader>
-                                            <CardTitle className="text-base">Payout Preview</CardTitle>
+                                            <CardTitle className="text-base">Payroll Preview</CardTitle>
                                         </CardHeader>
                                         <CardContent className="p-4">
                                             <PayoutPreview
@@ -1598,11 +1629,11 @@ export function EmployeePayouts() {
                                     label="Notes"
                                     value={payoutNotes}
                                     onChange={(event) => setPayoutNotes(event.target.value)}
-                                    placeholder="Optional payout notes"
+                                    placeholder="Optional payroll notes"
                                 />
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <Select
-                                        label="Payout Method"
+                                        label="Payment Method"
                                         value={payoutMethod}
                                         onChange={(event) => setPayoutMethod(event.target.value as EmployeePayoutMethod)}
                                         options={[
@@ -1624,7 +1655,7 @@ export function EmployeePayouts() {
                                             label="Check Number"
                                             value=""
                                             readOnly
-                                            placeholder="Only required for check payouts"
+                                            placeholder="Only required for check payments"
                                         />
                                     )}
                                 </div>
@@ -1638,7 +1669,7 @@ export function EmployeePayouts() {
                                         isLoading={isRecordingPayout}
                                         disabled={!calculation}
                                     >
-                                        Record Payout
+                                        Record Payroll
                                     </Button>
                                 </ModalFooter>
 
@@ -1652,19 +1683,28 @@ export function EmployeePayouts() {
             <Modal
                 isOpen={!!selectedHistoryPayout}
                 onClose={() => setSelectedHistoryPayout(null)}
-                title="Payout Details"
+                title="Payroll Details"
                 size="lg"
             >
                 {selectedHistoryPayout && (
                     <div className="space-y-2 text-sm">
+                        <DetailRow label="Paystub #" value={getPaystubShortCode(selectedHistoryPayout.id)} />
                         <DetailRow label="Paid At" value={new Date(selectedHistoryPayout.paid_at).toLocaleString()} />
                         <DetailRow
                             label="Period"
                             value={formatDateRange(selectedHistoryPayout.period_start, selectedHistoryPayout.period_end)}
                         />
+                        <DetailRow
+                            label="Employee Address"
+                            value={formatPaystubAddressLines(getSnapshotAddress(selectedHistoryPayout.employee_address_snapshot, getEmployeeAddress(activeEmployee))).join(', ')}
+                        />
+                        <DetailRow
+                            label="Employer Address"
+                            value={formatPaystubAddressLines(getSnapshotAddress(selectedHistoryPayout.employer_address_snapshot, getBusinessProfileAddress(businessProfile))).join(', ')}
+                        />
                         <DetailRow label="Hours Worked" value={formatPayoutHours(selectedHistoryPayout.hours_worked)} />
                         <DetailRow label="Hourly Rate" value={formatCurrency(selectedHistoryPayout.hourly_rate)} />
-                        <DetailRow label="Payout Method" value={`${getPayoutMethodLabel(selectedHistoryPayout.payout_method)}${selectedHistoryPayout.check_number ? ` #${selectedHistoryPayout.check_number}` : ''}`} />
+                        <DetailRow label="Payment Method" value={`${getPayoutMethodLabel(selectedHistoryPayout.payout_method)}${selectedHistoryPayout.check_number ? ` #${selectedHistoryPayout.check_number}` : ''}`} />
                         <DetailRow label="Gross Pay" value={formatCurrency(selectedHistoryPayout.gross_pay)} />
                         <DetailRow label="Federal Withholding" value={formatCurrency(selectedHistoryPayout.federal_withholding)} />
                         <DetailRow label="Social Security" value={formatCurrency(selectedHistoryPayout.social_security_tax)} />
@@ -1685,7 +1725,7 @@ export function EmployeePayouts() {
                                 Close
                             </Button>
                             <Button onClick={() => handlePrintPayoutStatement(selectedHistoryPayout)}>
-                                Print PDF
+                                Print Paystub
                             </Button>
                         </ModalFooter>
                     </div>
@@ -1752,7 +1792,7 @@ function PayoutPreview({
                     <PreviewBasisBox
                         label="YTD Before This Check"
                         value={formatCurrency(accuracyBasis.ytdWagesBefore)}
-                        detail="Prior setup plus recorded payouts."
+                        detail="Prior setup plus recorded payroll runs."
                     />
                     <PreviewBasisBox
                         label="This Gross Pay"
@@ -1812,7 +1852,7 @@ function PayoutPreview({
 
             <div className="flex flex-col gap-2 border-t border-[var(--color-border)] bg-[var(--color-primary)] px-4 py-4 text-white sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <div className="text-xs font-semibold uppercase opacity-80">Final Employee Payout</div>
+                    <div className="text-xs font-semibold uppercase opacity-80">Final Net Pay</div>
                     <div className="mt-1 text-sm opacity-80">Gross pay minus employee withholdings.</div>
                 </div>
                 <div className="text-3xl font-semibold">{formatCurrency(calculation.netPay)}</div>
@@ -1831,8 +1871,8 @@ function PayoutWorkspaceTabs({
     historyCount: number;
 }) {
     const tabs: Array<{ id: PayoutWorkspaceTab; label: string; detail: string }> = [
-        { id: 'run', label: 'Run Payout', detail: 'Calculate and record this pay period.' },
-        { id: 'history', label: `History (${historyCount})`, detail: 'Review and print recorded payouts.' },
+        { id: 'run', label: 'Run Payroll', detail: 'Calculate and record this pay period.' },
+        { id: 'history', label: `History (${historyCount})`, detail: 'Review and print recorded payroll runs.' },
     ];
 
     return (
@@ -1891,19 +1931,19 @@ function PayoutHistoryTab({
     return (
         <Card variant="outlined">
             <CardHeader>
-                <CardTitle className="text-base">Payout History</CardTitle>
+                <CardTitle className="text-base">Payroll History</CardTitle>
             </CardHeader>
             <CardContent className="p-4 space-y-4">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    <SummaryBox label="Current-Year Gross" value={formatCurrency(ytdTotals.wages)} detail="Recorded payouts this year." />
+                    <SummaryBox label="Current-Year Gross" value={formatCurrency(ytdTotals.wages)} detail="Recorded payroll runs this year." />
                     <SummaryBox label="Current-Year Net" value={formatCurrency(ytdNetPay)} detail="Net paid to employee." />
                     <SummaryBox label="Employee Withheld" value={formatCurrency(ytdEmployeeWithheld)} detail="Taxes withheld from checks." />
                 </div>
 
                 {payoutHistory.length === 0 ? (
                     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center">
-                        <p className="font-semibold text-[var(--color-foreground)]">No payouts recorded yet</p>
-                        <p className="mt-1 text-sm text-[var(--color-muted)]">Recorded payouts will appear here with view and print actions.</p>
+                        <p className="font-semibold text-[var(--color-foreground)]">No payroll runs recorded yet</p>
+                        <p className="mt-1 text-sm text-[var(--color-muted)]">Recorded payroll runs will appear here with view and print actions.</p>
                     </div>
                 ) : (
                     <div className="space-y-2">
@@ -1911,9 +1951,16 @@ function PayoutHistoryTab({
                             <div key={row.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
                                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                                     <div>
-                                        <div className="text-sm font-semibold">{formatDateRange(row.period_start, row.period_end)}</div>
+                                        <div className="text-sm font-semibold">
+                                            Paystub #{getPaystubShortCode(row.id)} | {formatDateRange(row.period_start, row.period_end)}
+                                        </div>
                                         <div className="mt-1 text-xs text-[var(--color-muted)]">
                                             Paid {new Date(row.paid_at).toLocaleDateString()} | {formatPayoutHours(row.hours_worked)} | {getPayoutMethodLabel(row.payout_method)}{row.check_number ? ` #${row.check_number}` : ''}
+                                        </div>
+                                        <div className="mt-1 text-xs text-[var(--color-muted)]">
+                                            {hasPaystubAddress(row.employee_address_snapshot) ? 'Employee address snapshotted' : 'Employee address not snapshotted'}
+                                            {' | '}
+                                            {hasPaystubAddress(row.employer_address_snapshot) ? 'Employer address snapshotted' : 'Employer address not snapshotted'}
                                         </div>
                                     </div>
                                     <div className="text-left md:text-right">
@@ -1926,7 +1973,7 @@ function PayoutHistoryTab({
                                         View
                                     </Button>
                                     <Button size="sm" variant="ghost" onClick={() => onPrintPayout(row)}>
-                                        Print PDF
+                                        Print Paystub
                                     </Button>
                                 </div>
                             </div>
@@ -1966,11 +2013,11 @@ function getTaxBasisNotes(
 
     const socialSecurityDetail = accuracyBasis.socialSecurityTaxableWagesThisCheck <= 0
         ? `Social Security is zero because prior Social Security wages already reached the ${formatCurrency(SOCIAL_SECURITY_WAGE_BASE_2026)} wage base.`
-        : `Social Security uses ${formatCurrency(accuracyBasis.socialSecurityTaxableWagesThisCheck)} of this check because this employee had ${formatCurrency(accuracyBasis.socialSecurityWagesBefore)} in Social Security wages before this payout. The 2026 wage base is ${formatCurrency(SOCIAL_SECURITY_WAGE_BASE_2026)}.`;
+        : `Social Security uses ${formatCurrency(accuracyBasis.socialSecurityTaxableWagesThisCheck)} of this check because this employee had ${formatCurrency(accuracyBasis.socialSecurityWagesBefore)} in Social Security wages before this payroll run. The 2026 wage base is ${formatCurrency(SOCIAL_SECURITY_WAGE_BASE_2026)}.`;
 
     const medicareDetail = accuracyBasis.additionalMedicareTaxableWagesThisCheck > 0
         ? `Regular Medicare applies to this check. Additional Medicare applies to ${formatCurrency(accuracyBasis.additionalMedicareTaxableWagesThisCheck)} because Medicare wages are over ${formatCurrency(ADDITIONAL_MEDICARE_THRESHOLD)}.`
-        : `Regular Medicare applies to this check. Additional Medicare is zero because Medicare wages before this payout were ${formatCurrency(accuracyBasis.medicareWagesBefore)}, below the ${formatCurrency(ADDITIONAL_MEDICARE_THRESHOLD)} threshold.`;
+        : `Regular Medicare applies to this check. Additional Medicare is zero because Medicare wages before this payroll run were ${formatCurrency(accuracyBasis.medicareWagesBefore)}, below the ${formatCurrency(ADDITIONAL_MEDICARE_THRESHOLD)} threshold.`;
 
     return [
         { label: 'Federal Withholding', detail: federalDetail },
@@ -2038,7 +2085,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 function PayrollReviewSteps() {
-    const steps = ['Load timecards', 'Verify rates', 'Record payout'];
+    const steps = ['Load timecards', 'Verify rates', 'Record payroll'];
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -2083,6 +2130,51 @@ function BusinessPayrollSetupFields({
                 value={businessForm.fein}
                 onChange={(event) => setBusinessForm((prev) => ({ ...prev, fein: event.target.value }))}
             />
+            <div className="md:col-span-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <p className="text-sm font-semibold">Business Mailing Address</p>
+                        <p className="mt-1 text-xs text-[var(--color-muted)]">Printed in the employer block on employee paystubs.</p>
+                    </div>
+                    <span className={`text-xs font-semibold ${hasPaystubAddress(getBusinessFormAddress(businessForm)) ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'}`}>
+                        {hasPaystubAddress(getBusinessFormAddress(businessForm)) ? 'Address on file' : 'Address missing'}
+                    </span>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <Input
+                        label="Address Line 1"
+                        value={businessForm.address_line_1}
+                        onChange={(event) => setBusinessForm((prev) => ({ ...prev, address_line_1: event.target.value }))}
+                    />
+                    <Input
+                        label="Address Line 2"
+                        value={businessForm.address_line_2}
+                        onChange={(event) => setBusinessForm((prev) => ({ ...prev, address_line_2: event.target.value }))}
+                    />
+                    <Input
+                        label="City"
+                        value={businessForm.city}
+                        onChange={(event) => setBusinessForm((prev) => ({ ...prev, city: event.target.value }))}
+                    />
+                    <Input
+                        label="State"
+                        value={businessForm.state}
+                        maxLength={2}
+                        onChange={(event) => setBusinessForm((prev) => ({ ...prev, state: event.target.value.toUpperCase() }))}
+                    />
+                    <Input
+                        label="ZIP / Postal Code"
+                        value={businessForm.postal_code}
+                        onChange={(event) => setBusinessForm((prev) => ({ ...prev, postal_code: event.target.value }))}
+                    />
+                    <Input
+                        label="Country"
+                        value={businessForm.country}
+                        maxLength={2}
+                        onChange={(event) => setBusinessForm((prev) => ({ ...prev, country: event.target.value.toUpperCase() }))}
+                    />
+                </div>
+            </div>
             <Select
                 label="State Withholding Method"
                 value={businessForm.state_withholding_method}
@@ -2545,7 +2637,7 @@ function RateAndTaxSourceSummary({
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
                     <SummaryBox label="Tax Classification" value={employeePayrollProfile?.tax_classification === '1099' ? '1099 Contractor' : 'W-2 Employee'} />
-                    <SummaryBox label="Current-Year Wages" value={formatCurrency(ytdTotals.wages)} detail="From recorded payouts for this employee." />
+                    <SummaryBox label="Current-Year Wages" value={formatCurrency(ytdTotals.wages)} detail="From recorded payroll runs for this employee." />
                     <SummaryBox label="FICA Wage Base" value="$184,500" detail="2026 Social Security contribution and benefit base." />
                 </div>
 

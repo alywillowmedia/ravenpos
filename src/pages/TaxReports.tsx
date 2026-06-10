@@ -360,7 +360,7 @@ export function TaxReports() {
 
                     <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
                         <div className="max-h-[calc(100vh-290px)] min-h-[420px] overflow-auto">
-                            <table className="w-full min-w-[1180px] text-sm">
+                            <table className="w-full min-w-[1260px] text-sm">
                                 <thead className="sticky top-0 z-20 border-b border-[var(--color-border)] bg-[var(--color-surface)] text-left text-xs uppercase text-[var(--color-muted)] shadow-sm">
                                     <tr>
                                         <th className="w-12 bg-[var(--color-surface)] px-4 py-3 font-semibold">
@@ -380,6 +380,7 @@ export function TaxReports() {
                                         <th className="bg-[var(--color-surface)] px-4 py-3 text-right font-semibold">Earnings</th>
                                         <th className="bg-[var(--color-surface)] px-4 py-3 text-right font-semibold">Payouts</th>
                                         <th className="bg-[var(--color-surface)] px-4 py-3 text-right font-semibold">Paid</th>
+                                        <th className="bg-[var(--color-surface)] px-4 py-3 text-right font-semibold">Open Est.</th>
                                         <th className="bg-[var(--color-surface)] px-4 py-3 text-right font-semibold">Deductions</th>
                                         <th className="bg-[var(--color-surface)] px-4 py-3 font-semibold">Review Reason</th>
                                     </tr>
@@ -414,6 +415,7 @@ export function TaxReports() {
                                             <td className="px-4 py-3 text-right">{formatCurrency(row.salesTotals.consignorEarnings)}</td>
                                             <td className="px-4 py-3 text-right">{row.payoutTotals.payoutCount}</td>
                                             <td className="px-4 py-3 text-right">{formatCurrency(row.payoutTotals.totalPaid)}</td>
+                                            <td className="px-4 py-3 text-right">{formatCurrency(row.openPayoutEstimate)}</td>
                                             <td className="px-4 py-3 text-right">{formatCurrency(row.payoutTotals.totalDeductions)}</td>
                                             <td className="px-4 py-3">
                                                 {row.thresholdReview ? (

@@ -23,6 +23,8 @@ export function VendorInventory() {
     const { items, isLoading, createItem, createItems, updateItem, deleteItem } = useInventory(userRecord?.consignor_id || undefined);
     const { consignors } = useConsignors();
     const { getCategoryNames } = useCategories();
+    const currentConsignor = consignors.find((c) => c.id === userRecord?.consignor_id);
+    const isCurrentConsignorActive = currentConsignor?.is_active !== false;
 
     const [view, setView] = useState<'list' | 'single' | 'batch' | 'discounts'>('list');
     const [editingItem, setEditingItem] = useState<Item | null>(null);
@@ -30,17 +32,17 @@ export function VendorInventory() {
 
     const handleAddItem = async (data: Partial<Item>) => {
         if (!userRecord?.consignor_id) return { error: 'No consignor ID' };
+        if (!isCurrentConsignorActive) return { error: 'This vendor account is inactive. Inventory changes are disabled.' };
 
         // Get the consignor number for SKU generation
-        const consignor = consignors.find(c => c.id === userRecord.consignor_id);
-        if (!consignor) return { error: 'Consignor not found' };
+        if (!currentConsignor) return { error: 'Consignor not found' };
 
         const result = await createItem(
             {
                 ...data,
                 consignor_id: userRecord.consignor_id,
             } as Omit<Item, 'id' | 'created_at' | 'updated_at' | 'consignor'>,
-            consignor.consignor_number
+            currentConsignor.consignor_number
         );
 
         if (!result.error) {
@@ -66,16 +68,16 @@ export function VendorInventory() {
 
     const handleBatchSubmit = async (batchItems: Partial<Item>[]) => {
         if (!userRecord?.consignor_id) return { error: 'No consignor ID' };
+        if (!isCurrentConsignorActive) return { error: 'This vendor account is inactive. Inventory changes are disabled.' };
 
-        const consignor = consignors.find(c => c.id === userRecord.consignor_id);
-        if (!consignor) return { error: 'Consignor not found' };
+        if (!currentConsignor) return { error: 'Consignor not found' };
 
         const itemsToCreate = batchItems.map(item => ({
             ...item,
             consignor_id: userRecord.consignor_id!,
             name: item.name!,
             price: item.price!,
-            consignorNumber: consignor.consignor_number,
+            consignorNumber: currentConsignor.consignor_number,
         }));
 
         const result = await createItems(itemsToCreate);
@@ -178,9 +180,13 @@ export function VendorInventory() {
 
     const tabs = [
         { id: 'list', label: 'View All Products' },
-        { id: 'single', label: 'Add Single Product' },
-        { id: 'batch', label: 'Multiple Products' },
-        { id: 'discounts', label: 'Discounts' },
+        ...(isCurrentConsignorActive
+            ? [
+                { id: 'single', label: 'Add Single Product' },
+                { id: 'batch', label: 'Multiple Products' },
+                { id: 'discounts', label: 'Discounts' },
+            ]
+            : []),
     ];
 
     const totalItems = items.length;
@@ -233,16 +239,18 @@ export function VendorInventory() {
 
                         {items.length === 0 && !isLoading ? (
                             <div className="py-12">
-                                <EmptyState
-                                    icon={<PackageIcon />}
-                                    title="No products yet"
-                                    description="Start adding products to your inventory"
-                                    action={
-                                        <Button onClick={() => setView('single')}>
-                                            Add Your First Product
-                                        </Button>
-                                    }
-                                />
+	                                <EmptyState
+	                                    icon={<PackageIcon />}
+	                                    title={isCurrentConsignorActive ? 'No products yet' : 'Inventory inactive'}
+	                                    description={isCurrentConsignorActive
+	                                        ? 'Start adding products to your inventory'
+	                                        : 'This vendor profile is inactive, so inventory is hidden from operational views.'}
+	                                    action={isCurrentConsignorActive ? (
+	                                        <Button onClick={() => setView('single')}>
+	                                            Add Your First Product
+	                                        </Button>
+	                                    ) : undefined}
+	                                />
                             </div>
                         ) : (
                             <Table

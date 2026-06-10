@@ -28,7 +28,8 @@ export function AddItems() {
     const [selectedConsignor, setSelectedConsignor] = useState(defaultConsignorId);
     const [successModal, setSuccessModal] = useState<{ count: number } | null>(null);
 
-    const selectedConsignorData = consignors.find((c) => c.id === selectedConsignor);
+    const activeConsignors = consignors.filter((c) => c.is_active);
+    const selectedConsignorData = activeConsignors.find((c) => c.id === selectedConsignor);
 
     const handleSingleSubmit = async (data: Partial<Item>) => {
         if (!selectedConsignorData) return { error: 'No consignor selected' };
@@ -63,7 +64,7 @@ export function AddItems() {
         return result;
     };
 
-    const consignorOptions = consignors.map((c) => ({
+    const consignorOptions = activeConsignors.map((c) => ({
         value: c.id,
         label: `${c.consignor_number} - ${c.name}`,
     }));
@@ -88,7 +89,7 @@ export function AddItems() {
                                 placeholder="Select consignor..."
                             />
                         </div>
-                        {!selectedConsignor && consignors.length === 0 && (
+                        {!selectedConsignor && activeConsignors.length === 0 && (
                             <Button variant="secondary" onClick={() => navigate('/admin/consignors')}>
                                 Add a Consignor First
                             </Button>
@@ -97,7 +98,7 @@ export function AddItems() {
                 </CardContent>
             </Card>
 
-            {selectedConsignor && (
+            {selectedConsignorData && (
                 <>
                     {/* Mode Toggle */}
                     <div className="flex items-center gap-2 mb-6">
@@ -131,7 +132,7 @@ export function AddItems() {
                         <CardContent>
                             {mode === 'single' ? (
                                 <ItemForm
-                                    consignors={consignors}
+                                    consignors={activeConsignors}
                                     categories={getCategoryNames()}
                                     onSubmit={handleSingleSubmit}
                                     onCancel={() => navigate('/admin/inventory')}

@@ -44,6 +44,7 @@ export function VendorImportCSV() {
 
     // Get vendor's consignor data
     const consignorData = consignors.find((c) => c.id === userRecord?.consignor_id);
+    const isConsignorActive = consignorData?.is_active !== false;
 
     const [csvData, setCsvData] = useState<CSVRow[]>([]);
     const [headers, setHeaders] = useState<string[]>([]);
@@ -191,6 +192,10 @@ export function VendorImportCSV() {
     const handleImport = async () => {
         if (!userRecord?.consignor_id || !consignorData) {
             setError('Unable to determine your consignor account');
+            return;
+        }
+        if (!isConsignorActive) {
+            setError('This vendor account is inactive. Inventory imports are disabled.');
             return;
         }
 

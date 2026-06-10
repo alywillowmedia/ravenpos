@@ -40,7 +40,7 @@ export function Consignors() {
         DEFAULT_CONSIGNORS_SUMMARY_EXPORT_FIELDS
     );
 
-    // Fetch item count when deleteTarget changes
+    // Fetch item count when deactivateTarget changes
     useEffect(() => {
         if (!deleteTarget) {
             setItemCount(0);
@@ -209,7 +209,7 @@ export function Consignors() {
                         setDeleteTarget(c);
                     }}
                     className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-danger)] transition-colors"
-                    title="Delete"
+                    title="Deactivate"
                 >
                     <TrashIcon />
                 </button>
@@ -291,7 +291,7 @@ export function Consignors() {
                 </div>
             </Modal>
 
-            {/* Delete Confirmation Modal */}
+            {/* Deactivate Confirmation Modal */}
             <DeleteConfirmationModal
                 isOpen={!!deleteTarget}
                 onClose={() => {
@@ -303,6 +303,16 @@ export function Consignors() {
                 targetName={deleteTarget?.name || ''}
                 itemCount={itemCount}
                 description={deleteError || undefined}
+                title="Deactivate Vendor"
+                warningLabel="Records will be preserved"
+                warningIntro={`Deactivating ${deleteTarget?.name || 'this vendor'} will:`}
+                consequences={[
+                    'Mark their vendor profile inactive',
+                    `Keep all ${itemCount} inventory item${itemCount !== 1 ? 's' : ''}, sales history, payouts, invoices, and ledger records intact`,
+                    'Leave vendor portal login unchanged unless you remove it separately',
+                ]}
+                confirmActionLabel="Deactivate"
+                confirmButtonLabel="Deactivate Vendor"
             />
 
             <ConsignorExportOptionsModal

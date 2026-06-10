@@ -23,7 +23,7 @@ const navigation = [
         icon: EmployeesIcon,
         children: [
             { name: 'Timecards', href: '/admin/employees', icon: TimecardIcon },
-            { name: 'Payouts', href: '/admin/employees/payouts', icon: PayrollIcon },
+            { name: 'Payroll', href: '/admin/employees/payroll', icon: PayrollIcon },
             { name: 'Roles', href: '/admin/employees/roles', icon: ShieldIcon },
             { name: 'Schedule', href: '/admin/employees/schedule', icon: ScheduleIcon },
         ]

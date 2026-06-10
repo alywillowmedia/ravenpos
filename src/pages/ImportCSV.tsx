@@ -44,6 +44,7 @@ export function ImportCSV() {
     const [mappedItems, setMappedItems] = useState<MappedItem[]>([]);
     const [isImporting, setIsImporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const activeConsignors = consignors.filter((c) => c.is_active);
 
     // Shopify import state
     const [hasHandleColumn, setHasHandleColumn] = useState(false);
@@ -201,7 +202,7 @@ export function ImportCSV() {
             return;
         }
 
-        const consignorData = consignors.find((c) => c.id === selectedConsignor);
+        const consignorData = activeConsignors.find((c) => c.id === selectedConsignor);
         if (!consignorData) return;
 
         setIsImporting(true);
@@ -286,7 +287,7 @@ export function ImportCSV() {
         setShopifyStepComplete(true);
     };
 
-    const consignorOptions = consignors.map((c) => ({
+    const consignorOptions = activeConsignors.map((c) => ({
         value: c.id,
         label: `${c.consignor_number} - ${c.name}`,
     }));

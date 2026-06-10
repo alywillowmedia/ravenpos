@@ -12,6 +12,12 @@ export interface PayrollBusinessProfile {
     employer: 'Ravenlia' | 'Alywillow';
     legal_name: string;
     fein: string | null;
+    address_line_1?: string | null;
+    address_line_2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postal_code?: string | null;
+    country?: string | null;
     tax_state: string;
     state_withholding_method: StateWithholdingMethod;
     pay_frequency: PayFrequency;

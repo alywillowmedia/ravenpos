@@ -99,10 +99,10 @@ export function VendorDashboard() {
 
             setConsignor(consignorData);
 
-            // Fetch items stats in batches to avoid API row caps.
+            // Fetch active inventory stats in batches to avoid API row caps.
             const itemQuantities: Array<{ quantity: number | null }> = [];
             let itemsOffset = 0;
-            let hasMoreItems = true;
+            let hasMoreItems = consignorData?.is_active !== false;
 
             while (hasMoreItems) {
                 const { data: itemsBatch, error: itemsError } = await supabase

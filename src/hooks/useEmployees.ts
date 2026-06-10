@@ -140,6 +140,12 @@ export function useEmployees() {
                     is_active: input.is_active,
                     employer: input.employer,
                     employment_type: input.employment_type,
+                    address_line_1: input.address_line_1 || null,
+                    address_line_2: input.address_line_2 || null,
+                    city: input.city || null,
+                    state: input.state || null,
+                    postal_code: input.postal_code || null,
+                    country: input.country || null,
                 })
                 .select()
                 .single();
@@ -159,7 +165,7 @@ export function useEmployees() {
     // Update employee
     const updateEmployee = async (
         id: string,
-        updates: Partial<Pick<Employee, 'name' | 'hourly_rate' | 'is_active' | 'employer' | 'employment_type'>>,
+        updates: Partial<Pick<Employee, 'name' | 'hourly_rate' | 'is_active' | 'employer' | 'employment_type' | 'address_line_1' | 'address_line_2' | 'city' | 'state' | 'postal_code' | 'country'>>,
         newPin?: string
     ): Promise<{ error: string | null }> => {
         try {
@@ -214,7 +220,7 @@ export function useEmployees() {
     const getEmployee = async (id: string): Promise<{ data: Employee | null; error: string | null }> => {
         const { data, error } = await supabase
             .from('employees')
-            .select('id, name, hourly_rate, is_active, created_at, updated_at')
+            .select('id, name, hourly_rate, is_active, employer, employment_type, address_line_1, address_line_2, city, state, postal_code, country, created_at, updated_at')
             .eq('id', id)
             .single();
 

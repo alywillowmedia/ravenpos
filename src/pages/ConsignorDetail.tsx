@@ -41,7 +41,10 @@ export function ConsignorDetail() {
     const navigate = useNavigate();
     const toast = useToast();
     const { getConsignorById, updateConsignor } = useConsignors();
-    const { items, isLoading: itemsLoading } = useInventory(id);
+    const { items, isLoading: itemsLoading } = useInventory({
+        consignorId: id,
+        includeInactiveConsignors: true,
+    });
     const {
         payments,
         isLoading: paymentsLoading,

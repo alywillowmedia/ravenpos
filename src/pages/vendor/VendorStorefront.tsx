@@ -69,7 +69,8 @@ export function VendorStorefront() {
                         storefront_logo_url,
                         storefront_header_image_url,
                         storefront_show_items,
-                        storefront_images_only
+                        storefront_images_only,
+                        is_active
                     `)
                     .eq('id', userRecord.consignor_id)
                     .single(),
@@ -89,7 +90,13 @@ export function VendorStorefront() {
                 });
             }
 
-            try {
+	            if (consignorData?.is_active === false) {
+	                setItems([]);
+	                setIsLoading(false);
+	                return;
+	            }
+
+	            try {
                 const allItems: StorefrontItem[] = [];
                 let offset = 0;
                 let hasMore = true;

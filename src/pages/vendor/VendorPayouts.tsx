@@ -153,6 +153,37 @@ function getCoveredThroughDate(payout: Pick<Payout, 'period_end' | 'paid_at'>): 
     return periodEnd > paidAt ? paidAt : periodEnd;
 }
 
+function getPayoutCoverageWindow(
+    payout: Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>
+): { start: Date; end: Date } | null {
+    const coveredThrough = getCoveredThroughDate(payout);
+    if (!coveredThrough || !Number.isFinite(coveredThrough.getTime())) return null;
+
+    const periodStart = new Date(payout.period_start || payout.paid_at);
+    const paidAt = new Date(payout.paid_at);
+    const start = Number.isFinite(periodStart.getTime()) ? periodStart : paidAt;
+    if (!Number.isFinite(start.getTime())) return null;
+
+    return { start, end: coveredThrough };
+}
+
+function isSaleCoveredByPayout(
+    saleDate: Date,
+    payout: Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>
+): boolean {
+    const coverageWindow = getPayoutCoverageWindow(payout);
+    if (!coverageWindow || !Number.isFinite(saleDate.getTime())) return false;
+
+    return saleDate >= coverageWindow.start && saleDate <= coverageWindow.end;
+}
+
+function isSaleCoveredByAnyPayout(
+    saleDate: Date,
+    payouts: Array<Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>>
+): boolean {
+    return payouts.some((payout) => isSaleCoveredByPayout(saleDate, payout));
+}
+
 export function VendorPayouts() {
     const { userRecord } = useAuth();
     const [consignor, setConsignor] = useState<Consignor | null>(null);
@@ -185,16 +216,6 @@ export function VendorPayouts() {
                 .order('paid_at', { ascending: false });
 
             setPayouts(payoutData || []);
-
-            // Use the latest covered payout boundary (period_end) rather than paid_at.
-            // paid_at reflects when payment was made, but period_end reflects what sales
-            // were already included in that payout.
-            const lastPayoutDate = (payoutData || []).reduce<Date | null>((latestBoundary, payout) => {
-                const boundaryCandidate = getCoveredThroughDate(payout);
-                if (!boundaryCandidate) return latestBoundary;
-                if (!latestBoundary || boundaryCandidate > latestBoundary) return boundaryCandidate;
-                return latestBoundary;
-            }, null) || new Date(0);
 
             // Fetch sales since last payout (including payment_method for fee calc)
             const { data: saleItems } = await supabase
@@ -281,7 +302,7 @@ export function VendorPayouts() {
                         refunded_quantity: refundedItemsMap.get(item.id) || 0,
                     };
                 })
-                .filter((item) => new Date(item.completed_at) > lastPayoutDate)
+                .filter((item) => !isSaleCoveredByAnyPayout(new Date(item.completed_at), payoutData || []))
                 .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
 
             setPendingSales(pendingItems);

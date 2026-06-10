@@ -182,6 +182,37 @@ function getCoveredThroughDate(payout: Pick<Payout, 'period_end' | 'paid_at'>): 
     return periodEnd > paidAt ? paidAt : periodEnd;
 }
 
+function getPayoutCoverageWindow(
+    payout: Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>
+): { start: Date; end: Date } | null {
+    const coveredThrough = getCoveredThroughDate(payout);
+    if (!coveredThrough || !Number.isFinite(coveredThrough.getTime())) return null;
+
+    const periodStart = new Date(payout.period_start || payout.paid_at);
+    const paidAt = new Date(payout.paid_at);
+    const start = Number.isFinite(periodStart.getTime()) ? periodStart : paidAt;
+    if (!Number.isFinite(start.getTime())) return null;
+
+    return { start, end: coveredThrough };
+}
+
+function isSaleCoveredByPayout(
+    saleDate: Date,
+    payout: Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>
+): boolean {
+    const coverageWindow = getPayoutCoverageWindow(payout);
+    if (!coverageWindow || !Number.isFinite(saleDate.getTime())) return false;
+
+    return saleDate >= coverageWindow.start && saleDate <= coverageWindow.end;
+}
+
+function isSaleCoveredByAnyPayout(
+    saleDate: Date,
+    payouts: Array<Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>>
+): boolean {
+    return payouts.some((payout) => isSaleCoveredByPayout(saleDate, payout));
+}
+
 function getDueBoothRentMonths(
     consignorPayouts: Payout[],
     consignorBoothRentPayments: BoothRentPaymentRecord[]
@@ -387,25 +418,18 @@ export function usePayouts() {
                 const consignorPayouts = allPayouts.filter((p) => p.consignor_id === consignor.id);
                 // allPayouts is already ordered by paid_at DESC.
                 const lastPayout = consignorPayouts[0] || null;
-                const lastPayoutBoundary = consignorPayouts.reduce<Date | null>((latest, payout) => {
-                    const boundaryCandidate = getCoveredThroughDate(payout);
-                    if (!boundaryCandidate) return latest;
-                    if (!latest || boundaryCandidate > latest) return boundaryCandidate;
-                    return latest;
-                }, null);
-                const lastPayoutDate = lastPayoutBoundary || new Date(0);
                 const deferredCarryover = getDeferredBalanceCarryover(consignorPayouts);
                 const consignorBoothRentPayments = boothRentPayments.filter(
                     (payment: BoothRentPaymentRecord) => payment.consignor_id === consignor.id
                 );
 
-                // Filter sale items for this consignor since last payout
+                // Filter sale items for this consignor that have not been covered by any payout window.
                 const consignorSaleItems = saleItems
                     .filter((item: SaleItemWithJoins) => {
                         if (item.consignor_id !== consignor.id) return false;
                         if (!item.sale) return false;
                         const saleDate = new Date(item.sale.completed_at);
-                        return saleDate > lastPayoutDate;
+                        return !isSaleCoveredByAnyPayout(saleDate, consignorPayouts);
                     });
 
                 // Calculate totals

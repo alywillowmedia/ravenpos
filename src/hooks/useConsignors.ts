@@ -289,26 +289,19 @@ export function useConsignors() {
 
     const deleteConsignor = useCallback(async (id: string) => {
         try {
-            // Historical sale_items rows can still reference this consignor and block delete.
-            // Clear them first to honor the UI's destructive delete warning.
-            const { error: deleteSaleItemsError } = await supabase
-                .from('sale_items')
-                .delete()
-                .eq('consignor_id', id);
-
-            if (deleteSaleItemsError) throw deleteSaleItemsError;
-
-            const { error: deleteError } = await supabase
+            const { data, error: deleteError } = await supabase
                 .from('consignors')
-                .delete()
-                .eq('id', id);
+                .update({ is_active: false })
+                .eq('id', id)
+                .select()
+                .single();
 
             if (deleteError) throw deleteError;
 
-            setConsignors((prev) => prev.filter((c) => c.id !== id));
+            setConsignors((prev) => prev.map((c) => (c.id === id ? data as Consignor : c)));
             return { error: null };
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to delete consignor';
+            const message = err instanceof Error ? err.message : 'Failed to deactivate consignor';
             return { error: message };
         }
     }, []);

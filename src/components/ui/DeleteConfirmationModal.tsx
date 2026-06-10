@@ -27,20 +27,20 @@ export function DeleteConfirmationModal({
     targetName,
     itemCount = 0,
     description,
-    title = '⚠️ Delete Vendor',
+    title = 'Confirm Action',
     warningIntro,
     consequences,
     confirmActionLabel = 'Delete',
-    confirmButtonLabel = 'Permanently Delete',
+    confirmButtonLabel = 'Confirm',
     warningLabel = 'WARNING: This action cannot be undone',
 }: DeleteConfirmationModalProps) {
     const [confirmText, setConfirmText] = useState('');
     const requiredText = `${confirmActionLabel} ${targetName}`;
     const isConfirmed = confirmText.trim() === requiredText;
     const warningLines = consequences || [
-        'Their vendor profile and account',
-        `All ${itemCount} item${itemCount !== 1 ? 's' : ''} in their inventory`,
-        'All associated transaction history',
+        'This profile status',
+        `${itemCount} related item${itemCount !== 1 ? 's' : ''}, if this action changes their visibility`,
+        'Access or workflow behavior connected to this profile',
     ];
     const warningHeading = warningIntro || `Deleting ${targetName}'s information will permanently remove:`;
 

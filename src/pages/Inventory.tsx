@@ -63,6 +63,10 @@ export function Inventory() {
     const toast = useToast();
     const { consignors } = useConsignors();
     const { getCategoryNames } = useCategories();
+    const activeConsignors = useMemo(
+        () => consignors.filter((consignor) => consignor.is_active),
+        [consignors]
+    );
 
     const [editItem, setEditItem] = useState<Item | null>(null);
     const [isEditItemDirty, setIsEditItemDirty] = useState(false);
@@ -145,7 +149,7 @@ export function Inventory() {
 
     const consignorOptions = [
         { value: '', label: 'All Consignors' },
-        ...consignors.map((c) => ({ value: c.id, label: `${c.consignor_number} - ${c.name}` })),
+        ...activeConsignors.map((c) => ({ value: c.id, label: `${c.consignor_number} - ${c.name}` })),
     ];
 
     const categoryOptions = [
@@ -218,7 +222,7 @@ export function Inventory() {
         setIsTransferring(false);
 
         if (result.success) {
-            const target = consignors.find((c) => c.id === transferTargetConsignor);
+            const target = activeConsignors.find((c) => c.id === transferTargetConsignor);
             const targetLabel = target ? `${target.consignor_number} - ${target.name}` : 'selected vendor';
             setShowTransferModal(false);
             setTransferTargetConsignor('');
@@ -231,7 +235,7 @@ export function Inventory() {
         } else {
             toast.error('Some transfers failed', result.errors.slice(0, 2).join(' • '));
         }
-    }, [bulkEdit, consignors, selectedItems, toast, transferTargetConsignor, updateItems]);
+    }, [activeConsignors, bulkEdit, selectedItems, toast, transferTargetConsignor, updateItems]);
 
     const handleSaveChanges = useCallback(() => {
         setShowChangeSummary(true);
@@ -562,7 +566,7 @@ export function Inventory() {
                     userId={userRecord?.id || null}
                     items={discountTabItems}
                     categories={getCategoryNames()}
-                    consignors={consignors}
+                    consignors={activeConsignors}
                 />
             ) : (
                 <>
@@ -711,7 +715,7 @@ export function Inventory() {
                         label="Destination Vendor"
                         options={[
                             { value: '', label: 'Select vendor...' },
-                            ...consignors.map((c) => ({
+                            ...activeConsignors.map((c) => ({
                                 value: c.id,
                                 label: `${c.consignor_number} - ${c.name}`,
                             })),
@@ -754,7 +758,7 @@ export function Inventory() {
                     <div onChangeCapture={() => setIsEditItemDirty(true)}>
                         <ItemForm
                             item={editItem}
-                            consignors={consignors}
+                            consignors={activeConsignors}
                             categories={getCategoryNames()}
                             onSubmit={handleUpdate}
                             onCancel={closeEditItemModal}

@@ -138,6 +138,8 @@ export interface ConsignorTaxReportRow {
     salesTotals: ConsignorTaxReportSalesTotals;
     payoutTotals: ConsignorTaxReportPayoutTotals;
     earnedLessPaid: number;
+    openPayoutEstimate: number;
+    lastCoveredPayoutThrough: string | null;
     missingW9: boolean;
     thresholdReview: boolean;
     thresholdBasis: string;
@@ -471,6 +473,119 @@ function isDateInReportRange(value: string, startDate: string, endDate: string):
     return true;
 }
 
+function isDateOnOrBeforeReportEnd(value: string, endDate: string): boolean {
+    const target = new Date(value);
+    const end = parseReportDate(endDate, true);
+
+    if (!Number.isFinite(target.getTime())) return false;
+    if (Number.isFinite(end.getTime()) && target > end) return false;
+    return true;
+}
+
+function getCoveredThroughDate(payout: Pick<Payout, 'period_end' | 'paid_at'>): Date | null {
+    const paidAt = new Date(payout.paid_at);
+    const periodEnd = new Date(payout.period_end || payout.paid_at);
+    if (Number.isNaN(paidAt.getTime()) && Number.isNaN(periodEnd.getTime())) return null;
+    if (Number.isNaN(periodEnd.getTime())) return paidAt;
+    if (Number.isNaN(paidAt.getTime())) return periodEnd;
+
+    return periodEnd > paidAt ? paidAt : periodEnd;
+}
+
+function getPayoutCoverageWindow(
+    payout: Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>
+): { start: Date; end: Date } | null {
+    const coveredThrough = getCoveredThroughDate(payout);
+    if (!coveredThrough || !Number.isFinite(coveredThrough.getTime())) return null;
+
+    const periodStart = new Date(payout.period_start || payout.paid_at);
+    const paidAt = new Date(payout.paid_at);
+    const start = Number.isFinite(periodStart.getTime()) ? periodStart : paidAt;
+    if (!Number.isFinite(start.getTime())) return null;
+
+    return { start, end: coveredThrough };
+}
+
+function isSaleCoveredByPayout(
+    saleDate: Date,
+    payout: Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>
+): boolean {
+    const coverageWindow = getPayoutCoverageWindow(payout);
+    if (!coverageWindow || !Number.isFinite(saleDate.getTime())) return false;
+
+    return saleDate >= coverageWindow.start && saleDate <= coverageWindow.end;
+}
+
+function isSaleCoveredByAnyPayout(
+    saleDate: Date,
+    payouts: Array<Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>>
+): boolean {
+    return payouts.some((payout) => isSaleCoveredByPayout(saleDate, payout));
+}
+
+function getLatestCoveredThroughDate(payouts: Payout[], endDate: string): Date | null {
+    return payouts
+        .filter((payout) => isDateOnOrBeforeReportEnd(payout.paid_at, endDate))
+        .reduce<Date | null>((latest, payout) => {
+            const boundaryCandidate = getCoveredThroughDate(payout);
+            if (!boundaryCandidate) return latest;
+            if (!latest || boundaryCandidate > latest) return boundaryCandidate;
+            return latest;
+        }, null);
+}
+
+function getDeferredBalanceCarryover(payouts: Payout[], endDate: string): number {
+    let deferredBalanceOutstanding = 0;
+    const payoutTimeline = payouts
+        .filter((payout) => isDateOnOrBeforeReportEnd(payout.paid_at, endDate))
+        .sort((a, b) => new Date(a.paid_at).getTime() - new Date(b.paid_at).getTime());
+
+    for (const payout of payoutTimeline) {
+        if (!payout.is_partial) {
+            const isDateRangePayout = payout.notes?.startsWith('[Range Payout:') === true;
+            const includesDeferredCarryover = payout.notes?.includes('[Deferred Carryover Included]') === true;
+            if (!isDateRangePayout || includesDeferredCarryover) {
+                deferredBalanceOutstanding = 0;
+            }
+            continue;
+        }
+
+        const originalDue = Number(
+            payout.original_amount_due !== null && payout.original_amount_due !== undefined
+                ? payout.original_amount_due
+                : payout.amount
+        );
+        const paid = Number(payout.amount || 0);
+        const remaining = Math.max(0, originalDue - paid);
+        const disposition = payout.balance_disposition || 'deferred';
+
+        deferredBalanceOutstanding = disposition === 'deferred' ? remaining : 0;
+    }
+
+    return roundCurrency(deferredBalanceOutstanding);
+}
+
+function getOpenPayoutEstimate(
+    salesLines: CompletedPayoutSaleLine[],
+    payouts: Payout[],
+    endDate: string
+): { amount: number; lastCoveredThrough: string | null } {
+    const lastCoveredThroughDate = getLatestCoveredThroughDate(payouts, endDate);
+    const eligiblePayouts = payouts.filter((payout) => isDateOnOrBeforeReportEnd(payout.paid_at, endDate));
+    const deferredCarryover = getDeferredBalanceCarryover(payouts, endDate);
+    const openSales = salesLines
+        .filter((line) => {
+            const saleDate = new Date(line.saleDate);
+            return Number.isFinite(saleDate.getTime()) && !isSaleCoveredByAnyPayout(saleDate, eligiblePayouts);
+        })
+        .reduce((sum, line) => sum + Number(line.consignorShare || 0), 0);
+
+    return {
+        amount: roundCurrency(deferredCarryover + openSales),
+        lastCoveredThrough: lastCoveredThroughDate ? lastCoveredThroughDate.toISOString() : null,
+    };
+}
+
 function emptyTaxSalesTotals(): ConsignorTaxReportSalesTotals {
     return {
         salesCount: 0,
@@ -626,12 +741,14 @@ export function buildConsignorTaxReportFromData(
     let missingW9Count = 0;
 
     for (const consignor of consignors) {
+        const allPayoutsForConsignor = reportData.payoutsByConsignor.get(consignor.id) || [];
         const salesLines = (reportData.linesByConsignor.get(consignor.id) || [])
             .filter((line) => isDateInReportRange(line.saleDate, options.startDate, options.endDate));
-        const payouts = (reportData.payoutsByConsignor.get(consignor.id) || [])
+        const payouts = allPayoutsForConsignor
             .filter((payout) => isDateInReportRange(payout.paid_at, options.startDate, options.endDate));
         const salesTotals = getSalesTotalsForTaxReport(salesLines);
         const payoutTotals = getPayoutTotalsForTaxReport(payouts);
+        const openPayoutEstimate = getOpenPayoutEstimate(salesLines, allPayoutsForConsignor, options.endDate);
         const thresholdBasis = getThresholdBasis(salesTotals, payoutTotals, options.reviewThreshold);
         const thresholdReview = thresholdBasis.length > 0;
         const missingW9 = !consignor.has_w9_filled_out;
@@ -648,6 +765,8 @@ export function buildConsignorTaxReportFromData(
             salesTotals,
             payoutTotals,
             earnedLessPaid: roundCurrency(salesTotals.consignorEarnings - payoutTotals.totalPaid),
+            openPayoutEstimate: openPayoutEstimate.amount,
+            lastCoveredPayoutThrough: openPayoutEstimate.lastCoveredThrough,
             missingW9,
             thresholdReview,
             thresholdBasis,
@@ -670,7 +789,10 @@ export function buildConsignorTaxReportFromData(
     };
 }
 
-async function fetchConsignorReportData(consignorIds: string[]): Promise<ConsignorReportData> {
+async function fetchConsignorReportData(
+    consignorIds: string[],
+    options: { includeInactiveInventory?: boolean } = {}
+): Promise<ConsignorReportData> {
     if (consignorIds.length === 0) {
         return {
             totalsByConsignor: new Map(),
@@ -681,6 +803,26 @@ async function fetchConsignorReportData(consignorIds: string[]): Promise<Consign
         };
     }
 
+    const fetchInventoryItems = () => {
+        if (options.includeInactiveInventory) {
+            return supabase
+                .from('items')
+                .select('*')
+                .in('consignor_id', consignorIds)
+                .order('sku');
+        }
+
+        return supabase
+            .from('items')
+            .select(`
+                *,
+                consignor:consignors!inner(id, is_active)
+            `)
+            .in('consignor_id', consignorIds)
+            .eq('consignor.is_active', true)
+            .order('sku');
+    };
+
     const [saleItems, inventoryItems, payouts, boothRentPayments] = await Promise.all([
         fetchAllRows<SaleItemReportRow>(() => supabase
             .from('sale_items')
@@ -688,12 +830,7 @@ async function fetchConsignorReportData(consignorIds: string[]): Promise<Consign
             .in('consignor_id', consignorIds)
             .order('id')
         ),
-        fetchAllRows<Item>(() => supabase
-            .from('items')
-            .select('*')
-            .in('consignor_id', consignorIds)
-            .order('sku')
-        ),
+        fetchAllRows<Item>(fetchInventoryItems),
         fetchAllRows<Payout>(() => supabase
             .from('payouts')
             .select('*')
@@ -886,7 +1023,9 @@ export function buildConsignorTaxSummaryCsvRows(report: ConsignorTaxReport): Csv
         'Ledger Deductions',
         'Invoice Deductions',
         'Total Deductions',
-        'Earned Less Paid',
+        'Open Payout Estimate',
+        'Last Covered Payout Through',
+        'Sale-Date Earnings Less Paid',
         '1099 Review Amount',
         'Review Status',
         'Review Reason',
@@ -920,6 +1059,8 @@ export function buildConsignorTaxSummaryCsvRows(report: ConsignorTaxReport): Csv
             row.payoutTotals.ledgerDeductions.toFixed(2),
             row.payoutTotals.invoiceDeductions.toFixed(2),
             row.payoutTotals.totalDeductions.toFixed(2),
+            row.openPayoutEstimate.toFixed(2),
+            row.lastCoveredPayoutThrough || '',
             row.earnedLessPaid.toFixed(2),
             report.reviewThreshold.toFixed(2),
             row.thresholdReview ? 'Review' : 'Below review amount',
@@ -955,6 +1096,7 @@ export function buildConsignorTaxDetailCsvRows(report: ConsignorTaxReport): CsvC
         'Marketing Fee Deduction',
         'Ledger Deduction',
         'Invoice Deduction',
+        'Partial/Carryover Adjustment',
         'Notes',
     ]];
 
@@ -979,6 +1121,7 @@ export function buildConsignorTaxDetailCsvRows(report: ConsignorTaxReport): CsvC
                 line.consignorShare.toFixed(2),
                 line.storeShare.toFixed(2),
                 line.creditCardFee.toFixed(2),
+                '',
                 '',
                 '',
                 '',
@@ -1013,6 +1156,7 @@ export function buildConsignorTaxDetailCsvRows(report: ConsignorTaxReport): CsvC
                 Number(payout.marketing_fee_deduction || 0).toFixed(2),
                 Number(payout.ledger_deduction || 0).toFixed(2),
                 Number(payout.invoice_deduction || 0).toFixed(2),
+                getPayoutCarryoverAdjustment(payout).toFixed(2),
                 payout.notes || '',
             ]);
         }
@@ -1024,6 +1168,7 @@ export function buildConsignorTaxDetailCsvRows(report: ConsignorTaxReport): CsvC
                 report.endDate,
                 row.consignor.consignor_number,
                 getConsignorDisplayName(row.consignor),
+                '',
                 '',
                 '',
                 '',
@@ -1064,6 +1209,32 @@ function renderMoneyCell(value: number): string {
     return `$${money(value)}`;
 }
 
+function getPayoutStructuredDeductions(payout: Payout): number {
+    return Number(payout.booth_rent_deduction || 0)
+        + Number(payout.marketing_fee_deduction || 0)
+        + Number(payout.ledger_deduction || 0)
+        + Number(payout.invoice_deduction || 0);
+}
+
+function getPayoutExpectedAmountFromSavedFields(payout: Payout): number {
+    return roundCurrency(
+        Number(payout.gross_sales || 0)
+        - Number(payout.store_share || 0)
+        - Number(payout.credit_card_fees || 0)
+        - getPayoutStructuredDeductions(payout)
+    );
+}
+
+function getPayoutCarryoverAdjustment(payout: Payout): number {
+    return roundCurrency(Number(payout.amount || 0) - getPayoutExpectedAmountFromSavedFields(payout));
+}
+
+function renderSignedMoneyCell(value: number): string {
+    if (value > 0) return `+${renderMoneyCell(value)}`;
+    if (value < 0) return `-${renderMoneyCell(Math.abs(value))}`;
+    return renderMoneyCell(0);
+}
+
 export function printConsignorTaxStatements(report: ConsignorTaxReport, selectedIds?: string[]): boolean {
     const selectedIdSet = selectedIds && selectedIds.length > 0 ? new Set(selectedIds) : null;
     const rows = selectedIdSet
@@ -1085,17 +1256,23 @@ export function printConsignorTaxStatements(report: ConsignorTaxReport, selected
                 </tr>
             `;
         }).join('');
-        const payoutRows = row.payouts.map((payout) => `
-            <tr>
-                <td>${escapeHtml(formatTaxReportDateTime(payout.paid_at))}</td>
-                <td>${escapeHtml(payout.id.slice(0, 8).toUpperCase())}</td>
-                <td class="right">${renderMoneyCell(Number(payout.gross_sales || 0))}</td>
-                <td class="right">${renderMoneyCell(Number(payout.booth_rent_deduction || 0))}</td>
-                <td class="right">${renderMoneyCell(Number(payout.marketing_fee_deduction || 0))}</td>
-                <td class="right">${renderMoneyCell(Number(payout.ledger_deduction || 0) + Number(payout.invoice_deduction || 0))}</td>
-                <td class="right">${renderMoneyCell(Number(payout.amount || 0))}</td>
-            </tr>
-        `).join('');
+        const payoutRows = row.payouts.map((payout) => {
+            const carryoverAdjustment = getPayoutCarryoverAdjustment(payout);
+            return `
+                <tr>
+                    <td>${escapeHtml(formatTaxReportDateTime(payout.paid_at))}</td>
+                    <td>${escapeHtml(payout.id.slice(0, 8).toUpperCase())}</td>
+                    <td class="right">${renderMoneyCell(Number(payout.gross_sales || 0))}</td>
+                    <td class="right">${renderMoneyCell(Number(payout.store_share || 0))}</td>
+                    <td class="right">${renderMoneyCell(Number(payout.credit_card_fees || 0))}</td>
+                    <td class="right">${renderMoneyCell(Number(payout.booth_rent_deduction || 0))}</td>
+                    <td class="right">${renderMoneyCell(Number(payout.marketing_fee_deduction || 0))}</td>
+                    <td class="right">${renderMoneyCell(Number(payout.ledger_deduction || 0) + Number(payout.invoice_deduction || 0))}</td>
+                    <td class="right">${renderSignedMoneyCell(carryoverAdjustment)}</td>
+                    <td class="right">${renderMoneyCell(Number(payout.amount || 0))}</td>
+                </tr>
+            `;
+        }).join('');
 
         return `
             <section class="statement">
@@ -1129,9 +1306,11 @@ export function printConsignorTaxStatements(report: ConsignorTaxReport, selected
                     <div><span class="label">Gross Sales Earned</span><strong>${renderMoneyCell(row.salesTotals.grossSales)}</strong></div>
                     <div><span class="label">Consignor Earnings</span><strong>${renderMoneyCell(row.salesTotals.consignorEarnings)}</strong></div>
                     <div><span class="label">Payouts Paid</span><strong>${renderMoneyCell(row.payoutTotals.totalPaid)}</strong></div>
-                    <div><span class="label">Earned Less Paid</span><strong>${renderMoneyCell(row.earnedLessPaid)}</strong></div>
+                    <div><span class="label">Open Payout Estimate</span><strong>${renderMoneyCell(row.openPayoutEstimate)}</strong></div>
                     <div><span class="label">Sales Tax Collected</span><strong>${renderMoneyCell(row.salesTotals.taxCollected)}</strong></div>
+                    <div><span class="label">Store Share Retained</span><strong>${renderMoneyCell(row.payoutTotals.storeShare)}</strong></div>
                     <div><span class="label">Deductions From Payouts</span><strong>${renderMoneyCell(row.payoutTotals.totalDeductions)}</strong></div>
+                    <div><span class="label">Sale-Date Reconciliation</span><strong>${renderMoneyCell(row.earnedLessPaid)}</strong></div>
                 </div>
 
                 <h2>Sales Earned During Period</h2>
@@ -1160,9 +1339,12 @@ export function printConsignorTaxStatements(report: ConsignorTaxReport, selected
                                 <th>Paid At</th>
                                 <th>Payout</th>
                                 <th class="right">Payout Gross Sales</th>
+                                <th class="right">Store Share</th>
+                                <th class="right">Card Fees</th>
                                 <th class="right">Booth Rent</th>
                                 <th class="right">Marketing</th>
                                 <th class="right">Ledger/Invoice</th>
+                                <th class="right">Partial/Carryover</th>
                                 <th class="right">Paid</th>
                             </tr>
                         </thead>
@@ -1171,7 +1353,9 @@ export function printConsignorTaxStatements(report: ConsignorTaxReport, selected
                 ` : '<p>No payouts were paid to this consignor during the selected period.</p>'}
 
                 <p class="footer">
-                    Sales totals use completed sale dates. Payout totals use paid dates. Sales tax is shown separately and is not included as consignor income.
+                    Open payout estimate uses sale earnings not covered by a payout window${row.lastCoveredPayoutThrough ? `; latest covered through ${escapeHtml(formatTaxReportDateTime(row.lastCoveredPayoutThrough))}` : ''}.
+                    Sale-date reconciliation compares all sale earnings in the selected period to payouts paid in the selected period, so it can include timing differences and prior deferred carryover.
+                    Sales tax is shown separately and is not included as consignor income.
                     Generated ${escapeHtml(formatTaxReportDateTime(report.generatedAt))}.
                 </p>
             </section>
@@ -1510,7 +1694,7 @@ export async function buildConsignorDetailCsvRows(
     const selectedSections = new Set<ConsignorDetailExportSection>(
         sections.length > 0 ? sections : DEFAULT_CONSIGNOR_DETAIL_EXPORT_SECTIONS
     );
-    const reportData = await fetchConsignorReportData([consignor.id]);
+    const reportData = await fetchConsignorReportData([consignor.id], { includeInactiveInventory: true });
     const inventory = reportData.inventoryByConsignor.get(consignor.id) || [];
     const totals = reportData.totalsByConsignor.get(consignor.id) || emptyTotals();
     const saleLines = reportData.linesByConsignor.get(consignor.id) || [];

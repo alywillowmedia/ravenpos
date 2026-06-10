@@ -135,20 +135,22 @@ export async function restorePosSavedCart(savedCart: PosSavedCart): Promise<{ da
         const latestItemsById = new Map<string, Item>();
 
         if (inventoryItemIds.length > 0) {
-            const { data, error } = await supabase
-                .from('items')
-                .select(`
-                    *,
-                    consignor:consignors(
-                        id,
-                        consignor_number,
-                        name,
-                        commission_split,
-                        consignor_pays_card_fee,
-                        dealer_discount_percent
-                    )
-                `)
-                .in('id', inventoryItemIds);
+	            const { data, error } = await supabase
+	                .from('items')
+	                .select(`
+	                    *,
+	                    consignor:consignors!inner(
+	                        id,
+	                        consignor_number,
+	                        name,
+	                        commission_split,
+	                        consignor_pays_card_fee,
+	                        dealer_discount_percent,
+	                        is_active
+	                    )
+	                `)
+	                .in('id', inventoryItemIds)
+	                .eq('consignor.is_active', true);
 
             if (error) throw error;
 

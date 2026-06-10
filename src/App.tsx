@@ -151,7 +151,9 @@ export default function App() {
                         <Route path="employees" element={<Employees />} />
                         <Route path="employees/roles" element={<EmployeeRoleSettings />} />
                         <Route path="employees/schedule" element={<EmployeeSchedule />} />
-                        <Route path="employees/payouts" element={<EmployeePayouts />} />
+                        <Route path="employees/payroll" element={<EmployeePayouts />} />
+                        <Route path="employees/payroll/:employeeId" element={<EmployeePayouts />} />
+                        <Route path="employees/payouts" element={<Navigate to="/admin/employees/payroll" replace />} />
                         <Route path="employees/payouts/:employeeId" element={<EmployeePayouts />} />
                         <Route path="integrations" element={<Integrations />} />
                         <Route path="shopify-setup" element={<ShopifySetup />} />

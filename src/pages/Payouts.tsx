@@ -37,6 +37,20 @@ function parseLocalDateInput(value: string, endOfDay = false): Date {
     return parsed;
 }
 
+function getIncludedSaleDateBounds(summary: ConsignorPayoutSummary): { start: string; end: string } | null {
+    const saleDates = summary.salesSinceLastPayout
+        .map((sale) => new Date(sale.saleDate))
+        .filter((date) => Number.isFinite(date.getTime()))
+        .sort((a, b) => a.getTime() - b.getTime());
+
+    if (saleDates.length === 0) return null;
+
+    return {
+        start: saleDates[0].toISOString(),
+        end: saleDates[saleDates.length - 1].toISOString(),
+    };
+}
+
 export function Payouts() {
     const {
         consignorSummaries,
@@ -344,9 +358,13 @@ export function Payouts() {
             ? parseFloat(customAmount)
             : undefined;
         const includesDeferredCarryover = Number(selectedPayoutSummary.deferredBalanceCarryover || 0) > 0;
+        const includedSaleDateBounds = getIncludedSaleDateBounds(selectedPayoutSummary);
         const payoutNotesForRecord = isDateScopedPendingView && dateRange.start && dateRange.end
             ? [
                 `[Range Payout: ${selectedRangeLabel}]`,
+                includedSaleDateBounds
+                    ? `[Covered Sales: ${new Date(includedSaleDateBounds.start).toLocaleString()} - ${new Date(includedSaleDateBounds.end).toLocaleString()}]`
+                    : '',
                 includesDeferredCarryover ? '[Deferred Carryover Included]' : '',
                 payoutNotes,
             ].filter(Boolean).join(' ')
@@ -361,8 +379,8 @@ export function Payouts() {
             useCustomAmount ? balanceDisposition : undefined,
             isDateScopedPendingView && dateRange.start && dateRange.end
                 ? {
-                    periodStartOverride: dateRange.start.toISOString(),
-                    periodEndOverride: dateRange.end.toISOString(),
+                    periodStartOverride: includedSaleDateBounds?.start || dateRange.start.toISOString(),
+                    periodEndOverride: includedSaleDateBounds?.end || dateRange.end.toISOString(),
                 }
                 : undefined
         );
@@ -1193,7 +1211,7 @@ export function Payouts() {
                         <div className="bg-[var(--color-warning-bg)] rounded-lg p-4 border border-[var(--color-warning)]">
                             <p className="text-sm text-[var(--color-warning)] font-medium">
                                 {isDateScopedPendingView
-                                    ? `This payout is scoped to ${selectedRangeLabel}. If the range extends past right now, the recorded coverage will stop at the current time so later sales can still appear.`
+                                    ? `This payout is scoped to ${selectedRangeLabel}. The recorded coverage will stop at the latest sale included in this payout so unpaid sales roll forward.`
                                     : useCustomAmount && balanceDisposition === 'forgiven'
                                     ? 'This will record a partial payout and forgive the remaining balance. The forgiven amount will not be owed to the consignor.'
                                     : useCustomAmount && balanceDisposition === 'deferred'

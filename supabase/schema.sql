@@ -44,7 +44,7 @@ CREATE TABLE consignors (
 -- Items table
 CREATE TABLE items (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  consignor_id UUID NOT NULL REFERENCES consignors(id) ON DELETE CASCADE,
+  consignor_id UUID NOT NULL REFERENCES consignors(id) ON DELETE RESTRICT,
   sku VARCHAR(500) UNIQUE NOT NULL,
   name VARCHAR(500) NOT NULL,
   variant_summary VARCHAR(500),
