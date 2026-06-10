@@ -14,21 +14,21 @@ export function ProductCard({ item }: ProductCardProps) {
     return (
         <Link
             to={buildItemPath(item)}
-            className="group block bg-[var(--color-surface-elevated)] rounded-3xl border-2 border-[var(--color-border)] overflow-hidden hover:shadow-2xl hover:-translate-y-1 hover:border-[var(--color-primary)] transition-all duration-300"
+            className="group block focus:outline-none"
         >
-            {/* Image Container */}
-            <div className="aspect-square bg-[var(--color-surface)] relative overflow-hidden">
+            {/* Image — the hero of the card */}
+            <div className="relative aspect-[7/8] overflow-hidden rounded-2xl bg-[var(--color-surface)] shadow-[var(--shadow-gallery)] ring-1 ring-[var(--color-border)] transition-all duration-500 group-hover:shadow-[var(--shadow-gallery-lifted)] group-hover:-translate-y-0.5">
                 {item.image_url ? (
                     <img
                         src={item.image_url}
                         alt={item.name}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
+                        className="h-full w-full object-cover transition-transform duration-[900ms] ease-out group-hover:scale-105"
                         loading="lazy"
                     />
                 ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[var(--color-surface)] to-[var(--color-surface-hover)]">
+                    <div className="flex h-full w-full items-center justify-center">
                         <svg
-                            className="w-16 h-16 text-[var(--color-muted-foreground)]/50"
+                            className="h-14 w-14 text-[var(--color-muted-foreground)]/50"
                             fill="none"
                             viewBox="0 0 24 24"
                             stroke="currentColor"
@@ -42,56 +42,31 @@ export function ProductCard({ item }: ProductCardProps) {
                         </svg>
                     </div>
                 )}
-
-                {/* Category Badge */}
-                <div className="absolute top-4 left-4">
-                    <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-white/90 backdrop-blur-md text-black shadow-sm border border-black/5">
-                        {item.category}
-                    </span>
-                </div>
             </div>
 
-            {/* Content */}
-            <div className="p-5">
-                {/* Item Name */}
-                <h3 className="text-lg font-bold text-[var(--color-foreground)] group-hover:text-[var(--color-primary)] transition-colors line-clamp-1">
+            {/* Content — quiet, typographic */}
+            <div className="px-1 pt-4">
+                <p className="ravenlia-eyebrow">{item.category}</p>
+
+                <h3 className="mt-1.5 text-lg leading-snug text-[var(--color-foreground)] transition-colors group-hover:text-[var(--color-primary)] line-clamp-1">
                     {item.name}
                 </h3>
 
                 {detailLines.length > 0 && (
-                    <div className="mt-1 space-y-1">
-                        {detailLines.slice(0, 2).map((line, idx) => (
-                            <p key={`${item.id}-detail-${idx}`} className="text-sm text-[var(--color-muted)] line-clamp-1 font-medium">
-                                {line}
-                            </p>
-                        ))}
-                    </div>
+                    <p className="mt-0.5 text-sm text-[var(--color-muted)] line-clamp-1">
+                        {detailLines[0]}
+                    </p>
                 )}
 
-                {/* Vendor Info */}
-                <div className="flex items-center gap-2 mt-3">
-                    <div className="w-6 h-6 rounded-full bg-[var(--color-primary)]/10 flex items-center justify-center flex-shrink-0 border border-[var(--color-primary)]/20">
-                        <span className="text-[10px] font-bold text-[var(--color-primary)]">
-                            {vendorName.charAt(0).toUpperCase()}
-                        </span>
-                    </div>
-                    <p className="text-sm text-[var(--color-muted)] font-medium truncate">
+                <div className="mt-3 flex items-baseline justify-between gap-3 border-t border-[var(--color-border)] pt-3">
+                    <span className="truncate text-xs text-[var(--color-muted)]">
                         {vendorName}
                         {boothLocation && (
-                            <span className="text-[var(--color-muted-foreground)]">
-                                {' · '}Booth {boothLocation}
-                            </span>
+                            <span className="text-[var(--color-muted-foreground)]">{` · Booth ${boothLocation}`}</span>
                         )}
-                    </p>
-                </div>
-
-                {/* Price */}
-                <div className="mt-4 flex items-center justify-between pt-4 border-t border-[var(--color-border)]">
-                    <span className="text-xl font-black text-[var(--color-foreground)]">
-                        ${item.price.toFixed(2)}
                     </span>
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-[var(--color-success)]/10 text-[var(--color-success)]">
-                        In Stock
+                    <span className="shrink-0 text-base font-medium tracking-tight text-[var(--color-foreground)]">
+                        ${item.price.toFixed(2)}
                     </span>
                 </div>
             </div>

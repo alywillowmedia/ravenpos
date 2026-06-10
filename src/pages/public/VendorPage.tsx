@@ -29,6 +29,7 @@ export function VendorPage() {
     const [items, setItems] = useState<Item[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [descExpanded, setDescExpanded] = useState(false);
 
     useEffect(() => {
         const fetchVendorAndItems = async () => {
@@ -173,9 +174,8 @@ export function VendorPage() {
                                 .order('id', { ascending: false });
                         }
 
-                        if ((freshVendorData as Vendor).storefront_images_only) {
-                            query = query.not('image_url', 'is', null);
-                        }
+                        // Storefront only ever shows items that have a photo
+                        query = query.not('image_url', 'is', null).neq('image_url', '');
 
                         const { data: batch, error: batchError } = await query;
                         if (batchError) throw batchError;
@@ -242,113 +242,134 @@ export function VendorPage() {
     const regularItems = items.filter((item) => !featuredItemIds.has(item.id));
     const visibleCount = items.length;
 
-    return (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fadeIn">
-            {/* Back Link */}
-            <Link
-                to="/"
-                className="inline-flex items-center gap-2 text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors mb-6"
-            >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                Back to home
-            </Link>
+    const hasHeader = Boolean(vendor.storefront_header_image_url);
 
-            {/* Vendor Header */}
-            <div className="bg-[var(--color-surface-elevated)] rounded-2xl border-2 border-[var(--color-border)] overflow-hidden mb-8">
-                {vendor.storefront_header_image_url && (
-                    <div className="h-40 sm:h-52">
+    return (
+        <div className="animate-fadeIn">
+            {/* Branded storefront header */}
+            <header className="relative border-b border-[var(--color-border)]">
+                {hasHeader ? (
+                    <div className="relative h-56 sm:h-72 lg:h-80 overflow-hidden">
                         <img
-                            src={vendor.storefront_header_image_url}
+                            src={vendor.storefront_header_image_url ?? undefined}
                             alt={`${vendorName} header`}
-                            className="w-full h-full object-cover"
+                            className="absolute inset-0 h-full w-full object-cover"
                         />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-black/10" />
                     </div>
+                ) : (
+                    <div className="h-32 sm:h-40 bg-[var(--color-surface)]" />
                 )}
-                <div className="p-6">
-                    <div className="flex items-center gap-4">
+
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    {/* Back link floats over the header */}
+                    <Link
+                        to="/vendors"
+                        className={`absolute top-5 left-4 sm:left-6 lg:left-8 inline-flex items-center gap-2 text-sm transition-colors ${hasHeader ? 'text-white/90 hover:text-white drop-shadow' : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        All vendors
+                    </Link>
+
+                    {/* Identity block — logo overlaps the header image */}
+                    <div className="-mt-12 sm:-mt-14 pb-8 flex flex-col sm:flex-row sm:items-end gap-5">
                         {vendor.storefront_logo_url ? (
                             <img
                                 src={vendor.storefront_logo_url}
                                 alt={`${vendorName} logo`}
-                                className="w-16 h-16 rounded-full object-cover flex-shrink-0 border border-black/20"
+                                className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl object-cover flex-shrink-0 ring-4 ring-[var(--color-background)] shadow-[var(--shadow-gallery-lifted)] bg-[var(--color-surface)]"
                             />
                         ) : (
-                            <div className="w-16 h-16 rounded-full bg-[var(--color-primary)] flex items-center justify-center flex-shrink-0 border border-black/20">
-                                <span className="text-3xl font-bold text-[var(--color-primary-foreground)]">
+                            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-[var(--color-primary)] flex items-center justify-center flex-shrink-0 ring-4 ring-[var(--color-background)] shadow-[var(--shadow-gallery-lifted)]">
+                                <span className="text-4xl text-[var(--color-primary-foreground)]">
                                     {vendorName.charAt(0).toUpperCase()}
                                 </span>
                             </div>
                         )}
 
-                        <div>
-                            <h1 className="text-2xl font-bold text-[var(--color-foreground)]">
+                        <div className="sm:pb-1">
+                            <p className="ravenlia-eyebrow mb-1">Vendor</p>
+                            <h1 className="text-3xl sm:text-4xl text-[var(--color-foreground)] leading-tight">
                                 {vendorName}
                             </h1>
-                            {vendor.booth_location && (
-                                <p className="text-[var(--color-muted)] mt-1">
-                                    Booth {vendor.booth_location}
-                                </p>
-                            )}
-                            <p className="text-sm text-[var(--color-muted)] mt-2">
-                                {visibleCount} {visibleCount === 1 ? 'item' : 'items'} available
-                            </p>
+                            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--color-muted)]">
+                                {vendor.booth_location && <span>Booth {vendor.booth_location}</span>}
+                                {vendor.booth_location && <span className="h-1 w-1 rounded-full bg-[var(--color-muted-foreground)]" aria-hidden />}
+                                <span>{visibleCount} {visibleCount === 1 ? 'piece' : 'pieces'} available</span>
+                            </div>
                         </div>
                     </div>
 
-                    {vendor.storefront_description && (
-                        <p className="text-[var(--color-muted)] mt-4 whitespace-pre-wrap">
-                            {vendor.storefront_description}
-                        </p>
-                    )}
+                    {vendor.storefront_description && (() => {
+                        const isLong = vendor.storefront_description.length > 280;
+                        return (
+                            <div className="max-w-2xl pb-10">
+                                <p
+                                    className={`text-[var(--color-muted)] leading-relaxed whitespace-pre-wrap ${isLong && !descExpanded ? 'line-clamp-5' : ''}`}
+                                >
+                                    {vendor.storefront_description}
+                                </p>
+                                {isLong && (
+                                    <button
+                                        onClick={() => setDescExpanded((v) => !v)}
+                                        className="mt-2 inline-flex items-center gap-1 text-sm text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]"
+                                    >
+                                        {descExpanded ? 'Show less' : 'Read more'}
+                                        <svg className={`h-3.5 w-3.5 transition-transform ${descExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                    </button>
+                                )}
+                            </div>
+                        );
+                    })()}
                 </div>
-            </div>
+            </header>
 
-            {/* Items Grid */}
-            {!vendor.storefront_show_items ? (
-                <div className="text-center py-16">
-                    <p className="text-[var(--color-muted)]">
+            {/* Items */}
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+                {!vendor.storefront_show_items ? (
+                    <div className="text-center py-20 text-[var(--color-muted)]">
                         This vendor is not showing storefront items right now.
-                    </p>
-                </div>
-            ) : items.length === 0 ? (
-                <div className="text-center py-16">
-                    <p className="text-[var(--color-muted)]">
+                    </div>
+                ) : items.length === 0 ? (
+                    <div className="text-center py-20 text-[var(--color-muted)]">
                         This vendor has no items listed at the moment.
-                    </p>
-                </div>
-            ) : (
-                <div className="space-y-10">
-                    {featuredItems.length > 0 && (
-                        <section>
-                            <h2 className="text-xl font-semibold text-[var(--color-foreground)] mb-4">
-                                Featured Items
-                            </h2>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                {featuredItems.map((item) => (
-                                    <ProductCard key={item.id} item={item} />
-                                ))}
-                            </div>
-                        </section>
-                    )}
+                    </div>
+                ) : (
+                    <div className="space-y-16">
+                        {featuredItems.length > 0 && (
+                            <section>
+                                <p className="ravenlia-eyebrow mb-2">Hand-selected</p>
+                                <h2 className="text-2xl text-[var(--color-foreground)] mb-8">Featured Items</h2>
+                                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-10">
+                                    {featuredItems.map((item) => (
+                                        <ProductCard key={item.id} item={item} />
+                                    ))}
+                                </div>
+                            </section>
+                        )}
 
-                    {regularItems.length > 0 && (
-                        <section>
-                            {featuredItems.length > 0 && (
-                                <h2 className="text-xl font-semibold text-[var(--color-foreground)] mb-4">
-                                    More from {vendorName}
-                                </h2>
-                            )}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                {regularItems.map((item) => (
-                                    <ProductCard key={item.id} item={item} />
-                                ))}
-                            </div>
-                        </section>
-                    )}
-                </div>
-            )}
+                        {regularItems.length > 0 && (
+                            <section>
+                                {featuredItems.length > 0 && (
+                                    <>
+                                        <p className="ravenlia-eyebrow mb-2">The collection</p>
+                                        <h2 className="text-2xl text-[var(--color-foreground)] mb-8">More from {vendorName}</h2>
+                                    </>
+                                )}
+                                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-10">
+                                    {regularItems.map((item) => (
+                                        <ProductCard key={item.id} item={item} />
+                                    ))}
+                                </div>
+                            </section>
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

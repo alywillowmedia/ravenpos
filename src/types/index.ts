@@ -362,6 +362,7 @@ export interface DashboardStats {
     activeConsignors: number;
     totalItems: number;
     totalQuantity: number;
+    totalInventoryValue: number;
     todaySalesCount: number;
     todaySalesTotal: number;
 }

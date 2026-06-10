@@ -49,6 +49,8 @@ export function CategoryPage() {
                         .gt('quantity', 0)
                         .eq('consignor.is_active', true)
                         .eq('consignor.storefront_show_items', true)
+                        .not('image_url', 'is', null)
+                        .neq('image_url', '')
                         .order('created_at', { ascending: false })
                         .order('id', { ascending: false })
                         .range(offset, offset + CATEGORY_PAGE_FETCH_BATCH_SIZE - 1);
@@ -89,7 +91,7 @@ export function CategoryPage() {
             {/* Back Link */}
             <Link
                 to="/"
-                className="inline-flex items-center gap-2 text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors mb-6"
+                className="inline-flex items-center gap-2 text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors mb-8"
             >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -98,12 +100,13 @@ export function CategoryPage() {
             </Link>
 
             {/* Category Header */}
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-[var(--color-foreground)]">
+            <div className="mb-10">
+                <p className="ravenlia-eyebrow mb-2">Category</p>
+                <h1 className="text-4xl text-[var(--color-foreground)]">
                     {decodedCategory}
                 </h1>
                 <p className="text-[var(--color-muted)] mt-2">
-                    {items.length} {items.length === 1 ? 'item' : 'items'} in this category
+                    {items.length} {items.length === 1 ? 'piece' : 'pieces'} in this category
                 </p>
             </div>
 
@@ -124,7 +127,7 @@ export function CategoryPage() {
                     </p>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-10">
                     {items.map((item) => (
                         <ProductCard key={item.id} item={item} />
                     ))}

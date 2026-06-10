@@ -34,73 +34,54 @@ export function PublicLayout() {
     return (
         <div className="min-h-screen ravenlia-storefront bg-[var(--color-background)] text-[var(--color-foreground)]">
             {!isEmbedMode && (
-                <header className="sticky top-0 z-50 bg-[var(--color-surface-elevated)]/80 backdrop-blur-xl border-b border-[var(--color-border)]/50 shadow-sm">
+                <header className="sticky top-0 z-50 bg-[var(--color-background)]/80 backdrop-blur-xl border-b border-[var(--color-border)]">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                         <div className="flex items-center justify-between gap-4 h-20">
-                            <Link to="/" className="flex items-center gap-3 group">
-                                <div className="w-12 h-12 rounded-2xl bg-[var(--color-primary)] flex items-center justify-center shadow-md border border-black/10 group-hover:scale-105 transition-transform">
-                                    <img src="/raven.svg" alt="" className="w-8 h-8" />
-                                </div>
-                                <span className="text-xl sm:text-2xl font-bold text-[var(--color-foreground)] group-hover:text-[var(--color-primary)] transition-colors tracking-tight">
+                            <Link to="/" className="flex items-center gap-2.5 group">
+                                <img src="/raven.svg" alt="" className="w-7 h-7 transition-transform group-hover:scale-105" />
+                                <span className="ravenlia-display text-xl sm:text-2xl text-[var(--color-foreground)] transition-colors group-hover:text-[var(--color-primary)]">
                                     Ravenlia Galleria
                                 </span>
                             </Link>
 
-                            <nav className="hidden md:flex items-center gap-2 bg-[var(--color-surface)]/50 px-2 py-1.5 rounded-full border border-[var(--color-border)]/50">
-                                <Link
-                                    to="/"
-                                    className={`px-5 py-2 rounded-full text-sm font-bold transition-all ${isActive('/')
-                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)] shadow-sm'
-                                        : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
-                                        }`}
-                                >
-                                    Home
-                                </Link>
-                                <Link
-                                    to="/categories"
-                                    className={`px-5 py-2 rounded-full text-sm font-bold transition-all ${isActive('/categories') || isActive('/category')
-                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)] shadow-sm'
-                                        : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
-                                        }`}
-                                >
-                                    Categories
-                                </Link>
-                                <Link
-                                    to="/vendors"
-                                    className={`px-5 py-2 rounded-full text-sm font-bold transition-all ${isActive('/vendors') || isActive('/vendor')
-                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)] shadow-sm'
-                                        : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
-                                        }`}
-                                >
-                                    Vendors
-                                </Link>
+                            <nav className="hidden md:flex items-center gap-8">
+                                {[
+                                    { to: '/', label: 'Home', active: isActive('/') },
+                                    { to: '/categories', label: 'Categories', active: isActive('/categories') || isActive('/category') },
+                                    { to: '/vendors', label: 'Vendors', active: isActive('/vendors') || isActive('/vendor') },
+                                ].map((link) => (
+                                    <Link
+                                        key={link.to}
+                                        to={link.to}
+                                        className={`relative text-sm transition-colors after:absolute after:-bottom-1.5 after:left-0 after:h-px after:bg-[var(--color-foreground)] after:transition-all ${link.active
+                                            ? 'text-[var(--color-foreground)] after:w-full'
+                                            : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] after:w-0 hover:after:w-full'
+                                            }`}
+                                    >
+                                        {link.label}
+                                    </Link>
+                                ))}
                             </nav>
 
-                            <form onSubmit={handleSearchSubmit} className="hidden lg:flex flex-1 max-w-md">
+                            <form onSubmit={handleSearchSubmit} className="hidden lg:flex flex-1 max-w-xs">
                                 <div className="relative w-full">
                                     <input
                                         type="text"
                                         value={searchValue}
                                         onChange={(e) => setSearchValue(e.target.value)}
-                                        placeholder="Search items..."
-                                        className="w-full rounded-xl border-2 border-[var(--color-border)] bg-[var(--color-surface)] py-2.5 pl-11 pr-24 text-sm text-[var(--color-foreground)] placeholder-[var(--color-muted)] focus:outline-none focus:border-[var(--color-primary)]"
+                                        placeholder="Search the collection"
+                                        className="w-full rounded-full border border-[var(--color-border)] bg-[var(--color-surface-elevated)] py-2.5 pl-11 pr-4 text-sm text-[var(--color-foreground)] placeholder-[var(--color-muted-foreground)] transition-colors focus:outline-none focus:border-[var(--color-foreground)]"
                                     />
-                                    <svg className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--color-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <svg className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                     </svg>
-                                    <button
-                                        type="submit"
-                                        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-[var(--color-primary-foreground)]"
-                                    >
-                                        Search
-                                    </button>
                                 </div>
                             </form>
 
                             <div className="flex items-center gap-4">
                                 <Link
                                     to="/login"
-                                    className="hidden sm:inline-flex items-center justify-center px-5 py-2.5 rounded-xl text-sm font-bold bg-[var(--color-surface)] border-2 border-[var(--color-border)] text-[var(--color-foreground)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-all shadow-sm"
+                                    className="hidden sm:inline-flex items-center justify-center rounded-full border border-[var(--color-border)] px-5 py-2.5 text-sm text-[var(--color-foreground)] transition-all hover:border-[var(--color-foreground)]"
                                 >
                                     Vendor Login
                                 </Link>
@@ -187,45 +168,39 @@ export function PublicLayout() {
             </main>
 
             {!isEmbedMode && (
-                <footer className="border-t border-[var(--color-border)] bg-[var(--color-surface-elevated)] mt-24">
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+                <footer className="border-t border-[var(--color-border)] mt-28">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-                            <div className="space-y-4">
-                                <h3 className="text-2xl font-bold text-[var(--color-foreground)] ravenlia-display tracking-tight">
-                                    Visit Us
-                                </h3>
-                                <p className="text-[var(--color-muted)] text-base leading-relaxed font-medium">
+                            <div className="space-y-3">
+                                <p className="ravenlia-eyebrow">Visit Us</p>
+                                <p className="text-[var(--color-muted)] text-base leading-relaxed">
                                     682 Skyline Hwy<br />
                                     Galax, VA 24333<br />
-                                    <a href="tel:+12766013010" className="text-[var(--color-primary)] hover:underline mt-2 inline-block">+1 (276) 601-3010</a>
+                                    <a href="tel:+12766013010" className="text-[var(--color-foreground)] hover:text-[var(--color-primary)] transition-colors mt-2 inline-block">+1 (276) 601-3010</a>
                                 </p>
                             </div>
 
-                            <div className="space-y-4">
-                                <h3 className="text-2xl font-bold text-[var(--color-foreground)] ravenlia-display tracking-tight">
-                                    Store Hours
-                                </h3>
-                                <p className="text-[var(--color-muted)] text-base leading-relaxed font-medium">
-                                    Monday - Saturday: 10am - 6pm<br />
-                                    Sunday: 11am - 5pm
+                            <div className="space-y-3">
+                                <p className="ravenlia-eyebrow">Store Hours</p>
+                                <p className="text-[var(--color-muted)] text-base leading-relaxed">
+                                    Monday – Saturday: 10am – 6pm<br />
+                                    Sunday: 11am – 5pm
                                 </p>
                             </div>
 
-                            <div className="space-y-4">
-                                <h3 className="text-2xl font-bold text-[var(--color-foreground)] ravenlia-display tracking-tight">
-                                    About
-                                </h3>
-                                <p className="text-[var(--color-muted)] text-base leading-relaxed font-medium">
+                            <div className="space-y-3">
+                                <p className="ravenlia-eyebrow">About</p>
+                                <p className="text-[var(--color-muted)] text-base leading-relaxed">
                                     Where art lives, stories linger, and community gathers. Browse online, then visit in person to take your find home.
                                 </p>
                             </div>
                         </div>
 
-                        <div className="mt-16 pt-8 border-t border-[var(--color-border)] flex flex-col md:flex-row items-center justify-between gap-4 text-sm font-medium text-[var(--color-muted)]">
-                            <p>© {new Date().getFullYear()} Ravenlia Galleria. All rights reserved.</p>
+                        <div className="mt-16 pt-8 border-t border-[var(--color-border)] flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-[var(--color-muted)]">
+                            <p>© {new Date().getFullYear()} Ravenlia Galleria</p>
                             <div className="flex items-center gap-6">
-                                <a href="#" className="hover:text-[var(--color-primary)] transition-colors">Privacy Policy</a>
-                                <a href="#" className="hover:text-[var(--color-primary)] transition-colors">Terms of Service</a>
+                                <a href="#" className="hover:text-[var(--color-foreground)] transition-colors">Privacy Policy</a>
+                                <a href="#" className="hover:text-[var(--color-foreground)] transition-colors">Terms of Service</a>
                             </div>
                         </div>
                     </div>

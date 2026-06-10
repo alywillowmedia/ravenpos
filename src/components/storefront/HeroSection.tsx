@@ -9,87 +9,65 @@ export function HeroSection({
 }: HeroSectionProps) {
     const hasPrimaryCta = Boolean(settings.hero_primary_cta_label?.trim());
     const primaryCtaHref = settings.hero_primary_cta_href?.trim() || '#categories';
+    const heroImage = settings.hero_feature_image_url || settings.hero_background_image_url;
+    const onImage = Boolean(heroImage);
+
+    const trustItems = ['Local pickup only', 'Updated daily', 'Vintage & handmade'];
 
     return (
-        <section className="relative overflow-hidden py-16 sm:py-24 lg:py-32 border-b-2 border-[var(--color-border)]">
-            {/* Background elements */}
-            <div className="absolute inset-0 z-0">
-                {settings.hero_feature_image_url ? (
-                    <>
-                        <img
-                            src={settings.hero_feature_image_url}
-                            alt=""
-                            className="absolute inset-0 h-full w-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-[var(--color-background)]/70 backdrop-blur-sm" />
-                    </>
-                ) : settings.hero_background_image_url ? (
-                    <>
-                        <img
-                            src={settings.hero_background_image_url}
-                            alt=""
-                            className="absolute inset-0 h-full w-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-[var(--color-background)]/85 backdrop-blur-sm" />
-                    </>
-                ) : (
-                    <div className="absolute inset-0 bg-[var(--color-background)]" />
-                )}
-                <div className="absolute top-0 right-0 -translate-y-12 translate-x-1/3">
-                    <div className="w-96 h-96 bg-[var(--color-primary)]/20 rounded-full blur-3xl" />
-                </div>
-                <div className="absolute bottom-0 left-0 translate-y-1/3 -translate-x-1/3">
-                    <div className="w-96 h-96 bg-[var(--color-primary)]/20 rounded-full blur-3xl" />
-                </div>
-            </div>
+        <section className="relative overflow-hidden border-b border-[var(--color-border)]">
+            {onImage && (
+                <>
+                    <img
+                        src={heroImage ?? undefined}
+                        alt=""
+                        className="absolute inset-0 h-full w-full scale-105 object-cover blur-[2px]"
+                    />
+                    {/* Darken for legible light type */}
+                    <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/45 to-black/65" />
+                    <div className="absolute inset-0 bg-black/15" />
+                </>
+            )}
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
+            <div className="relative z-10 mx-auto max-w-3xl px-4 py-20 text-center sm:px-6 sm:py-28 lg:py-36">
                 {settings.hero_badge_text && (
-                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[var(--color-primary)]/10 text-[var(--color-primary)] text-sm font-medium mb-8 border border-[var(--color-primary)]/20">
-                        <span className="relative flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-primary)] opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-primary)]"></span>
-                        </span>
+                    <p className={`ravenlia-eyebrow mb-6 ${onImage ? '!text-white/80' : ''}`}>
                         {settings.hero_badge_text}
-                    </div>
+                    </p>
                 )}
 
-                <h1 className="text-5xl sm:text-7xl font-bold text-[var(--color-foreground)] tracking-tight mb-6 max-w-4xl mx-auto leading-tight ravenlia-display">
+                <h1 className={`ravenlia-display mx-auto max-w-3xl text-balance text-4xl leading-[1.08] sm:text-6xl ${onImage ? 'text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]' : 'text-[var(--color-foreground)]'}`}>
                     {settings.hero_heading}
                 </h1>
-                
-                <p className="text-xl sm:text-2xl text-[var(--color-muted)] mb-10 max-w-2xl mx-auto leading-relaxed font-medium">
+
+                <p className={`mx-auto mt-6 max-w-xl text-lg leading-relaxed sm:text-xl ${onImage ? 'text-white/85' : 'text-[var(--color-muted)]'}`}>
                     {settings.hero_subheading}
                 </p>
 
-                <div className="flex flex-wrap justify-center gap-4 text-sm text-[var(--color-muted)] font-medium">
-                    {hasPrimaryCta && (
+                {hasPrimaryCta && (
+                    <div className="mt-9">
                         <a
                             href={primaryCtaHref}
-                            className="flex items-center gap-2 bg-[var(--color-primary)] text-[var(--color-primary-foreground)] px-5 py-2.5 rounded-full shadow-sm hover:opacity-90 transition-opacity"
+                            className={`inline-flex items-center gap-2 rounded-full px-7 py-3 text-sm font-medium transition-all hover:shadow-[var(--shadow-gallery-lifted)] ${onImage
+                                ? 'bg-white text-[var(--color-foreground)] hover:bg-white/90'
+                                : 'bg-[var(--color-foreground)] text-[var(--color-background)] hover:bg-[var(--color-primary)]'}`}
                         >
                             {settings.hero_primary_cta_label}
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                            </svg>
                         </a>
-                    )}
-                    <div className="flex items-center gap-2 bg-[var(--color-surface-elevated)] px-4 py-2 rounded-full border border-[var(--color-border)] shadow-sm">
-                        <svg className="w-5 h-5 text-[var(--color-primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                        Local pickup only
                     </div>
-                    <div className="flex items-center gap-2 bg-[var(--color-surface-elevated)] px-4 py-2 rounded-full border border-[var(--color-border)] shadow-sm">
-                        <svg className="w-5 h-5 text-[var(--color-primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Updated daily
-                    </div>
-                    <div className="flex items-center gap-2 bg-[var(--color-surface-elevated)] px-4 py-2 rounded-full border border-[var(--color-border)] shadow-sm">
-                        <svg className="w-5 h-5 text-[var(--color-primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                        </svg>
-                        Vintage and handmade
-                    </div>
+                )}
+
+                {/* Trust line — plain text with hairline separators, no pills */}
+                <div className={`mt-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs ${onImage ? 'text-white/75' : 'text-[var(--color-muted)]'}`}>
+                    {trustItems.map((label, idx) => (
+                        <span key={label} className="inline-flex items-center gap-3">
+                            {idx > 0 && <span className={`h-1 w-1 rounded-full ${onImage ? 'bg-white/50' : 'bg-[var(--color-muted-foreground)]'}`} aria-hidden />}
+                            {label}
+                        </span>
+                    ))}
                 </div>
             </div>
         </section>

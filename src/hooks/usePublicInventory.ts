@@ -130,6 +130,8 @@ export function usePublicInventory() {
                 .gt('quantity', 0)
                 .eq('consignor.is_active', true)
                 .eq('consignor.storefront_show_items', true)
+                .not('image_url', 'is', null)
+                .neq('image_url', '')
                 .order('updated_at', { ascending: false })
                 .limit(12);
 
@@ -140,13 +142,8 @@ export function usePublicInventory() {
 
             if (!isMountedRef.current) return;
 
-            const filtered = (data || []).filter((item) => {
-                const consignor = item.consignor as {
-                    storefront_images_only?: boolean | null;
-                } | null;
-                if (!consignor?.storefront_images_only) return true;
-                return Boolean(item.image_url);
-            });
+            // Storefront only ever shows items that have a photo
+            const filtered = (data || []).filter((item) => Boolean(item.image_url));
 
             setFeaturedItems(filtered as Item[]);
         } catch (err) {
@@ -310,7 +307,10 @@ export function usePublicInventory() {
                     .eq('is_listed', true)
                     .eq('show_in_public_browse', true)
                     .eq('consignor.is_active', true)
-                    .eq('consignor.storefront_show_items', true);
+                    .eq('consignor.storefront_show_items', true)
+                    // Storefront only ever shows items that have a photo, regardless of backend settings
+                    .not('image_url', 'is', null)
+                    .neq('image_url', '');
 
                 // Apply search filter
                 if (filters.search) {

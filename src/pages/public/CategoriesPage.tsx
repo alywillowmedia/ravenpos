@@ -43,8 +43,9 @@ export function CategoriesPage() {
 
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fadeIn">
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-[var(--color-foreground)]">Categories</h1>
+            <div className="mb-10">
+                <p className="ravenlia-eyebrow mb-2">Browse</p>
+                <h1 className="text-4xl text-[var(--color-foreground)]">Categories</h1>
                 <p className="text-[var(--color-muted)] mt-2">Browse every category in the marketplace.</p>
             </div>
 
@@ -53,12 +54,12 @@ export function CategoriesPage() {
             ) : categories.length === 0 ? (
                 <div className="text-center py-16 text-[var(--color-muted)]">No categories available.</div>
             ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                     {categories.map((category) => (
                         <Link
                             key={category}
                             to={`/category/${encodeURIComponent(category)}`}
-                            className="rounded-2xl border-2 border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-5 py-6 text-center font-semibold text-[var(--color-foreground)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-colors"
+                            className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-5 py-7 text-center text-[var(--color-foreground)] transition-all hover:-translate-y-0.5 hover:border-[var(--color-foreground)] hover:shadow-[var(--shadow-gallery)]"
                         >
                             {category}
                         </Link>

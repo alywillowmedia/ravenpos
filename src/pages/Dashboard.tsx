@@ -64,6 +64,10 @@ export function Dashboard() {
                 activeConsignors: consignors.filter(isConsignorCurrentlyActive).length,
                 totalItems: items.length,
                 totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
+                totalInventoryValue: items.reduce(
+                    (sum, item) => sum + Number(item.price) * Number(item.quantity || 0),
+                    0
+                ),
                 todaySalesCount: sales.length,
                 todaySalesTotal: sales.reduce((sum, sale) => sum + Number(sale.total), 0),
             });
@@ -146,7 +150,7 @@ export function Dashboard() {
                 <StatCard
                     label="Inventory Items"
                     value={stats?.totalItems ?? 0}
-                    subtext={`${stats?.totalQuantity ?? 0} total qty`}
+                    subtext={`${stats?.totalQuantity ?? 0} total qty • ${formatCurrency(stats?.totalInventoryValue ?? 0)} value`}
                     icon={<PackageIcon />}
                 />
                 <StatCard
