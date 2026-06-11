@@ -1,6 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
 import { FolderOpen as FolderOpenIcon, Monitor as MonitorIcon, Save as SaveIcon, Trash2 as TrashIcon } from 'lucide-react';
-import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -173,6 +172,8 @@ export function POS() {
     });
 
     const [dealerDiscountEnabled, setDealerDiscountEnabled] = useState(false);
+    const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+    const optionsMenuRef = useRef<HTMLDivElement>(null);
     const [offlineSalesStatus, setOfflineSalesStatus] = useState<OfflineSalesSyncStatus>({
         total: 0,
         pending: 0,
@@ -1377,6 +1378,25 @@ export function POS() {
         return () => clearTimeout(timer);
     }, [customerSearch, searchCustomers]);
 
+    // Close the Options menu on outside click / Escape
+    useEffect(() => {
+        if (!showOptionsMenu) return;
+        const handlePointer = (e: MouseEvent) => {
+            if (optionsMenuRef.current && !optionsMenuRef.current.contains(e.target as Node)) {
+                setShowOptionsMenu(false);
+            }
+        };
+        const handleKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setShowOptionsMenu(false);
+        };
+        document.addEventListener('mousedown', handlePointer);
+        document.addEventListener('keydown', handleKey);
+        return () => {
+            document.removeEventListener('mousedown', handlePointer);
+            document.removeEventListener('keydown', handleKey);
+        };
+    }, [showOptionsMenu]);
+
     const handleSelectCustomer = (customer: Customer) => {
         setSelectedCustomer(customer);
         setUseStoreCredit(true);
@@ -1454,81 +1474,7 @@ export function POS() {
 
     return (
         <div className="animate-fadeIn min-h-0 overflow-hidden flex flex-col">
-            <Header
-                title="Point of Sale"
-                className="shrink-0 pb-4 mb-4"
-                actions={
-                    <div className="flex gap-2">
-                        <Button
-                            variant="ghost"
-                            onClick={openSaveCartModal}
-                            disabled={cart.length === 0 || isOfflineMode}
-                            title={isOfflineMode ? 'Saved carts require internet' : 'Save cart for later'}
-                        >
-                            <SaveIcon className="h-4 w-4" />
-                            Save Cart
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            onClick={() => setShowSavedCartsModal(true)}
-                            disabled={isOfflineMode}
-                            title={isOfflineMode ? 'Saved carts require internet' : 'Open saved carts'}
-                        >
-                            <FolderOpenIcon className="h-4 w-4" />
-                            Saved Carts
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            onClick={() => setShowInvoiceModal(true)}
-                            disabled={cart.length === 0 || isOfflineMode}
-                            title={isOfflineMode ? 'Invoice creation requires internet' : undefined}
-                        >
-                            <FileTextIcon />
-                            Invoice
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            onClick={() => setShowRefundModal(true)}
-                            disabled={isOfflineMode}
-                            title={isOfflineMode ? 'Refund lookup requires internet' : undefined}
-                        >
-                            <RefundIcon />
-                            Refund
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            onClick={() => setShowGiftCardSaleModal(true)}
-                            disabled={isOfflineMode}
-                            title={isOfflineMode ? 'Gift card issuance requires internet' : undefined}
-                        >
-                            <GiftCardIcon />
-                            Gift Card
-                        </Button>
-                        {cart.length > 0 && (
-                            <Button variant="ghost" onClick={handleNewSale}>
-                                Clear
-                            </Button>
-                        )}
-                        <Button
-                            variant="ghost"
-                            onClick={() => setShowSmartSearch(true)}
-                            title="Smart Item Search"
-                        >
-                            <SearchIcon />
-                            Search
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            onClick={openCustomerDisplay}
-                            title="Open Customer Display"
-                        >
-                            <MonitorIcon />
-                        </Button>
-                    </div>
-                }
-            />
-
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden pt-1">
             {isOfflineMode && (
                 <Card variant="outlined" className="mb-4 shrink-0 border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10">
                     <CardContent className="py-3">
@@ -1573,59 +1519,60 @@ export function POS() {
                 </Card>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0 overflow-hidden">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0 overflow-hidden px-1 pt-1">
                 {/* Left: Scanner + Cart */}
                 <div className="lg:col-span-2 flex flex-col gap-4">
                     {/* Scanner Input */}
-                    <Card variant="outlined">
-                        <CardContent>
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                                <form onSubmit={handleScan} className="flex-1">
-                                    <Input
-                                        ref={scannerRef}
-                                        value={scanInput}
-                                        onChange={(e) => setScanInput(e.target.value)}
-                                        placeholder="Scan barcode or enter SKU..."
-                                        inputSize="lg"
-                                        leftIcon={<BarcodeIcon />}
-                                        error={scanError || undefined}
-                                        autoComplete="off"
-                                    />
-                                </form>
-                                <div className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
-                                    <span className="hidden sm:inline">or</span>
-                                    <Button
-                                        variant="secondary"
-                                        onClick={openCustomItemModal}
-                                        disabled={consignors.length === 0}
-                                        title={consignors.length === 0 ? 'Add a consignor first' : 'Add a one-off custom item'}
-                                        className="shrink-0"
-                                    >
-                                        + Custom Item
-                                    </Button>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <form onSubmit={handleScan} className="flex-1">
+                            <Input
+                                ref={scannerRef}
+                                value={scanInput}
+                                onChange={(e) => setScanInput(e.target.value)}
+                                placeholder="Scan barcode or enter SKU..."
+                                inputSize="lg"
+                                leftIcon={<BarcodeIcon />}
+                                error={scanError || undefined}
+                                autoComplete="off"
+                            />
+                        </form>
+                        <div className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
+                            <span className="hidden sm:inline">or</span>
+                            <Button
+                                variant="secondary"
+                                onClick={openCustomItemModal}
+                                disabled={consignors.length === 0}
+                                title={consignors.length === 0 ? 'Add a consignor first' : 'Add a one-off custom item'}
+                                className="shrink-0"
+                            >
+                                + Custom Item
+                            </Button>
+                        </div>
+                    </div>
 
                     {/* Cart Items */}
-                    <Card variant="outlined" className="flex-1 overflow-hidden">
+                    <Card variant="default" padding="none" className="flex-1 overflow-hidden">
                         <CardContent className="h-full flex flex-col">
                             {cart.length === 0 ? (
-                                <div className="flex-1 flex items-center justify-center text-center">
-                                    <div>
-                                        <ShoppingCartIcon />
-                                        <p className="mt-2 text-[var(--color-muted)]">
-                                            Scan items to add to cart
+                                <div className="flex-1 flex items-center justify-center text-center p-6">
+                                    <div className="flex flex-col items-center">
+                                        <span className="text-[var(--color-muted-foreground)] opacity-60">
+                                            <ShoppingCartIcon />
+                                        </span>
+                                        <p className="mt-3 text-sm font-medium text-[var(--color-foreground)]">
+                                            Cart is empty
+                                        </p>
+                                        <p className="mt-1 text-sm text-[var(--color-muted)]">
+                                            Scan or search to add items
                                         </p>
                                     </div>
                                 </div>
                             ) : (
-                                <div className="flex-1 overflow-y-auto space-y-2">
+                                <div className="flex-1 overflow-y-auto divide-y divide-[var(--color-border)]">
                                     {cart.map((item, index) => (
                                         <div
                                             key={item.item.id}
-                                            className="flex items-center gap-4 p-3 rounded-lg bg-[var(--color-surface-hover)] hover:bg-[var(--color-surface)] transition-colors"
+                                            className="flex items-center gap-4 px-4 py-3 hover:bg-[var(--color-surface-hover)] transition-colors"
                                         >
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-medium text-[var(--color-foreground)] truncate">
@@ -1655,7 +1602,7 @@ export function POS() {
                                             <div className="flex items-center gap-2">
                                                 <button
                                                     onClick={() => updateQuantity(index, item.quantity - 1)}
-                                                    className="w-8 h-8 rounded-lg bg-[var(--color-surface)] text-[var(--color-foreground)] hover:bg-[var(--color-border)] transition-colors font-bold"
+                                                    className="flex items-center justify-center w-8 h-8 rounded-md border border-[var(--color-border)] text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)] transition-colors text-lg leading-none"
                                                 >
                                                     −
                                                 </button>
@@ -1664,7 +1611,7 @@ export function POS() {
                                                 </span>
                                                 <button
                                                     onClick={() => updateQuantity(index, item.quantity + 1)}
-                                                    className="w-8 h-8 rounded-lg bg-[var(--color-surface)] text-[var(--color-foreground)] hover:bg-[var(--color-border)] transition-colors font-bold"
+                                                    className="flex items-center justify-center w-8 h-8 rounded-md border border-[var(--color-border)] text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)] transition-colors text-lg leading-none"
                                                 >
                                                     +
                                                 </button>
@@ -1718,8 +1665,64 @@ export function POS() {
                 {/* Right: Totals + Tender */}
                 <div className="flex flex-col gap-4 min-h-0">
                     {/* Totals */}
-                    <Card variant="elevated">
+                    <Card variant="default">
                         <CardContent className="space-y-3">
+                            {/* Sale toolbar — eyebrow + grouped Options menu */}
+                            <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                                    Current Sale
+                                </span>
+                                <div className="relative" ref={optionsMenuRef}>
+                                    <button
+                                        onClick={() => setShowOptionsMenu((v) => !v)}
+                                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)] transition-colors"
+                                        title="Sale options"
+                                        aria-haspopup="menu"
+                                        aria-expanded={showOptionsMenu}
+                                    >
+                                        <KebabIcon />
+                                        Options
+                                    </button>
+                                    {showOptionsMenu && (
+                                        <div
+                                            role="menu"
+                                            className="absolute right-0 top-full mt-1.5 w-60 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] py-1.5 shadow-lg z-50 animate-scaleIn origin-top-right"
+                                        >
+                                            <OptionsMenuItem icon={<SearchIcon />} label="Search items" onClick={() => { setShowOptionsMenu(false); setShowSmartSearch(true); }} />
+                                            <OptionsMenuItem icon={<FolderOpenIcon className="h-4 w-4" />} label="Saved carts" disabled={isOfflineMode} title={isOfflineMode ? 'Saved carts require internet' : undefined} onClick={() => { setShowOptionsMenu(false); setShowSavedCartsModal(true); }} />
+                                            <OptionsMenuItem icon={<SaveIcon className="h-4 w-4" />} label="Save cart" disabled={cart.length === 0 || isOfflineMode} title={isOfflineMode ? 'Saved carts require internet' : cart.length === 0 ? 'Cart is empty' : undefined} onClick={() => { setShowOptionsMenu(false); openSaveCartModal(); }} />
+
+                                            <div className="my-1.5 border-t border-[var(--color-border)]" />
+
+                                            <OptionsMenuItem icon={<FileTextIcon />} label="Create invoice" disabled={cart.length === 0 || isOfflineMode} title={isOfflineMode ? 'Invoices require internet' : cart.length === 0 ? 'Cart is empty' : undefined} onClick={() => { setShowOptionsMenu(false); setShowInvoiceModal(true); }} />
+                                            <OptionsMenuItem icon={<RefundIcon />} label="Refund" disabled={isOfflineMode} title={isOfflineMode ? 'Refunds require internet' : undefined} onClick={() => { setShowOptionsMenu(false); setShowRefundModal(true); }} />
+                                            <OptionsMenuItem icon={<GiftCardIcon />} label="Sell gift card" disabled={isOfflineMode} title={isOfflineMode ? 'Gift cards require internet' : undefined} onClick={() => { setShowOptionsMenu(false); setShowGiftCardSaleModal(true); }} />
+                                            <OptionsMenuItem icon={<MonitorIcon />} label="Customer display" onClick={() => { setShowOptionsMenu(false); openCustomerDisplay(); }} />
+
+                                            {cart.length > 0 && (
+                                                <>
+                                                    <div className="my-1.5 border-t border-[var(--color-border)]" />
+                                                    <button
+                                                        role="menuitemcheckbox"
+                                                        aria-checked={dealerDiscountEnabled}
+                                                        onClick={() => setDealerDiscountEnabled((v) => !v)}
+                                                        className="flex w-full items-center gap-3 px-3 py-2 text-sm text-left text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)] transition-colors"
+                                                    >
+                                                        <span className="text-[var(--color-muted)]"><DiscountIcon /></span>
+                                                        <span className="flex-1">Dealer discount</span>
+                                                        <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${dealerDiscountEnabled ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'border-[var(--color-border)]'}`}>
+                                                            {dealerDiscountEnabled && <CheckIcon />}
+                                                        </span>
+                                                    </button>
+                                                    <div className="my-1.5 border-t border-[var(--color-border)]" />
+                                                    <OptionsMenuItem icon={<XIcon />} label="Clear sale" destructive onClick={() => { setShowOptionsMenu(false); handleNewSale(); }} />
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
                             <div className="w-full flex items-center gap-2.5">
                                 <span className="shrink-0 text-[var(--color-muted)]">
                                     <CustomerIcon />
@@ -1884,25 +1887,11 @@ export function POS() {
                             {/* Add Discount Button */}
                             {cart.length > 0 && (
                                 <div className="space-y-2">
-                                    <label className="flex items-center justify-between rounded-lg border border-[var(--color-border)] px-3 py-2">
-                                        <div>
-                                            <p className="text-sm font-medium">Dealer Discount</p>
-                                            <p className="text-xs text-[var(--color-muted)]">
-                                                Apply vendor-specific dealer pricing for this sale.
-                                            </p>
-                                            {dealerDiscountEnabled && dealerDiscountEligibleItems === 0 && (
-                                                <p className="text-xs text-[var(--color-warning)] mt-1">
-                                                    No cart items are from vendors with dealer discounts configured.
-                                                </p>
-                                            )}
-                                        </div>
-                                        <input
-                                            type="checkbox"
-                                            checked={dealerDiscountEnabled}
-                                            onChange={(e) => setDealerDiscountEnabled(e.target.checked)}
-                                            className="h-4 w-4 rounded border-[var(--color-border)]"
-                                        />
-                                    </label>
+                                    {dealerDiscountEnabled && dealerDiscountEligibleItems === 0 && (
+                                        <p className="text-xs text-[var(--color-warning)]">
+                                            Dealer discount is on, but no cart items are from vendors with dealer discounts configured.
+                                        </p>
+                                    )}
                                     <button
                                         onClick={handleOpenOrderDiscount}
                                         className="w-full py-2 px-3 rounded-lg border-2 border-dashed border-[var(--color-border)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 transition-colors text-sm text-[var(--color-muted)] hover:text-[var(--color-primary)] flex items-center justify-center gap-2"
@@ -1949,9 +1938,9 @@ export function POS() {
                                     </div>
                                 </>
                             )}
-                            <div className="flex justify-between text-2xl font-bold pt-3 border-t border-[var(--color-border)]">
-                                <span>{paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Amount Due'}</span>
-                                <span className="text-[var(--color-primary)]">
+                            <div className="flex justify-between items-baseline pt-3 border-t border-[var(--color-border)]">
+                                <span className="text-sm font-medium text-[var(--color-muted)]">{paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Amount Due'}</span>
+                                <span className="text-2xl font-semibold tabular-nums text-[var(--color-primary)]">
                                     {formatCurrency(amountDue)}
                                 </span>
                             </div>
@@ -2013,14 +2002,14 @@ export function POS() {
                     </Card>
 
                     {/* Payment Method */}
-                    <Card variant="outlined" className="flex-1 min-h-0 overflow-hidden">
+                    <Card variant="default" className="flex-1 min-h-0 overflow-hidden">
                         <CardContent className="h-full flex flex-col min-h-0">
                             {/* Payment Method Toggle */}
                             <div className="flex gap-2 mb-4">
                                 <button
                                     onClick={() => setPaymentMethod('cash')}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'cash'
-                                        ? 'bg-[var(--color-primary)] text-white'
+                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                         }`}
                                 >
@@ -2031,7 +2020,7 @@ export function POS() {
                                     onClick={() => setPaymentMethod('check')}
                                     disabled={isOfflineMode}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'check'
-                                        ? 'bg-[var(--color-primary)] text-white'
+                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                         } ${isOfflineMode ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 >
@@ -2042,7 +2031,7 @@ export function POS() {
                                     onClick={() => setPaymentMethod('card')}
                                     disabled={isOfflineMode}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'card'
-                                        ? 'bg-[var(--color-primary)] text-white'
+                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                         } ${isOfflineMode ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 >
@@ -2053,7 +2042,7 @@ export function POS() {
                                     onClick={() => setPaymentMethod('split')}
                                     disabled={isOfflineMode}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'split'
-                                        ? 'bg-[var(--color-primary)] text-white'
+                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                         } ${isOfflineMode ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 >
@@ -2937,6 +2926,48 @@ export function POS() {
                 }}
             />
         </div>
+    );
+}
+
+function OptionsMenuItem({
+    icon,
+    label,
+    onClick,
+    disabled,
+    destructive,
+    title,
+}: {
+    icon: ReactNode;
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+    destructive?: boolean;
+    title?: string;
+}) {
+    return (
+        <button
+            role="menuitem"
+            onClick={onClick}
+            disabled={disabled}
+            title={title}
+            className={`flex w-full items-center gap-3 px-3 py-2 text-sm text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${destructive
+                ? 'text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]'
+                : 'text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
+                }`}
+        >
+            <span className={`shrink-0 ${destructive ? '' : 'text-[var(--color-muted)]'}`}>{icon}</span>
+            {label}
+        </button>
+    );
+}
+
+function KebabIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="5" r="1.6" />
+            <circle cx="12" cy="12" r="1.6" />
+            <circle cx="12" cy="19" r="1.6" />
+        </svg>
     );
 }
 

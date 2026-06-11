@@ -47,6 +47,7 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
         state: consignor?.state || '',
         postal_code: consignor?.postal_code || '',
         country: consignor?.country || '',
+        storefront_description: consignor?.storefront_description || '',
         notes: consignor?.notes || '',
         commission_split: consignor?.commission_split ?? 0.6,
         consignor_pays_card_fee: consignor?.consignor_pays_card_fee ?? false,
@@ -332,6 +333,16 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                 value={formData.country}
                 onChange={(e) => updateField('country', e.target.value)}
                 placeholder="USA"
+            />
+
+            <Textarea
+                label="Vendor Bio"
+                value={formData.storefront_description}
+                onChange={(e) => updateField('storefront_description', e.target.value.slice(0, 5000))}
+                placeholder="Tell shoppers what makes this vendor's booth unique."
+                hint="Shown on the public vendor storefront."
+                maxLength={5000}
+                rows={4}
             />
 
             <div className="grid grid-cols-2 gap-4">

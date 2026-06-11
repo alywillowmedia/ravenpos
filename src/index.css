@@ -6,37 +6,42 @@
    ======================================== */
 
 @theme {
-  /* Color Palette */
-  --color-background: #ffffff;
-  --color-foreground: #0a0a0b;
-  --color-muted: #71717a;
-  --color-muted-foreground: #a1a1aa;
-  --color-border: #e4e4e7;
-  --color-input: #e4e4e7;
-  --color-ring: #18181b;
+  /* ----------------------------------------
+     Light mode — "Gallery" palette
+     Warm bone canvas, charcoal ink, one deep
+     clay accent. Mirrors the Ravenlia landing
+     page so the admin/POS feels like the brand.
+     ---------------------------------------- */
+  --color-background: #f7f4ef;   /* bone canvas */
+  --color-foreground: #1a1714;   /* charcoal ink */
+  --color-muted: #6b6357;        /* stone */
+  --color-muted-foreground: #948b7e;
+  --color-border: #e7e0d6;       /* warm hairline */
+  --color-input: #ddd5c8;
+  --color-ring: #8a2b22;
 
   /* Surface colors */
-  --color-surface: #fafafa;
+  --color-surface: #f1ece3;      /* subtle inset */
   --color-surface-elevated: #ffffff;
-  --color-surface-hover: #f4f4f5;
+  --color-surface-hover: #efe9e0;
   --color-card: #ffffff;
 
-  /* Primary accent - Deep indigo */
-  --color-primary: #4f46e5;
-  --color-primary-hover: #4338ca;
-  --color-primary-foreground: #ffffff;
+  /* Primary accent — deep clay */
+  --color-primary: #8a2b22;
+  --color-primary-hover: #71211a;
+  --color-primary-foreground: #fbf9f5;
 
-  /* Semantic colors */
-  --color-success: #10b981;
-  --color-success-hover: #059669;
-  --color-success-bg: #ecfdf5;
-  --color-warning: #f59e0b;
-  --color-warning-bg: #fffbeb;
-  --color-danger: #ef4444;
-  --color-danger-hover: #dc2626;
-  --color-danger-bg: #fef2f2;
-  --color-info: #3b82f6;
-  --color-info-bg: #eff6ff;
+  /* Semantic colors — warm-leaning so nothing clashes with the bone canvas */
+  --color-success: #4a6b3a;
+  --color-success-hover: #3d5a30;
+  --color-success-bg: #eaf0e2;
+  --color-warning: #b07a16;
+  --color-warning-bg: #f6eddb;
+  --color-danger: #c0392b;
+  --color-danger-hover: #a32d21;
+  --color-danger-bg: #f7e7e3;
+  --color-info: #3a6594;
+  --color-info-bg: #e8eef4;
 
   /* Typography */
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -49,11 +54,11 @@
   --radius-xl: 1rem;
   --radius-full: 9999px;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.07);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.08);
-  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  /* Shadows — warm-tinted (charcoal, not pure black) so they sit softly on bone */
+  --shadow-sm: 0 1px 2px 0 rgb(26 23 20 / 0.05);
+  --shadow-md: 0 2px 4px -1px rgb(26 23 20 / 0.06), 0 8px 20px -12px rgb(26 23 20 / 0.12);
+  --shadow-lg: 0 4px 8px -2px rgb(26 23 20 / 0.07), 0 16px 32px -14px rgb(26 23 20 / 0.16);
+  --shadow-xl: 0 8px 16px -4px rgb(26 23 20 / 0.08), 0 28px 48px -18px rgb(26 23 20 / 0.22);
 
   /* Transitions */
   --transition-fast: 100ms ease;
@@ -73,33 +78,40 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --color-background: #0f1115;
-  --color-foreground: #f5f7fb;
-  --color-muted: #a1a9b8;
-  --color-muted-foreground: #7f8898;
-  --color-border: #2a303d;
-  --color-input: #262c39;
-  --color-ring: #8da2ff;
+  /* ----------------------------------------
+     Dark mode — "Warm charcoal"
+     Neutral warm near-black (no blue cast),
+     charcoal surfaces, a lifted clay accent.
+     The refined counterpart to the gallery light.
+     ---------------------------------------- */
+  --color-background: #17120f;   /* warm near-black */
+  --color-foreground: #f3ede4;   /* warm off-white */
+  --color-muted: #a89c8c;
+  --color-muted-foreground: #847868;
+  --color-border: #332a24;
+  --color-input: #2a221c;
+  --color-ring: #c8745e;
 
-  --color-surface: #171b24;
-  --color-surface-elevated: #1f2430;
-  --color-surface-hover: #272d3a;
-  --color-card: #1f2430;
+  --color-surface: #1d1713;
+  --color-surface-elevated: #241c17;
+  --color-surface-hover: #2a221c;
+  --color-card: #211a16;
 
-  --color-primary: #818cf8;
-  --color-primary-hover: #6366f1;
-  --color-primary-foreground: #0b1020;
+  /* Lifted clay — warmer/brighter so it carries on a dark canvas */
+  --color-primary: #cf7a64;
+  --color-primary-hover: #db8c77;
+  --color-primary-foreground: #1a120e;
 
-  --color-success: #34d399;
-  --color-success-hover: #10b981;
-  --color-success-bg: rgb(52 211 153 / 14%);
-  --color-warning: #fbbf24;
-  --color-warning-bg: rgb(251 191 36 / 14%);
-  --color-danger: #f87171;
-  --color-danger-hover: #ef4444;
-  --color-danger-bg: rgb(248 113 113 / 14%);
-  --color-info: #60a5fa;
-  --color-info-bg: rgb(96 165 250 / 14%);
+  --color-success: #82a86a;
+  --color-success-hover: #92b87a;
+  --color-success-bg: rgb(130 168 106 / 15%);
+  --color-warning: #d9a441;
+  --color-warning-bg: rgb(217 164 65 / 15%);
+  --color-danger: #e5736a;
+  --color-danger-hover: #ef8b82;
+  --color-danger-bg: rgb(229 115 106 / 15%);
+  --color-info: #74a0c4;
+  --color-info-bg: rgb(116 160 196 / 15%);
 }
 
 /* ========================================
@@ -525,7 +537,7 @@ body {
   left: 0;
   right: 0;
   z-index: 50;
-  background: rgba(255, 255, 255, 0.85);
+  background: color-mix(in srgb, var(--color-surface-elevated) 85%, transparent);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid var(--color-border);

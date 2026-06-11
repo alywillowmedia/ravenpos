@@ -159,6 +159,7 @@ export function useConsignors() {
                     state: input.state || null,
                     postal_code: input.postal_code || null,
                     country: input.country || null,
+                    storefront_description: input.storefront_description?.trim() || null,
                     notes: input.notes || null,
                     commission_split: input.commission_split ?? 0.6,
                     consignor_pays_card_fee: input.consignor_pays_card_fee ?? false,
@@ -222,6 +223,9 @@ export function useConsignors() {
             }
             if (baseUpdates.business_name !== undefined) {
                 updatePayload.business_name = baseUpdates.business_name || null;
+            }
+            if (baseUpdates.storefront_description !== undefined) {
+                updatePayload.storefront_description = baseUpdates.storefront_description?.trim() || null;
             }
             if (baseUpdates.pay_to_type !== undefined) {
                 updatePayload.pay_to_type = baseUpdates.pay_to_type || 'business';

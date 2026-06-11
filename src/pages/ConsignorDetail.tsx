@@ -490,6 +490,20 @@ export function ConsignorDetail() {
                 </Card>
             </div>
 
+            {/* Vendor Bio */}
+            {consignor.storefront_description && (
+                <Card variant="outlined" className="mb-8">
+                    <CardHeader>
+                        <CardTitle className="text-sm">Vendor Bio</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-sm text-[var(--color-muted)] whitespace-pre-wrap">
+                            {consignor.storefront_description}
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Notes */}
             {consignor.notes && (
                 <Card variant="outlined" className="mb-8">
