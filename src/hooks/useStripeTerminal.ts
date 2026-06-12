@@ -131,22 +131,21 @@ interface ReaderDisplayResult {
     error?: { message: string };
 }
 
-interface CollectInputValuePayload {
-    value?: string | null;
-    text?: string | null;
-    id?: string | null;
-}
-
 interface CollectInputResponse {
+    [key: string]: unknown;
     id?: string;
     type?: CollectInputFormType;
-    value?: string;
-    text?: string | CollectInputValuePayload;
-    email?: string | CollectInputValuePayload;
-    phone?: string | CollectInputValuePayload;
-    numeric?: string | CollectInputValuePayload;
-    selection?: string | CollectInputValuePayload;
-    signature?: string | CollectInputValuePayload;
+    formType?: CollectInputFormType;
+    form_type?: CollectInputFormType;
+    inputType?: CollectInputFormType;
+    input_type?: CollectInputFormType;
+    value?: unknown;
+    text?: unknown;
+    email?: unknown;
+    phone?: unknown;
+    numeric?: unknown;
+    selection?: unknown;
+    signature?: unknown;
     required?: boolean | null;
     skipped?: boolean;
     toggles?: Array<{ value?: string; enabled?: boolean; skipped?: boolean }>;
@@ -158,11 +157,19 @@ export interface CollectInputsResult {
     error?: { message: string };
     inputs?: CollectInputResponse[];
     collectedInputs?: CollectInputResponse[];
+    collected_inputs?: CollectInputResponse[];
     inputResults?: CollectInputResponse[];
+    input_results?: CollectInputResponse[];
     collectInputs?: {
         inputs?: CollectInputResponse[];
     };
     collect_inputs?: {
+        inputs?: CollectInputResponse[];
+    };
+    collectInputsResult?: {
+        inputs?: CollectInputResponse[];
+    };
+    collect_inputs_result?: {
         inputs?: CollectInputResponse[];
     };
 }
@@ -192,51 +199,172 @@ export interface ReaderRegistrationConfig {
     label?: string;
 }
 
-function getCollectedInputs(result: CollectInputsResult): CollectInputResponse[] {
-    return result.inputs
-        || result.collectedInputs
-        || result.inputResults
-        || result.collectInputs?.inputs
-        || result.collect_inputs?.inputs
-        || [];
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function getCollectedInput(result: CollectInputsResult, index: number, id: string): CollectInputResponse | undefined {
+function asCollectedInputs(value: unknown): CollectInputResponse[] | null {
+    if (!Array.isArray(value) || !value.every(isRecord)) return null;
+    const inputs = value as CollectInputResponse[];
+    if (!inputs.some((input) => getInputKind(input) || 'value' in input || 'skipped' in input || 'toggles' in input)) {
+        return null;
+    }
+    return inputs;
+}
+
+function valueAtPath(value: unknown, path: string[]): unknown {
+    return path.reduce<unknown>((current, key) => {
+        if (!isRecord(current)) return undefined;
+        return current[key];
+    }, value);
+}
+
+function findCollectedInputsDeep(value: unknown, depth = 0, seen = new Set<unknown>()): CollectInputResponse[] | null {
+    if (depth > 5 || !value || seen.has(value)) return null;
+    seen.add(value);
+
+    const inputArray = asCollectedInputs(value);
+    if (inputArray) return inputArray;
+
+    if (!isRecord(value)) return null;
+
+    for (const child of Object.values(value)) {
+        const nested = findCollectedInputsDeep(child, depth + 1, seen);
+        if (nested) return nested;
+    }
+
+    return null;
+}
+
+function getCollectedInputs(result: CollectInputsResult): CollectInputResponse[] {
+    const paths = [
+        ['inputs'],
+        ['collectedInputs'],
+        ['collected_inputs'],
+        ['inputResults'],
+        ['input_results'],
+        ['collectInputs', 'inputs'],
+        ['collect_inputs', 'inputs'],
+        ['collectInputsResult', 'inputs'],
+        ['collect_inputs_result', 'inputs'],
+        ['reader', 'action', 'collectInputs', 'inputs'],
+        ['reader', 'action', 'collect_inputs', 'inputs'],
+        ['action', 'collectInputs', 'inputs'],
+        ['action', 'collect_inputs', 'inputs'],
+    ];
+
+    for (const path of paths) {
+        const inputs = asCollectedInputs(valueAtPath(result, path));
+        if (inputs) return inputs;
+    }
+
+    return findCollectedInputsDeep(result) || [];
+}
+
+function getInputKind(input: CollectInputResponse | undefined): string | null {
+    if (!input) return null;
+    const explicitKind = input.type || input.formType || input.form_type || input.inputType || input.input_type;
+    if (typeof explicitKind === 'string') return explicitKind;
+    if (input.email !== undefined) return 'email';
+    if (input.phone !== undefined) return 'phone';
+    if (input.text !== undefined) return 'text';
+    if (input.numeric !== undefined) return 'numeric';
+    if (input.selection !== undefined) return 'selection';
+    if (input.signature !== undefined) return 'signature';
+    return null;
+}
+
+function getCollectedInput(result: CollectInputsResult, index: number, id: string, kind: CollectInputFormType): CollectInputResponse | undefined {
     const inputs = getCollectedInputs(result);
-    return inputs.find((input) => input.id === id) || inputs[index];
+    return inputs.find((input) => input.id === id)
+        || inputs.find((input) => getInputKind(input) === kind)
+        || inputs[index];
 }
 
 function getToggleEnabled(input: CollectInputResponse | undefined): boolean {
     const toggle = input?.toggles?.[0] || input?.toggleResults?.[0] || input?.toggle_results?.[0];
     if (!toggle || toggle.skipped) return false;
     if (typeof toggle.enabled === 'boolean') return toggle.enabled;
-    return toggle.value === 'enabled';
+    return getPayloadValue(toggle) === 'enabled';
 }
 
-function getPayloadValue(payload: string | CollectInputValuePayload | undefined): string {
+function getPayloadValue(payload: unknown, depth = 0): string {
     if (!payload) return '';
     if (typeof payload === 'string') return payload;
-    return payload.value || payload.text || payload.id || '';
+    if (typeof payload === 'number') return String(payload);
+    if (!isRecord(payload) || depth > 6) return '';
+
+    const preferredKeys = [
+        'value',
+        'collectedValue',
+        'collected_value',
+        'answer',
+        'response',
+        'result',
+        'data',
+        'input',
+        'stringValue',
+        'string_value',
+        'text',
+        'email',
+        'phone',
+        'id',
+    ];
+
+    for (const key of preferredKeys) {
+        const value = getPayloadValue(payload[key], depth + 1);
+        if (value) return value;
+    }
+
+    const allowedEntries = Object.entries(payload).filter(([key]) => ![
+        'title',
+        'description',
+        'custom_text',
+        'customText',
+        'skipButtonText',
+        'submitButtonText',
+        'skip_button',
+        'submit_button',
+        'toggles',
+        'toggleResults',
+        'toggle_results',
+    ].includes(key));
+
+    if (allowedEntries.length === 1) {
+        return getPayloadValue(allowedEntries[0][1], depth + 1);
+    }
+
+    return '';
 }
 
 function getInputValue(input: CollectInputResponse | undefined): string {
     if (!input) return '';
+    const kind = getInputKind(input);
+    const kindPayload = kind && kind in input ? getPayloadValue(input[kind]) : '';
+    if (kindPayload) return kindPayload;
+
     const values = [
-        input.value,
+        getPayloadValue(input.value),
         getPayloadValue(input.text),
         getPayloadValue(input.email),
         getPayloadValue(input.phone),
         getPayloadValue(input.numeric),
         getPayloadValue(input.selection),
         getPayloadValue(input.signature),
+        getPayloadValue(input.result),
+        getPayloadValue(input.data),
+        getPayloadValue(input.answer),
+        getPayloadValue(input.response),
+        getPayloadValue(input.collectedValue),
+        getPayloadValue(input.collected_value),
     ];
     return values.find((value) => value !== undefined && value !== null && value !== '') || '';
 }
 
 export function parseReaderCustomerInput(result: CollectInputsResult): ReaderCustomerInput | null {
-    const nameInput = getCollectedInput(result, 0, 'customer_name');
-    const phoneInput = getCollectedInput(result, 1, 'customer_phone');
-    const emailInput = getCollectedInput(result, 2, 'customer_email');
+    const nameInput = getCollectedInput(result, 0, 'customer_name', 'text');
+    const phoneInput = getCollectedInput(result, 1, 'customer_phone', 'phone');
+    const emailInput = getCollectedInput(result, 2, 'customer_email', 'email');
     const name = getInputValue(nameInput).trim();
 
     if (!name) {
@@ -249,6 +377,19 @@ export function parseReaderCustomerInput(result: CollectInputsResult): ReaderCus
         email: emailInput?.skipped ? null : getInputValue(emailInput).trim() || null,
         acceptsMarketing: getToggleEnabled(emailInput),
     };
+}
+
+export function describeCollectInputsShape(result: CollectInputsResult): string {
+    const topLevelKeys = isRecord(result) ? Object.keys(result).slice(0, 8).join(',') : typeof result;
+    const inputs = getCollectedInputs(result);
+    if (inputs.length === 0) return `top-level keys: ${topLevelKeys || 'none'}; no input array found`;
+
+    const inputSummary = inputs.slice(0, 5).map((input, index) => {
+        const keys = Object.keys(input).slice(0, 8).join(',');
+        return `input${index}[type=${getInputKind(input) || 'unknown'} keys=${keys || 'none'}]`;
+    }).join(' ');
+
+    return `top-level keys: ${topLevelKeys || 'none'}; ${inputSummary}`;
 }
 
 export function useStripeTerminal() {
@@ -563,7 +704,9 @@ export function useStripeTerminal() {
             const customerInput = parseReaderCustomerInput(result);
 
             if (!customerInput) {
-                const message = 'Customer name was not entered';
+                const shape = describeCollectInputsShape(result);
+                console.warn('Unable to parse Stripe Terminal customer input result', shape);
+                const message = `Customer name was not entered. Reader result: ${shape}`;
                 setError(message);
                 setStatus('connected');
                 return { data: null, error: message };

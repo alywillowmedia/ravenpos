@@ -67,4 +67,44 @@ describe('Stripe Terminal customer input parsing', () => {
             acceptsMarketing: false,
         });
     });
+
+    it('matches physical-reader inputs by type when custom IDs are not echoed', () => {
+        const result: CollectInputsResult = {
+            inputs: [
+                { formType: 'text', result: { value: 'Reader Customer' } },
+                { formType: 'phone', result: { collected_value: '5559876543' } },
+                { formType: 'email', result: { response: 'reader@example.com' }, toggles: [{ value: 'disabled' }] },
+            ],
+        };
+
+        expect(parseReaderCustomerInput(result)).toEqual({
+            name: 'Reader Customer',
+            phone: '5559876543',
+            email: 'reader@example.com',
+            acceptsMarketing: false,
+        });
+    });
+
+    it('finds API-style reader action input wrappers', () => {
+        const result = {
+            reader: {
+                action: {
+                    collect_inputs: {
+                        inputs: [
+                            { type: 'text', text: { value: 'Action Customer' } },
+                            { type: 'phone', skipped: true },
+                            { type: 'email', email: { value: 'action@example.com' }, toggle_results: [{ value: 'enabled' }] },
+                        ],
+                    },
+                },
+            },
+        } as CollectInputsResult;
+
+        expect(parseReaderCustomerInput(result)).toEqual({
+            name: 'Action Customer',
+            phone: null,
+            email: 'action@example.com',
+            acceptsMarketing: true,
+        });
+    });
 });
