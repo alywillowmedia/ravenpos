@@ -41,8 +41,32 @@ interface Terminal {
     setSimulatorConfiguration: (config: { testCardNumber: string }) => void;
     collectPaymentMethod: (clientSecret: string) => Promise<CollectResult>;
     processPayment: (paymentIntent: PaymentIntent) => Promise<ProcessResult>;
+    setReaderDisplay: (displayInfo: ReaderDisplayInfo) => Promise<ReaderDisplayResult>;
     clearReaderDisplay: () => Promise<void>;
     getConnectionStatus: () => string;
+}
+
+export interface ReaderCartDisplayItem {
+    description: string;
+    amount: number;
+    quantity: number;
+}
+
+export interface ReaderCartDisplay {
+    lineItems: ReaderCartDisplayItem[];
+    tax: number;
+    total: number;
+    currency?: string;
+}
+
+interface ReaderDisplayInfo {
+    type: 'cart';
+    cart: {
+        line_items: ReaderCartDisplayItem[];
+        tax: number;
+        total: number;
+        currency: string;
+    };
 }
 
 interface Reader {
@@ -78,6 +102,10 @@ interface ProcessResult {
     paymentIntent?: PaymentIntent;
 }
 
+interface ReaderDisplayResult {
+    error?: { message: string };
+}
+
 export type TerminalStatus = 'not_initialized' | 'initialized' | 'discovering' | 'connecting' | 'connected' | 'collecting' | 'processing' | 'error';
 export interface ReaderDiscoveryConfig {
     simulated?: boolean;
@@ -98,6 +126,7 @@ export interface ReaderRegistrationConfig {
 
 export function useStripeTerminal() {
     const terminalRef = useRef<Terminal | null>(null);
+    const readerDisplaySignatureRef = useRef<string | null>(null);
     const [status, setStatus] = useState<TerminalStatus>('not_initialized');
     const [error, setError] = useState<string | null>(null);
     const [discoveredReaders, setDiscoveredReaders] = useState<Reader[]>([]);
@@ -214,6 +243,7 @@ export function useStripeTerminal() {
                 return false;
             }
 
+            readerDisplaySignatureRef.current = null;
             setConnectedReader(result.reader || null);
             setStatus('connected');
             return true;
@@ -279,13 +309,68 @@ export function useStripeTerminal() {
         if (!terminalRef.current) return;
 
         try {
+            await terminalRef.current.clearReaderDisplay().catch(() => undefined);
             await terminalRef.current.disconnectReader();
+            readerDisplaySignatureRef.current = null;
             setConnectedReader(null);
             setStatus('initialized');
         } catch {
             // Ignore disconnect errors
         }
     }, []);
+
+    const setReaderCartDisplay = useCallback(async ({
+        lineItems,
+        tax,
+        total,
+        currency = 'usd',
+    }: ReaderCartDisplay): Promise<boolean> => {
+        if (!terminalRef.current || !connectedReader || lineItems.length === 0) {
+            return false;
+        }
+
+        const displayInfo: ReaderDisplayInfo = {
+            type: 'cart',
+            cart: {
+                line_items: lineItems,
+                tax,
+                total,
+                currency,
+            },
+        };
+        const signature = JSON.stringify(displayInfo);
+        if (readerDisplaySignatureRef.current === signature) {
+            return true;
+        }
+
+        try {
+            const result = await terminalRef.current.setReaderDisplay(displayInfo);
+            if (result.error) {
+                setError(result.error.message);
+                return false;
+            }
+
+            readerDisplaySignatureRef.current = signature;
+            return true;
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to update reader display');
+            return false;
+        }
+    }, [connectedReader]);
+
+    const clearReaderCartDisplay = useCallback(async (): Promise<void> => {
+        if (!terminalRef.current || !connectedReader || readerDisplaySignatureRef.current === null) {
+            return;
+        }
+
+        try {
+            await terminalRef.current.clearReaderDisplay();
+        } catch {
+            // Reader display cleanup should not block checkout or disconnect flows.
+        } finally {
+            readerDisplaySignatureRef.current = null;
+        }
+    }, [connectedReader]);
 
     // Create payment intent
     const createPaymentIntent = useCallback(async (amountInCents: number) => {
@@ -425,6 +510,8 @@ export function useStripeTerminal() {
         registerReaderByCode,
         connectReader,
         disconnectReader,
+        setReaderCartDisplay,
+        clearReaderCartDisplay,
         collectCardPayment,
         cancelPayment,
     };

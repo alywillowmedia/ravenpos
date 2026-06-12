@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { FolderOpen as FolderOpenIcon, Monitor as MonitorIcon, Save as SaveIcon, Trash2 as TrashIcon } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
@@ -22,7 +22,7 @@ import { useSales } from '../hooks/useSales';
 import { useInvoices } from '../hooks/useInvoices';
 import { useCategories } from '../hooks/useCategories';
 import { useCustomers } from '../hooks/useCustomers';
-import { useStripeTerminal } from '../hooks/useStripeTerminal';
+import { useStripeTerminal, type ReaderCartDisplayItem } from '../hooks/useStripeTerminal';
 import { createCartItem, calculateCartTotals, calculateVendorSubtotal } from '../lib/tax';
 import { createDiscount, formatDiscountLabel } from '../lib/discounts';
 import { calculateCardSurchargeAmount } from '../lib/cardFees';
@@ -42,6 +42,73 @@ const STRIPE_READER_MODE_KEY = 'ravenpos-stripe-reader-mode';
 const STRIPE_READER_LOCATION_KEY = 'ravenpos-stripe-reader-location-id';
 const STRIPE_READER_AUTO_RECONNECT_KEY = 'ravenpos-stripe-reader-auto-reconnect';
 const STRIPE_READER_PREFERRED_ID_KEY = 'ravenpos-stripe-reader-preferred-id';
+const MAX_STRIPE_READER_LINE_ITEMS = 20;
+
+const toStripeCents = (amount: number) => Math.max(0, Math.round((Number.isFinite(amount) ? amount : 0) * 100));
+
+const formatReaderLineDescription = (cartItem: CartItem) => {
+    const quantityPrefix = cartItem.quantity > 1 ? `${cartItem.quantity}x ` : '';
+    const name = cartItem.item.name.trim() || cartItem.item.sku || 'Item';
+    return `${quantityPrefix}${name}`.slice(0, 80);
+};
+
+const compactReaderLineItems = (lineItems: ReaderCartDisplayItem[]): ReaderCartDisplayItem[] => {
+    if (lineItems.length <= MAX_STRIPE_READER_LINE_ITEMS) {
+        return lineItems;
+    }
+
+    const visibleItems = lineItems.slice(0, MAX_STRIPE_READER_LINE_ITEMS - 1);
+    const remainingItems = lineItems.slice(MAX_STRIPE_READER_LINE_ITEMS - 1);
+    const remainingAmount = remainingItems.reduce((sum, item) => sum + item.amount, 0);
+
+    return [
+        ...visibleItems,
+        {
+            description: `${remainingItems.length} more item${remainingItems.length === 1 ? '' : 's'}`,
+            amount: remainingAmount,
+            quantity: 1,
+        },
+    ];
+};
+
+const buildReaderLineItems = (
+    cart: CartItem[],
+    subtotalCents: number,
+    cardFeeCents: number
+): ReaderCartDisplayItem[] => {
+    const weightedItems = cart.map((cartItem) => ({
+        description: formatReaderLineDescription(cartItem),
+        weight: toStripeCents(cartItem.discountedLineTotal),
+    }));
+    const totalWeight = weightedItems.reduce((sum, item) => sum + item.weight, 0);
+    let remainingSubtotal = subtotalCents;
+
+    const lineItems = weightedItems.map((item, index) => {
+        const amount = index === weightedItems.length - 1
+            ? remainingSubtotal
+            : Math.min(
+                remainingSubtotal,
+                totalWeight > 0 ? Math.round((subtotalCents * item.weight) / totalWeight) : 0
+            );
+        remainingSubtotal = Math.max(0, remainingSubtotal - amount);
+
+        return {
+            description: item.description,
+            amount,
+            quantity: 1,
+        };
+    }).filter((item) => item.amount > 0);
+
+    if (cardFeeCents > 0) {
+        lineItems.push({
+            description: 'Card processing fee',
+            amount: cardFeeCents,
+            quantity: 1,
+        });
+    }
+
+    return compactReaderLineItems(lineItems);
+};
 
 export function POS() {
     const { isAdmin, userRecord } = useAuth();
@@ -65,6 +132,8 @@ export function POS() {
         registerReaderByCode,
         connectReader,
         disconnectReader,
+        setReaderCartDisplay,
+        clearReaderCartDisplay,
         collectCardPayment,
     } = useStripeTerminal();
 
@@ -258,6 +327,27 @@ export function POS() {
     const splitCashChange = Math.max(0, Math.round((splitTenderedCash - splitCashApplied) * 100) / 100);
     const splitCashShort = Math.max(0, Math.round((splitCashApplied - splitTenderedCash) * 100) / 100);
     const splitTenderCount = [splitCashApplied, splitCheckApplied, splitCardTotal].filter((amount) => amount > 0).length;
+    const readerCartDisplay = useMemo(() => {
+        if (cart.length === 0 || paymentMethod !== 'card' || amountDue <= 0) {
+            return null;
+        }
+
+        const taxCents = toStripeCents(taxTotal);
+        const totalCents = toStripeCents(amountDue);
+        const cardFeeCents = toStripeCents(activeCardFeeAmount);
+        const subtotalCents = Math.max(0, toStripeCents(total - taxTotal));
+        const lineItems = buildReaderLineItems(cart, subtotalCents, cardFeeCents);
+
+        if (lineItems.length === 0) {
+            return null;
+        }
+
+        return {
+            lineItems,
+            tax: taxCents,
+            total: totalCents,
+        };
+    }, [activeCardFeeAmount, amountDue, cart, paymentMethod, taxTotal, total]);
 
     const refreshOfflineSalesStatus = useCallback(async () => {
         if (!isElectronRuntime) return;
@@ -516,6 +606,26 @@ export function POS() {
         appliedGiftCardAmount,
         orderDiscounts,
         completedSale,
+    ]);
+
+    useEffect(() => {
+        if (!connectedReader) {
+            return;
+        }
+
+        if (completedSale || terminalStatus !== 'connected' || !readerCartDisplay) {
+            void clearReaderCartDisplay();
+            return;
+        }
+
+        void setReaderCartDisplay(readerCartDisplay);
+    }, [
+        clearReaderCartDisplay,
+        completedSale,
+        connectedReader,
+        readerCartDisplay,
+        setReaderCartDisplay,
+        terminalStatus,
     ]);
 
     const openCustomerDisplay = () => {
