@@ -155,6 +155,56 @@ export function useCustomers() {
         }
     }, []);
 
+    const findCustomerByContact = useCallback(async ({
+        email,
+        phone,
+    }: {
+        email?: string | null;
+        phone?: string | null;
+    }) => {
+        try {
+            const normalizedEmail = email?.trim().toLowerCase() || '';
+            const phoneDigits = phone?.replace(/\D/g, '') || '';
+
+            if (normalizedEmail) {
+                const { data, error: emailError } = await supabase
+                    .from('customers')
+                    .select('*')
+                    .ilike('email', normalizedEmail)
+                    .order('created_at', { ascending: true })
+                    .limit(1);
+
+                if (emailError) throw emailError;
+                if (data?.[0]) {
+                    return { data: data[0] as Customer, error: null };
+                }
+            }
+
+            if (phoneDigits) {
+                const { data, error: phoneError } = await supabase
+                    .from('customers')
+                    .select('*')
+                    .not('phone', 'is', null)
+                    .order('created_at', { ascending: true })
+                    .limit(100);
+
+                if (phoneError) throw phoneError;
+                const match = (data || []).find((customer) =>
+                    String(customer.phone || '').replace(/\D/g, '') === phoneDigits
+                );
+
+                if (match) {
+                    return { data: match as Customer, error: null };
+                }
+            }
+
+            return { data: null, error: null };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to find customer';
+            return { data: null, error: message };
+        }
+    }, []);
+
     const getCustomerOrderHistory = useCallback(async (customerId: string) => {
         try {
             // Keep this query strict to universally-present columns to avoid PostgREST
@@ -275,6 +325,7 @@ export function useCustomers() {
         deleteCustomer,
         getCustomerById,
         searchCustomers,
+        findCustomerByContact,
         getCustomerOrderHistory,
         addStoreCredit,
     };

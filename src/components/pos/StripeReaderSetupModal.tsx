@@ -5,7 +5,7 @@ import { Input } from '../ui/Input';
 
 type SetupStep = 'mode' | 'location' | 'connect' | 'done';
 type ReaderMode = 'simulated' | 'live';
-type TerminalStatus = 'not_initialized' | 'initialized' | 'discovering' | 'connecting' | 'connected' | 'collecting' | 'processing' | 'error';
+type TerminalStatus = 'not_initialized' | 'initialized' | 'discovering' | 'connecting' | 'connected' | 'collecting' | 'collecting_customer' | 'processing' | 'error';
 
 interface ReaderOption {
     id: string;

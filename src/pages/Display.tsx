@@ -5,6 +5,14 @@ import type { CartItem, Discount, Sale, PaymentMethod } from '../types';
 import ravenposLogo from '../../assets/ravenpos_logo.svg';
 import { supabase } from '../lib/supabase';
 
+type CustomerIntakeStatus = 'idle' | 'ready' | 'entering_name' | 'entering_contact' | 'saving' | 'attached' | 'skipped' | 'error';
+
+interface CustomerIntakeDisplayState {
+    status: CustomerIntakeStatus;
+    source: 'reader' | 'manual';
+    message: string;
+}
+
 interface BroadcastData {
     cart: CartItem[];
     subtotal: number;
@@ -18,6 +26,7 @@ interface BroadcastData {
     paymentMethod?: PaymentMethod;
     appliedStoreCredit?: number;
     appliedGiftCard?: number;
+    customerIntake?: CustomerIntakeDisplayState | null;
     orderDiscounts: Discount[];
     completedSale: Sale | null;
 }
@@ -92,6 +101,7 @@ export function Display() {
         paymentMethod = 'card',
         appliedStoreCredit = 0,
         appliedGiftCard = 0,
+        customerIntake = null,
     } = data;
 
     if (completedSale) {
@@ -130,6 +140,10 @@ export function Display() {
                 </div>
             </div>
         );
+    }
+
+    if (cart.length === 0 && customerIntake && customerIntake.status !== 'idle') {
+        return <CustomerIntakeState imageUrl={idleImageUrl} intake={customerIntake} />;
     }
 
     if (cart.length === 0) {
@@ -236,6 +250,9 @@ export function Display() {
 
                 <div className="min-h-0 bg-[var(--color-surface-elevated)] backdrop-blur-md border-t lg:border-t-0 lg:border-l border-[var(--color-border)] flex flex-col shadow-xl">
                     <div className="flex-1 overflow-y-auto p-5 md:p-6 space-y-5">
+                        {customerIntake && customerIntake.status !== 'idle' && (
+                            <CustomerIntakeBanner intake={customerIntake} />
+                        )}
                         <h2 className="text-xl md:text-2xl font-bold text-[var(--color-foreground)]">Order Summary</h2>
 
                         <div className="space-y-2.5 text-base md:text-lg">
@@ -293,6 +310,46 @@ export function Display() {
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+function CustomerIntakeBanner({ intake }: { intake: CustomerIntakeDisplayState }) {
+    const isDone = intake.status === 'attached';
+    const isError = intake.status === 'error';
+
+    return (
+        <div className={`rounded-xl border p-4 ${
+            isError
+                ? 'border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10'
+                : isDone
+                    ? 'border-[var(--color-success)]/30 bg-[var(--color-success)]/10'
+                    : 'border-[var(--color-primary)]/30 bg-[var(--color-primary)]/10'
+        }`}>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                Customer Profile
+            </p>
+            <p className="mt-1 text-base font-semibold text-[var(--color-foreground)]">
+                {intake.message}
+            </p>
+            {!isDone && !isError && (
+                <p className="mt-1 text-sm text-[var(--color-muted)]">
+                    Follow the prompts on the card reader.
+                </p>
+            )}
+        </div>
+    );
+}
+
+function CustomerIntakeState({ imageUrl, intake }: { imageUrl: string | null; intake: CustomerIntakeDisplayState }) {
+    const imageSrc = imageUrl || ravenposLogo;
+
+    return (
+        <div className="h-screen w-screen flex flex-col items-center justify-center bg-[var(--color-background)] text-[var(--color-foreground)] p-8">
+            <img src={imageSrc} alt="RavenPOS" className="w-56 max-w-[70vw] h-auto mb-8" />
+            <div className="w-full max-w-xl">
+                <CustomerIntakeBanner intake={intake} />
             </div>
         </div>
     );

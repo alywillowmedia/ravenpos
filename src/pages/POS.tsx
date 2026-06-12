@@ -22,7 +22,7 @@ import { useSales } from '../hooks/useSales';
 import { useInvoices } from '../hooks/useInvoices';
 import { useCategories } from '../hooks/useCategories';
 import { useCustomers } from '../hooks/useCustomers';
-import { useStripeTerminal, type ReaderCartDisplayItem } from '../hooks/useStripeTerminal';
+import { useStripeTerminal, type ReaderCartDisplayItem, type ReaderCustomerInput } from '../hooks/useStripeTerminal';
 import { createCartItem, calculateCartTotals, calculateVendorSubtotal } from '../lib/tax';
 import { createDiscount, formatDiscountLabel } from '../lib/discounts';
 import { calculateCardSurchargeAmount } from '../lib/cardFees';
@@ -44,7 +44,17 @@ const STRIPE_READER_AUTO_RECONNECT_KEY = 'ravenpos-stripe-reader-auto-reconnect'
 const STRIPE_READER_PREFERRED_ID_KEY = 'ravenpos-stripe-reader-preferred-id';
 const MAX_STRIPE_READER_LINE_ITEMS = 20;
 
+type CustomerIntakeStatus = 'idle' | 'ready' | 'entering_name' | 'entering_contact' | 'saving' | 'attached' | 'skipped' | 'error';
+
+interface CustomerIntakeDisplayState {
+    status: CustomerIntakeStatus;
+    source: 'reader' | 'manual';
+    message: string;
+}
+
 const toStripeCents = (amount: number) => Math.max(0, Math.round((Number.isFinite(amount) ? amount : 0) * 100));
+
+const normalizeCustomerEmail = (email?: string | null) => email?.trim().toLowerCase() || null;
 
 const formatReaderLineDescription = (cartItem: CartItem) => {
     const quantityPrefix = cartItem.quantity > 1 ? `${cartItem.quantity}x ` : '';
@@ -119,7 +129,7 @@ export function POS() {
     const { consignors } = useConsignors();
     const { completeSale, isProcessing } = useSales();
     const { createInvoice, isLoading: isCreatingInvoice } = useInvoices();
-    const { searchCustomers, createCustomer, updateCustomer } = useCustomers();
+    const { searchCustomers, findCustomerByContact, createCustomer, updateCustomer } = useCustomers();
 
     // Stripe Terminal
     const {
@@ -134,6 +144,8 @@ export function POS() {
         disconnectReader,
         setReaderCartDisplay,
         clearReaderCartDisplay,
+        collectCustomerInputs,
+        cancelCustomerInputs,
         collectCardPayment,
     } = useStripeTerminal();
 
@@ -208,6 +220,10 @@ export function POS() {
     const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
     const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
     const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
+    const [showCustomerIntakePrompt, setShowCustomerIntakePrompt] = useState(false);
+    const [pendingCardCheckout, setPendingCardCheckout] = useState(false);
+    const [customerIntakeDisplay, setCustomerIntakeDisplay] = useState<CustomerIntakeDisplayState | null>(null);
+    const [isCollectingCustomerOnReader, setIsCollectingCustomerOnReader] = useState(false);
     const [useStoreCredit, setUseStoreCredit] = useState(true);
     const [giftCardInput, setGiftCardInput] = useState('');
     const [giftCardError, setGiftCardError] = useState<string | null>(null);
@@ -332,10 +348,17 @@ export function POS() {
             return null;
         }
 
-        const taxCents = toStripeCents(taxTotal);
         const totalCents = toStripeCents(amountDue);
         const cardFeeCents = toStripeCents(activeCardFeeAmount);
-        const subtotalCents = Math.max(0, toStripeCents(total - taxTotal));
+        const cashDueCents = toStripeCents(cashPrice);
+        let taxCents = Math.min(toStripeCents(taxTotal), cashDueCents);
+        let subtotalCents = Math.max(0, cashDueCents - taxCents);
+
+        if (subtotalCents === 0 && cashDueCents > 0) {
+            taxCents = 0;
+            subtotalCents = cashDueCents;
+        }
+
         const lineItems = buildReaderLineItems(cart, subtotalCents, cardFeeCents);
 
         if (lineItems.length === 0) {
@@ -347,7 +370,7 @@ export function POS() {
             tax: taxCents,
             total: totalCents,
         };
-    }, [activeCardFeeAmount, amountDue, cart, paymentMethod, taxTotal, total]);
+    }, [activeCardFeeAmount, amountDue, cart, cashPrice, paymentMethod, taxTotal]);
 
     const refreshOfflineSalesStatus = useCallback(async () => {
         if (!isElectronRuntime) return;
@@ -587,6 +610,7 @@ export function POS() {
             paymentMethod,
             appliedStoreCredit,
             appliedGiftCard: appliedGiftCardAmount,
+            customerIntake: customerIntakeDisplay,
             orderDiscounts,
             completedSale
         });
@@ -604,6 +628,7 @@ export function POS() {
         paymentMethod,
         appliedStoreCredit,
         appliedGiftCardAmount,
+        customerIntakeDisplay,
         orderDiscounts,
         completedSale,
     ]);
@@ -849,17 +874,31 @@ export function POS() {
         }
     };
 
-    const handleCompleteCardSale = async () => {
+    const handleCompleteCardSale = async (options: { skipCustomerPrompt?: boolean; customerId?: string | null } = {}) => {
         if (isOfflineMode) {
             setScanError('Offline mode supports cash sales only.');
             return;
         }
         if (cart.length === 0) return;
+        if (!options.skipCustomerPrompt && !selectedCustomer) {
+            setPendingCardCheckout(true);
+            setShowCustomerIntakePrompt(true);
+            setCustomerIntakeDisplay({
+                status: connectedReader ? 'ready' : 'skipped',
+                source: 'reader',
+                message: connectedReader
+                    ? 'Customer profile can be added on the card reader'
+                    : 'Card reader unavailable for customer self-entry',
+            });
+            return;
+        }
         if (amountDue > 0 && !connectedReader) {
             setScanError('No card reader connected');
             return;
         }
 
+        setPendingCardCheckout(false);
+        setShowCustomerIntakePrompt(false);
         setScanError(null);
 
         let paymentIntentId: string | undefined;
@@ -886,7 +925,7 @@ export function POS() {
             amountDue,
             0,
             0,
-            selectedCustomer?.id,
+            options.customerId ?? selectedCustomer?.id,
             'card',
             paymentIntentId,
             orderDiscounts,
@@ -1181,6 +1220,10 @@ export function POS() {
         setShowReceiptDelivery(false);
         setScanError(null);
         setSelectedCustomer(null);
+        setCustomerIntakeDisplay(null);
+        setShowCustomerIntakePrompt(false);
+        setPendingCardCheckout(false);
+        setIsCollectingCustomerOnReader(false);
         setCustomerSearch('');
         setUseStoreCredit(true);
         setGiftCardInput('');
@@ -1512,12 +1555,149 @@ export function POS() {
         setUseStoreCredit(true);
         setCustomerSearch('');
         setShowCustomerDropdown(false);
+        setCustomerIntakeDisplay({
+            status: 'attached',
+            source: 'manual',
+            message: 'Customer profile attached',
+        });
     };
 
     const handleClearCustomer = () => {
         setSelectedCustomer(null);
         setUseStoreCredit(true);
         setCustomerSearch('');
+    };
+
+    const saveAndSelectCustomer = useCallback(async (input: CustomerInput) => {
+        const normalizedEmail = normalizeCustomerEmail(input.email);
+        const phone = input.phone?.trim() || null;
+        const contactLookup = await findCustomerByContact({
+            email: normalizedEmail,
+            phone,
+        });
+
+        if (contactLookup.error) {
+            return { data: null, error: contactLookup.error };
+        }
+
+        if (contactLookup.data) {
+            const existing = contactLookup.data;
+            const updates: Partial<CustomerInput> = {};
+
+            if (!existing.name?.trim() && input.name.trim()) updates.name = input.name.trim();
+            if (!existing.email && normalizedEmail) updates.email = normalizedEmail;
+            if (!existing.phone && phone) updates.phone = phone;
+            if (!existing.accepts_marketing && input.accepts_marketing) updates.accepts_marketing = true;
+
+            if (Object.keys(updates).length > 0) {
+                const { data, error } = await updateCustomer(existing.id, updates);
+                if (error || !data) {
+                    return { data: null, error: error || 'Unable to update customer' };
+                }
+                setSelectedCustomer(data);
+                setUseStoreCredit(true);
+                return { data, error: null };
+            }
+
+            setSelectedCustomer(existing);
+            setUseStoreCredit(true);
+            return { data: existing, error: null };
+        }
+
+        const { data, error } = await createCustomer({
+            ...input,
+            name: input.name.trim(),
+            email: normalizedEmail,
+            phone,
+            notes: input.notes || null,
+            accepts_marketing: Boolean(input.accepts_marketing),
+        });
+        if (error || !data) {
+            return { data: null, error: error || 'Unable to create customer' };
+        }
+
+        setSelectedCustomer(data);
+        setUseStoreCredit(true);
+        return { data, error: null };
+    }, [createCustomer, findCustomerByContact, updateCustomer]);
+
+    const handleStartReaderCustomerIntake = useCallback(async () => {
+        if (isOfflineMode) {
+            setScanError('Customer self-entry requires internet.');
+            return null;
+        }
+        if (!connectedReader) {
+            setScanError('Connect a card reader first');
+            setShowReaderSetupModal(true);
+            return null;
+        }
+
+        setShowCustomerIntakePrompt(false);
+        setScanError(null);
+        setIsCollectingCustomerOnReader(true);
+        setCustomerIntakeDisplay({
+            status: 'entering_name',
+            source: 'reader',
+            message: 'Customer is entering profile details on the reader',
+        });
+
+        const result = await collectCustomerInputs();
+        if (result.error || !result.data) {
+            setIsCollectingCustomerOnReader(false);
+            setCustomerIntakeDisplay({
+                status: 'error',
+                source: 'reader',
+                message: result.error || 'Customer entry was not completed',
+            });
+            setScanError(result.error || 'Customer entry was not completed');
+            return null;
+        }
+
+        const readerInput: ReaderCustomerInput = result.data;
+        setCustomerIntakeDisplay({
+            status: 'saving',
+            source: 'reader',
+            message: 'Saving customer profile',
+        });
+
+        const saveResult = await saveAndSelectCustomer({
+            name: readerInput.name,
+            email: readerInput.email,
+            phone: readerInput.phone,
+            notes: null,
+            accepts_marketing: readerInput.acceptsMarketing,
+        });
+
+        setIsCollectingCustomerOnReader(false);
+        if (saveResult.error || !saveResult.data) {
+            setCustomerIntakeDisplay({
+                status: 'error',
+                source: 'reader',
+                message: saveResult.error || 'Unable to save customer profile',
+            });
+            setScanError(saveResult.error || 'Unable to save customer profile');
+            return null;
+        }
+
+        setCustomerSearch('');
+        setShowCustomerDropdown(false);
+        setCustomerIntakeDisplay({
+            status: 'attached',
+            source: 'reader',
+            message: 'Customer profile attached',
+        });
+
+        return saveResult.data;
+    }, [collectCustomerInputs, connectedReader, isOfflineMode, saveAndSelectCustomer]);
+
+    const handleCancelReaderCustomerIntake = async () => {
+        await cancelCustomerInputs();
+        setIsCollectingCustomerOnReader(false);
+        setCustomerIntakeDisplay({
+            status: 'skipped',
+            source: 'reader',
+            message: 'Customer self-entry skipped',
+        });
     };
 
     const handleApplyGiftCard = async () => {
@@ -1574,11 +1754,25 @@ export function POS() {
     const handleCreateCustomer = async () => {
         if (!newCustomerData.name.trim()) return;
 
-        const { data, error } = await createCustomer(newCustomerData);
+        const { data, error } = await saveAndSelectCustomer(newCustomerData);
         if (!error && data) {
-            setSelectedCustomer(data);
             setShowNewCustomerModal(false);
             setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
+            setCustomerIntakeDisplay({
+                status: 'attached',
+                source: 'manual',
+                message: 'Customer profile attached',
+            });
+            if (pendingCardCheckout) {
+                if (Number(data.store_credit || 0) > 0) {
+                    setPendingCardCheckout(false);
+                    setScanError('Customer attached. Review store credit before charging.');
+                    return;
+                }
+                await handleCompleteCardSale({ skipCustomerPrompt: true, customerId: data.id });
+            }
+        } else if (error) {
+            setScanError(error);
         }
     };
 
@@ -1890,6 +2084,21 @@ export function POS() {
                                             />
                                             <Button
                                                 variant="secondary"
+                                                onClick={() => handleStartReaderCustomerIntake()}
+                                                disabled={isOfflineMode || !connectedReader || isCollectingCustomerOnReader}
+                                                className="shrink-0"
+                                                title={
+                                                    isOfflineMode
+                                                        ? 'Customer self-entry requires internet'
+                                                        : !connectedReader
+                                                            ? 'Connect a card reader first'
+                                                            : 'Customer self-entry'
+                                                }
+                                            >
+                                                {isCollectingCustomerOnReader ? <LoadingSpinner size={16} /> : 'Self-entry'}
+                                            </Button>
+                                            <Button
+                                                variant="secondary"
                                                 onClick={() => {
                                                     setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
                                                     setShowNewCustomerModal(true);
@@ -1934,6 +2143,22 @@ export function POS() {
                                             >
                                                 + Add "{customerSearch}"
                                             </Button>
+                                        </div>
+                                    )}
+                                    {customerIntakeDisplay && customerIntakeDisplay.status !== 'idle' && (
+                                        <div className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-[var(--color-muted)]">{customerIntakeDisplay.message}</span>
+                                                {isCollectingCustomerOnReader && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleCancelReaderCustomerIntake}
+                                                        className="font-medium text-[var(--color-danger)] hover:underline"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -2491,7 +2716,7 @@ export function POS() {
                                         <Button
                                             size="xl"
                                             className="w-full"
-                                            onClick={handleCompleteCardSale}
+                                            onClick={() => handleCompleteCardSale()}
                                             disabled={cart.length === 0 || (amountDue > 0 && !connectedReader) || isCollectingCard}
                                             isLoading={isCollectingCard}
                                         >
@@ -2792,10 +3017,81 @@ export function POS() {
                 )}
             </Modal>
 
+            <Modal
+                isOpen={showCustomerIntakePrompt}
+                onClose={() => {
+                    setShowCustomerIntakePrompt(false);
+                    setPendingCardCheckout(false);
+                    setCustomerIntakeDisplay({
+                        status: 'skipped',
+                        source: 'reader',
+                        message: 'Customer self-entry skipped',
+                    });
+                }}
+                title="Add Customer?"
+                size="md"
+            >
+                <div className="space-y-4">
+                    <p className="text-sm text-[var(--color-muted)]">
+                        Let the customer add their name and optional contact details on the card reader before payment.
+                    </p>
+                    {customerIntakeDisplay && (
+                        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                            <p className="text-sm font-medium text-[var(--color-foreground)]">{customerIntakeDisplay.message}</p>
+                        </div>
+                    )}
+                    <div className="grid grid-cols-1 gap-3">
+                        <Button
+                            onClick={async () => {
+                                const customer = await handleStartReaderCustomerIntake();
+                                if (customer && pendingCardCheckout) {
+                                    if (Number(customer.store_credit || 0) > 0) {
+                                        setPendingCardCheckout(false);
+                                        setScanError('Customer attached. Review store credit before charging.');
+                                        return;
+                                    }
+                                    await handleCompleteCardSale({ skipCustomerPrompt: true, customerId: customer.id });
+                                }
+                            }}
+                            disabled={isOfflineMode || !connectedReader || isCollectingCustomerOnReader}
+                        >
+                            {isCollectingCustomerOnReader ? 'Waiting on reader...' : 'Add on Reader'}
+                        </Button>
+                        <Button
+                            variant="secondary"
+                            onClick={() => {
+                                setShowCustomerIntakePrompt(false);
+                                setNewCustomerData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
+                                setShowNewCustomerModal(true);
+                            }}
+                        >
+                            Manual Add
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            onClick={async () => {
+                                setCustomerIntakeDisplay({
+                                    status: 'skipped',
+                                    source: 'reader',
+                                    message: 'Customer self-entry skipped',
+                                });
+                                setShowCustomerIntakePrompt(false);
+                                await handleCompleteCardSale({ skipCustomerPrompt: true });
+                            }}
+                        >
+                            Skip and Charge
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
             {/* New Customer Modal */}
             <Modal
                 isOpen={showNewCustomerModal}
-                onClose={() => setShowNewCustomerModal(false)}
+                onClose={() => {
+                    setShowNewCustomerModal(false);
+                    setPendingCardCheckout(false);
+                }}
                 title="Add New Customer"
                 size="md"
             >
@@ -2831,7 +3127,10 @@ export function POS() {
                     <div className="flex gap-3 pt-4">
                         <Button
                             variant="ghost"
-                            onClick={() => setShowNewCustomerModal(false)}
+                            onClick={() => {
+                                setShowNewCustomerModal(false);
+                                setPendingCardCheckout(false);
+                            }}
                             className="flex-1"
                         >
                             Cancel

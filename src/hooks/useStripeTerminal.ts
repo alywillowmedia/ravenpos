@@ -38,9 +38,11 @@ interface Terminal {
     }) => Promise<DiscoverResult>;
     connectReader: (reader: Reader) => Promise<ConnectResult>;
     disconnectReader: () => Promise<void>;
-    setSimulatorConfiguration: (config: { testCardNumber: string }) => void;
+    setSimulatorConfiguration: (config: { testCardNumber?: string; collectInputsResult?: { resultType: string; skipBehavior?: string } }) => void;
     collectPaymentMethod: (clientSecret: string) => Promise<CollectResult>;
     processPayment: (paymentIntent: PaymentIntent) => Promise<ProcessResult>;
+    collectInputs: (parameters: CollectInputsParameters) => Promise<CollectInputsResult>;
+    cancelCollectInputs: () => Promise<ReaderDisplayResult>;
     setReaderDisplay: (displayInfo: ReaderDisplayInfo) => Promise<ReaderDisplayResult>;
     clearReaderDisplay: () => Promise<void>;
     getConnectionStatus: () => string;
@@ -67,6 +69,29 @@ interface ReaderDisplayInfo {
         total: number;
         currency: string;
     };
+}
+
+type CollectInputFormType = 'text' | 'phone' | 'email' | 'selection' | 'signature' | 'numeric';
+
+interface CollectInputToggle {
+    title: string;
+    description?: string;
+    defaultValue?: 'enabled' | 'disabled';
+}
+
+interface CollectInputRequest {
+    id: 'customer_name' | 'customer_phone' | 'customer_email';
+    formType: CollectInputFormType;
+    title: string;
+    description?: string;
+    required?: boolean;
+    skipButtonText?: string;
+    submitButtonText?: string;
+    toggles?: CollectInputToggle[];
+}
+
+interface CollectInputsParameters {
+    inputs: CollectInputRequest[];
 }
 
 interface Reader {
@@ -106,7 +131,33 @@ interface ReaderDisplayResult {
     error?: { message: string };
 }
 
-export type TerminalStatus = 'not_initialized' | 'initialized' | 'discovering' | 'connecting' | 'connected' | 'collecting' | 'processing' | 'error';
+interface CollectInputResponse {
+    id?: string;
+    value?: string;
+    text?: string;
+    email?: string;
+    phone?: string;
+    skipped?: boolean;
+    toggles?: Array<{ value?: string; enabled?: boolean; skipped?: boolean }>;
+    toggleResults?: Array<{ value?: string; enabled?: boolean; skipped?: boolean }>;
+    toggle_results?: Array<{ value?: string; enabled?: boolean; skipped?: boolean }>;
+}
+
+interface CollectInputsResult {
+    error?: { message: string };
+    inputs?: CollectInputResponse[];
+    collectedInputs?: CollectInputResponse[];
+    inputResults?: CollectInputResponse[];
+}
+
+export interface ReaderCustomerInput {
+    name: string;
+    email: string | null;
+    phone: string | null;
+    acceptsMarketing: boolean;
+}
+
+export type TerminalStatus = 'not_initialized' | 'initialized' | 'discovering' | 'connecting' | 'connected' | 'collecting' | 'collecting_customer' | 'processing' | 'error';
 export interface ReaderDiscoveryConfig {
     simulated?: boolean;
     locationId?: string;
@@ -122,6 +173,22 @@ export interface ReaderRegistrationConfig {
     registrationCode: string;
     locationId: string;
     label?: string;
+}
+
+function getCollectedInput(result: CollectInputsResult, index: number, id: string): CollectInputResponse | undefined {
+    const inputs = result.inputs || result.collectedInputs || result.inputResults || [];
+    return inputs.find((input) => input.id === id) || inputs[index];
+}
+
+function getToggleEnabled(input: CollectInputResponse | undefined): boolean {
+    const toggle = input?.toggles?.[0] || input?.toggleResults?.[0] || input?.toggle_results?.[0];
+    if (!toggle || toggle.skipped) return false;
+    if (typeof toggle.enabled === 'boolean') return toggle.enabled;
+    return toggle.value === 'enabled';
+}
+
+function getInputValue(input: CollectInputResponse | undefined): string {
+    return input?.value || input?.text || input?.email || input?.phone || '';
 }
 
 export function useStripeTerminal() {
@@ -372,6 +439,109 @@ export function useStripeTerminal() {
         }
     }, [connectedReader]);
 
+    const collectCustomerInputs = useCallback(async (): Promise<{ data: ReaderCustomerInput | null; error: string | null }> => {
+        if (!terminalRef.current || !connectedReader) {
+            return { data: null, error: 'No reader connected' };
+        }
+
+        setStatus('collecting_customer');
+        setError(null);
+        readerDisplaySignatureRef.current = null;
+
+        try {
+            if (isSimulated) {
+                terminalRef.current.setSimulatorConfiguration({
+                    testCardNumber: '4242424242424242',
+                    collectInputsResult: { resultType: 'succeeded', skipBehavior: 'none' },
+                });
+            }
+
+            const result = await terminalRef.current.collectInputs({
+                inputs: [
+                    {
+                        id: 'customer_name',
+                        formType: 'text',
+                        title: 'Join Ravenlia',
+                        description: 'Enter your name to save your customer profile.',
+                        required: true,
+                        submitButtonText: 'Continue',
+                    },
+                    {
+                        id: 'customer_phone',
+                        formType: 'phone',
+                        title: 'Phone Number',
+                        description: 'Optional. Use this to find your profile next time.',
+                        required: false,
+                        skipButtonText: 'Skip',
+                        submitButtonText: 'Continue',
+                    },
+                    {
+                        id: 'customer_email',
+                        formType: 'email',
+                        title: 'Email',
+                        description: 'Optional. Add email and choose whether to join the email list.',
+                        required: false,
+                        skipButtonText: 'Skip',
+                        submitButtonText: 'Save',
+                        toggles: [
+                            {
+                                title: 'Join email list',
+                                description: 'Get updates and offers',
+                                defaultValue: 'disabled',
+                            },
+                        ],
+                    },
+                ],
+            });
+
+            if (result.error) {
+                setError(result.error.message);
+                setStatus('connected');
+                return { data: null, error: result.error.message };
+            }
+
+            const nameInput = getCollectedInput(result, 0, 'customer_name');
+            const phoneInput = getCollectedInput(result, 1, 'customer_phone');
+            const emailInput = getCollectedInput(result, 2, 'customer_email');
+            const name = getInputValue(nameInput).trim();
+
+            if (!name) {
+                const message = 'Customer name was not entered';
+                setError(message);
+                setStatus('connected');
+                return { data: null, error: message };
+            }
+
+            setStatus('connected');
+            return {
+                data: {
+                    name,
+                    phone: phoneInput?.skipped ? null : getInputValue(phoneInput).trim() || null,
+                    email: emailInput?.skipped ? null : getInputValue(emailInput).trim() || null,
+                    acceptsMarketing: getToggleEnabled(emailInput),
+                },
+                error: null,
+            };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Customer entry failed';
+            setError(message);
+            setStatus('connected');
+            return { data: null, error: message };
+        }
+    }, [connectedReader, isSimulated]);
+
+    const cancelCustomerInputs = useCallback(async (): Promise<void> => {
+        if (!terminalRef.current) return;
+
+        try {
+            await terminalRef.current.cancelCollectInputs();
+        } catch {
+            // Ignore cancel errors; the reader may have already finished or canceled the flow.
+        } finally {
+            setStatus(connectedReader ? 'connected' : 'initialized');
+        }
+    }, [connectedReader]);
+
     // Create payment intent
     const createPaymentIntent = useCallback(async (amountInCents: number) => {
         try {
@@ -512,6 +682,8 @@ export function useStripeTerminal() {
         disconnectReader,
         setReaderCartDisplay,
         clearReaderCartDisplay,
+        collectCustomerInputs,
+        cancelCustomerInputs,
         collectCardPayment,
         cancelPayment,
     };
