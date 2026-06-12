@@ -131,23 +131,40 @@ interface ReaderDisplayResult {
     error?: { message: string };
 }
 
+interface CollectInputValuePayload {
+    value?: string | null;
+    text?: string | null;
+    id?: string | null;
+}
+
 interface CollectInputResponse {
     id?: string;
+    type?: CollectInputFormType;
     value?: string;
-    text?: string;
-    email?: string;
-    phone?: string;
+    text?: string | CollectInputValuePayload;
+    email?: string | CollectInputValuePayload;
+    phone?: string | CollectInputValuePayload;
+    numeric?: string | CollectInputValuePayload;
+    selection?: string | CollectInputValuePayload;
+    signature?: string | CollectInputValuePayload;
+    required?: boolean | null;
     skipped?: boolean;
     toggles?: Array<{ value?: string; enabled?: boolean; skipped?: boolean }>;
     toggleResults?: Array<{ value?: string; enabled?: boolean; skipped?: boolean }>;
     toggle_results?: Array<{ value?: string; enabled?: boolean; skipped?: boolean }>;
 }
 
-interface CollectInputsResult {
+export interface CollectInputsResult {
     error?: { message: string };
     inputs?: CollectInputResponse[];
     collectedInputs?: CollectInputResponse[];
     inputResults?: CollectInputResponse[];
+    collectInputs?: {
+        inputs?: CollectInputResponse[];
+    };
+    collect_inputs?: {
+        inputs?: CollectInputResponse[];
+    };
 }
 
 export interface ReaderCustomerInput {
@@ -175,8 +192,17 @@ export interface ReaderRegistrationConfig {
     label?: string;
 }
 
+function getCollectedInputs(result: CollectInputsResult): CollectInputResponse[] {
+    return result.inputs
+        || result.collectedInputs
+        || result.inputResults
+        || result.collectInputs?.inputs
+        || result.collect_inputs?.inputs
+        || [];
+}
+
 function getCollectedInput(result: CollectInputsResult, index: number, id: string): CollectInputResponse | undefined {
-    const inputs = result.inputs || result.collectedInputs || result.inputResults || [];
+    const inputs = getCollectedInputs(result);
     return inputs.find((input) => input.id === id) || inputs[index];
 }
 
@@ -187,8 +213,42 @@ function getToggleEnabled(input: CollectInputResponse | undefined): boolean {
     return toggle.value === 'enabled';
 }
 
+function getPayloadValue(payload: string | CollectInputValuePayload | undefined): string {
+    if (!payload) return '';
+    if (typeof payload === 'string') return payload;
+    return payload.value || payload.text || payload.id || '';
+}
+
 function getInputValue(input: CollectInputResponse | undefined): string {
-    return input?.value || input?.text || input?.email || input?.phone || '';
+    if (!input) return '';
+    const values = [
+        input.value,
+        getPayloadValue(input.text),
+        getPayloadValue(input.email),
+        getPayloadValue(input.phone),
+        getPayloadValue(input.numeric),
+        getPayloadValue(input.selection),
+        getPayloadValue(input.signature),
+    ];
+    return values.find((value) => value !== undefined && value !== null && value !== '') || '';
+}
+
+export function parseReaderCustomerInput(result: CollectInputsResult): ReaderCustomerInput | null {
+    const nameInput = getCollectedInput(result, 0, 'customer_name');
+    const phoneInput = getCollectedInput(result, 1, 'customer_phone');
+    const emailInput = getCollectedInput(result, 2, 'customer_email');
+    const name = getInputValue(nameInput).trim();
+
+    if (!name) {
+        return null;
+    }
+
+    return {
+        name,
+        phone: phoneInput?.skipped ? null : getInputValue(phoneInput).trim() || null,
+        email: emailInput?.skipped ? null : getInputValue(emailInput).trim() || null,
+        acceptsMarketing: getToggleEnabled(emailInput),
+    };
 }
 
 export function useStripeTerminal() {
@@ -500,12 +560,9 @@ export function useStripeTerminal() {
                 return { data: null, error: result.error.message };
             }
 
-            const nameInput = getCollectedInput(result, 0, 'customer_name');
-            const phoneInput = getCollectedInput(result, 1, 'customer_phone');
-            const emailInput = getCollectedInput(result, 2, 'customer_email');
-            const name = getInputValue(nameInput).trim();
+            const customerInput = parseReaderCustomerInput(result);
 
-            if (!name) {
+            if (!customerInput) {
                 const message = 'Customer name was not entered';
                 setError(message);
                 setStatus('connected');
@@ -514,12 +571,7 @@ export function useStripeTerminal() {
 
             setStatus('connected');
             return {
-                data: {
-                    name,
-                    phone: phoneInput?.skipped ? null : getInputValue(phoneInput).trim() || null,
-                    email: emailInput?.skipped ? null : getInputValue(emailInput).trim() || null,
-                    acceptsMarketing: getToggleEnabled(emailInput),
-                },
+                data: customerInput,
                 error: null,
             };
         } catch (err) {
