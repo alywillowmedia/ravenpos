@@ -52,6 +52,13 @@ interface CustomerIntakeDisplayState {
     message: string;
 }
 
+interface CustomerDisplaySummary {
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+}
+
 const toStripeCents = (amount: number) => Math.max(0, Math.round((Number.isFinite(amount) ? amount : 0) * 100));
 
 const normalizeCustomerEmail = (email?: string | null) => email?.trim().toLowerCase() || null;
@@ -226,6 +233,7 @@ export function POS() {
     const [isCollectingCustomerOnReader, setIsCollectingCustomerOnReader] = useState(false);
     const [useStoreCredit, setUseStoreCredit] = useState(true);
     const [giftCardInput, setGiftCardInput] = useState('');
+    const [showGiftCardEntry, setShowGiftCardEntry] = useState(false);
     const [giftCardError, setGiftCardError] = useState<string | null>(null);
     const [isApplyingGiftCard, setIsApplyingGiftCard] = useState(false);
     const [appliedGiftCard, setAppliedGiftCard] = useState<{ code: string; balance: number } | null>(null);
@@ -315,6 +323,16 @@ export function POS() {
     const appliedStoreCredit = selectedCustomer && useStoreCredit
         ? Math.min(availableStoreCredit, remainingAfterGiftCard)
         : 0;
+    const customerDisplaySummary = useMemo<CustomerDisplaySummary | null>(() => {
+        if (!selectedCustomer) return null;
+
+        return {
+            id: selectedCustomer.id,
+            name: selectedCustomer.name,
+            email: selectedCustomer.email,
+            phone: selectedCustomer.phone,
+        };
+    }, [selectedCustomer]);
     const cashPrice = Math.max(0, Math.round((total - appliedGiftCardAmount - appliedStoreCredit) * 100) / 100);
     const cardFeeAmount = calculateCardSurchargeAmount(cashPrice, cardFeeRatio);
     const cardPrice = Math.max(0, Math.round((cashPrice + cardFeeAmount) * 100) / 100);
@@ -431,6 +449,7 @@ export function POS() {
         setUseStoreCredit(false);
         setAppliedGiftCard(null);
         setGiftCardInput('');
+        setShowGiftCardEntry(false);
     }, [isOfflineMode]);
 
     // Persist cart to sessionStorage
@@ -610,6 +629,7 @@ export function POS() {
             paymentMethod,
             appliedStoreCredit,
             appliedGiftCard: appliedGiftCardAmount,
+            customer: customerDisplaySummary,
             customerIntake: customerIntakeDisplay,
             orderDiscounts,
             completedSale
@@ -628,6 +648,7 @@ export function POS() {
         paymentMethod,
         appliedStoreCredit,
         appliedGiftCardAmount,
+        customerDisplaySummary,
         customerIntakeDisplay,
         orderDiscounts,
         completedSale,
@@ -1227,6 +1248,7 @@ export function POS() {
         setCustomerSearch('');
         setUseStoreCredit(true);
         setGiftCardInput('');
+        setShowGiftCardEntry(false);
         setGiftCardError(null);
         setIsApplyingGiftCard(false);
         setAppliedGiftCard(null);
@@ -1403,6 +1425,7 @@ export function POS() {
         setSplitCheckNumber('');
         setUseStoreCredit(true);
         setGiftCardInput('');
+        setShowGiftCardEntry(false);
         setGiftCardError(null);
         setIsApplyingGiftCard(false);
         setAppliedGiftCard(null);
@@ -1566,6 +1589,7 @@ export function POS() {
         setSelectedCustomer(null);
         setUseStoreCredit(true);
         setCustomerSearch('');
+        setCustomerIntakeDisplay(null);
     };
 
     const saveAndSelectCustomer = useCallback(async (input: CustomerInput) => {
@@ -1748,6 +1772,7 @@ export function POS() {
     const handleRemoveGiftCard = () => {
         setAppliedGiftCard(null);
         setGiftCardInput('');
+        setShowGiftCardEntry(false);
         setGiftCardError(null);
     };
 
@@ -2027,11 +2052,8 @@ export function POS() {
                                 </div>
                             </div>
 
-                            <div className="w-full flex items-center gap-2.5">
-                                <span className="shrink-0 text-[var(--color-muted)]">
-                                    <CustomerIcon />
-                                </span>
-                                <div className="relative flex-1 min-w-0">
+                            <div className="w-full">
+                                <div className="relative w-full min-w-0">
                                     {selectedCustomer ? (
                                         <div className="rounded-lg bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/20 p-2">
                                             <div className="flex items-start justify-between gap-3">
@@ -2168,7 +2190,7 @@ export function POS() {
 
                             <div className="flex justify-between text-sm">
                                 <span className="text-[var(--color-muted)]">Subtotal</span>
-                                <span>{formatCurrency(subtotal)}</span>
+                                <span className="tabular-nums">{formatCurrency(subtotal)}</span>
                             </div>
 
                             {alySubtotal > 0 && (
@@ -2219,22 +2241,10 @@ export function POS() {
                                 </div>
                             ))}
 
-                            {/* Add Discount Button */}
-                            {cart.length > 0 && (
-                                <div className="space-y-2">
-                                    {dealerDiscountEnabled && dealerDiscountEligibleItems === 0 && (
-                                        <p className="text-xs text-[var(--color-warning)]">
-                                            Dealer discount is on, but no cart items are from vendors with dealer discounts configured.
-                                        </p>
-                                    )}
-                                    <button
-                                        onClick={handleOpenOrderDiscount}
-                                        className="w-full py-2 px-3 rounded-lg border-2 border-dashed border-[var(--color-border)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 transition-colors text-sm text-[var(--color-muted)] hover:text-[var(--color-primary)] flex items-center justify-center gap-2"
-                                    >
-                                        <DiscountIcon />
-                                        Add Order Discount
-                                    </button>
-                                </div>
+                            {cart.length > 0 && dealerDiscountEnabled && dealerDiscountEligibleItems === 0 && (
+                                <p className="text-xs text-[var(--color-warning)]">
+                                    Dealer discount is on, but no cart items are from vendors with dealer discounts configured.
+                                </p>
                             )}
 
                             {/* Total Discount */}
@@ -2247,7 +2257,7 @@ export function POS() {
 
                             <div className="flex justify-between text-sm">
                                 <span className="text-[var(--color-muted)]">Tax</span>
-                                <span>{formatCurrency(taxTotal)}</span>
+                                <span className="tabular-nums">{formatCurrency(taxTotal)}</span>
                             </div>
                             {appliedStoreCredit > 0 && (
                                 <div className="flex justify-between text-sm text-[var(--color-success)]">
@@ -2274,8 +2284,8 @@ export function POS() {
                                 </>
                             )}
                             <div className="flex justify-between items-baseline pt-3 border-t border-[var(--color-border)]">
-                                <span className="text-sm font-medium text-[var(--color-muted)]">{paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Amount Due'}</span>
-                                <span className="text-2xl font-semibold tabular-nums text-[var(--color-primary)]">
+                                <span className="eyebrow">{paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Amount Due'}</span>
+                                <span className="font-display text-3xl tabular-nums text-[var(--color-primary)] leading-none">
                                     {formatCurrency(amountDue)}
                                 </span>
                             </div>
@@ -2285,54 +2295,75 @@ export function POS() {
                                 </p>
                             )}
 
-                            <div className="pt-3 border-t border-[var(--color-border)]">
-                                <div className="w-full flex items-center gap-2.5">
-                                    <span className="shrink-0 text-[var(--color-muted)]">
-                                        <GiftCardIcon />
-                                    </span>
-                                    <div className="flex-1 min-w-0 space-y-2">
-                                        {appliedGiftCard ? (
-                                            <div className="rounded-lg bg-[var(--color-success-bg)] border border-[var(--color-success)]/20 p-2">
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <span className="text-xs font-mono text-[var(--color-foreground)]">{appliedGiftCard.code}</span>
-                                                    <button
-                                                        onClick={handleRemoveGiftCard}
-                                                        className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
-                                                    >
-                                                        Remove
-                                                    </button>
-                                                </div>
-                                                <p className="mt-1 text-xs text-[var(--color-muted)]">
-                                                    Balance: {formatCurrency(appliedGiftCard.balance)}
-                                                </p>
-                                            </div>
-                                        ) : (
-                                            <div className="flex gap-2 w-full">
-                                                <Input
-                                                    value={giftCardInput}
-                                                    onChange={(e) => setGiftCardInput(e.target.value.toUpperCase())}
-                                                    placeholder="Enter giftcard code"
-                                                    disabled={isOfflineMode}
-                                                    className="w-full text-sm"
-                                                />
-                                                <Button
-                                                    variant="secondary"
-                                                    onClick={handleApplyGiftCard}
-                                                    isLoading={isApplyingGiftCard}
-                                                    className="shrink-0"
-                                                    disabled={isOfflineMode}
+                            {/* Adjustments — quiet, unified actions kept out of the figure column */}
+                            {(cart.length > 0 || appliedGiftCard || showGiftCardEntry) && (
+                                <div className="pt-3 border-t border-[var(--color-border)] space-y-2">
+                                    {appliedGiftCard && (
+                                        <div className="rounded-lg bg-[var(--color-success-bg)] border border-[var(--color-success)]/20 p-2">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-xs font-mono text-[var(--color-foreground)]">{appliedGiftCard.code}</span>
+                                                <button
+                                                    onClick={handleRemoveGiftCard}
+                                                    className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
                                                 >
-                                                    Apply
-                                                </Button>
+                                                    Remove
+                                                </button>
                                             </div>
-                                        )}
+                                            <p className="mt-1 text-xs text-[var(--color-muted)]">
+                                                Balance: {formatCurrency(appliedGiftCard.balance)}
+                                            </p>
+                                        </div>
+                                    )}
 
-                                        {giftCardError && (
-                                            <p className="text-xs text-[var(--color-danger)]">{giftCardError}</p>
-                                        )}
-                                    </div>
+                                    {showGiftCardEntry && !appliedGiftCard && (
+                                        <div className="flex gap-2 w-full">
+                                            <Input
+                                                value={giftCardInput}
+                                                onChange={(e) => setGiftCardInput(e.target.value.toUpperCase())}
+                                                placeholder="Gift card code"
+                                                disabled={isOfflineMode}
+                                                className="w-full text-sm"
+                                                autoFocus
+                                            />
+                                            <Button
+                                                variant="secondary"
+                                                onClick={handleApplyGiftCard}
+                                                isLoading={isApplyingGiftCard}
+                                                className="shrink-0"
+                                                disabled={isOfflineMode}
+                                            >
+                                                Apply
+                                            </Button>
+                                        </div>
+                                    )}
+
+                                    {giftCardError && (
+                                        <p className="text-xs text-[var(--color-danger)]">{giftCardError}</p>
+                                    )}
+
+                                    {cart.length > 0 && (
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                onClick={handleOpenOrderDiscount}
+                                                className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-[var(--color-muted)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 transition-colors"
+                                            >
+                                                <DiscountIcon />
+                                                Add discount
+                                            </button>
+                                            {!appliedGiftCard && (
+                                                <button
+                                                    onClick={() => setShowGiftCardEntry((v) => !v)}
+                                                    aria-expanded={showGiftCardEntry}
+                                                    className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--color-primary)]/5 ${showGiftCardEntry ? 'text-[var(--color-primary)]' : 'text-[var(--color-muted)] hover:text-[var(--color-primary)]'}`}
+                                                >
+                                                    <GiftCardIcon />
+                                                    Gift card
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
+                            )}
                         </CardContent>
                     </Card>
 
@@ -2430,11 +2461,11 @@ export function POS() {
                                                     : 'bg-[var(--color-danger-bg)]'
                                                     }`}
                                             >
-                                                <p className="text-sm text-[var(--color-muted)]">
+                                                <p className="eyebrow">
                                                     {change >= 0 ? 'Change Due' : 'Amount Short'}
                                                 </p>
                                                 <p
-                                                    className={`text-3xl font-bold ${change >= 0
+                                                    className={`font-display text-4xl tabular-nums mt-1 ${change >= 0
                                                         ? 'text-[var(--color-success)]'
                                                         : 'text-[var(--color-danger)]'
                                                         }`}
@@ -3415,16 +3446,6 @@ function SearchIcon() {
     );
 }
 
-function CustomerIcon() {
-    return (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-        </svg>
-    );
-}
 
 function UserPlusIcon() {
     return (

@@ -27,6 +27,32 @@ export interface SaleDiscountBreakdown {
     netSubtotal: number;
 }
 
+export interface SaleItemDiscountAllocationInput {
+    id: string;
+    sale_id: string;
+    price: number | string;
+    quantity: number | string;
+    discount_amount?: number | string | null;
+}
+
+export interface JoinedSaleDiscountData {
+    completed_at: string;
+    discount_total: number;
+}
+
+export function getJoinedSaleDiscountData(salesData: unknown): JoinedSaleDiscountData {
+    const sale = Array.isArray(salesData) ? salesData[0] : salesData;
+    if (!sale || typeof sale !== 'object' || !('completed_at' in sale)) {
+        return { completed_at: '', discount_total: 0 };
+    }
+
+    const parsed = sale as { completed_at: string; discount_total?: number | string | null };
+    return {
+        completed_at: parsed.completed_at,
+        discount_total: Number(parsed.discount_total || 0),
+    };
+}
+
 function clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value));
 }
@@ -156,4 +182,39 @@ export function calculateSaleItemDiscountBreakdown(
         })),
         saleDiscountTotal
     );
+}
+
+export function calculateSaleItemDiscountAllocations(
+    saleItems: SaleItemDiscountAllocationInput[],
+    saleDiscountTotals: Map<string, number>
+): Map<string, SaleDiscountLineBreakdown> {
+    const itemsBySale = new Map<string, SaleItemDiscountAllocationInput[]>();
+
+    for (const item of saleItems) {
+        const saleItemsForSale = itemsBySale.get(item.sale_id) || [];
+        saleItemsForSale.push(item);
+        itemsBySale.set(item.sale_id, saleItemsForSale);
+    }
+
+    const allocations = new Map<string, SaleDiscountLineBreakdown>();
+
+    for (const [saleId, itemsForSale] of itemsBySale.entries()) {
+        const breakdown = calculateSaleDiscountBreakdown(
+            itemsForSale.map((item) => ({
+                quantity: Number(item.quantity || 0),
+                unitPrice: Number(item.price || 0),
+                lineDiscountAmount: Number(item.discount_amount || 0),
+            })),
+            Number(saleDiscountTotals.get(saleId) || 0)
+        );
+
+        itemsForSale.forEach((item, index) => {
+            const lineBreakdown = breakdown.items[index];
+            if (lineBreakdown) {
+                allocations.set(item.id, lineBreakdown);
+            }
+        });
+    }
+
+    return allocations;
 }

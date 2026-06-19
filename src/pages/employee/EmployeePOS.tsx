@@ -232,14 +232,6 @@ export function EmployeePOS() {
                 return;
             }
 
-            // Update inventory quantities
-            for (const ci of cart) {
-                await supabase
-                    .from('items')
-                    .update({ quantity: ci.item.quantity - ci.quantity })
-                    .eq('id', ci.item.id);
-            }
-
             setCompletedSale({ total, change: paymentMethod === 'cash' ? change : 0 });
         } catch (err) {
             console.error('Sale error:', err);

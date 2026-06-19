@@ -109,24 +109,6 @@ async function syncSingleQueueEntry(entry: OfflineCashSaleQueueEntry): Promise<v
             throw itemFetchError;
         }
 
-        const currentQuantity = Number(itemData.quantity || 0);
-        if (currentQuantity < adjustment.quantity_sold) {
-            throw new Error(
-                `Inventory conflict for item ${adjustment.item_id}: current ${currentQuantity}, sold ${adjustment.quantity_sold}.`
-            );
-        }
-
-        const { error: quantityUpdateError } = await supabase
-            .from('items')
-            .update({
-                quantity: currentQuantity - adjustment.quantity_sold,
-            })
-            .eq('id', adjustment.item_id);
-
-        if (quantityUpdateError) {
-            throw quantityUpdateError;
-        }
-
         if (itemData.sync_enabled && itemData.shopify_inventory_item_id) {
             try {
                 await supabase

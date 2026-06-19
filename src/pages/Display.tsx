@@ -13,6 +13,13 @@ interface CustomerIntakeDisplayState {
     message: string;
 }
 
+interface CustomerDisplaySummary {
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+}
+
 interface BroadcastData {
     cart: CartItem[];
     subtotal: number;
@@ -26,6 +33,7 @@ interface BroadcastData {
     paymentMethod?: PaymentMethod;
     appliedStoreCredit?: number;
     appliedGiftCard?: number;
+    customer?: CustomerDisplaySummary | null;
     customerIntake?: CustomerIntakeDisplayState | null;
     orderDiscounts: Discount[];
     completedSale: Sale | null;
@@ -101,8 +109,12 @@ export function Display() {
         paymentMethod = 'card',
         appliedStoreCredit = 0,
         appliedGiftCard = 0,
+        customer = null,
         customerIntake = null,
     } = data;
+    const activeCustomerIntake = customerIntake && customerIntake.status !== 'idle' ? customerIntake : null;
+    const hasCustomer = Boolean(customer?.name?.trim());
+    const shouldShowCustomerInfo = hasCustomer || Boolean(activeCustomerIntake);
 
     if (completedSale) {
         return (
@@ -110,26 +122,26 @@ export function Display() {
                 <div className="bg-[var(--color-card)] shadow-xl p-6 rounded-full mb-6">
                     <CheckCircle size={78} className="text-[var(--color-success)]" />
                 </div>
-                <h1 className="text-5xl font-bold mb-3">Payment Approved</h1>
+                <h1 className="font-display text-6xl mb-3">Payment approved</h1>
                 <p className="text-2xl text-[var(--color-muted)] mb-8">Thank you for shopping with us</p>
 
                 <div className="bg-[var(--color-card)] p-8 rounded-2xl shadow-lg min-w-[440px] text-[var(--color-foreground)] border border-[var(--color-border)]">
-                    <div className="flex justify-between items-center text-xl mb-4">
-                        <span className="text-[var(--color-muted)]">Total Paid</span>
-                        <span className="font-bold">{formatCurrency(completedSale.total)}</span>
+                    <div className="flex justify-between items-baseline mb-4">
+                        <span className="eyebrow">Total paid</span>
+                        <span className="font-display tabular-nums text-3xl">{formatCurrency(completedSale.total)}</span>
                     </div>
 
                     {(completedSale.card_fee_amount || 0) > 0 && (
                         <div className="flex justify-between items-center text-sm mb-3">
-                            <span className="text-[var(--color-muted)]">Card Fee Included</span>
-                            <span>{formatCurrency(Number(completedSale.card_fee_amount || 0))}</span>
+                            <span className="text-[var(--color-muted)]">Card fee included</span>
+                            <span className="tabular-nums">{formatCurrency(Number(completedSale.card_fee_amount || 0))}</span>
                         </div>
                     )}
 
                     {completedSale.change_given !== null && completedSale.change_given > 0 && (
-                        <div className="flex justify-between items-center text-2xl pt-4 border-t border-[var(--color-border)]">
-                            <span className="text-[var(--color-success)] font-bold">Change Due</span>
-                            <span className="font-bold text-[var(--color-success)]">{formatCurrency(completedSale.change_given)}</span>
+                        <div className="flex justify-between items-baseline pt-4 border-t border-[var(--color-border)]">
+                            <span className="eyebrow !text-[var(--color-success)]">Change due</span>
+                            <span className="font-display tabular-nums text-3xl text-[var(--color-success)]">{formatCurrency(completedSale.change_given)}</span>
                         </div>
                     )}
 
@@ -142,8 +154,8 @@ export function Display() {
         );
     }
 
-    if (cart.length === 0 && customerIntake && customerIntake.status !== 'idle') {
-        return <CustomerIntakeState imageUrl={idleImageUrl} intake={customerIntake} />;
+    if (cart.length === 0 && shouldShowCustomerInfo) {
+        return <CustomerIntakeState imageUrl={idleImageUrl} intake={activeCustomerIntake} customer={customer} />;
     }
 
     if (cart.length === 0) {
@@ -161,7 +173,7 @@ export function Display() {
                             <ShoppingCartIcon className="w-5 h-5 text-[var(--color-primary)]" />
                         </div>
                         <div>
-                            <h1 className="text-xl md:text-2xl font-bold text-[var(--color-foreground)]">Your Order</h1>
+                            <h1 className="font-display text-2xl md:text-3xl text-[var(--color-foreground)]">Your order</h1>
                             <p className="text-sm text-[var(--color-muted)]">
                                 {cart.length} line item{cart.length !== 1 ? 's' : ''} • {totalUnits} unit{totalUnits !== 1 ? 's' : ''}
                             </p>
@@ -178,7 +190,7 @@ export function Display() {
                 <div className="min-h-0 p-4 md:p-5">
                     <div className="h-full overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-sm">
                         <div className="sticky top-0 z-10 px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] backdrop-blur-sm">
-                            <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] font-semibold">Scanned Items</p>
+                            <p className="eyebrow">Scanned items</p>
                         </div>
                         <div className="divide-y divide-[var(--color-border)]">
                     {cart.map((item, index) => (
@@ -226,19 +238,19 @@ export function Display() {
                                 <div className="text-right pl-2">
                                     {item.discount ? (
                                         <>
-                                            <div className="text-lg md:text-xl font-bold text-[var(--color-success)] leading-tight">
+                                            <div className="text-lg md:text-xl font-semibold tabular-nums text-[var(--color-success)] leading-tight">
                                                 {formatCurrency(item.discountedLineTotal)}
                                             </div>
-                                            <div className="text-[11px] md:text-xs text-[var(--color-muted)] line-through leading-tight">
+                                            <div className="text-[11px] md:text-xs text-[var(--color-muted)] line-through tabular-nums leading-tight">
                                                 {formatCurrency(item.lineTotal)}
                                             </div>
                                         </>
                                     ) : (
-                                        <div className="text-lg md:text-xl font-bold text-[var(--color-foreground)] leading-tight">
+                                        <div className="text-lg md:text-xl font-semibold tabular-nums text-[var(--color-foreground)] leading-tight">
                                             {formatCurrency(item.lineTotal)}
                                         </div>
                                     )}
-                                    <div className="text-[11px] md:text-xs text-[var(--color-muted)] mt-0.5">
+                                    <div className="text-[11px] md:text-xs text-[var(--color-muted)] tabular-nums mt-0.5">
                                         {item.quantity} @ {formatCurrency(Number(item.item.price))}
                                     </div>
                                 </div>
@@ -250,10 +262,10 @@ export function Display() {
 
                 <div className="min-h-0 bg-[var(--color-surface-elevated)] backdrop-blur-md border-t lg:border-t-0 lg:border-l border-[var(--color-border)] flex flex-col shadow-xl">
                     <div className="flex-1 overflow-y-auto p-5 md:p-6 space-y-5">
-                        {customerIntake && customerIntake.status !== 'idle' && (
-                            <CustomerIntakeBanner intake={customerIntake} />
+                        {shouldShowCustomerInfo && (
+                            <CustomerIntakeBanner intake={activeCustomerIntake} customer={customer} />
                         )}
-                        <h2 className="text-xl md:text-2xl font-bold text-[var(--color-foreground)]">Order Summary</h2>
+                        <h2 className="font-display text-2xl md:text-3xl text-[var(--color-foreground)]">Order summary</h2>
 
                         <div className="space-y-2.5 text-base md:text-lg">
                             <Row label="Subtotal" value={formatCurrency(subtotal)} />
@@ -301,13 +313,11 @@ export function Display() {
                         )}
                     </div>
 
-                    <div className="p-5 md:p-6 bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-primary-hover)] text-[var(--color-primary-foreground)] mt-auto">
-                        <div className="flex justify-between items-end mb-1">
-                            <span className="text-base md:text-lg font-medium opacity-90">
-                                {paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Total Due'}
-                            </span>
-                            <span className="text-4xl md:text-5xl font-bold">{formatCurrency(amountDue)}</span>
-                        </div>
+                    <div className="px-6 py-7 md:px-7 md:py-8 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-primary-hover)] text-[var(--color-primary-foreground)] mt-auto">
+                        <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.16em] opacity-70 mb-1.5">
+                            {paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Total Due'}
+                        </p>
+                        <p className="font-display tabular-nums text-6xl md:text-7xl leading-none">{formatCurrency(amountDue)}</p>
                     </div>
                 </div>
             </div>
@@ -315,9 +325,12 @@ export function Display() {
     );
 }
 
-function CustomerIntakeBanner({ intake }: { intake: CustomerIntakeDisplayState }) {
-    const isDone = intake.status === 'attached';
-    const isError = intake.status === 'error';
+function CustomerIntakeBanner({ intake, customer }: { intake?: CustomerIntakeDisplayState | null; customer?: CustomerDisplaySummary | null }) {
+    const customerName = customer?.name?.trim() || '';
+    const hasAttachedCustomer = Boolean(customerName) && (!intake || intake.status === 'attached');
+    const isDone = hasAttachedCustomer || intake?.status === 'attached';
+    const isError = intake?.status === 'error';
+    const contactInfo = customer?.phone || customer?.email || null;
 
     return (
         <div className={`rounded-xl border p-4 ${
@@ -331,8 +344,13 @@ function CustomerIntakeBanner({ intake }: { intake: CustomerIntakeDisplayState }
                 Customer Profile
             </p>
             <p className="mt-1 text-base font-semibold text-[var(--color-foreground)]">
-                {intake.message}
+                {hasAttachedCustomer ? customerName : intake?.message || 'Customer profile attached'}
             </p>
+            {hasAttachedCustomer && contactInfo && (
+                <p className="mt-1 text-sm text-[var(--color-muted)]">
+                    {contactInfo}
+                </p>
+            )}
             {!isDone && !isError && (
                 <p className="mt-1 text-sm text-[var(--color-muted)]">
                     Follow the prompts on the card reader.
@@ -342,14 +360,14 @@ function CustomerIntakeBanner({ intake }: { intake: CustomerIntakeDisplayState }
     );
 }
 
-function CustomerIntakeState({ imageUrl, intake }: { imageUrl: string | null; intake: CustomerIntakeDisplayState }) {
+function CustomerIntakeState({ imageUrl, intake, customer }: { imageUrl: string | null; intake?: CustomerIntakeDisplayState | null; customer?: CustomerDisplaySummary | null }) {
     const imageSrc = imageUrl || ravenposLogo;
 
     return (
         <div className="h-screen w-screen flex flex-col items-center justify-center bg-[var(--color-background)] text-[var(--color-foreground)] p-8">
             <img src={imageSrc} alt="RavenPOS" className="w-56 max-w-[70vw] h-auto mb-8" />
             <div className="w-full max-w-xl">
-                <CustomerIntakeBanner intake={intake} />
+                <CustomerIntakeBanner intake={intake} customer={customer} />
             </div>
         </div>
     );
@@ -359,7 +377,7 @@ function Row({ label, value, valueClassName }: { label: string; value: string; v
     return (
         <div className="flex justify-between items-center">
             <span className="text-[var(--color-muted)]">{label}</span>
-            <span className={`font-medium text-[var(--color-foreground)] ${valueClassName || ''}`}>{value}</span>
+            <span className={`font-medium tabular-nums text-[var(--color-foreground)] ${valueClassName || ''}`}>{value}</span>
         </div>
     );
 }
@@ -370,7 +388,8 @@ function WelcomeState({ imageUrl }: { imageUrl: string | null }) {
     return (
         <div className="h-screen w-screen flex flex-col items-center justify-center bg-[var(--color-background)] text-[var(--color-foreground)] p-8">
             <img src={imageSrc} alt="RavenPOS" className="w-72 max-w-[80vw] h-auto mb-8" />
-            <p className="text-2xl text-[var(--color-muted)] text-center">Welcome! The register is ready for your order.</p>
+            <p className="font-display text-3xl text-[var(--color-foreground)] text-center">Welcome</p>
+            <p className="mt-2 text-lg text-[var(--color-muted)] text-center">We're ready when you are.</p>
         </div>
     );
 }

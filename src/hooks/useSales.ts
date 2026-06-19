@@ -247,23 +247,11 @@ export function useSales() {
 
             if (saleError) throw saleError;
 
-            // Decrement inventory quantities and sync to Shopify
+            // Inventory is decremented atomically inside create_pos_sale_with_items.
+            // Keep Shopify sync as a best-effort follow-up for synced items.
             for (const cartItem of cartItems) {
                 if (cartItem.item.is_custom_sale_item) {
                     continue;
-                }
-
-                const newQuantity = cartItem.item.quantity - cartItem.quantity;
-
-                const { error: updateError } = await supabase
-                    .from('items')
-                    .update({
-                        quantity: newQuantity,
-                    })
-                    .eq('id', cartItem.item.id);
-
-                if (updateError) {
-                    console.error('Failed to update quantity for item:', cartItem.item.id);
                 }
 
                 // Push to Shopify if sync is enabled

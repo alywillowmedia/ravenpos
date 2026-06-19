@@ -257,6 +257,25 @@ body {
   font-size: 0.875em;
 }
 
+/* Brand display serif — the Ravenlia voice (Fraunces), usable anywhere in
+   the app, not just the storefront. Reserve for "money moments" and a few
+   key headings so the POS reads as the gallery's own, not a generic terminal. */
+.font-display {
+  font-family: "Fraunces", "Palatino Linotype", "Book Antiqua", Palatino, serif;
+  letter-spacing: -0.02em;
+}
+
+/* One section-label treatment, shared by both POS surfaces. Small caps,
+   wide tracking, muted — encodes "this is a quiet label, not content". */
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
 /* ========================================
    Focus & Interaction States
    ======================================== */

@@ -466,13 +466,17 @@ export function VendorPayouts() {
                                         <th className="text-left px-3 py-2 font-medium">Date</th>
                                         <th className="text-left px-3 py-2 font-medium">Item</th>
                                         <th className="text-center px-3 py-2 font-medium">Qty</th>
-                                        <th className="text-right px-3 py-2 font-medium">Price</th>
+                                        <th className="text-right px-3 py-2 font-medium">Net Sale</th>
                                         <th className="text-right px-3 py-2 font-medium">Your Earnings</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {pendingSales.map((item) => {
                                         const effectiveQuantity = Math.max(0, item.quantity - item.refunded_quantity);
+                                        const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
+                                        const originalLineTotal = item.price * item.quantity * effectiveRatio;
+                                        const netLineTotal = item.line_total * effectiveRatio;
+                                        const discountAmount = Math.max(0, originalLineTotal - netLineTotal);
 
                                         return (
                                         <tr key={item.id} className="border-t border-[var(--color-border)]">
@@ -494,7 +498,16 @@ export function VendorPayouts() {
                                                 )}
                                             </td>
                                             <td className="px-3 py-2 text-right">
-                                                {formatCurrency(item.price)}
+                                                {discountAmount > 0.009 ? (
+                                                    <>
+                                                        <p className="text-xs text-[var(--color-muted)] line-through">
+                                                            {formatCurrency(originalLineTotal)}
+                                                        </p>
+                                                        <p>{formatCurrency(netLineTotal)}</p>
+                                                    </>
+                                                ) : (
+                                                    formatCurrency(originalLineTotal)
+                                                )}
                                             </td>
                                             <td className="px-3 py-2 text-right font-medium text-[var(--color-success)]">
                                                 {formatCurrency(calculateItemEarnings(item))}

@@ -6,8 +6,15 @@ import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { supabase } from '../../lib/supabase';
+import {
+    calculateSaleItemDiscountAllocations,
+    getJoinedSaleDiscountData,
+    type SaleItemDiscountAllocationInput,
+} from '../../lib/saleDiscounts';
 import { formatCurrency, formatDate } from '../../lib/utils';
 import type { Consignor } from '../../types';
+
+const DISCOUNT_CONTEXT_FETCH_BATCH_SIZE = 1000;
 
 interface VendorStats {
     totalItems: number;
@@ -21,7 +28,11 @@ interface RecentSale {
     id: string;
     name: string;
     price: number;
+    quantity: number;
     commission_split: number;
+    original_line_total: number;
+    net_line_total: number;
+    total_discount_amount: number;
     completed_at: string;
 }
 
@@ -41,7 +52,79 @@ interface SaleItemInsertRow {
     price: number | string;
     quantity: number;
     commission_split: number | string;
+    discount_amount?: number | string | null;
     created_at: string;
+}
+
+interface SaleItemWithSaleRow {
+    id: string;
+    sale_id: string;
+    name: string;
+    price: number | string;
+    quantity: number;
+    commission_split: number | string;
+    discount_amount?: number | string | null;
+    sales: unknown;
+}
+
+async function loadSaleItemDiscountAllocations(
+    saleItems: SaleItemWithSaleRow[]
+): Promise<ReturnType<typeof calculateSaleItemDiscountAllocations>> {
+    const saleIds = Array.from(new Set(saleItems.map((item) => item.sale_id).filter(Boolean)));
+    const saleDiscountTotals = new Map<string, number>();
+
+    for (const item of saleItems) {
+        saleDiscountTotals.set(item.sale_id, getJoinedSaleDiscountData(item.sales).discount_total);
+    }
+
+    if (saleIds.length === 0) {
+        return new Map();
+    }
+
+    const allItemsForSales: SaleItemDiscountAllocationInput[] = [];
+    let from = 0;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('sale_items')
+            .select('id, sale_id, price, quantity, discount_amount')
+            .in('sale_id', saleIds)
+            .order('sale_id', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, from + DISCOUNT_CONTEXT_FETCH_BATCH_SIZE - 1);
+
+        if (error) throw error;
+
+        const batch = (data || []) as SaleItemDiscountAllocationInput[];
+        allItemsForSales.push(...batch);
+
+        if (batch.length < DISCOUNT_CONTEXT_FETCH_BATCH_SIZE) break;
+        from += DISCOUNT_CONTEXT_FETCH_BATCH_SIZE;
+    }
+
+    return calculateSaleItemDiscountAllocations(
+        allItemsForSales,
+        saleDiscountTotals
+    );
+}
+
+function buildRecentSale(row: SaleItemWithSaleRow, completedAt: string, fallbackDiscountAmount = 0): RecentSale {
+    const price = Number(row.price || 0);
+    const quantity = Number(row.quantity || 0);
+    const originalLineTotal = price * quantity;
+    const netLineTotal = Math.max(0, originalLineTotal - fallbackDiscountAmount);
+
+    return {
+        id: row.id,
+        name: row.name,
+        price,
+        quantity,
+        commission_split: Number(row.commission_split || 0),
+        original_line_total: originalLineTotal,
+        net_line_total: netLineTotal,
+        total_discount_amount: Math.max(0, originalLineTotal - netLineTotal),
+        completed_at: completedAt,
+    };
 }
 
 const DASHBOARD_FETCH_BATCH_SIZE = 1000;
@@ -90,6 +173,7 @@ export function VendorDashboard() {
         const fetchData = async () => {
             if (!consignorId) return;
 
+            try {
             // Fetch consignor info
             const { data: consignorData } = await supabase
                 .from('consignors')
@@ -129,9 +213,13 @@ export function VendorDashboard() {
 
             // Fetch sold items in batches to keep all-time/monthly tallies accurate.
             const allSaleItems: Array<{
+                id: string;
+                sale_id: string;
+                name: string;
                 quantity: number;
                 price: number | string;
                 commission_split: number | string;
+                discount_amount?: number | string | null;
                 sales: unknown;
             }> = [];
             let salesOffset = 0;
@@ -140,7 +228,7 @@ export function VendorDashboard() {
             while (hasMoreSales) {
                 const { data: salesBatch, error: salesError } = await supabase
                     .from('sale_items')
-                    .select('quantity, price, commission_split, sales!inner(completed_at)')
+                    .select('id, sale_id, name, quantity, price, commission_split, discount_amount, sales!inner(completed_at, discount_total)')
                     .eq('consignor_id', consignorId)
                     .order('id', { ascending: true })
                     .range(salesOffset, salesOffset + DASHBOARD_FETCH_BATCH_SIZE - 1);
@@ -148,9 +236,13 @@ export function VendorDashboard() {
                 if (salesError) throw salesError;
 
                 const batch = (salesBatch || []) as Array<{
+                    id: string;
+                    sale_id: string;
+                    name: string;
                     quantity: number;
                     price: number | string;
                     commission_split: number | string;
+                    discount_amount?: number | string | null;
                     sales: unknown;
                 }>;
                 allSaleItems.push(...batch);
@@ -162,6 +254,7 @@ export function VendorDashboard() {
                 }
             }
 
+            const discountAllocations = await loadSaleItemDiscountAllocations(allSaleItems);
             const soldAllTime = allSaleItems?.reduce((sum, si) => sum + si.quantity, 0) || 0;
 
             // This month's sales
@@ -170,14 +263,7 @@ export function VendorDashboard() {
             startOfMonth.setHours(0, 0, 0, 0);
 
             const thisMonthSales = allSaleItems?.filter(si => {
-                // Supabase returns joined relations - could be array or single object
-                const salesData = si.sales as unknown;
-                let completedAt = '';
-                if (Array.isArray(salesData) && salesData.length > 0) {
-                    completedAt = (salesData[0] as { completed_at: string }).completed_at;
-                } else if (salesData && typeof salesData === 'object' && 'completed_at' in salesData) {
-                    completedAt = (salesData as { completed_at: string }).completed_at;
-                }
+                const completedAt = getJoinedSaleDiscountData(si.sales).completed_at;
                 if (!completedAt) return false;
                 const saleDate = new Date(completedAt);
                 return saleDate >= startOfMonth;
@@ -185,7 +271,13 @@ export function VendorDashboard() {
 
             const soldThisMonth = thisMonthSales.reduce((sum, si) => sum + si.quantity, 0);
             const earningsThisMonth = thisMonthSales.reduce(
-                (sum, si) => sum + (Number(si.price) * si.quantity * Number(si.commission_split)),
+                (sum, si) => {
+                    const allocation = discountAllocations.get(si.id);
+                    const rawLineTotal = Number(si.price || 0) * Number(si.quantity || 0);
+                    const netLineTotal = allocation?.netLineTotal
+                        ?? Math.max(0, rawLineTotal - Number(si.discount_amount || 0));
+                    return sum + (netLineTotal * Number(si.commission_split));
+                },
                 0
             );
 
@@ -198,34 +290,38 @@ export function VendorDashboard() {
             });
 
             // Recent sales (last 10)
-            const { data: recent } = await supabase
+            const { data: recent, error: recentError } = await supabase
                 .from('sale_items')
-                .select('id, name, price, commission_split, sales!inner(completed_at)')
+                .select('id, sale_id, name, price, quantity, commission_split, discount_amount, sales!inner(completed_at, discount_total)')
                 .eq('consignor_id', consignorId)
                 .order('sales(completed_at)', { ascending: false })
                 .limit(10);
+            if (recentError) throw recentError;
 
+            const recentRows = (recent || []) as SaleItemWithSaleRow[];
+            const recentDiscountAllocations = await loadSaleItemDiscountAllocations(recentRows);
             setRecentSales(
-                recent?.map(r => {
-                    // Supabase returns joined relations - could be array or single object
-                    const salesData = r.sales as unknown;
-                    let completedAt = '';
-                    if (Array.isArray(salesData) && salesData.length > 0) {
-                        completedAt = (salesData[0] as { completed_at: string }).completed_at;
-                    } else if (salesData && typeof salesData === 'object' && 'completed_at' in salesData) {
-                        completedAt = (salesData as { completed_at: string }).completed_at;
-                    }
+                recentRows.map((row) => {
+                    const sale = getJoinedSaleDiscountData(row.sales);
+                    const allocation = recentDiscountAllocations.get(row.id);
+                    const fallback = buildRecentSale(
+                        row,
+                        sale.completed_at,
+                        Number(row.discount_amount || 0)
+                    );
                     return {
-                        id: r.id,
-                        name: r.name,
-                        price: Number(r.price),
-                        commission_split: Number(r.commission_split),
-                        completed_at: completedAt,
+                        ...fallback,
+                        original_line_total: allocation?.originalLineTotal ?? fallback.original_line_total,
+                        net_line_total: allocation?.netLineTotal ?? fallback.net_line_total,
+                        total_discount_amount: allocation?.totalDiscountAmount ?? fallback.total_discount_amount,
                     };
-                }) || []
+                })
             );
-
-            setIsLoading(false);
+            } catch (err) {
+                console.error('Failed to fetch vendor dashboard:', err);
+            } finally {
+                setIsLoading(false);
+            }
         };
 
         fetchData();
@@ -245,58 +341,77 @@ export function VendorDashboard() {
                     filter: `consignor_id=eq.${consignorId}`,
                 },
                 async (payload) => {
-                    const row = payload.new as SaleItemInsertRow;
-                    if (!row?.id || !row?.sale_id) return;
+                    try {
+                        const row = payload.new as SaleItemInsertRow;
+                        if (!row?.id || !row?.sale_id) return;
 
-                    const quantity = Number(row.quantity) || 0;
-                    const price = Number(row.price) || 0;
-                    const commissionSplit = Number(row.commission_split) || 0;
-                    const earned = price * quantity * commissionSplit;
+                        const quantity = Number(row.quantity) || 0;
+                        const price = Number(row.price) || 0;
+                        const commissionSplit = Number(row.commission_split) || 0;
 
-                    const { data: saleData } = await supabase
-                        .from('sales')
-                        .select('completed_at')
-                        .eq('id', row.sale_id)
-                        .maybeSingle();
+                        const { data: saleData, error: saleError } = await supabase
+                            .from('sales')
+                            .select('completed_at, discount_total')
+                            .eq('id', row.sale_id)
+                            .maybeSingle();
 
-                    const completedAt = saleData?.completed_at || row.created_at || new Date().toISOString();
-                    const saleDate = new Date(completedAt);
-                    const startOfMonth = new Date();
-                    startOfMonth.setDate(1);
-                    startOfMonth.setHours(0, 0, 0, 0);
+                        if (saleError) throw saleError;
 
-                    setRecentSales((prev) => [
-                        {
+                        const completedAt = saleData?.completed_at || row.created_at || new Date().toISOString();
+                        const saleRows: SaleItemWithSaleRow[] = [{
                             id: row.id,
+                            sale_id: row.sale_id,
                             name: row.name,
                             price,
+                            quantity,
                             commission_split: commissionSplit,
-                            completed_at: completedAt,
-                        },
-                        ...prev,
-                    ].slice(0, 10));
+                            discount_amount: row.discount_amount,
+                            sales: saleData ? { completed_at: completedAt, discount_total: saleData.discount_total } : null,
+                        }];
+                        const allocations = await loadSaleItemDiscountAllocations(saleRows);
+                        const allocation = allocations.get(row.id);
+                        const fallback = buildRecentSale(saleRows[0], completedAt, Number(row.discount_amount || 0));
+                        const netLineTotal = allocation?.netLineTotal ?? fallback.net_line_total;
+                        const earned = netLineTotal * commissionSplit;
+                        const saleDate = new Date(completedAt);
+                        const startOfMonth = new Date();
+                        startOfMonth.setDate(1);
+                        startOfMonth.setHours(0, 0, 0, 0);
 
-                    setStats((prev) => {
-                        if (!prev) return prev;
-                        return {
+                        setRecentSales((prev) => [
+                            {
+                                ...fallback,
+                                original_line_total: allocation?.originalLineTotal ?? fallback.original_line_total,
+                                net_line_total: netLineTotal,
+                                total_discount_amount: allocation?.totalDiscountAmount ?? fallback.total_discount_amount,
+                            },
                             ...prev,
-                            soldAllTime: prev.soldAllTime + quantity,
-                            soldThisMonth: saleDate >= startOfMonth ? prev.soldThisMonth + quantity : prev.soldThisMonth,
-                            earningsThisMonth: saleDate >= startOfMonth ? prev.earningsThisMonth + earned : prev.earningsThisMonth,
+                        ].slice(0, 10));
+
+                        setStats((prev) => {
+                            if (!prev) return prev;
+                            return {
+                                ...prev,
+                                soldAllTime: prev.soldAllTime + quantity,
+                                soldThisMonth: saleDate >= startOfMonth ? prev.soldThisMonth + quantity : prev.soldThisMonth,
+                                earningsThisMonth: saleDate >= startOfMonth ? prev.earningsThisMonth + earned : prev.earningsThisMonth,
+                            };
+                        });
+
+                        const notification: VendorSaleNotification = {
+                            id: `sale-note-${row.id}`,
+                            saleItemId: row.id,
+                            title: `New sale: ${row.name}`,
+                            message: `${quantity} sold • ${formatCurrency(earned)} earned`,
+                            createdAt: completedAt,
+                            read: false,
                         };
-                    });
 
-                    const notification: VendorSaleNotification = {
-                        id: `sale-note-${row.id}`,
-                        saleItemId: row.id,
-                        title: `New sale: ${row.name}`,
-                        message: `${quantity} sold • ${formatCurrency(earned)} earned`,
-                        createdAt: completedAt,
-                        read: false,
-                    };
-
-                    setSaleNotifications((prev) => [notification, ...prev].slice(0, 20));
-                    toast.success(notification.title, notification.message);
+                        setSaleNotifications((prev) => [notification, ...prev].slice(0, 20));
+                        toast.success(notification.title, notification.message);
+                    } catch (err) {
+                        console.error('Failed to process vendor sale notification:', err);
+                    }
                 }
             )
             .subscribe();
@@ -427,14 +542,21 @@ export function VendorDashboard() {
                                         <p className="font-medium text-[var(--color-foreground)]">{sale.name}</p>
                                         <p className="text-xs text-[var(--color-muted)]">
                                             {formatDate(sale.completed_at)}
+                                            {sale.quantity > 1 ? ` • Qty ${sale.quantity}` : ''}
                                         </p>
                                     </div>
                                     <div className="text-right">
                                         <p className="font-medium text-[var(--color-foreground)]">
-                                            {formatCurrency(sale.price)}
+                                            {formatCurrency(sale.net_line_total)}
                                         </p>
+                                        {sale.total_discount_amount > 0.009 ? (
+                                            <p className="text-xs text-[var(--color-muted)]">
+                                                <span className="line-through">{formatCurrency(sale.original_line_total)}</span>
+                                                {' '}- {formatCurrency(sale.total_discount_amount)}
+                                            </p>
+                                        ) : null}
                                         <p className="text-xs text-[var(--color-primary)]">
-                                            +{formatCurrency(sale.price * sale.commission_split)} earned
+                                            +{formatCurrency(sale.net_line_total * sale.commission_split)} earned
                                         </p>
                                     </div>
                                 </div>

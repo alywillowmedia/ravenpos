@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { calculateCartDiscountBreakdown, calculateSaleItemDiscountBreakdown } from '../../src/lib/saleDiscounts';
+import {
+    calculateCartDiscountBreakdown,
+    calculateSaleItemDiscountAllocations,
+    calculateSaleItemDiscountBreakdown,
+} from '../../src/lib/saleDiscounts';
 import { createCartItem } from '../../src/lib/tax';
 import { createDiscount } from '../../src/lib/discounts';
 import type { Item } from '../../src/types';
@@ -63,5 +67,31 @@ describe('sale discount breakdowns', () => {
         expect(breakdown.discountTotal).toBe(15);
         expect(breakdown.netSubtotal).toBe(85);
         expect(breakdown.items[0].totalDiscountAmount).toBe(15);
+    });
+
+    it('allocates sale discounts by sale item id across whole sales', () => {
+        const allocations = calculateSaleItemDiscountAllocations([
+            {
+                id: 'vendor-line',
+                sale_id: 'sale-1',
+                price: 100,
+                quantity: 1,
+                discount_amount: 10,
+            },
+            {
+                id: 'other-line',
+                sale_id: 'sale-1',
+                price: 50,
+                quantity: 1,
+                discount_amount: 0,
+            },
+        ], new Map([['sale-1', 25]]));
+
+        expect(allocations.get('vendor-line')?.originalLineTotal).toBe(100);
+        expect(allocations.get('vendor-line')?.lineDiscountAmount).toBe(10);
+        expect(allocations.get('vendor-line')?.orderDiscountAmount).toBe(9.64);
+        expect(allocations.get('vendor-line')?.netLineTotal).toBe(80.36);
+        expect(allocations.get('other-line')?.orderDiscountAmount).toBe(5.36);
+        expect(allocations.get('other-line')?.netLineTotal).toBe(44.64);
     });
 });
