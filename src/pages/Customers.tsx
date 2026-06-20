@@ -31,6 +31,13 @@ interface OrderHistoryItem {
     }[];
 }
 
+const ALYWILLOW_SIGNUP_URL = 'https://alywillow.com/pages/signup';
+
+interface SignupContact {
+    name: string;
+    email: string | null;
+}
+
 export function Customers() {
     const { customers, isLoading, createCustomer, updateCustomer, deleteCustomer, getCustomerOrderHistory, addStoreCredit } = useCustomers();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -47,6 +54,8 @@ export function Customers() {
     const [isApplyingCredit, setIsApplyingCredit] = useState(false);
     const [creditAmount, setCreditAmount] = useState('');
     const [creditError, setCreditError] = useState<string | null>(null);
+    const [signupContact, setSignupContact] = useState<SignupContact | null>(null);
+    const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
     const [formData, setFormData] = useState<CustomerInput>({
         name: '',
         email: null,
@@ -61,8 +70,11 @@ export function Customers() {
 
     const handleAdd = async () => {
         if (!formData.name.trim()) return;
-        const { error } = await createCustomer(formData);
+        const { data, error } = await createCustomer(formData);
         if (!error) {
+            if (formData.accepts_marketing && data?.email) {
+                setSignupContact({ name: data.name, email: data.email });
+            }
             setIsAddModalOpen(false);
             setIsAddCustomerDirty(false);
             resetForm();
@@ -85,10 +97,31 @@ export function Customers() {
 
     const handleEdit = async () => {
         if (!editTarget || !formData.name.trim()) return;
-        const { error } = await updateCustomer(editTarget.id, formData);
+        const { data, error } = await updateCustomer(editTarget.id, formData);
         if (!error) {
+            if (formData.accepts_marketing && data?.email) {
+                setSignupContact({ name: data.name, email: data.email });
+            }
             setEditTarget(null);
             resetForm();
+        }
+    };
+
+    const openAlywillowSignup = () => {
+        window.open(ALYWILLOW_SIGNUP_URL, '_blank', 'noopener,noreferrer');
+    };
+
+    const copySignupEmail = async (email: string | null) => {
+        if (!email) return;
+
+        try {
+            await navigator.clipboard.writeText(email);
+            setCopiedEmail(email);
+            window.setTimeout(() => {
+                setCopiedEmail((current) => (current === email ? null : current));
+            }, 1800);
+        } catch {
+            window.prompt('Copy customer email', email);
         }
     };
 
@@ -199,9 +232,19 @@ export function Customers() {
         {
             key: 'actions',
             header: '',
-            width: '140px',
+            width: '170px',
             render: (c) => (
                 <div className="flex items-center gap-1">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setSignupContact({ name: c.name, email: c.email });
+                        }}
+                        className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-primary)] transition-colors"
+                        title="AlyWillow Email Signup"
+                    >
+                        <MailIcon />
+                    </button>
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
@@ -336,6 +379,12 @@ export function Customers() {
                         />
                         Accepts marketing emails
                     </label>
+                    <SignupHandoff
+                        contact={{ name: formData.name, email: formData.email }}
+                        copiedEmail={copiedEmail}
+                        onCopyEmail={copySignupEmail}
+                        onOpenSignup={openAlywillowSignup}
+                    />
                 </div>
                 <ModalFooter>
                     <Button variant="ghost" onClick={closeAddModal}>
@@ -389,6 +438,12 @@ export function Customers() {
                         />
                         Accepts marketing emails
                     </label>
+                    <SignupHandoff
+                        contact={{ name: formData.name, email: formData.email }}
+                        copiedEmail={copiedEmail}
+                        onCopyEmail={copySignupEmail}
+                        onOpenSignup={openAlywillowSignup}
+                    />
                 </div>
                 <ModalFooter>
                     <Button variant="ghost" onClick={() => { setEditTarget(null); resetForm(); }}>
@@ -396,6 +451,34 @@ export function Customers() {
                     </Button>
                     <Button onClick={handleEdit} disabled={!formData.name.trim()}>
                         Save Changes
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
+            {/* AlyWillow Signup Handoff */}
+            <Modal
+                isOpen={!!signupContact}
+                onClose={() => setSignupContact(null)}
+                title="AlyWillow Email Signup"
+                description="Open the live signup page and use the customer email below."
+                size="md"
+                showCloseButton
+            >
+                {signupContact && (
+                    <SignupHandoff
+                        contact={signupContact}
+                        copiedEmail={copiedEmail}
+                        onCopyEmail={copySignupEmail}
+                        onOpenSignup={openAlywillowSignup}
+                        expanded
+                    />
+                )}
+                <ModalFooter>
+                    <Button variant="ghost" onClick={() => setSignupContact(null)}>
+                        Close
+                    </Button>
+                    <Button onClick={openAlywillowSignup}>
+                        Open Signup Page
                     </Button>
                 </ModalFooter>
             </Modal>
@@ -674,6 +757,58 @@ export function Customers() {
     );
 }
 
+function SignupHandoff({
+    contact,
+    copiedEmail,
+    onCopyEmail,
+    onOpenSignup,
+    expanded = false,
+}: {
+    contact: SignupContact;
+    copiedEmail: string | null;
+    onCopyEmail: (email: string | null) => void;
+    onOpenSignup: () => void;
+    expanded?: boolean;
+}) {
+    const email = contact.email?.trim() || null;
+    const hasEmail = Boolean(email);
+
+    return (
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+            <div className="flex items-start justify-between gap-3">
+                <div>
+                    <p className="text-sm font-medium text-[var(--color-foreground)]">AlyWillow signup</p>
+                    <p className="mt-1 text-xs text-[var(--color-muted)]">
+                        Shopify blocks embedding this page, so open it directly and paste the customer email.
+                    </p>
+                </div>
+                <MailIcon />
+            </div>
+
+            {expanded && (
+                <div className="mt-3 rounded-md bg-[var(--color-card)] p-3 text-sm">
+                    <p className="font-medium text-[var(--color-foreground)]">{contact.name || 'Unnamed customer'}</p>
+                    <p className="mt-1 text-[var(--color-muted)]">{email || 'No email on file'}</p>
+                </div>
+            )}
+
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => onCopyEmail(email)}
+                    disabled={!hasEmail}
+                >
+                    {hasEmail && copiedEmail === email ? 'Copied Email' : 'Copy Email'}
+                </Button>
+                <Button variant="secondary" size="sm" onClick={onOpenSignup}>
+                    Open Signup Page
+                </Button>
+            </div>
+        </div>
+    );
+}
+
 function PlusIcon() {
     return (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -714,6 +849,15 @@ function CreditIcon() {
             <rect x="2" y="5" width="20" height="14" rx="2" />
             <path d="M2 10h20" />
             <path d="M7 15h.01M11 15h2" />
+        </svg>
+    );
+}
+
+function MailIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="m22 7-8.97 5.7a2 2 0 0 1-2.06 0L2 7" />
         </svg>
     );
 }
