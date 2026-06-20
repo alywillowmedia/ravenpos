@@ -1,6 +1,7 @@
 import type { Item } from '../types';
 import { formatCurrency } from './utils';
 import { getAppliedCompareAtPrice } from './itemPricing';
+import { PRODUCT_TITLE_MAX_LENGTH } from './inventoryLimits';
 
 /**
  * DYMO label object names used by the template below.
@@ -53,7 +54,7 @@ export function createDymoLabelObjectData(item: Item): DymoLabelObjectData {
         VENDOR: trimTo(vendor, 38),
         COMPARE_AT_PRICE: compareAtPrice !== null ? formatCurrency(compareAtPrice) : '',
         PRICE: formatCurrency(Number(item.price)),
-        NAME: trimTo(item.name, 42),
+        NAME: trimTo(item.name, PRODUCT_TITLE_MAX_LENGTH),
         VARIANT: trimTo(item.variant_summary?.trim() || '', 40),
         SKU: trimTo(item.sku, 40),
         DETAILS: trimTo(detailLines.join('\n'), 120),

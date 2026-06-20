@@ -3,6 +3,7 @@ import JsBarcode from 'jsbarcode';
 import type { Item } from '../../types';
 import { formatCurrency } from '../../lib/utils';
 import { getAppliedCompareAtPrice } from '../../lib/itemPricing';
+import { getSheetLabelTitleFontSize } from '../../lib/inventoryLimits';
 
 interface LabelItem extends Item {
     printQuantity?: number;
@@ -101,6 +102,7 @@ function BarcodeLabel({ item }: BarcodeLabelProps) {
     const barcodeRef = useRef<SVGSVGElement>(null);
     const vendorName = item.consignor?.name || item.consignor?.consignor_number || '';
     const compareAtPrice = getAppliedCompareAtPrice(item);
+    const titleFontSize = getSheetLabelTitleFontSize(item.name);
 
     useEffect(() => {
         if (barcodeRef.current) {
@@ -184,7 +186,7 @@ function BarcodeLabel({ item }: BarcodeLabelProps) {
             <div style={{ overflow: 'hidden' }}>
                 <div
                     style={{
-                        fontSize: '9px',
+                        fontSize: `${titleFontSize}px`,
                         fontWeight: 600,
                         lineHeight: 1.2,
                         overflow: 'hidden',

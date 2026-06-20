@@ -4,6 +4,7 @@ import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
 import { ImageUploadCompact } from '../ui/ImageUpload';
 import type { Item } from '../../types';
+import { PRODUCT_TITLE_MAX_LENGTH, limitProductTitle } from '../../lib/inventoryLimits';
 
 interface BatchEntryProps {
     categories: string[];
@@ -206,10 +207,10 @@ export function BatchEntry({ categories, consignorId, onSubmit }: BatchEntryProp
                                 data-field="name"
                                 placeholder="Item name"
                                 value={row.name}
-                                onChange={(e) => updateRow(row.id, 'name', e.target.value.slice(0, 20))}
+                                onChange={(e) => updateRow(row.id, 'name', limitProductTitle(e.target.value))}
                                 onKeyDown={(e) => handleKeyDown(e, row.id, 'name')}
                                 inputSize="sm"
-                                maxLength={20}
+                                maxLength={PRODUCT_TITLE_MAX_LENGTH}
                             />
                         </div>
                         <div className="col-span-4 sm:col-span-1">

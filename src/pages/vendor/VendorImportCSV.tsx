@@ -12,6 +12,7 @@ import { useInventory } from '../../hooks/useInventory';
 import { useCategories } from '../../hooks/useCategories';
 import { formatCurrency } from '../../lib/utils';
 import { detectShopifyCSV, preprocessShopifyCSV, type PreprocessResult } from '../../lib/csvPreprocessing';
+import { limitProductTitle } from '../../lib/inventoryLimits';
 
 interface CSVRow {
     [key: string]: string;
@@ -169,7 +170,7 @@ export function VendorImportCSV() {
             return {
                 id: `row-${index}`,
                 sku: skuColumn ? row[skuColumn]?.trim() || '' : '',
-                name: row[nameColumn] || '',
+                name: limitProductTitle(row[nameColumn] || ''),
                 variant: variantColumn ? row[variantColumn] || '' : '',
                 other_details_1: detail1Column ? row[detail1Column] || '' : '',
                 other_details_2: detail2Column ? row[detail2Column] || '' : '',

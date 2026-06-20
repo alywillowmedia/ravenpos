@@ -4,6 +4,7 @@ import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
 import { ImageUpload } from '../ui/ImageUpload';
 import type { Consignor, Item } from '../../types';
+import { PRODUCT_TITLE_MAX_LENGTH, limitProductTitle } from '../../lib/inventoryLimits';
 
 interface ItemFormProps {
     item?: Item;
@@ -144,9 +145,9 @@ export function ItemForm({
                     <Input
                         label="Item Name"
                         value={formData.name}
-                        onChange={(e) => updateField('name', e.target.value.slice(0, 20))}
+                        onChange={(e) => updateField('name', limitProductTitle(e.target.value))}
                         placeholder="Vintage Jacket"
-                        maxLength={20}
+                        maxLength={PRODUCT_TITLE_MAX_LENGTH}
                         required
                     />
                     <Input

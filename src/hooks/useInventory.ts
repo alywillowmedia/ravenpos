@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import type { Item, ItemInput } from '../types';
 import { generateSKU } from '../lib/utils';
 import { formatSupabaseError } from '../lib/supabaseError';
+import { limitProductTitle } from '../lib/inventoryLimits';
 import {
     applyEffectiveConsignorTerms,
     getLocalDateString,
@@ -524,7 +525,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                 .insert({
                     consignor_id: input.consignor_id,
                     sku,
-                    name: input.name,
+                    name: limitProductTitle(input.name),
                     variant_summary: input.variant_summary || null,
                     other_details_1: input.other_details_1 || null,
                     other_details_2: input.other_details_2 || null,
@@ -565,7 +566,7 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                     consignor_id: input.consignor_id,
                     // Use provided SKU or auto-generate
                     sku: input.sku?.trim() || generateSKU(input.consignorNumber),
-                    name: input.name,
+                    name: limitProductTitle(input.name),
                     variant_summary: input.variant_summary || null,
                     other_details_1: input.other_details_1 || null,
                     other_details_2: input.other_details_2 || null,
@@ -608,6 +609,9 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
 
             // If quantity is increasing, add the difference to qty_unlabeled (new stock needs labels)
             const finalUpdates = { ...updates };
+            if (typeof finalUpdates.name === 'string') {
+                finalUpdates.name = limitProductTitle(finalUpdates.name);
+            }
             if (quantityChanged && currentItem && updates.quantity !== undefined) {
                 const quantityDiff = updates.quantity - currentItem.quantity;
                 if (quantityDiff > 0) {
@@ -827,6 +831,9 @@ export function useInventory(consignorIdOrOptions?: string | UseInventoryOptions
                 try {
                     const currentItem = originalItems.find((i) => i.id === id);
                     const finalChanges = { ...changes };
+                    if (typeof finalChanges.name === 'string') {
+                        finalChanges.name = limitProductTitle(finalChanges.name);
+                    }
 
                     // Handle qty_unlabeled for quantity increases
                     if (

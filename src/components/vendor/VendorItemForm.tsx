@@ -5,6 +5,7 @@ import { Select } from '../ui/Select';
 import { ImageUpload } from '../ui/ImageUpload';
 import { useCategories } from '../../hooks/useCategories';
 import type { Item } from '../../types';
+import { PRODUCT_TITLE_MAX_LENGTH, limitProductTitle } from '../../lib/inventoryLimits';
 
 interface VendorItemFormProps {
     item?: Item;
@@ -115,9 +116,9 @@ export function VendorItemForm({ item, consignorId, onSubmit, onCancel }: Vendor
                     <Input
                         label="Item Name"
                         value={formData.name}
-                        onChange={(e) => updateField('name', e.target.value.slice(0, 20))}
+                        onChange={(e) => updateField('name', limitProductTitle(e.target.value))}
                         placeholder="Vintage Denim Jacket"
-                        maxLength={20}
+                        maxLength={PRODUCT_TITLE_MAX_LENGTH}
                         required
                     />
 

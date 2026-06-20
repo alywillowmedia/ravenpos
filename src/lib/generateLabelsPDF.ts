@@ -59,6 +59,40 @@ function formatCurrency(amount: number): string {
     }).format(amount);
 }
 
+function getFontSizeToFitWidth(
+    pdf: jsPDF,
+    text: string,
+    maxWidth: number,
+    maxFontSize: number,
+    minFontSize: number
+): number {
+    for (let fontSize = maxFontSize; fontSize >= minFontSize; fontSize -= 0.5) {
+        pdf.setFontSize(fontSize);
+        if (pdf.getTextWidth(text) <= maxWidth) {
+            return fontSize;
+        }
+    }
+    return minFontSize;
+}
+
+function getFontSizeToFitLines(
+    pdf: jsPDF,
+    text: string,
+    maxWidth: number,
+    maxLines: number,
+    maxFontSize: number,
+    minFontSize: number
+): number {
+    for (let fontSize = maxFontSize; fontSize >= minFontSize; fontSize -= 0.5) {
+        pdf.setFontSize(fontSize);
+        const lines = pdf.splitTextToSize(text, maxWidth);
+        if (lines.length <= maxLines) {
+            return fontSize;
+        }
+    }
+    return minFontSize;
+}
+
 /**
  * Generate a PDF of Avery 5160 labels and open it
  */
@@ -173,8 +207,9 @@ function drawLabel(
     }
 
     // Row 2: Item name (bold, larger) - LEFT SIDE
-    pdf.setFontSize(9);
     pdf.setFont('helvetica', 'bold');
+    const titleFontSize = getFontSizeToFitWidth(pdf, item.name, innerWidth, 9, 7);
+    pdf.setFontSize(titleFontSize);
     const name = truncateText(pdf, item.name, innerWidth);
     pdf.text(name, innerX, innerY + 17);
 
@@ -293,8 +328,9 @@ function drawShelfLabel(
     pdf.line(priceX - 4, bottomY, priceX - 4, y + height - padding);
 
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(16);
     pdf.setTextColor(0);
+    const titleFontSize = getFontSizeToFitLines(pdf, item.name.toUpperCase(), innerWidth, 2, 16, 14);
+    pdf.setFontSize(titleFontSize);
     const titleLines = pdf.splitTextToSize(item.name.toUpperCase(), innerWidth);
     pdf.text(titleLines.slice(0, 2), innerX, innerY + 14, {
         baseline: 'alphabetic',
