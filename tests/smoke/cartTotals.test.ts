@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createCartItem, calculateCartTotals, calculateVendorSubtotal } from '../../src/lib/tax';
+import { createCartItem, calculateCartTotals, calculateConsignorCartTotal, calculateVendorSubtotal } from '../../src/lib/tax';
 import { createDiscount } from '../../src/lib/discounts';
 import type { Item } from '../../src/types';
 
@@ -90,5 +90,51 @@ describe('cart totals smoke', () => {
         }), 3);
 
         expect(calculateVendorSubtotal([alyCartItem, otherCartItem], 'ALY')).toBe(50);
+    });
+
+    it('calculates selected-vendor store credit eligibility after discounts and tax', () => {
+        const alyCartItem = createCartItem(buildItem({
+            id: 'item-aly',
+            price: 100,
+            consignor_id: 'consignor-aly',
+            consignor: {
+                id: 'consignor-aly',
+                consignor_number: 'ALY',
+                name: 'Alywillow',
+                booth_location: null,
+                email: null,
+                phone: null,
+                address: null,
+                notes: null,
+                commission_split: 1,
+                monthly_booth_rent: 0,
+                is_active: true,
+                created_at: '2026-01-01T00:00:00.000Z',
+                updated_at: '2026-01-01T00:00:00.000Z',
+            },
+        }), 1);
+        const otherCartItem = createCartItem(buildItem({
+            id: 'item-rav',
+            price: 50,
+            consignor_id: 'consignor-rav',
+            consignor: {
+                id: 'consignor-rav',
+                consignor_number: 'RAV',
+                name: 'Ravenlia',
+                booth_location: null,
+                email: null,
+                phone: null,
+                address: null,
+                notes: null,
+                commission_split: 0,
+                monthly_booth_rent: 0,
+                is_active: true,
+                created_at: '2026-01-01T00:00:00.000Z',
+                updated_at: '2026-01-01T00:00:00.000Z',
+            },
+        }), 1);
+        const orderDiscount = createDiscount('fixed', 15, 'order', undefined, 'Promo', 150);
+
+        expect(calculateConsignorCartTotal([alyCartItem, otherCartItem], 'consignor-aly', [orderDiscount])).toBe(94.77);
     });
 });

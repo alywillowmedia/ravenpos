@@ -32,6 +32,7 @@ interface BroadcastData {
     amountDue?: number;
     paymentMethod?: PaymentMethod;
     appliedStoreCredit?: number;
+    storeCreditLabel?: string;
     appliedGiftCard?: number;
     customer?: CustomerDisplaySummary | null;
     customerIntake?: CustomerIntakeDisplayState | null;
@@ -108,6 +109,7 @@ export function Display() {
         amountDue = cardPrice,
         paymentMethod = 'card',
         appliedStoreCredit = 0,
+        storeCreditLabel = 'Store Credit',
         appliedGiftCard = 0,
         customer = null,
         customerIntake = null,
@@ -274,7 +276,7 @@ export function Display() {
                             )}
                             <Row label="Tax" value={formatCurrency(taxTotal)} />
                             {appliedStoreCredit > 0 && (
-                                <Row label="Store Credit" value={`-${formatCurrency(appliedStoreCredit)}`} valueClassName="text-[var(--color-success)]" />
+                                <Row label={storeCreditLabel} value={`-${formatCurrency(appliedStoreCredit)}`} valueClassName="text-[var(--color-success)]" />
                             )}
                             {appliedGiftCard > 0 && (
                                 <Row label="Gift Card" value={`-${formatCurrency(appliedGiftCard)}`} valueClassName="text-[var(--color-success)]" />

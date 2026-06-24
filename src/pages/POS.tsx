@@ -23,7 +23,7 @@ import { useInvoices } from '../hooks/useInvoices';
 import { useCategories } from '../hooks/useCategories';
 import { useCustomers } from '../hooks/useCustomers';
 import { useStripeTerminal, type ReaderCartDisplayItem, type ReaderCustomerInput } from '../hooks/useStripeTerminal';
-import { createCartItem, calculateCartTotals, calculateVendorSubtotal } from '../lib/tax';
+import { createCartItem, calculateCartTotals, calculateConsignorCartTotal, calculateVendorSubtotal } from '../lib/tax';
 import { createDiscount, formatDiscountLabel } from '../lib/discounts';
 import { calculateCardSurchargeAmount } from '../lib/cardFees';
 import { formatCurrency, formatDateTime } from '../lib/utils';
@@ -45,6 +45,7 @@ const STRIPE_READER_PREFERRED_ID_KEY = 'ravenpos-stripe-reader-preferred-id';
 const MAX_STRIPE_READER_LINE_ITEMS = 20;
 
 type CustomerIntakeStatus = 'idle' | 'ready' | 'entering_name' | 'entering_contact' | 'saving' | 'attached' | 'skipped' | 'error';
+type StoreCreditScope = 'all' | 'vendor';
 
 interface CustomerIntakeDisplayState {
     status: CustomerIntakeStatus;
@@ -57,6 +58,12 @@ interface CustomerDisplaySummary {
     name: string;
     email: string | null;
     phone: string | null;
+}
+
+interface StoreCreditVendorOption {
+    id: string;
+    label: string;
+    shortcode: string;
 }
 
 const toStripeCents = (amount: number) => Math.max(0, Math.round((Number.isFinite(amount) ? amount : 0) * 100));
@@ -232,6 +239,8 @@ export function POS() {
     const [customerIntakeDisplay, setCustomerIntakeDisplay] = useState<CustomerIntakeDisplayState | null>(null);
     const [isCollectingCustomerOnReader, setIsCollectingCustomerOnReader] = useState(false);
     const [useStoreCredit, setUseStoreCredit] = useState(true);
+    const [storeCreditScope, setStoreCreditScope] = useState<StoreCreditScope>('all');
+    const [storeCreditConsignorId, setStoreCreditConsignorId] = useState('');
     const [giftCardInput, setGiftCardInput] = useState('');
     const [showGiftCardEntry, setShowGiftCardEntry] = useState(false);
     const [giftCardError, setGiftCardError] = useState<string | null>(null);
@@ -309,6 +318,29 @@ export function POS() {
 
     const { subtotal, taxTotal, total, itemDiscountTotal, dealerDiscountTotal, discountTotal } = calculateCartTotals(cart, orderDiscounts);
     const alySubtotal = calculateVendorSubtotal(cart, 'ALY');
+    const storeCreditVendorOptions = useMemo<StoreCreditVendorOption[]>(() => {
+        const optionsById = new Map<string, StoreCreditVendorOption>();
+
+        for (const cartItem of cart) {
+            const consignor = cartItem.item.consignor;
+            if (!consignor?.id) continue;
+
+            const shortcode = consignor.consignor_number?.trim() || '';
+            const name = consignor.name?.trim() || 'Vendor';
+            optionsById.set(consignor.id, {
+                id: consignor.id,
+                label: shortcode ? `${shortcode} - ${name}` : name,
+                shortcode: shortcode.toUpperCase(),
+            });
+        }
+
+        return Array.from(optionsById.values()).sort((a, b) => a.label.localeCompare(b.label));
+    }, [cart]);
+    const preferredStoreCreditVendorId = useMemo(() => {
+        const alywillowOption = storeCreditVendorOptions.find((option) => option.shortcode === 'ALY');
+        return alywillowOption?.id || storeCreditVendorOptions[0]?.id || '';
+    }, [storeCreditVendorOptions]);
+    const selectedStoreCreditVendor = storeCreditVendorOptions.find((option) => option.id === storeCreditConsignorId) || null;
     const eligibleSubtotalAfterDiscounts = cart.reduce((sum, cartItem) => {
         const consignorPays = (cartItem.item.consignor as { consignor_pays_card_fee?: boolean } | undefined)?.consignor_pays_card_fee ?? false;
         return consignorPays ? sum : sum + cartItem.discountedLineTotal;
@@ -320,9 +352,18 @@ export function POS() {
         : 0;
     const remainingAfterGiftCard = Math.max(0, total - appliedGiftCardAmount);
     const availableStoreCredit = Number(selectedCustomer?.store_credit || 0);
-    const appliedStoreCredit = selectedCustomer && useStoreCredit
-        ? Math.min(availableStoreCredit, remainingAfterGiftCard)
+    const vendorStoreCreditLimit = selectedStoreCreditVendor
+        ? calculateConsignorCartTotal(cart, selectedStoreCreditVendor.id, orderDiscounts)
         : 0;
+    const storeCreditLimit = storeCreditScope === 'vendor'
+        ? Math.min(vendorStoreCreditLimit, remainingAfterGiftCard)
+        : remainingAfterGiftCard;
+    const appliedStoreCredit = selectedCustomer && useStoreCredit
+        ? Math.min(availableStoreCredit, storeCreditLimit)
+        : 0;
+    const storeCreditLabel = storeCreditScope === 'vendor' && selectedStoreCreditVendor
+        ? `Store Credit (${selectedStoreCreditVendor.label})`
+        : 'Store Credit';
     const customerDisplaySummary = useMemo<CustomerDisplaySummary | null>(() => {
         if (!selectedCustomer) return null;
 
@@ -451,6 +492,21 @@ export function POS() {
         setGiftCardInput('');
         setShowGiftCardEntry(false);
     }, [isOfflineMode]);
+
+    useEffect(() => {
+        if (storeCreditScope !== 'vendor') return;
+        if (storeCreditConsignorId && storeCreditVendorOptions.some((option) => option.id === storeCreditConsignorId)) {
+            return;
+        }
+
+        if (!preferredStoreCreditVendorId) {
+            setStoreCreditScope('all');
+            setStoreCreditConsignorId('');
+            return;
+        }
+
+        setStoreCreditConsignorId(preferredStoreCreditVendorId);
+    }, [preferredStoreCreditVendorId, storeCreditConsignorId, storeCreditScope, storeCreditVendorOptions]);
 
     // Persist cart to sessionStorage
     useEffect(() => {
@@ -628,6 +684,7 @@ export function POS() {
             amountDue,
             paymentMethod,
             appliedStoreCredit,
+            storeCreditLabel,
             appliedGiftCard: appliedGiftCardAmount,
             customer: customerDisplaySummary,
             customerIntake: customerIntakeDisplay,
@@ -647,6 +704,7 @@ export function POS() {
         amountDue,
         paymentMethod,
         appliedStoreCredit,
+        storeCreditLabel,
         appliedGiftCardAmount,
         customerDisplaySummary,
         customerIntakeDisplay,
@@ -1247,6 +1305,8 @@ export function POS() {
         setIsCollectingCustomerOnReader(false);
         setCustomerSearch('');
         setUseStoreCredit(true);
+        setStoreCreditScope('all');
+        setStoreCreditConsignorId('');
         setGiftCardInput('');
         setShowGiftCardEntry(false);
         setGiftCardError(null);
@@ -1424,6 +1484,8 @@ export function POS() {
         setSplitCheckAmount('');
         setSplitCheckNumber('');
         setUseStoreCredit(true);
+        setStoreCreditScope('all');
+        setStoreCreditConsignorId('');
         setGiftCardInput('');
         setShowGiftCardEntry(false);
         setGiftCardError(null);
@@ -1576,6 +1638,8 @@ export function POS() {
     const handleSelectCustomer = (customer: Customer) => {
         setSelectedCustomer(customer);
         setUseStoreCredit(true);
+        setStoreCreditScope('all');
+        setStoreCreditConsignorId('');
         setCustomerSearch('');
         setShowCustomerDropdown(false);
         setCustomerIntakeDisplay({
@@ -1588,6 +1652,8 @@ export function POS() {
     const handleClearCustomer = () => {
         setSelectedCustomer(null);
         setUseStoreCredit(true);
+        setStoreCreditScope('all');
+        setStoreCreditConsignorId('');
         setCustomerSearch('');
         setCustomerIntakeDisplay(null);
     };
@@ -1620,11 +1686,15 @@ export function POS() {
                 }
                 setSelectedCustomer(data);
                 setUseStoreCredit(true);
+                setStoreCreditScope('all');
+                setStoreCreditConsignorId('');
                 return { data, error: null };
             }
 
             setSelectedCustomer(existing);
             setUseStoreCredit(true);
+            setStoreCreditScope('all');
+            setStoreCreditConsignorId('');
             return { data: existing, error: null };
         }
 
@@ -1642,6 +1712,8 @@ export function POS() {
 
         setSelectedCustomer(data);
         setUseStoreCredit(true);
+        setStoreCreditScope('all');
+        setStoreCreditConsignorId('');
         return { data, error: null };
     }, [createCustomer, findCustomerByContact, updateCustomer]);
 
@@ -2074,20 +2146,50 @@ export function POS() {
                                             </div>
                                             <div className="mt-2 flex items-center justify-between gap-3">
                                                 <span className="text-xs font-semibold text-[var(--color-success)]">
-                                                    {formatCurrency(availableStoreCredit)} credit
+                                                    {formatCurrency(availableStoreCredit)} store credit
                                                 </span>
                                             </div>
                                             {availableStoreCredit > 0 && (
-                                                <label className="mt-2 flex items-center justify-between text-xs">
-                                                    <span className="text-[var(--color-muted)]">Apply store credit</span>
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={useStoreCredit}
-                                                        onChange={(e) => setUseStoreCredit(e.target.checked)}
-                                                        disabled={isOfflineMode}
-                                                        className="h-4 w-4 rounded border-[var(--color-border)]"
-                                                    />
-                                                </label>
+                                                <div className="mt-2 space-y-2">
+                                                    <label className="flex items-center justify-between text-xs">
+                                                        <span className="text-[var(--color-muted)]">Apply store credit</span>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={useStoreCredit}
+                                                            onChange={(e) => setUseStoreCredit(e.target.checked)}
+                                                            disabled={isOfflineMode}
+                                                            className="h-4 w-4 rounded border-[var(--color-border)]"
+                                                        />
+                                                    </label>
+                                                    {useStoreCredit && !isOfflineMode && (
+                                                        <select
+                                                            value={storeCreditScope === 'all' ? 'all' : storeCreditConsignorId}
+                                                            onChange={(event) => {
+                                                                if (event.target.value === 'all') {
+                                                                    setStoreCreditScope('all');
+                                                                    setStoreCreditConsignorId('');
+                                                                    return;
+                                                                }
+
+                                                                setStoreCreditScope('vendor');
+                                                                setStoreCreditConsignorId(event.target.value);
+                                                            }}
+                                                            className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1.5 text-xs"
+                                                        >
+                                                            <option value="all">All items</option>
+                                                            {storeCreditVendorOptions.map((option) => (
+                                                                <option key={option.id} value={option.id}>
+                                                                    {option.label}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    )}
+                                                    {useStoreCredit && !isOfflineMode && storeCreditScope === 'vendor' && selectedStoreCreditVendor && (
+                                                        <p className="text-xs text-[var(--color-muted)]">
+                                                            Eligible: {formatCurrency(storeCreditLimit)}
+                                                        </p>
+                                                    )}
+                                                </div>
                                             )}
                                             {isOfflineMode && availableStoreCredit > 0 && (
                                                 <p className="text-xs text-[var(--color-muted)] mt-2">
@@ -2195,7 +2297,7 @@ export function POS() {
 
                             {alySubtotal > 0 && (
                                 <div className="flex justify-between text-sm">
-                                    <span className="text-[var(--color-muted)]">Alywilow Subtotal</span>
+                                    <span className="text-[var(--color-muted)]">Alywillow Subtotal</span>
                                     <span>{formatCurrency(alySubtotal)}</span>
                                 </div>
                             )}
@@ -2261,7 +2363,7 @@ export function POS() {
                             </div>
                             {appliedStoreCredit > 0 && (
                                 <div className="flex justify-between text-sm text-[var(--color-success)]">
-                                    <span>Store Credit</span>
+                                    <span>{storeCreditLabel}</span>
                                     <span>-{formatCurrency(appliedStoreCredit)}</span>
                                 </div>
                             )}

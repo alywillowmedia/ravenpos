@@ -15,6 +15,8 @@ const TAX_RATES: Record<string, number> = {
     'Other': 0.053,
 };
 
+const roundCurrency = (amount: number): number => Math.round(amount * 100) / 100;
+
 // Get tax rate for a category
 export function getTaxRate(category: string): number {
     return TAX_RATES[category] ?? TAX_RATES['Other'];
@@ -64,13 +66,13 @@ export function createCartItem(
     return {
         item,
         quantity,
-        lineTotal: Math.round(lineTotal * 100) / 100,
-        taxAmount: Math.round(taxAmount * 100) / 100,
+        lineTotal: roundCurrency(lineTotal),
+        taxAmount: roundCurrency(taxAmount),
         discount: updatedDiscount,
         dealerDiscountPercent: normalizedDealerPercent,
-        dealerDiscountAmount: Math.round(dealerDiscountAmount * 100) / 100,
-        discountedLineTotal: Math.round(discountedLineTotal * 100) / 100,
-        discountedTaxAmount: Math.round(discountedTaxAmount * 100) / 100,
+        dealerDiscountAmount: roundCurrency(dealerDiscountAmount),
+        discountedLineTotal: roundCurrency(discountedLineTotal),
+        discountedTaxAmount: roundCurrency(discountedTaxAmount),
     };
 }
 
@@ -135,13 +137,13 @@ export function calculateCartTotals(
     const discountTotal = itemDiscountTotal + dealerDiscountTotal + orderDiscountTotal;
 
     return {
-        subtotal: Math.round(originalSubtotal * 100) / 100,
-        taxTotal: Math.round(taxTotal * 100) / 100,
-        total: Math.round(total * 100) / 100,
-        itemDiscountTotal: Math.round(itemDiscountTotal * 100) / 100,
-        dealerDiscountTotal: Math.round(dealerDiscountTotal * 100) / 100,
-        orderDiscountTotal: Math.round(orderDiscountTotal * 100) / 100,
-        discountTotal: Math.round(discountTotal * 100) / 100,
+        subtotal: roundCurrency(originalSubtotal),
+        taxTotal: roundCurrency(taxTotal),
+        total: roundCurrency(total),
+        itemDiscountTotal: roundCurrency(itemDiscountTotal),
+        dealerDiscountTotal: roundCurrency(dealerDiscountTotal),
+        orderDiscountTotal: roundCurrency(orderDiscountTotal),
+        discountTotal: roundCurrency(discountTotal),
     };
 }
 
@@ -155,7 +157,48 @@ export function calculateVendorSubtotal(items: CartItem[], vendorShortcode: stri
         return itemShortcode === normalizedShortcode ? sum + item.lineTotal : sum;
     }, 0);
 
-    return Math.round(vendorSubtotal * 100) / 100;
+    return roundCurrency(vendorSubtotal);
+}
+
+export function calculateConsignorCartTotal(
+    items: CartItem[],
+    consignorId: string,
+    orderDiscounts: Discount[] = []
+): number {
+    const normalizedConsignorId = consignorId.trim();
+
+    if (!normalizedConsignorId) return 0;
+
+    const subtotalAfterItemDiscounts = items.reduce(
+        (sum, item) => sum + item.discountedLineTotal, 0
+    );
+    let remainingForOrderDiscounts = subtotalAfterItemDiscounts;
+    let orderDiscountTotal = 0;
+
+    for (const discount of orderDiscounts) {
+        const discountAmount = calculateDiscountAmount(
+            discount.type,
+            discount.value,
+            remainingForOrderDiscounts
+        );
+        orderDiscountTotal += discountAmount;
+        remainingForOrderDiscounts = Math.max(0, remainingForOrderDiscounts - discountAmount);
+    }
+
+    const finalSubtotal = Math.max(0, subtotalAfterItemDiscounts - orderDiscountTotal);
+    const orderDiscountRatio = subtotalAfterItemDiscounts > 0
+        ? finalSubtotal / subtotalAfterItemDiscounts
+        : 1;
+
+    const consignorTotal = items.reduce((sum, item) => {
+        if (item.item.consignor_id !== normalizedConsignorId) return sum;
+
+        const lineSubtotal = item.discountedLineTotal * orderDiscountRatio;
+        const lineTax = item.discountedTaxAmount * orderDiscountRatio;
+        return sum + lineSubtotal + lineTax;
+    }, 0);
+
+    return roundCurrency(consignorTotal);
 }
 
 // Update tax rates from database categories (call on app init)

@@ -259,6 +259,61 @@ export function useEmployees() {
         return { data: data as TimeEntry[], error: null };
     }, []);
 
+    // Manual clock in (admin function)
+    const manualClockIn = async (
+        employeeId: string,
+        notes?: string
+    ): Promise<{ error: string | null }> => {
+        try {
+            const { data: employee, error: employeeError } = await supabase
+                .from('employees')
+                .select('id, is_active')
+                .eq('id', employeeId)
+                .single();
+
+            if (employeeError || !employee) {
+                return { error: 'Employee not found' };
+            }
+
+            if (!employee.is_active) {
+                return { error: 'Inactive employees cannot be clocked in' };
+            }
+
+            const { data: openEntry, error: openEntryError } = await supabase
+                .from('time_entries')
+                .select('id')
+                .eq('employee_id', employeeId)
+                .is('clock_out', null)
+                .maybeSingle();
+
+            if (openEntryError) {
+                return { error: openEntryError.message };
+            }
+
+            if (openEntry) {
+                return { error: 'Employee is already clocked in' };
+            }
+
+            const { error } = await supabase
+                .from('time_entries')
+                .insert({
+                    employee_id: employeeId,
+                    clock_in: new Date().toISOString(),
+                    notes: notes || 'Manually clocked in by admin',
+                });
+
+            if (error) {
+                return { error: error.message };
+            }
+
+            await fetchEmployees();
+            return { error: null };
+        } catch (err) {
+            console.error(err);
+            return { error: 'Failed to clock in' };
+        }
+    };
+
     // Manual clock out (admin function)
     const manualClockOut = async (
         entryId: string,
@@ -388,6 +443,7 @@ export function useEmployees() {
         archiveEmployee,
         getEmployee,
         getTimeEntries,
+        manualClockIn,
         manualClockOut,
         getEmployeeSales,
         updateTimeEntry,

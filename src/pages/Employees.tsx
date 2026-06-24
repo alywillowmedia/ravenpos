@@ -43,6 +43,7 @@ export function Employees() {
         updateEmployee,
         archiveEmployee,
         getTimeEntries,
+        manualClockIn,
         manualClockOut,
         getEmployeeSales,
         updateTimeEntry,
@@ -56,6 +57,7 @@ export function Employees() {
     const [viewingEntries, setViewingEntries] = useState<TimeEntry[]>([]);
     const [isLoadingEntries, setIsLoadingEntries] = useState(false);
     const [salesCount, setSalesCount] = useState(0);
+    const [employeeActionError, setEmployeeActionError] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<EmployeeWithStats | null>(null);
     const [isDeletingEmployee, setIsDeletingEmployee] = useState(false);
     const [deleteEmployeeError, setDeleteEmployeeError] = useState<string | null>(null);
@@ -94,6 +96,7 @@ export function Employees() {
     };
 
     const handleViewEmployee = async (emp: EmployeeWithStats) => {
+        setEmployeeActionError(null);
         setViewingEmployee(emp);
         setIsLoadingEntries(true);
         initialLoadDoneRef.current = false;
@@ -122,9 +125,42 @@ export function Employees() {
         setIsLoadingEntries(false);
     }, [viewingEmployee, getTimeEntries]);
 
+    const handleManualClockIn = async (emp: EmployeeWithStats) => {
+        setEmployeeActionError(null);
+        const { error: clockInError } = await manualClockIn(emp.id);
+
+        if (clockInError) {
+            setEmployeeActionError(clockInError);
+            return;
+        }
+
+        if (viewingEmployee?.id === emp.id) {
+            const { data } = await getTimeEntries(emp.id);
+            const openEntry = data.find((entry) => !entry.clock_out);
+            setViewingEmployee({
+                ...viewingEmployee,
+                clockStatus: 'clocked_in',
+                currentEntryId: openEntry?.id || viewingEmployee.currentEntryId,
+            });
+            setViewingEntries(data);
+        }
+    };
+
     const handleManualClockOut = async (emp: EmployeeWithStats) => {
         if (!emp.currentEntryId) return;
-        await manualClockOut(emp.currentEntryId);
+        setEmployeeActionError(null);
+        const { error: clockOutError } = await manualClockOut(emp.currentEntryId);
+
+        if (clockOutError) {
+            setEmployeeActionError(clockOutError);
+            return;
+        }
+
+        if (viewingEmployee?.id === emp.id) {
+            setViewingEmployee({ ...viewingEmployee, clockStatus: 'clocked_out', currentEntryId: null });
+            const { data } = await getTimeEntries(emp.id);
+            setViewingEntries(data);
+        }
     };
 
     useEffect(() => {
@@ -297,6 +333,12 @@ export function Employees() {
                 </div>
             )}
 
+            {employeeActionError && (
+                <div className="mb-4 p-3 rounded-lg bg-[var(--color-danger-bg)] text-[var(--color-danger)]">
+                    {employeeActionError}
+                </div>
+            )}
+
             {isLoading ? (
                 <div className="flex items-center justify-center py-12">
                     <LoadingSpinner size={32} />
@@ -408,6 +450,15 @@ export function Employees() {
                                                         Clock Out
                                                     </Button>
                                                 )}
+                                                {emp.clockStatus === 'clocked_out' && emp.is_active && (
+                                                    <Button
+                                                        variant="secondary"
+                                                        size="sm"
+                                                        onClick={() => handleManualClockIn(emp)}
+                                                    >
+                                                        Clock In
+                                                    </Button>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
@@ -485,6 +536,23 @@ export function Employees() {
                             {!viewingEmployee.is_active && (
                                 <Badge variant="warning">Account Inactive</Badge>
                             )}
+                            {viewingEmployee.clockStatus === 'clocked_in' ? (
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => handleManualClockOut(viewingEmployee)}
+                                >
+                                    Clock Out
+                                </Button>
+                            ) : viewingEmployee.is_active ? (
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => handleManualClockIn(viewingEmployee)}
+                                >
+                                    Clock In
+                                </Button>
+                            ) : null}
                         </div>
 
                         {/* Time Entries */}

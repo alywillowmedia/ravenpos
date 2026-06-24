@@ -458,7 +458,7 @@ export function EmployeePOS() {
                             </div>
                             {alySubtotal > 0 && (
                                 <div className="flex justify-between text-sm">
-                                    <span className="text-[var(--color-muted)]">Alywilow Subtotal</span>
+                                    <span className="text-[var(--color-muted)]">Alywillow Subtotal</span>
                                     <span>{formatCurrency(alySubtotal)}</span>
                                 </div>
                             )}
