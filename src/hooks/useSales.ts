@@ -37,9 +37,11 @@ export function useSales() {
         checkNumber?: string,
         processedByUserId?: string | null,
         processedByEmployeeId?: string | null,
-        paymentBreakdown?: PaymentBreakdownEntry[]
+        paymentBreakdown?: PaymentBreakdownEntry[],
+        storeCreditConsignorId?: string | null
     ): Promise<CompleteSaleResult> => {
         let creditDeducted = false;
+        let vendorCreditDeductedFrom: string | null = null;
         let giftCardDeducted = false;
 
         try {
@@ -179,13 +181,23 @@ export function useSales() {
 
             // Deduct store credit first; if later steps fail, we'll attempt to restore it.
             if (customerId && roundedStoreCreditUsed > 0) {
-                const { error: creditError } = await supabase.rpc('adjust_customer_store_credit', {
-                    p_customer_id: customerId,
-                    p_amount_change: -roundedStoreCreditUsed,
-                });
+                const { error: creditError } = storeCreditConsignorId
+                    ? await supabase.rpc('adjust_customer_vendor_store_credit', {
+                        p_customer_id: customerId,
+                        p_consignor_id: storeCreditConsignorId,
+                        p_amount_change: -roundedStoreCreditUsed,
+                    })
+                    : await supabase.rpc('adjust_customer_store_credit', {
+                        p_customer_id: customerId,
+                        p_amount_change: -roundedStoreCreditUsed,
+                    });
 
                 if (creditError) throw creditError;
-                creditDeducted = true;
+                if (storeCreditConsignorId) {
+                    vendorCreditDeductedFrom = storeCreditConsignorId;
+                } else {
+                    creditDeducted = true;
+                }
             }
 
             const saleId = crypto.randomUUID();
@@ -282,7 +294,13 @@ export function useSales() {
             return { data: sale as Sale, error: null };
         } catch (err) {
             // Best-effort rollback if we deducted store credit but sale failed
-            if (creditDeducted && customerId && storeCreditUsed > 0) {
+            if (vendorCreditDeductedFrom && customerId && storeCreditUsed > 0) {
+                await supabase.rpc('adjust_customer_vendor_store_credit', {
+                    p_customer_id: customerId,
+                    p_consignor_id: vendorCreditDeductedFrom,
+                    p_amount_change: Math.round(storeCreditUsed * 100) / 100,
+                });
+            } else if (creditDeducted && customerId && storeCreditUsed > 0) {
                 await supabase.rpc('adjust_customer_store_credit', {
                     p_customer_id: customerId,
                     p_amount_change: Math.round(storeCreditUsed * 100) / 100,

@@ -4,8 +4,10 @@ import { Button } from '../components/ui/Button';
 import { Table, type Column } from '../components/ui/Table';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useCustomers } from '../hooks/useCustomers';
+import { useConsignors } from '../hooks/useConsignors';
 import { formatCurrency, formatDate } from '../lib/utils';
 import type { Customer, CustomerInput, PaymentMethod } from '../types';
 
@@ -38,8 +40,12 @@ interface SignupContact {
     email: string | null;
 }
 
+type CreditScope = 'general' | 'vendor';
+type CreditOperation = 'add' | 'subtract';
+
 export function Customers() {
-    const { customers, isLoading, createCustomer, updateCustomer, deleteCustomer, getCustomerOrderHistory, addStoreCredit } = useCustomers();
+    const { customers, isLoading, createCustomer, updateCustomer, deleteCustomer, getCustomerOrderHistory, addStoreCredit, addVendorStoreCredit } = useCustomers();
+    const { consignors } = useConsignors();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isAddCustomerDirty, setIsAddCustomerDirty] = useState(false);
     const [editTarget, setEditTarget] = useState<Customer | null>(null);
@@ -53,6 +59,9 @@ export function Customers() {
     const [isDeleting, setIsDeleting] = useState(false);
     const [isApplyingCredit, setIsApplyingCredit] = useState(false);
     const [creditAmount, setCreditAmount] = useState('');
+    const [creditOperation, setCreditOperation] = useState<CreditOperation>('add');
+    const [creditScope, setCreditScope] = useState<CreditScope>('general');
+    const [creditConsignorId, setCreditConsignorId] = useState('');
     const [creditError, setCreditError] = useState<string | null>(null);
     const [signupContact, setSignupContact] = useState<SignupContact | null>(null);
     const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
@@ -66,6 +75,29 @@ export function Customers() {
 
     const resetForm = () => {
         setFormData({ name: '', email: null, phone: null, notes: null, accepts_marketing: false });
+    };
+
+    const getDefaultCreditConsignorId = () => {
+        const alywillow = consignors.find((consignor) => consignor.consignor_number?.trim().toUpperCase() === 'ALY');
+        return alywillow?.id || consignors[0]?.id || '';
+    };
+
+    const openCreditModal = (customer: Customer) => {
+        setCreditTarget(customer);
+        setCreditAmount('');
+        setCreditOperation('add');
+        setCreditScope('general');
+        setCreditConsignorId(getDefaultCreditConsignorId());
+        setCreditError(null);
+    };
+
+    const closeCreditModal = () => {
+        setCreditTarget(null);
+        setCreditAmount('');
+        setCreditOperation('add');
+        setCreditScope('general');
+        setCreditConsignorId('');
+        setCreditError(null);
     };
 
     const handleAdd = async () => {
@@ -143,7 +175,10 @@ export function Customers() {
 
         setCreditError(null);
         setIsApplyingCredit(true);
-        const { error } = await addStoreCredit(creditTarget.id, amount);
+        const adjustmentAmount = creditOperation === 'subtract' ? -amount : amount;
+        const { error } = creditScope === 'vendor'
+            ? await addVendorStoreCredit(creditTarget.id, creditConsignorId, adjustmentAmount)
+            : await addStoreCredit(creditTarget.id, adjustmentAmount);
         setIsApplyingCredit(false);
 
         if (error) {
@@ -151,8 +186,7 @@ export function Customers() {
             return;
         }
 
-        setCreditTarget(null);
-        setCreditAmount('');
+        closeCreditModal();
     };
 
     const loadOrdersForCustomer = async (customerId: string) => {
@@ -212,13 +246,27 @@ export function Customers() {
         {
             key: 'store_credit',
             header: 'Store Credit',
-            width: '120px',
+            width: '180px',
             sortable: true,
-            render: (c) => (
-                <span className="text-sm font-medium text-[var(--color-success)]">
-                    {formatCurrency(Number(c.store_credit || 0))}
-                </span>
-            ),
+            render: (c) => {
+                const vendorCredits = (c.vendor_store_credits || []).filter((credit) => Number(credit.balance || 0) > 0);
+                return (
+                    <div className="space-y-1">
+                        <p className="text-sm font-medium text-[var(--color-success)]">
+                            {formatCurrency(Number(c.store_credit || 0))}
+                        </p>
+                        {vendorCredits.length > 0 && (
+                            <div className="space-y-0.5">
+                                {vendorCredits.map((credit) => (
+                                    <p key={credit.id} className="text-xs text-[var(--color-muted)]">
+                                        {credit.consignor?.consignor_number || 'Vendor'}: {formatCurrency(Number(credit.balance || 0))}
+                                    </p>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                );
+            },
         },
         {
             key: 'created_at',
@@ -227,6 +275,15 @@ export function Customers() {
             sortable: true,
             render: (c) => (
                 <span className="text-sm text-[var(--color-muted)]">{formatDate(c.created_at)}</span>
+            ),
+        },
+        {
+            key: 'updated_at',
+            header: 'Last Updated',
+            width: '140px',
+            sortable: true,
+            render: (c) => (
+                <span className="text-sm text-[var(--color-muted)]">{formatDate(c.updated_at)}</span>
             ),
         },
         {
@@ -248,12 +305,10 @@ export function Customers() {
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
-                            setCreditTarget(c);
-                            setCreditAmount('');
-                            setCreditError(null);
+                            openCreditModal(c);
                         }}
                         className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-success)] transition-colors"
-                        title="Add Store Credit"
+                        title="Adjust Store Credit"
                     >
                         <CreditIcon />
                     </button>
@@ -503,22 +558,64 @@ export function Customers() {
                 </ModalFooter>
             </Modal>
 
-            {/* Add Store Credit Modal */}
+            {/* Adjust Store Credit Modal */}
             <Modal
                 isOpen={!!creditTarget}
-                onClose={() => { setCreditTarget(null); setCreditAmount(''); setCreditError(null); }}
-                title={`Add Store Credit - ${creditTarget?.name || ''}`}
+                onClose={closeCreditModal}
+                title={`Adjust Store Credit - ${creditTarget?.name || ''}`}
                 size="sm"
             >
                 <div className="space-y-4">
                     <div className="p-3 rounded-lg bg-[var(--color-surface)]">
-                        <p className="text-xs text-[var(--color-muted)]">Current Balance</p>
+                        <p className="text-xs text-[var(--color-muted)]">
+                            {creditScope === 'vendor'
+                                ? `${consignors.find((consignor) => consignor.id === creditConsignorId)?.consignor_number || 'Vendor'} Balance`
+                                : 'General Balance'}
+                        </p>
                         <p className="text-xl font-semibold text-[var(--color-success)]">
-                            {formatCurrency(Number(creditTarget?.store_credit || 0))}
+                            {formatCurrency(creditScope === 'vendor'
+                                ? Number(creditTarget?.vendor_store_credits?.find((credit) => credit.consignor_id === creditConsignorId)?.balance || 0)
+                                : Number(creditTarget?.store_credit || 0))}
                         </p>
                     </div>
+                    <Select
+                        label="Action"
+                        value={creditOperation}
+                        onChange={(event) => setCreditOperation(event.target.value as CreditOperation)}
+                        options={[
+                            { value: 'add', label: 'Add credit' },
+                            { value: 'subtract', label: 'Subtract credit' },
+                        ]}
+                    />
+                    <Select
+                        label="Credit Type"
+                        value={creditScope}
+                        onChange={(event) => {
+                            const nextScope = event.target.value as CreditScope;
+                            setCreditScope(nextScope);
+                            if (nextScope === 'vendor' && !creditConsignorId) {
+                                setCreditConsignorId(getDefaultCreditConsignorId());
+                            }
+                        }}
+                        options={[
+                            { value: 'general', label: 'General store credit' },
+                            { value: 'vendor', label: 'Vendor-specific store credit' },
+                        ]}
+                    />
+                    {creditScope === 'vendor' && (
+                        <Select
+                            label="Vendor"
+                            value={creditConsignorId}
+                            onChange={(event) => setCreditConsignorId(event.target.value)}
+                            placeholder="Select vendor..."
+                            options={consignors.map((consignor) => ({
+                                value: consignor.id,
+                                label: `${consignor.consignor_number} - ${consignor.name}`,
+                            }))}
+                        />
+                    )}
                     <Input
-                        label="Credit Amount"
+                        label="Amount"
                         type="number"
                         min="0.01"
                         step="0.01"
@@ -531,11 +628,15 @@ export function Customers() {
                     )}
                 </div>
                 <ModalFooter>
-                    <Button variant="ghost" onClick={() => { setCreditTarget(null); setCreditAmount(''); setCreditError(null); }}>
+                    <Button variant="ghost" onClick={closeCreditModal}>
                         Cancel
                     </Button>
-                    <Button onClick={handleAddCredit} isLoading={isApplyingCredit}>
-                        Add Credit
+                    <Button
+                        onClick={handleAddCredit}
+                        isLoading={isApplyingCredit}
+                        disabled={creditScope === 'vendor' && !creditConsignorId}
+                    >
+                        {creditOperation === 'subtract' ? 'Subtract Credit' : 'Add Credit'}
                     </Button>
                 </ModalFooter>
             </Modal>

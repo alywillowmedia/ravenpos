@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { syncCustomerKitSubscriber } from '../lib/kit';
-import type { Customer, CustomerInput } from '../types';
+import type { Customer, CustomerInput, CustomerVendorStoreCredit } from '../types';
 
 type CustomerOrderSaleItem = {
     id: string;
@@ -13,10 +13,58 @@ type CustomerOrderSaleItem = {
     discount_amount?: number | null;
 };
 
+const VENDOR_STORE_CREDIT_SELECT = `
+    id,
+    customer_id,
+    consignor_id,
+    balance,
+    created_at,
+    updated_at,
+    consignor:consignors(id, consignor_number, name)
+`;
+
+function normalizeVendorStoreCredit(row: Record<string, unknown>): CustomerVendorStoreCredit {
+    return {
+        id: String(row.id),
+        customer_id: String(row.customer_id),
+        consignor_id: String(row.consignor_id),
+        balance: Number(row.balance || 0),
+        created_at: String(row.created_at),
+        updated_at: String(row.updated_at),
+        consignor: row.consignor as CustomerVendorStoreCredit['consignor'],
+    };
+}
+
 export function useCustomers() {
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const attachVendorStoreCredits = useCallback(async (customerRows: Customer[]): Promise<Customer[]> => {
+        if (customerRows.length === 0) return customerRows;
+
+        const customerIds = customerRows.map((customer) => customer.id);
+        const { data, error: creditsError } = await supabase
+            .from('customer_vendor_store_credits')
+            .select(VENDOR_STORE_CREDIT_SELECT)
+            .in('customer_id', customerIds)
+            .order('created_at', { ascending: true });
+
+        if (creditsError) throw creditsError;
+
+        const creditsByCustomer = new Map<string, CustomerVendorStoreCredit[]>();
+        for (const row of data || []) {
+            const credit = normalizeVendorStoreCredit(row as Record<string, unknown>);
+            const existing = creditsByCustomer.get(credit.customer_id) || [];
+            existing.push(credit);
+            creditsByCustomer.set(credit.customer_id, existing);
+        }
+
+        return customerRows.map((customer) => ({
+            ...customer,
+            vendor_store_credits: creditsByCustomer.get(customer.id) || [],
+        }));
+    }, []);
 
     const fetchCustomers = useCallback(async () => {
         try {
@@ -29,13 +77,13 @@ export function useCustomers() {
                 .order('name', { ascending: true });
 
             if (fetchError) throw fetchError;
-            setCustomers(data || []);
+            setCustomers(await attachVendorStoreCredits((data || []) as Customer[]));
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to fetch customers');
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [attachVendorStoreCredits]);
 
     useEffect(() => {
         fetchCustomers();
@@ -58,7 +106,7 @@ export function useCustomers() {
 
             if (createError) throw createError;
 
-            setCustomers((prev) => [...prev, data]);
+            setCustomers((prev) => [...prev, { ...data, vendor_store_credits: [] }]);
             const kitWarning = await syncCustomerKitSubscriber({
                 customerId: data.id,
                 email: data.email,
@@ -87,7 +135,7 @@ export function useCustomers() {
             if (updateError) throw updateError;
 
             setCustomers((prev) =>
-                prev.map((c) => (c.id === id ? data : c))
+                prev.map((c) => (c.id === id ? { ...data, vendor_store_credits: c.vendor_store_credits || [] } : c))
             );
             const kitWarning = await syncCustomerKitSubscriber({
                 customerId: data.id,
@@ -131,12 +179,13 @@ export function useCustomers() {
                 .single();
 
             if (fetchError) throw fetchError;
-            return { data, error: null };
+            const [customerWithCredits] = await attachVendorStoreCredits([data as Customer]);
+            return { data: customerWithCredits, error: null };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to fetch customer';
             return { data: null, error: message };
         }
-    }, []);
+    }, [attachVendorStoreCredits]);
 
     const searchCustomers = useCallback(async (query: string) => {
         try {
@@ -148,12 +197,12 @@ export function useCustomers() {
                 .limit(10);
 
             if (searchError) throw searchError;
-            return { data: data || [], error: null };
+            return { data: await attachVendorStoreCredits((data || []) as Customer[]), error: null };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to search customers';
             return { data: [], error: message };
         }
-    }, []);
+    }, [attachVendorStoreCredits]);
 
     const findCustomerByContact = useCallback(async ({
         email,
@@ -176,7 +225,8 @@ export function useCustomers() {
 
                 if (emailError) throw emailError;
                 if (data?.[0]) {
-                    return { data: data[0] as Customer, error: null };
+                    const [customerWithCredits] = await attachVendorStoreCredits([data[0] as Customer]);
+                    return { data: customerWithCredits, error: null };
                 }
             }
 
@@ -194,7 +244,8 @@ export function useCustomers() {
                 );
 
                 if (match) {
-                    return { data: match as Customer, error: null };
+                    const [customerWithCredits] = await attachVendorStoreCredits([match as Customer]);
+                    return { data: customerWithCredits, error: null };
                 }
             }
 
@@ -203,7 +254,7 @@ export function useCustomers() {
             const message = err instanceof Error ? err.message : 'Failed to find customer';
             return { data: null, error: message };
         }
-    }, []);
+    }, [attachVendorStoreCredits]);
 
     const getCustomerOrderHistory = useCallback(async (customerId: string) => {
         try {
@@ -293,8 +344,8 @@ export function useCustomers() {
     const addStoreCredit = useCallback(async (customerId: string, amount: number) => {
         try {
             const roundedAmount = Math.round(amount * 100) / 100;
-            if (roundedAmount <= 0) {
-                return { balance: null, error: 'Amount must be greater than 0' };
+            if (roundedAmount === 0) {
+                return { balance: null, error: 'Amount cannot be 0' };
             }
 
             const { data, error: rpcError } = await supabase.rpc('adjust_customer_store_credit', {
@@ -310,7 +361,62 @@ export function useCustomers() {
             );
             return { balance, error: null };
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to add store credit';
+            const message = err instanceof Error ? err.message : 'Failed to adjust store credit';
+            return { balance: null, error: message };
+        }
+    }, []);
+
+    const addVendorStoreCredit = useCallback(async (customerId: string, consignorId: string, amount: number) => {
+        try {
+            const roundedAmount = Math.round(amount * 100) / 100;
+            if (roundedAmount === 0) {
+                return { balance: null, error: 'Amount cannot be 0' };
+            }
+            if (!consignorId) {
+                return { balance: null, error: 'Choose a vendor' };
+            }
+
+            const { data, error: rpcError } = await supabase.rpc('adjust_customer_vendor_store_credit', {
+                p_customer_id: customerId,
+                p_consignor_id: consignorId,
+                p_amount_change: roundedAmount,
+            });
+
+            if (rpcError) throw rpcError;
+
+            const balance = Number(data || 0);
+            const { data: creditRow, error: fetchError } = await supabase
+                .from('customer_vendor_store_credits')
+                .select(VENDOR_STORE_CREDIT_SELECT)
+                .eq('customer_id', customerId)
+                .eq('consignor_id', consignorId)
+                .maybeSingle();
+
+            if (fetchError) throw fetchError;
+
+            const updatedCredit = creditRow
+                ? normalizeVendorStoreCredit(creditRow as Record<string, unknown>)
+                : null;
+
+            setCustomers((prev) =>
+                prev.map((customer) => {
+                    if (customer.id !== customerId) return customer;
+                    const existingCredits = customer.vendor_store_credits || [];
+                    const nextCredits = updatedCredit
+                        ? [
+                            ...existingCredits.filter((credit) => credit.consignor_id !== consignorId),
+                            updatedCredit,
+                        ]
+                        : existingCredits.map((credit) => (
+                            credit.consignor_id === consignorId ? { ...credit, balance } : credit
+                        ));
+
+                    return { ...customer, vendor_store_credits: nextCredits };
+                })
+            );
+            return { balance, error: null };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to adjust vendor store credit';
             return { balance: null, error: message };
         }
     }, []);
@@ -328,5 +434,6 @@ export function useCustomers() {
         findCustomerByContact,
         getCustomerOrderHistory,
         addStoreCredit,
+        addVendorStoreCredit,
     };
 }

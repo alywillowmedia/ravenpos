@@ -70,6 +70,11 @@ const toStripeCents = (amount: number) => Math.max(0, Math.round((Number.isFinit
 
 const normalizeCustomerEmail = (email?: string | null) => email?.trim().toLowerCase() || null;
 
+const customerHasAnyStoreCredit = (customer?: Customer | null) => (
+    Number(customer?.store_credit || 0) > 0 ||
+    (customer?.vendor_store_credits || []).some((credit) => Number(credit.balance || 0) > 0)
+);
+
 const formatReaderLineDescription = (cartItem: CartItem) => {
     const quantityPrefix = cartItem.quantity > 1 ? `${cartItem.quantity}x ` : '';
     const name = cartItem.item.name.trim() || cartItem.item.sku || 'Item';
@@ -351,7 +356,13 @@ export function POS() {
         ? Math.min(Math.max(0, appliedGiftCard.balance), total)
         : 0;
     const remainingAfterGiftCard = Math.max(0, total - appliedGiftCardAmount);
-    const availableStoreCredit = Number(selectedCustomer?.store_credit || 0);
+    const generalStoreCreditBalance = Number(selectedCustomer?.store_credit || 0);
+    const selectedVendorStoreCreditBalance = storeCreditScope === 'vendor' && selectedStoreCreditVendor
+        ? Number(selectedCustomer?.vendor_store_credits?.find((credit) => credit.consignor_id === selectedStoreCreditVendor.id)?.balance || 0)
+        : 0;
+    const availableStoreCredit = storeCreditScope === 'vendor'
+        ? selectedVendorStoreCreditBalance
+        : generalStoreCreditBalance;
     const vendorStoreCreditLimit = selectedStoreCreditVendor
         ? calculateConsignorCartTotal(cart, selectedStoreCreditVendor.id, orderDiscounts)
         : 0;
@@ -364,6 +375,32 @@ export function POS() {
     const storeCreditLabel = storeCreditScope === 'vendor' && selectedStoreCreditVendor
         ? `Store Credit (${selectedStoreCreditVendor.label})`
         : 'Store Credit';
+    const storeCreditBalanceLabel = storeCreditScope === 'vendor' && selectedStoreCreditVendor
+        ? `${formatCurrency(availableStoreCredit)} for ${selectedStoreCreditVendor.label}`
+        : `${formatCurrency(generalStoreCreditBalance)} store credit`;
+    const selectedCustomerHasAnyStoreCredit = customerHasAnyStoreCredit(selectedCustomer);
+    const storeCreditConsignorIdForSale = storeCreditScope === 'vendor'
+        ? selectedStoreCreditVendor?.id || null
+        : null;
+    const applyStoreCreditToCustomer = useCallback((customer: Customer): Customer => {
+        if (appliedStoreCredit <= 0) return customer;
+
+        if (storeCreditScope === 'vendor' && selectedStoreCreditVendor) {
+            return {
+                ...customer,
+                vendor_store_credits: (customer.vendor_store_credits || []).map((credit) => (
+                    credit.consignor_id === selectedStoreCreditVendor.id
+                        ? { ...credit, balance: Math.max(0, Number(credit.balance || 0) - appliedStoreCredit) }
+                        : credit
+                )),
+            };
+        }
+
+        return {
+            ...customer,
+            store_credit: Math.max(0, generalStoreCreditBalance - appliedStoreCredit),
+        };
+    }, [appliedStoreCredit, generalStoreCreditBalance, selectedStoreCreditVendor, storeCreditScope]);
     const customerDisplaySummary = useMemo<CustomerDisplaySummary | null>(() => {
         if (!selectedCustomer) return null;
 
@@ -920,7 +957,9 @@ export function POS() {
             appliedGiftCardAmount,
             undefined,
             userRecord?.id,
-            employee?.id
+            employee?.id,
+            undefined,
+            storeCreditConsignorIdForSale
         );
 
         if (error) {
@@ -935,10 +974,7 @@ export function POS() {
             setCompletedCart([...cart]);
             setShowReceiptDelivery(true);
             if (selectedCustomer && appliedStoreCredit > 0) {
-                setSelectedCustomer({
-                    ...selectedCustomer,
-                    store_credit: Math.max(0, availableStoreCredit - appliedStoreCredit),
-                });
+                setSelectedCustomer(applyStoreCreditToCustomer(selectedCustomer));
             }
             if (appliedGiftCard && appliedGiftCardAmount > 0) {
                 const remaining = Math.max(0, appliedGiftCard.balance - appliedGiftCardAmount);
@@ -1014,7 +1050,9 @@ export function POS() {
             appliedGiftCardAmount,
             undefined,
             userRecord?.id,
-            employee?.id
+            employee?.id,
+            undefined,
+            storeCreditConsignorIdForSale
         );
 
         if (amountDue > 0) {
@@ -1037,10 +1075,7 @@ export function POS() {
             setCompletedCart([...cart]);
             setShowReceiptDelivery(true);
             if (selectedCustomer && appliedStoreCredit > 0) {
-                setSelectedCustomer({
-                    ...selectedCustomer,
-                    store_credit: Math.max(0, availableStoreCredit - appliedStoreCredit),
-                });
+                setSelectedCustomer(applyStoreCreditToCustomer(selectedCustomer));
             }
             if (appliedGiftCard && appliedGiftCardAmount > 0) {
                 const remaining = Math.max(0, appliedGiftCard.balance - appliedGiftCardAmount);
@@ -1137,7 +1172,9 @@ export function POS() {
             appliedGiftCardAmount,
             checkNumber.trim() || undefined,
             userRecord?.id,
-            employee?.id
+            employee?.id,
+            undefined,
+            storeCreditConsignorIdForSale
         );
 
         if (error) {
@@ -1155,10 +1192,7 @@ export function POS() {
             setCompletedCart([...cart]);
             setShowReceiptDelivery(true);
             if (selectedCustomer && appliedStoreCredit > 0) {
-                setSelectedCustomer({
-                    ...selectedCustomer,
-                    store_credit: Math.max(0, availableStoreCredit - appliedStoreCredit),
-                });
+                setSelectedCustomer(applyStoreCreditToCustomer(selectedCustomer));
             }
             if (appliedGiftCard && appliedGiftCardAmount > 0) {
                 const remaining = Math.max(0, appliedGiftCard.balance - appliedGiftCardAmount);
@@ -1243,7 +1277,8 @@ export function POS() {
             splitCheckNumber.trim() || undefined,
             userRecord?.id,
             employee?.id,
-            paymentBreakdown
+            paymentBreakdown,
+            storeCreditConsignorIdForSale
         );
 
         if (splitCardTotal > 0) {
@@ -1267,10 +1302,7 @@ export function POS() {
             setCompletedCart([...cart]);
             setShowReceiptDelivery(true);
             if (selectedCustomer && appliedStoreCredit > 0) {
-                setSelectedCustomer({
-                    ...selectedCustomer,
-                    store_credit: Math.max(0, availableStoreCredit - appliedStoreCredit),
-                });
+                setSelectedCustomer(applyStoreCreditToCustomer(selectedCustomer));
             }
             if (appliedGiftCard && appliedGiftCardAmount > 0) {
                 const remaining = Math.max(0, appliedGiftCard.balance - appliedGiftCardAmount);
@@ -1861,7 +1893,7 @@ export function POS() {
                 message: 'Customer profile attached',
             });
             if (pendingCardCheckout) {
-                if (Number(data.store_credit || 0) > 0) {
+                if (customerHasAnyStoreCredit(data)) {
                     setPendingCardCheckout(false);
                     setScanError('Customer attached. Review store credit before charging.');
                     return;
@@ -2146,10 +2178,10 @@ export function POS() {
                                             </div>
                                             <div className="mt-2 flex items-center justify-between gap-3">
                                                 <span className="text-xs font-semibold text-[var(--color-success)]">
-                                                    {formatCurrency(availableStoreCredit)} store credit
+                                                    {storeCreditBalanceLabel}
                                                 </span>
                                             </div>
-                                            {availableStoreCredit > 0 && (
+                                            {selectedCustomerHasAnyStoreCredit && (
                                                 <div className="mt-2 space-y-2">
                                                     <label className="flex items-center justify-between text-xs">
                                                         <span className="text-[var(--color-muted)]">Apply store credit</span>
@@ -2157,11 +2189,11 @@ export function POS() {
                                                             type="checkbox"
                                                             checked={useStoreCredit}
                                                             onChange={(e) => setUseStoreCredit(e.target.checked)}
-                                                            disabled={isOfflineMode}
+                                                            disabled={isOfflineMode || availableStoreCredit <= 0}
                                                             className="h-4 w-4 rounded border-[var(--color-border)]"
                                                         />
                                                     </label>
-                                                    {useStoreCredit && !isOfflineMode && (
+                                                    {!isOfflineMode && storeCreditVendorOptions.length > 0 && (
                                                         <select
                                                             value={storeCreditScope === 'all' ? 'all' : storeCreditConsignorId}
                                                             onChange={(event) => {
@@ -2189,9 +2221,14 @@ export function POS() {
                                                             Eligible: {formatCurrency(storeCreditLimit)}
                                                         </p>
                                                     )}
+                                                    {!isOfflineMode && availableStoreCredit <= 0 && (
+                                                        <p className="text-xs text-[var(--color-muted)]">
+                                                            Select a vendor with a credit balance to apply vendor-specific credit.
+                                                        </p>
+                                                    )}
                                                 </div>
                                             )}
-                                            {isOfflineMode && availableStoreCredit > 0 && (
+                                            {isOfflineMode && selectedCustomerHasAnyStoreCredit && (
                                                 <p className="text-xs text-[var(--color-muted)] mt-2">
                                                     Store credit requires internet and is disabled offline.
                                                 </p>
@@ -3178,7 +3215,7 @@ export function POS() {
                             onClick={async () => {
                                 const customer = await handleStartReaderCustomerIntake();
                                 if (customer && pendingCardCheckout) {
-                                    if (Number(customer.store_credit || 0) > 0) {
+                                    if (customerHasAnyStoreCredit(customer)) {
                                         setPendingCardCheckout(false);
                                         setScanError('Customer attached. Review store credit before charging.');
                                         return;

@@ -94,11 +94,22 @@ export interface Customer {
     notes: string | null;
     accepts_marketing: boolean;
     store_credit?: number;
+    vendor_store_credits?: CustomerVendorStoreCredit[];
     created_at: string;
     updated_at: string;
 }
 
-export type CustomerInput = Omit<Customer, 'id' | 'created_at' | 'updated_at'>;
+export interface CustomerVendorStoreCredit {
+    id: string;
+    customer_id: string;
+    consignor_id: string;
+    balance: number;
+    created_at: string;
+    updated_at: string;
+    consignor?: Pick<Consignor, 'id' | 'consignor_number' | 'name'> | null;
+}
+
+export type CustomerInput = Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'vendor_store_credits'>;
 
 export interface Dealer {
     id: string;
