@@ -44,6 +44,7 @@ export function Inventory() {
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
     const [filterConsignor, setFilterConsignor] = useState('');
     const [filterCategory, setFilterCategory] = useState('');
+    const [showProductDetails, setShowProductDetails] = useState(false);
     const [inventorySummary, setInventorySummary] = useState({
         totalItems: 0,
         totalQuantity: 0,
@@ -401,6 +402,22 @@ export function Inventory() {
                             {item.variant_summary && (
                                 <p className="text-xs text-[var(--color-muted)]">{item.variant_summary}</p>
                             )}
+                            {showProductDetails && (item.other_details_1 || item.other_details_2) && (
+                                <div className="mt-1 space-y-0.5 text-xs text-[var(--color-muted)]">
+                                    {item.other_details_1 && (
+                                        <p>
+                                            <span className="font-medium text-[var(--color-foreground)]">Detail 1:</span>{' '}
+                                            {item.other_details_1}
+                                        </p>
+                                    )}
+                                    {item.other_details_2 && (
+                                        <p>
+                                            <span className="font-medium text-[var(--color-foreground)]">Detail 2:</span>{' '}
+                                            {item.other_details_2}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 ),
@@ -498,7 +515,7 @@ export function Inventory() {
                 ),
             },
         ];
-    }, [bulkEdit, filteredItemIds]);
+    }, [bulkEdit, filteredItemIds, showProductDetails]);
 
     const viewTabs = [
         { id: 'products', label: 'Products' },
@@ -613,6 +630,16 @@ export function Inventory() {
                     <span className="font-medium text-[var(--color-primary)]">
                         {formatCurrency(inventorySummary.totalValue)} value
                     </span>
+                    <label className="ml-auto inline-flex cursor-pointer items-center gap-2 text-xs text-[var(--color-muted)]">
+                        <input
+                            type="checkbox"
+                            checked={showProductDetails}
+                            onChange={(event) => setShowProductDetails(event.target.checked)}
+                            aria-label="Show product details"
+                            className="h-4 w-4 cursor-pointer rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
+                        />
+                        Show product details
+                    </label>
                     {isSummaryLoading && (
                         <span className="text-xs text-[var(--color-muted)]">Updating...</span>
                     )}
