@@ -151,13 +151,13 @@ export function AuthorizeDeviceModal({ isOpen, onClose }: AuthorizeDeviceModalPr
                     />
 
                     {error && (
-                        <div className="p-3 rounded-lg bg-[var(--color-danger-bg)] text-[var(--color-danger)] text-sm">
+                        <div className="p-3 rounded-lg bg-[var(--color-danger-bg)] text-[var(--color-danger)] text-sm" role="alert">
                             {error}
                         </div>
                     )}
 
                     {success && (
-                        <div className="p-3 rounded-lg bg-[rgba(34,197,94,0.1)] text-[#22c55e] text-sm">
+                        <div className="p-3 rounded-lg border border-[var(--color-success)]/20 bg-[var(--color-success-bg)] text-[var(--color-success)] text-sm" role="status">
                             <span className="inline-flex items-center gap-2">
                                 <CheckCircle2 size={16} />
                                 {success}

@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
+import { AuthShell } from '../../components/layout/AuthShell';
 import { isDeviceAuthorized } from '../../lib/deviceAuth';
 
 export function EmployeePortalLogin() {
@@ -66,25 +66,14 @@ export function EmployeePortalLogin() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)] p-4">
-            <div className="w-full max-w-md animate-fadeIn">
-                <div className="text-center mb-8">
-                    <img
-                        src="./ravenpos_logo.svg"
-                        alt="RavenPOS"
-                        className="h-16 mx-auto mb-4"
-                    />
-                    <p className="text-[var(--color-muted)]">Employee portal sign in</p>
-                </div>
-
-                <Card variant="elevated">
-                    <CardHeader>
-                        <CardTitle>Employee Portal</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <form onSubmit={handleSubmit} className="space-y-4">
+        <AuthShell
+            eyebrow="Employee access"
+            title="Employee portal"
+            description="Use your employee account when this device is not set up for PIN access."
+        >
+                        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
                             {error && (
-                                <div className="p-3 rounded-lg bg-[var(--color-danger-bg)] text-[var(--color-danger)] text-sm">
+                                <div className="p-3 rounded-lg border border-[var(--color-danger)]/20 bg-[var(--color-danger-bg)] text-[var(--color-danger)] text-sm" role="alert">
                                     {error}
                                 </div>
                             )}
@@ -114,27 +103,24 @@ export function EmployeePortalLogin() {
                                 className="w-full"
                                 isLoading={isSubmitting}
                             >
-                                Sign In
+                                Sign in
                             </Button>
                         </form>
-                    </CardContent>
-                </Card>
 
-                <div className="mt-8 pt-6 border-t border-[var(--color-border)] space-y-3">
+                <div className="mt-5 border-t border-[var(--color-border)] pt-5 space-y-3">
                     <Link
                         to="/employee/login"
-                        className="block w-full py-2.5 px-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors text-sm font-medium text-center"
+                        className="block min-h-11 w-full rounded-lg border border-[var(--color-input)] bg-[var(--color-surface)] px-4 py-2.5 text-center text-sm font-medium text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface-hover)]"
                     >
                         Back to PIN Clock-In
                     </Link>
                     <Link
                         to="/login"
-                        className="block text-center text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                        className="block min-h-11 py-3 text-center text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
                     >
                         Admin/Vendor sign in
                     </Link>
                 </div>
-            </div>
-        </div>
+        </AuthShell>
     );
 }

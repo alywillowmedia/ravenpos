@@ -475,6 +475,7 @@ export function InventoryDiscountsTab({
                     </div>
 
                     <Table
+                        ariaLabel="Inventory discounts"
                         data={visibleDiscounts}
                         columns={columns}
                         keyExtractor={(discount) => discount.id}

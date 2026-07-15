@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
+import { AuthShell } from '../components/layout/AuthShell';
 
 export function Login() {
     const navigate = useNavigate();
@@ -46,28 +46,15 @@ export function Login() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)] p-4">
-            <div className="w-full max-w-md animate-fadeIn">
-                {/* Logo */}
-                <div className="text-center mb-8">
-                    <img
-                        src="./ravenpos_logo.svg"
-                        alt="RavenPOS"
-                        className="h-16 mx-auto mb-4"
-                    />
-                    <p className="text-[var(--color-muted)]">
-                        Sign in to your account
-                    </p>
-                </div>
-
-                <Card variant="elevated">
-                    <CardHeader>
-                        <CardTitle>Welcome Back</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <form onSubmit={handleSubmit} className="space-y-4">
+        <AuthShell
+            eyebrow="Admin & vendor access"
+            title="Welcome back"
+            description="Sign in to manage the store, your vendor account, or both."
+            footer={<span>Employee? Use the dedicated portal below for the right clock and permissions context.</span>}
+        >
+                        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
                             {error && (
-                                <div className="p-3 rounded-lg bg-[var(--color-danger-bg)] text-[var(--color-danger)] text-sm">
+                                <div className="p-3 rounded-lg border border-[var(--color-danger)]/20 bg-[var(--color-danger-bg)] text-[var(--color-danger)] text-sm" role="alert">
                                     {error}
                                 </div>
                             )}
@@ -97,29 +84,18 @@ export function Login() {
                                 className="w-full"
                                 isLoading={isSubmitting}
                             >
-                                Sign In
+                                Sign in
                             </Button>
                         </form>
-                    </CardContent>
-                </Card>
 
-                <p className="text-center text-xs text-[var(--color-muted)] mt-6">
-                    Admin and vendor accounts sign in here
-                </p>
-
-                {/* Employee Login Link */}
-                <div className="mt-8 pt-6 border-t border-[var(--color-border)]">
-                    <p className="text-center text-sm text-[var(--color-muted)] mb-3">
-                        Employee access
-                    </p>
+                <div className="mt-5 border-t border-[var(--color-border)] pt-5">
                     <button
                         onClick={() => navigate('/employee/portal-login')}
-                        className="w-full py-2.5 px-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors text-sm font-medium"
+                        className="min-h-11 w-full rounded-lg border border-[var(--color-input)] bg-[var(--color-surface)] px-4 py-2.5 text-sm font-medium text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface-hover)]"
                     >
-                        Employee Portal Login
+                        Go to employee sign in
                     </button>
                 </div>
-            </div>
-        </div>
+        </AuthShell>
     );
 }

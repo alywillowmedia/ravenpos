@@ -12,13 +12,13 @@ export function Header({ title, description, actions, className }: HeaderProps) 
     return (
         <div
             className={cn(
-                'flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between',
-                'pb-6 mb-6 border-b border-[var(--color-border)]',
+                'flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between',
+                'pb-5 mb-5 border-b border-[var(--color-border)]',
                 className
             )}
         >
-            <div>
-                <h1 className="text-2xl font-bold text-[var(--color-foreground)]">
+            <div className="min-w-0">
+                <h1 className="text-2xl font-semibold tracking-[-0.02em] text-[var(--color-foreground)]">
                     {title}
                 </h1>
                 {description && (
@@ -27,7 +27,7 @@ export function Header({ title, description, actions, className }: HeaderProps) 
                     </p>
                 )}
             </div>
-            {actions && <div className="flex items-center gap-3">{actions}</div>}
+            {actions && <div className="flex flex-wrap items-center gap-2 sm:justify-end">{actions}</div>}
         </div>
     );
 }

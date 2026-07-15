@@ -118,10 +118,10 @@ export function Dashboard() {
     }, [analyticsExpanded, dateRange, customDateFrom, customDateTo, getSalesTrend, getSalesByCategory, getCustomerGrowth, getBusyTimeAnalytics]);
 
     const quickLinks = [
-        { href: '/admin/pos', label: 'Open Register', icon: RegisterIcon, color: 'bg-[var(--color-primary)]' },
-        { href: '/admin/add-items', label: 'Add Items', icon: PlusIcon, color: 'bg-emerald-500' },
-        { href: '/admin/consignors', label: 'Consignors', icon: UsersIcon, color: 'bg-violet-500' },
-        { href: '/admin/labels', label: 'Print Labels', icon: TagIcon, color: 'bg-amber-500' },
+        { href: '/admin/pos', label: 'Open Register', icon: RegisterIcon },
+        { href: '/admin/add-items', label: 'Add Items', icon: PlusIcon },
+        { href: '/admin/consignors', label: 'Consignors', icon: UsersIcon },
+        { href: '/admin/labels', label: 'Print Labels', icon: TagIcon },
     ];
 
     if (isLoading || consignorsLoading || itemsLoading) {
@@ -172,18 +172,22 @@ export function Dashboard() {
             <div>
                 <button
                     onClick={() => setAnalyticsExpanded(!analyticsExpanded)}
-                    className="flex items-center gap-2 text-lg font-semibold text-[var(--color-foreground)] mb-4 hover:text-[var(--color-primary)] transition-colors"
+                    className="mb-4 flex min-h-11 items-center gap-2 rounded-lg px-2 text-lg font-semibold text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-primary)]"
+                    aria-expanded={analyticsExpanded}
+                    aria-controls="dashboard-analytics"
                 >
                     <ChevronIcon expanded={analyticsExpanded} />
                     Analytics
                 </button>
                 {analyticsExpanded && (
-                    <>
+                    <div id="dashboard-analytics">
                         <div className="flex justify-end mb-4">
+                            <label htmlFor="dashboard-date-range" className="sr-only">Analytics date range</label>
                             <select
+                                id="dashboard-date-range"
                                 value={dateRange}
                                 onChange={(e) => setDateRange(e.target.value as AnalyticsRangePreset)}
-                                className="px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg bg-[var(--color-background)] text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                                className="min-h-11 px-3 py-2 text-sm border border-[var(--color-input)] rounded-lg bg-[var(--color-surface-elevated)] text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                             >
                                 <option value="24h">Last 24 hours</option>
                                 <option value="7">Last 7 days</option>
@@ -196,19 +200,23 @@ export function Dashboard() {
                         </div>
                         {dateRange === 'custom' && (
                             <div className="flex justify-end mb-4 gap-2">
+                                <label htmlFor="dashboard-date-from" className="sr-only">Analytics start date</label>
                                 <input
+                                    id="dashboard-date-from"
                                     type="date"
                                     value={customDateFrom}
                                     onChange={(e) => setCustomDateFrom(e.target.value)}
                                     max={customDateTo || undefined}
-                                    className="px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg bg-[var(--color-background)] text-[var(--color-foreground)]"
+                                    className="min-h-11 px-3 py-2 text-sm border border-[var(--color-input)] rounded-lg bg-[var(--color-surface-elevated)] text-[var(--color-foreground)]"
                                 />
+                                <label htmlFor="dashboard-date-to" className="sr-only">Analytics end date</label>
                                 <input
+                                    id="dashboard-date-to"
                                     type="date"
                                     value={customDateTo}
                                     onChange={(e) => setCustomDateTo(e.target.value)}
                                     min={customDateFrom || undefined}
-                                    className="px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg bg-[var(--color-background)] text-[var(--color-foreground)]"
+                                    className="min-h-11 px-3 py-2 text-sm border border-[var(--color-input)] rounded-lg bg-[var(--color-surface-elevated)] text-[var(--color-foreground)]"
                                 />
                             </div>
                         )}
@@ -250,7 +258,7 @@ export function Dashboard() {
                                 )}
                             </AnalyticsCard>
                         </div>
-                    </>
+                    </div>
                 )}
             </div>
 
@@ -267,9 +275,7 @@ export function Dashboard() {
                                 className="group hover:border-[var(--color-primary)] hover:shadow-md transition-all cursor-pointer"
                             >
                                 <CardContent className="flex flex-col items-center py-6 text-center">
-                                    <div
-                                        className={`w-12 h-12 rounded-xl ${link.color} flex items-center justify-center text-white mb-3 group-hover:scale-110 transition-transform`}
-                                    >
+                                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl border border-[var(--color-primary)]/15 bg-[var(--color-primary)]/10 text-[var(--color-primary)] transition-transform group-hover:scale-105">
                                         <link.icon />
                                     </div>
                                     <span className="font-medium text-[var(--color-foreground)]">

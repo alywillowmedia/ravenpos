@@ -21,125 +21,70 @@ export function NumberPad({ onDigit, onClear, onBackspace, onSubmit, disabled }:
         onDigit(value);
     };
 
-    const buttonStyle = (key: string): React.CSSProperties => ({
-        width: '80px',
-        height: '80px',
-        fontSize: '28px',
-        fontWeight: 600,
-        border: 'none',
-        borderRadius: '12px',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        transition: 'all 0.1s ease',
-        backgroundColor: pressedKey === key ? 'var(--color-primary)' : 'var(--color-gray-700)',
-        color: pressedKey === key ? 'white' : 'var(--color-gray-100)',
-        opacity: disabled ? 0.5 : 1,
-        transform: pressedKey === key ? 'scale(0.95)' : 'scale(1)',
-    });
+    const numberClass = (key: string) => `flex aspect-square w-full items-center justify-center rounded-xl border text-2xl font-semibold tabular-nums transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+        pressedKey === key
+            ? 'scale-95 border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+            : 'border-[var(--color-input)] bg-[var(--color-surface-elevated)] text-[var(--color-foreground)] hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-hover)]'
+    }`;
 
-    const actionButtonStyle = (key: string): React.CSSProperties => ({
-        ...buttonStyle(key),
-        fontSize: '16px',
-        fontWeight: 500,
-        backgroundColor: pressedKey === key ? 'var(--color-gray-500)' : 'var(--color-gray-800)',
-    });
+    const actionClass = (key: string) => `flex aspect-square w-full items-center justify-center rounded-xl border text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+        pressedKey === key
+            ? 'scale-95 border-[var(--color-border-strong)] bg-[var(--color-surface-hover)]'
+            : 'border-[var(--color-input)] bg-[var(--color-surface)] text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]'
+    }`;
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-            {/* Row 1: 1-2-3 */}
-            <div style={{ display: 'flex', gap: '12px' }}>
-                {['1', '2', '3'].map(digit => (
-                    <button
-                        key={digit}
-                        onClick={() => handlePress(digit)}
-                        style={buttonStyle(digit)}
-                        disabled={disabled}
-                    >
+        <div className="mx-auto w-full max-w-xs" aria-label="PIN keypad">
+            <div className="grid grid-cols-3 gap-3">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(digit => (
+                    <button key={digit} type="button" onClick={() => handlePress(digit)} className={numberClass(digit)} disabled={disabled} aria-label={digit}>
                         {digit}
                     </button>
                 ))}
-            </div>
-
-            {/* Row 2: 4-5-6 */}
-            <div style={{ display: 'flex', gap: '12px' }}>
-                {['4', '5', '6'].map(digit => (
-                    <button
-                        key={digit}
-                        onClick={() => handlePress(digit)}
-                        style={buttonStyle(digit)}
-                        disabled={disabled}
-                    >
-                        {digit}
-                    </button>
-                ))}
-            </div>
-
-            {/* Row 3: 7-8-9 */}
-            <div style={{ display: 'flex', gap: '12px' }}>
-                {['7', '8', '9'].map(digit => (
-                    <button
-                        key={digit}
-                        onClick={() => handlePress(digit)}
-                        style={buttonStyle(digit)}
-                        disabled={disabled}
-                    >
-                        {digit}
-                    </button>
-                ))}
-            </div>
-
-            {/* Row 4: Clear-0-Back */}
-            <div style={{ display: 'flex', gap: '12px' }}>
                 <button
+                    type="button"
                     onClick={() => {
                         if (disabled) return;
                         setPressedKey('clear');
                         setTimeout(() => setPressedKey(null), 100);
                         onClear();
                     }}
-                    style={actionButtonStyle('clear')}
+                    className={actionClass('clear')}
                     disabled={disabled}
                 >
                     Clear
                 </button>
                 <button
+                    type="button"
                     onClick={() => handlePress('0')}
-                    style={buttonStyle('0')}
+                    className={numberClass('0')}
                     disabled={disabled}
                 >
                     0
                 </button>
                 <button
+                    type="button"
                     onClick={() => {
                         if (disabled) return;
                         setPressedKey('back');
                         setTimeout(() => setPressedKey(null), 100);
                         onBackspace();
                     }}
-                    style={actionButtonStyle('back')}
+                    className={actionClass('back')}
                     disabled={disabled}
+                    aria-label="Delete last digit"
                 >
-                    ⌫
+                    Delete
                 </button>
             </div>
 
             {/* Submit button (optional) */}
             {onSubmit && (
                 <button
+                    type="button"
                     onClick={onSubmit}
                     disabled={disabled}
-                    style={{
-                        marginTop: '8px',
-                        width: '260px',
-                        height: '56px',
-                        fontSize: '18px',
-                        fontWeight: 600,
-                        border: 'none',
-                        borderRadius: '12px',
-                        cursor: disabled ? 'not-allowed' : 'pointer',
-                        backgroundColor: 'var(--color-primary)',
-                        color: 'white',
-                        opacity: disabled ? 0.5 : 1,
-                    }}
+                    className="mt-3 min-h-12 w-full rounded-xl bg-[var(--color-primary)] px-4 text-base font-semibold text-[var(--color-primary-foreground)] hover:bg-[var(--color-primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     Enter
                 </button>

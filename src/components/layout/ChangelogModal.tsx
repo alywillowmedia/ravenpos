@@ -18,8 +18,93 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
         >
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
 
+                {/* Version 2 */}
+                <ChangelogSection version="2" date="Current" defaultOpen={true}>
+                    <div className="space-y-6">
+                        <div className="space-y-3">
+                            <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
+                                <span className="p-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                    <PlusIcon className="w-4 h-4" />
+                                </span>
+                                RavenPOS v2
+                            </h3>
+                            <div className="space-y-4 pl-2">
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">A Unified, Responsive Experience</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                        <li>Introduced one calmer, higher-contrast design system across the admin, employee, and vendor portals, including consistent controls, tables, dialogs, status messages, and dark mode.</li>
+                                        <li>Rebuilt desktop and mobile navigation from a shared destination list so every production page is easier to find, with compact sidebars, clearer active states, and a Ctrl/Cmd+K destination menu.</li>
+                                        <li>Refreshed account login, portal selection, employee PIN access, device authorization, and post-login actions into one responsive entry experience.</li>
+                                        <li>Expanded the public storefront into the full Ravenlia website with home, events, vendors, contact, story, shopping, and embeddable storefront experiences.</li>
+                                    </ul>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Register & Checkout</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                        <li>Added smart product search, custom sale items, saved carts, split and check payments, gift-card sales, and customer/vendor invoices.</li>
+                                        <li>Added vendor-specific customer store credit, configurable dealer discounts, automatic inventory discount rules, and compare-at pricing.</li>
+                                        <li>Added an Electron offline cash-sale queue with visible pending/failed status and retry syncing when the connection returns.</li>
+                                        <li>Improved register controls with explicit scan, SKU-add, and search actions; larger cart controls; announced tender selection; and confirmation before clearing an active sale.</li>
+                                        <li>Upgraded the customer display with store-configurable idle imagery, clearer ready/live states, a more readable cart and totals layout, and safer responsive behavior.</li>
+                                    </ul>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Inventory & Labels</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                        <li>Added inventory pricing-discount management with automatic POS application, plus compare-at prices across admin/vendor entry, CSV import, storefront, receipts, and labels.</li>
+                                        <li>Added direct browser-to-DYMO printing with printer selection for admins and vendors, shift-click range selection, improved print sorting, and corrected secondary/tertiary label details.</li>
+                                        <li>Expanded item text limits for richer product details and strengthened bulk editing, inventory transfers, long-form imports, and unsaved-change protection.</li>
+                                        <li>Added stronger inventory analytics, accessible table labels, larger row actions, and clearer loading, empty, and error states.</li>
+                                    </ul>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Team, Scheduling & Communication</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                        <li>Added employee account self-service for schedules, time-off requests, profile details, sales summaries, and weekly schedule emails.</li>
+                                        <li>Added reusable 1-, 2-, and 4-week schedule cycles, single-day overrides, partial-day time off, grouped requests, and schedule email preview/send tools.</li>
+                                        <li>Added dual-role login so linked vendor or admin accounts can also enter the employee portal without a second account.</li>
+                                        <li>Added configurable employment role labels and employee payroll with custom state withholding brackets, payroll history, printable paystubs, employer/employee addresses, and safer employee removal.</li>
+                                        <li>Admins can now clock employees in or out manually, remove incorrect time entries, and keep sensitive timecard details hidden when needed.</li>
+                                        <li>Added direct messaging across all three portals, email campaign creation and recipient selection, customer marketing consent, and Kit subscriber syncing.</li>
+                                    </ul>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">Finance & Store Operations</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                        <li>Added dealer management and a reverse-POS purchasing workflow with itemized purchases, discounts, receipts, and till reporting.</li>
+                                        <li>Added customer/vendor invoice management with payment collection and print/email delivery, plus automatic vendor invoice reconciliation during payouts.</li>
+                                        <li>Added category tax settings, marketing-fee allocation, tax reporting, explicit date ranges and quick presets, consignor W-9 tracking, and more complete report exports.</li>
+                                        <li>Added full till accountability across cash, card, check, split payments, refunds, gift cards, dealer purchases, offline cash sales, and printed till reports.</li>
+                                        <li>Added vendor ledger deductions, deferred payout carryover, and clearer completed-payout details and reports.</li>
+                                        <li>Added store-wide Stripe reader settings, receipt barcodes, Sales-page receipt printing, and Electron update notifications.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
+                                <span className="p-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                    <SparklesIcon className="w-4 h-4" />
+                                </span>
+                                Accessibility & Reliability
+                            </h3>
+                            <ul className="list-disc pl-9 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                <li>Added keyboard-friendly tabs, sortable tables and navigation, plus labeled forms, focus-trapped dialogs, live status announcements, visible focus, reduced-motion support, and safer browser zoom.</li>
+                                <li>Improved permanent device authorization, account-session recovery, vendor portal switching, and receipt-printer selection.</li>
+                                <li>Hardened sale creation and inventory decrementing, payout and refund calculations, consignor deletion, saved-cart recovery, and discount/inventory synchronization.</li>
+                                <li>Preserved existing payment, refund, payroll, payout, Shopify, receipt, label, Electron, and customer-display contracts throughout the v2 interface update.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </ChangelogSection>
+
                 {/* Version 1.5 */}
-                <ChangelogSection version="1.5" date="Current" defaultOpen={true}>
+                <ChangelogSection version="1.5" date="Previous">
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">

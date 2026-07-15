@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, type PortalChoice } from '../contexts/AuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { AuthShell } from '../components/layout/AuthShell';
 
 function portalLabel(portal: PortalChoice): string {
     if (portal === 'admin') return 'Admin View';
@@ -34,32 +34,28 @@ export function PortalSelect() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)] p-4">
-            <div className="w-full max-w-lg animate-fadeIn">
-                <Card variant="elevated">
-                    <CardHeader>
-                        <CardTitle>Choose Your View</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        <p className="text-sm text-[var(--color-muted)]">
-                            This login has access to multiple areas. Choose where you want to go.
-                        </p>
+        <AuthShell
+            eyebrow="Workspace"
+            title="Choose your view"
+            description="Your account has access to multiple areas. You can switch again from the portal navigation."
+            maxWidth="md"
+        >
+                    <div className="grid gap-3 sm:grid-cols-3">
                         {portalChoices.map((portal) => (
                             <Button
                                 key={portal}
                                 type="button"
-                                className="w-full"
+                                className="min-h-20 w-full flex-col gap-1"
                                 onClick={() => handleChoose(portal)}
                             >
                                 {portalLabel(portal)}
+                                <span className="text-xs font-normal opacity-75">Open workspace</span>
                             </Button>
                         ))}
-                        <Button type="button" variant="ghost" className="w-full" onClick={signOut}>
+                    </div>
+                        <Button type="button" variant="ghost" className="mt-4 w-full" onClick={signOut}>
                             Sign Out
                         </Button>
-                    </CardContent>
-                </Card>
-            </div>
-        </div>
+        </AuthShell>
     );
 }

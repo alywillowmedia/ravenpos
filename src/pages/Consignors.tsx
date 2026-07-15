@@ -208,8 +208,9 @@ export function Consignors() {
                         setDeleteError(null);
                         setDeleteTarget(c);
                     }}
-                    className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-danger)] transition-colors"
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-muted)] hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger)] transition-colors"
                     title="Deactivate"
+                    aria-label={`Deactivate ${getConsignorDisplayName(c)}`}
                 >
                     <TrashIcon />
                 </button>
@@ -269,6 +270,7 @@ export function Consignors() {
                     onRowClick={(c) => navigate(`/admin/consignors/${c.id}`)}
                     isLoading={isLoading}
                     emptyMessage="No consignors found"
+                    ariaLabel="Consignors"
                 />
             )}
 

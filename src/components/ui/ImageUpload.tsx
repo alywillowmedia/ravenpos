@@ -99,15 +99,16 @@ export function ImageUpload({
                         />
                     </div>
                     {!disabled && (
-                        <div className="absolute inset-0 max-w-[200px] bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center gap-2">
+                        <div className="absolute inset-0 max-w-[200px] bg-black/50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity rounded-xl flex items-center justify-center gap-2">
                             <button
                                 type="button"
                                 onClick={triggerFileInput}
-                                className="p-2 bg-white rounded-lg hover:bg-gray-100 transition-colors"
+                                className="flex h-11 w-11 items-center justify-center rounded-lg bg-white text-[#374151] transition-colors hover:bg-[#f3f4f6]"
                                 title="Replace image"
+                                aria-label="Replace image"
                             >
                                 <svg
-                                    className="w-5 h-5 text-gray-700"
+                                    className="w-5 h-5"
                                     fill="none"
                                     viewBox="0 0 24 24"
                                     stroke="currentColor"
@@ -123,11 +124,12 @@ export function ImageUpload({
                             <button
                                 type="button"
                                 onClick={handleRemove}
-                                className="p-2 bg-white rounded-lg hover:bg-gray-100 transition-colors"
+                                className="flex h-11 w-11 items-center justify-center rounded-lg bg-white text-[#b42318] transition-colors hover:bg-[#fef3f2]"
                                 title="Remove image"
+                                aria-label="Remove image"
                             >
                                 <svg
-                                    className="w-5 h-5 text-red-600"
+                                    className="w-5 h-5"
                                     fill="none"
                                     viewBox="0 0 24 24"
                                     stroke="currentColor"
@@ -258,8 +260,9 @@ export function ImageUploadCompact({
                         <button
                             type="button"
                             onClick={() => onChange(null)}
-                            className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-danger)] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
                             title="Remove"
+                            aria-label="Remove image"
                         >
                             <svg
                                 className="w-3 h-3"

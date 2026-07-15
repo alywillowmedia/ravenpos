@@ -1,350 +1,114 @@
-import { useState, useEffect } from 'react';
-import { NavLink, useLocation, Outlet, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { ArrowLeftRight, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { cn } from '../../lib/utils';
-import { getCachedAvatarUrl } from '../../lib/avatar';
-import { PortalTopBar } from './PortalTopBar';
 import { useMessaging } from '../../hooks/useMessaging';
-
-const navigation = [
-    { name: 'Dashboard', href: '/vendor', icon: DashboardIcon },
-    { name: 'My Inventory', href: '/vendor/inventory', icon: PackageIcon },
-    { name: 'Import CSV', href: '/vendor/import', icon: UploadIcon },
-    { name: 'Print Labels', href: '/vendor/labels', icon: TagIcon },
-    { name: 'My Sales', href: '/vendor/sales', icon: ReceiptIcon },
-    { name: 'My Payouts', href: '/vendor/payouts', icon: PayoutsIcon },
-    { name: 'Storefront', href: '/vendor/storefront', icon: StorefrontIcon },
-    { name: 'Messages', href: '/vendor/messages', icon: MessageIcon },
-    { name: 'Profile', href: '/vendor/profile', icon: UserIcon },
-];
+import { useMobile } from '../../hooks/useMobile';
+import { getCachedAvatarUrl } from '../../lib/avatar';
+import { cn } from '../../lib/utils';
+import { MobileBottomNav } from './MobileBottomNav';
+import { PortalTopBar } from './PortalTopBar';
+import { pathIsActive, vendorNavigation } from './portalNavigation';
 
 export function VendorLayout() {
     const navigate = useNavigate();
-    const [isMobileOpen, setIsMobileOpen] = useState(false);
-    const [isCollapsed, setIsCollapsed] = useState(() => {
-        const saved = localStorage.getItem('sidebar-collapsed-vendor');
-        return saved === 'true';
-    });
     const location = useLocation();
+    const { isMobile } = useMobile();
     const { userRecord, portalChoices, setActivePortal, signOut } = useAuth();
     const messaging = useMessaging({ portalBasePath: '/vendor' });
+    const [isCollapsed, setIsCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed-vendor') === 'true');
     const profileName = userRecord?.full_name || userRecord?.email || 'Vendor';
     const profileAvatarUrl = getCachedAvatarUrl(userRecord?.profile_image_url, { size: 96, quality: 70 });
 
     useEffect(() => {
-        localStorage.setItem('sidebar-collapsed-vendor', isCollapsed.toString());
+        localStorage.setItem('sidebar-collapsed-vendor', String(isCollapsed));
     }, [isCollapsed]);
-
-    const handleLogout = async () => {
-        await signOut();
-    };
-
-    const toggleCollapse = () => {
-        setIsCollapsed(prev => !prev);
-    };
 
     return (
         <div className="min-h-screen bg-[var(--color-surface)]">
-            {/* Mobile menu button */}
-            <div className="lg:hidden fixed top-4 left-4 z-50">
-                <button
-                    onClick={() => setIsMobileOpen(!isMobileOpen)}
-                    className="p-2 rounded-lg bg-[var(--color-surface-elevated)] shadow-md border border-[var(--color-border)] text-[var(--color-foreground)]"
-                    aria-label="Toggle menu"
-                >
-                    <MenuIcon />
-                </button>
-            </div>
+            {!isMobile && (
+                <aside aria-label="Vendor navigation" className={cn(
+                    'fixed inset-y-0 left-0 z-40 flex flex-col border-r border-[var(--color-border)] bg-[var(--color-surface-elevated)] transition-[width] duration-200',
+                    isCollapsed ? 'w-[72px]' : 'w-64'
+                )}>
+                    <div className={cn('flex h-16 items-center border-b border-[var(--color-border)]', isCollapsed ? 'justify-center px-2' : 'px-4')}>
+                        {isCollapsed ? (
+                            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--color-primary)] font-semibold text-[var(--color-primary-foreground)]">R</span>
+                        ) : (
+                            <img src="/ravenpos_logo.svg" alt="Raven POS" className="sidebar-logo-image h-auto max-h-10 w-32" />
+                        )}
+                    </div>
 
-            {/* Mobile overlay */}
-            {isMobileOpen && (
-                <div
-                    className="lg:hidden fixed inset-0 z-40 bg-black/50"
-                    onClick={() => setIsMobileOpen(false)}
-                />
-            )}
-
-            {/* Sidebar */}
-            <aside
-                className={cn(
-                    'fixed inset-y-0 left-0 z-40 transition-all duration-300 ease-in-out',
-                    isCollapsed ? 'w-16' : 'w-64',
-                    'bg-[var(--color-surface-elevated)]',
-                    'transform transition-transform duration-200 ease-out',
-                    'lg:translate-x-0 flex flex-col',
-                    isMobileOpen ? 'translate-x-0' : '-translate-x-full'
-                )}
-            >
-                {/* Logo */}
-                <div className="flex items-center justify-center h-20 px-4 py-4 border-b border-[var(--color-border)]">
-                    {!isCollapsed ? (
-                        <img
-                            src="./ravenpos_logo.svg"
-                            alt="RavenPOS"
-                            className="sidebar-logo-image w-35 h-auto max-h-18"
-                        />
-                    ) : (
-                        <div className="w-8 h-8 bg-[var(--color-primary)] rounded-lg flex items-center justify-center text-white font-bold text-sm">
-                            R
-                        </div>
-                    )}
-                </div>
-
-                {/* Collapse Toggle Button - Desktop Only */}
-                <div className="hidden lg:flex items-center justify-center py-2">
-                    <button
-                        onClick={toggleCollapse}
-                        className="p-2 rounded-lg hover:bg-[var(--color-surface-hover)] transition-colors text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
-                        title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                    >
-                        {isCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
-                    </button>
-                </div>
-
-                {/* User Info */}
-                {!isCollapsed && (
-                    <div className="px-4 py-4 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-                        <div className="flex items-center gap-2.5">
-                            {profileAvatarUrl ? (
-                                <img
-                                    src={profileAvatarUrl}
-                                    alt={profileName}
-                                    loading="lazy"
-                                    decoding="async"
-                                    className="h-9 w-9 shrink-0 rounded-full border border-[var(--color-border)] object-cover"
-                                />
-                            ) : (
-                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-xs font-semibold text-white">
-                                    {getInitials(profileName)}
+                    {!isCollapsed && (
+                        <div className="border-b border-[var(--color-border)] px-3 py-3">
+                            <div className="flex items-center gap-3 rounded-lg bg-[var(--color-surface)] p-2.5">
+                                {profileAvatarUrl ? (
+                                    <img src={profileAvatarUrl} alt="" className="h-9 w-9 rounded-full border border-[var(--color-border)] object-cover" />
+                                ) : (
+                                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-primary)] text-xs font-semibold text-[var(--color-primary-foreground)]">{getInitials(profileName)}</span>
+                                )}
+                                <div className="min-w-0">
+                                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">Vendor</p>
+                                    <p className="truncate text-sm font-semibold text-[var(--color-foreground)]">{profileName}</p>
                                 </div>
-                            )}
-                            <div className="min-w-0">
-                                <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Vendor Portal</p>
-                                <p className="font-medium text-[var(--color-foreground)] truncate">
-                                    {userRecord?.full_name || userRecord?.email}
-                                </p>
                             </div>
                         </div>
-                    </div>
-                )}
-
-                {/* Navigation */}
-                <nav className="flex-1 px-3 py-4 space-y-1">
-                    {navigation.map((item) => {
-                        const isActive = location.pathname === item.href;
-                        return (
-                            <NavLink
-                                key={item.name}
-                                to={item.href}
-                                onClick={() => setIsMobileOpen(false)}
-                                className={cn(
-                                    'flex items-center rounded-lg',
-                                    'text-sm font-medium transition-all duration-150',
-                                    isCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5',
-                                    isActive
-                                        ? 'bg-[var(--color-primary)] text-white shadow-sm'
-                                        : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
-                                )}
-                                title={isCollapsed ? item.name : undefined}
-                            >
-                                <item.icon />
-                                {!isCollapsed && item.name}
-                            </NavLink>
-                        );
-                    })}
-                </nav>
-
-                {/* Bottom section */}
-                <div className={cn(
-                    'border-t border-[var(--color-border)]',
-                    isCollapsed ? 'p-2' : 'p-4'
-                )}>
-                    {portalChoices.length > 1 && (
-                        <button
-                            onClick={() => {
-                                setActivePortal(null);
-                                navigate('/portal-select');
-                            }}
-                            className={cn(
-                                'mb-2 w-full flex items-center rounded-lg text-sm font-medium text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)] transition-colors',
-                                isCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'
-                            )}
-                            title={isCollapsed ? 'Switch View' : undefined}
-                        >
-                            <SwitchIcon />
-                            {!isCollapsed && 'Switch View'}
-                        </button>
                     )}
-                    <button
-                        onClick={handleLogout}
-                        className={cn(
-                            'w-full flex items-center rounded-lg text-sm font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors',
-                            isCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'
+
+                    <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
+                        {vendorNavigation.map((item) => {
+                            const active = pathIsActive(location.pathname, item.href);
+                            const Icon = item.icon;
+                            return (
+                                <NavLink key={item.href} to={item.href} aria-current={active ? 'page' : undefined} title={isCollapsed ? item.name : undefined} className={cn(
+                                    'flex min-h-11 items-center rounded-lg text-sm font-medium transition-colors',
+                                    isCollapsed ? 'justify-center px-2' : 'gap-3 px-3',
+                                    active ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]'
+                                )}>
+                                    <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+                                    {!isCollapsed && item.name}
+                                </NavLink>
+                            );
+                        })}
+                    </nav>
+
+                    <div className="shrink-0 space-y-1 border-t border-[var(--color-border)] p-2">
+                        <button type="button" onClick={() => setIsCollapsed((value) => !value)} className={cn('flex min-h-10 w-full items-center rounded-lg text-sm text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]', isCollapsed ? 'justify-center' : 'gap-3 px-3')} aria-label={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}>
+                            {isCollapsed ? <ChevronRight className="h-[18px] w-[18px]" /> : <ChevronLeft className="h-[18px] w-[18px]" />}
+                            {!isCollapsed && 'Collapse navigation'}
+                        </button>
+                        {portalChoices.length > 1 && (
+                            <button type="button" onClick={() => { setActivePortal(null); navigate('/portal-select'); }} className={cn('flex min-h-10 w-full items-center rounded-lg text-sm text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]', isCollapsed ? 'justify-center' : 'gap-3 px-3')} title={isCollapsed ? 'Switch portal' : undefined}>
+                                <ArrowLeftRight className="h-[18px] w-[18px]" aria-hidden="true" />
+                                {!isCollapsed && 'Switch portal'}
+                            </button>
                         )}
-                        title={isCollapsed ? 'Sign Out' : undefined}
-                    >
-                        <LogoutIcon />
-                        {!isCollapsed && 'Sign Out'}
-                    </button>
-                </div>
-            </aside>
-            <div
-                aria-hidden="true"
-                className={cn(
-                    'pointer-events-none fixed top-14 z-[35] hidden h-6 w-6 rounded-tl-3xl bg-[var(--color-surface)] lg:block',
-                    isCollapsed ? 'left-16' : 'left-64'
-                )}
-            />
-            {/* Main content */}
+                        <button type="button" onClick={() => void signOut()} className={cn('flex min-h-10 w-full items-center rounded-lg text-sm font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]', isCollapsed ? 'justify-center' : 'gap-3 px-3')} title={isCollapsed ? 'Sign out' : undefined}>
+                            <LogOut className="h-[18px] w-[18px]" aria-hidden="true" />
+                            {!isCollapsed && 'Sign out'}
+                        </button>
+                    </div>
+                </aside>
+            )}
+
             <main className={cn(
-                isCollapsed ? 'lg:pl-16' : 'lg:pl-64',
-                'bg-[var(--color-surface-elevated)] transition-all duration-300 ease-in-out'
+                isMobile ? 'mobile-content-padding' : isCollapsed ? 'lg:pl-[72px]' : 'lg:pl-64',
+                'min-h-screen bg-[var(--color-surface)] transition-[padding] duration-200 ease-out'
             )}>
                 <PortalTopBar messaging={messaging} portalBasePath="/vendor" />
-                <div className="bg-[var(--color-surface)] px-4 py-6 sm:px-6 lg:rounded-tl-3xl lg:px-8">
+                <div className="bg-[var(--color-surface)] px-4 py-5 sm:px-6 lg:px-7">
                     <Outlet key={location.pathname} context={{ messaging }} />
                 </div>
             </main>
+
+            {isMobile && <MobileBottomNav variant="vendor" />}
         </div>
     );
 }
 
 function getInitials(value: string) {
     const words = value.trim().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return 'U';
+    if (words.length === 0) return 'V';
     if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
     return `${words[0][0] || ''}${words[1][0] || ''}`.toUpperCase();
-}
-
-// Icons
-function MenuIcon() {
-    return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M3 12h18M3 6h18M3 18h18" />
-        </svg>
-    );
-}
-
-function DashboardIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="7" height="7" />
-            <rect x="14" y="3" width="7" height="7" />
-            <rect x="14" y="14" width="7" height="7" />
-            <rect x="3" y="14" width="7" height="7" />
-        </svg>
-    );
-}
-
-function PackageIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m7.5 4.27 9 5.15" />
-            <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-            <path d="m3.3 7 8.7 5 8.7-5" />
-            <path d="M12 22V12" />
-        </svg>
-    );
-}
-
-function ReceiptIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z" />
-            <path d="M8 10h8M8 14h4" />
-        </svg>
-    );
-}
-
-function UserIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="8" r="5" />
-            <path d="M20 21a8 8 0 1 0-16 0" />
-        </svg>
-    );
-}
-
-function LogoutIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16,17 21,12 16,7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-        </svg>
-    );
-}
-
-function PayoutsIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" x2="12" y1="2" y2="22" />
-            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-        </svg>
-    );
-}
-
-function UploadIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="17 8 12 3 7 8" />
-            <line x1="12" x2="12" y1="3" y2="15" />
-        </svg>
-    );
-}
-
-function TagIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
-            <path d="M7 7h.01" />
-        </svg>
-    );
-}
-
-function MessageIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M7 10h10M7 14h6" />
-            <path d="M21 12a8 8 0 0 1-8 8H4l-1 1v-9a8 8 0 1 1 18 0Z" />
-        </svg>
-    );
-}
-
-function StorefrontIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 9h18l-1.5 11a2 2 0 0 1-2 2H6.5a2 2 0 0 1-2-2L3 9Z" />
-            <path d="M5 9V6a7 7 0 1 1 14 0v3" />
-            <path d="M9 14h6" />
-        </svg>
-    );
-}
-
-function SwitchIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 7h14" />
-            <path d="m13 3 4 4-4 4" />
-            <path d="M21 17H7" />
-            <path d="m11 13-4 4 4 4" />
-        </svg>
-    );
-}
-
-function ChevronRightIcon() {
-    return (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m9 18 6-6-6-6" />
-        </svg>
-    );
-}
-
-function ChevronLeftIcon() {
-    return (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m15 18-6-6 6-6" />
-        </svg>
-    );
 }

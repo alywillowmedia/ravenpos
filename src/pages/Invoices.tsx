@@ -295,6 +295,7 @@ export function Invoices() {
             <Header title="Invoices" />
 
             <Table
+                ariaLabel="Invoices"
                 data={invoices}
                 columns={columns}
                 keyExtractor={(invoice) => invoice.id}

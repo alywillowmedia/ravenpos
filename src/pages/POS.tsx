@@ -208,6 +208,7 @@ export function POS() {
     const [showSmartSearch, setShowSmartSearch] = useState(false);
     const [showSaveCartModal, setShowSaveCartModal] = useState(false);
     const [showSavedCartsModal, setShowSavedCartsModal] = useState(false);
+    const [showClearSaleConfirm, setShowClearSaleConfirm] = useState(false);
     const [savedCartName, setSavedCartName] = useState('');
     const [savedCarts, setSavedCarts] = useState<PosSavedCart[]>([]);
     const [isSavingCart, setIsSavingCart] = useState(false);
@@ -1952,25 +1953,38 @@ export function POS() {
                 </Card>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0 overflow-hidden px-1 pt-1">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 xl:gap-6 flex-1 min-h-0 overflow-y-auto lg:overflow-hidden px-1 pt-1">
                 {/* Left: Scanner + Cart */}
                 <div className="lg:col-span-2 flex flex-col gap-4">
                     {/* Scanner Input */}
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                        <form onSubmit={handleScan} className="flex-1">
-                            <Input
-                                ref={scannerRef}
-                                value={scanInput}
-                                onChange={(e) => setScanInput(e.target.value)}
-                                placeholder="Scan barcode or enter SKU..."
-                                inputSize="lg"
-                                leftIcon={<BarcodeIcon />}
-                                error={scanError || undefined}
-                                autoComplete="off"
-                            />
+                        <form onSubmit={handleScan} className="flex flex-1 items-start gap-2" aria-label="Scan or enter an item">
+                            <div className="min-w-0 flex-1">
+                                <Input
+                                    ref={scannerRef}
+                                    value={scanInput}
+                                    onChange={(e) => setScanInput(e.target.value)}
+                                    placeholder="Scan barcode or enter SKU..."
+                                    inputSize="lg"
+                                    leftIcon={<BarcodeIcon />}
+                                    error={scanError || undefined}
+                                    autoComplete="off"
+                                    aria-label="Barcode or SKU"
+                                />
+                            </div>
+                            <Button type="submit" size="lg" className="shrink-0">
+                                Add
+                            </Button>
                         </form>
-                        <div className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
-                            <span className="hidden sm:inline">or</span>
+                        <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--color-muted)]">
+                            <Button
+                                variant="secondary"
+                                onClick={() => setShowSmartSearch(true)}
+                                className="shrink-0"
+                            >
+                                <SearchIcon />
+                                Search
+                            </Button>
                             <Button
                                 variant="secondary"
                                 onClick={openCustomItemModal}
@@ -2035,7 +2049,8 @@ export function POS() {
                                             <div className="flex items-center gap-2">
                                                 <button
                                                     onClick={() => updateQuantity(index, item.quantity - 1)}
-                                                    className="flex items-center justify-center w-8 h-8 rounded-md border border-[var(--color-border)] text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)] transition-colors text-lg leading-none"
+                                                    className="flex items-center justify-center w-11 h-11 rounded-lg border border-[var(--color-input)] text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)] transition-colors text-xl leading-none"
+                                                    aria-label={`Decrease quantity of ${item.item.name}`}
                                                 >
                                                     −
                                                 </button>
@@ -2044,7 +2059,8 @@ export function POS() {
                                                 </span>
                                                 <button
                                                     onClick={() => updateQuantity(index, item.quantity + 1)}
-                                                    className="flex items-center justify-center w-8 h-8 rounded-md border border-[var(--color-border)] text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)] transition-colors text-lg leading-none"
+                                                    className="flex items-center justify-center w-11 h-11 rounded-lg border border-[var(--color-input)] text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)] transition-colors text-xl leading-none"
+                                                    aria-label={`Increase quantity of ${item.item.name}`}
                                                 >
                                                     +
                                                 </button>
@@ -2073,17 +2089,19 @@ export function POS() {
                                             {/* Item Discount Button */}
                                             <button
                                                 onClick={() => item.discount ? handleRemoveItemDiscount(index) : handleOpenItemDiscount(index)}
-                                                className={`p-2 transition-colors rounded-lg ${item.discount
+                                                className={`flex h-11 w-11 shrink-0 items-center justify-center transition-colors rounded-lg ${item.discount
                                                     ? 'text-[var(--color-success)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]'
                                                     : 'text-[var(--color-muted)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10'
                                                     }`}
                                                 title={item.discount ? 'Remove discount' : 'Add discount'}
+                                                aria-label={`${item.discount ? 'Remove' : 'Add'} discount for ${item.item.name}`}
                                             >
                                                 <DiscountIcon />
                                             </button>
                                             <button
                                                 onClick={() => removeItem(index)}
-                                                className="p-2 text-[var(--color-muted)] hover:text-[var(--color-danger)] transition-colors"
+                                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--color-muted)] hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger)] transition-colors"
+                                                aria-label={`Remove ${item.item.name} from sale`}
                                             >
                                                 <XIcon />
                                             </button>
@@ -2108,7 +2126,7 @@ export function POS() {
                                 <div className="relative" ref={optionsMenuRef}>
                                     <button
                                         onClick={() => setShowOptionsMenu((v) => !v)}
-                                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)] transition-colors"
+                                        className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)] transition-colors"
                                         title="Sale options"
                                         aria-haspopup="menu"
                                         aria-expanded={showOptionsMenu}
@@ -2148,7 +2166,7 @@ export function POS() {
                                                         </span>
                                                     </button>
                                                     <div className="my-1.5 border-t border-[var(--color-border)]" />
-                                                    <OptionsMenuItem icon={<XIcon />} label="Clear sale" destructive onClick={() => { setShowOptionsMenu(false); handleNewSale(); }} />
+                                                    <OptionsMenuItem icon={<XIcon />} label="Clear sale" destructive onClick={() => { setShowOptionsMenu(false); setShowClearSaleConfirm(true); }} />
                                                 </>
                                             )}
                                         </div>
@@ -2513,6 +2531,7 @@ export function POS() {
                             <div className="flex gap-2 mb-4">
                                 <button
                                     onClick={() => setPaymentMethod('cash')}
+                                    aria-pressed={paymentMethod === 'cash'}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'cash'
                                         ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
@@ -2523,6 +2542,7 @@ export function POS() {
                                 </button>
                                 <button
                                     onClick={() => setPaymentMethod('check')}
+                                    aria-pressed={paymentMethod === 'check'}
                                     disabled={isOfflineMode}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'check'
                                         ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
@@ -2534,6 +2554,7 @@ export function POS() {
                                 </button>
                                 <button
                                     onClick={() => setPaymentMethod('card')}
+                                    aria-pressed={paymentMethod === 'card'}
                                     disabled={isOfflineMode}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'card'
                                         ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
@@ -2545,6 +2566,7 @@ export function POS() {
                                 </button>
                                 <button
                                     onClick={() => setPaymentMethod('split')}
+                                    aria-pressed={paymentMethod === 'split'}
                                     disabled={isOfflineMode}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'split'
                                         ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
@@ -2904,6 +2926,30 @@ export function POS() {
                 </div>
             </div>
             </div>
+
+            <Modal
+                isOpen={showClearSaleConfirm}
+                onClose={() => setShowClearSaleConfirm(false)}
+                title="Clear the current sale?"
+                description="This removes every item, customer, discount, gift card, and tender entry from the register."
+                size="sm"
+                closeOnOverlayClick={false}
+            >
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <Button variant="secondary" onClick={() => setShowClearSaleConfirm(false)}>
+                        Keep sale
+                    </Button>
+                    <Button
+                        variant="danger"
+                        onClick={() => {
+                            setShowClearSaleConfirm(false);
+                            handleNewSale();
+                        }}
+                    >
+                        Clear sale
+                    </Button>
+                </div>
+            </Modal>
 
             {/* Save Cart Modal */}
             <Modal

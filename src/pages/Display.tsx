@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { formatCurrency } from '../lib/utils';
-import { ShoppingCartIcon, TagIcon, Store, CheckCircle, Receipt, CreditCard, Wallet } from 'lucide-react';
+import { ShoppingCartIcon, TagIcon, Store, CheckCircle, Receipt, CreditCard, Wallet, Radio } from 'lucide-react';
 import type { CartItem, Discount, Sale, PaymentMethod } from '../types';
 import ravenposLogo from '../../assets/ravenpos_logo.svg';
 import { supabase } from '../lib/supabase';
@@ -120,14 +120,14 @@ export function Display() {
 
     if (completedSale) {
         return (
-            <div className="h-screen w-screen flex flex-col items-center justify-center bg-[var(--color-background)] text-[var(--color-foreground)] p-8 animate-fadeIn">
-                <div className="bg-[var(--color-card)] shadow-xl p-6 rounded-full mb-6">
-                    <CheckCircle size={78} className="text-[var(--color-success)]" />
+            <main className="min-h-dvh w-full flex flex-col items-center justify-center bg-[var(--color-background)] text-[var(--color-foreground)] p-5 sm:p-8 animate-fadeIn">
+                <div className="bg-[var(--color-success-bg)] border border-[var(--color-success)]/20 shadow-sm p-5 rounded-full mb-5" aria-hidden="true">
+                    <CheckCircle size={64} className="text-[var(--color-success)]" />
                 </div>
-                <h1 className="font-display text-6xl mb-3">Payment approved</h1>
-                <p className="text-2xl text-[var(--color-muted)] mb-8">Thank you for shopping with us</p>
+                <h1 className="font-display text-4xl sm:text-5xl md:text-6xl text-center mb-2">Payment approved</h1>
+                <p className="text-lg sm:text-xl text-[var(--color-muted)] text-center mb-7">Thank you for shopping with us.</p>
 
-                <div className="bg-[var(--color-card)] p-8 rounded-2xl shadow-lg min-w-[440px] text-[var(--color-foreground)] border border-[var(--color-border)]">
+                <div className="w-full max-w-lg bg-[var(--color-card)] p-6 sm:p-8 rounded-2xl shadow-lg text-[var(--color-foreground)] border border-[var(--color-border)]">
                     <div className="flex justify-between items-baseline mb-4">
                         <span className="eyebrow">Total paid</span>
                         <span className="font-display tabular-nums text-3xl">{formatCurrency(completedSale.total)}</span>
@@ -152,7 +152,7 @@ export function Display() {
                         <span>Receipt available</span>
                     </div>
                 </div>
-            </div>
+            </main>
         );
     }
 
@@ -167,8 +167,8 @@ export function Display() {
     const totalUnits = cart.reduce((sum, item) => sum + item.quantity, 0);
 
     return (
-        <div className="h-screen w-screen bg-[var(--color-background)] flex flex-col overflow-hidden">
-            <div className="px-5 py-4 md:px-6 md:py-5 border-b border-[var(--color-border)] bg-[var(--color-surface-elevated)] backdrop-blur-md shadow-sm">
+        <main className="h-dvh w-full bg-[var(--color-background)] flex flex-col overflow-hidden text-[var(--color-foreground)]">
+            <header className="px-4 py-3 md:px-6 md:py-4 border-b border-[var(--color-border)] bg-[var(--color-surface-elevated)] shadow-sm">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-[var(--color-primary)]/10 flex items-center justify-center">
@@ -177,22 +177,24 @@ export function Display() {
                         <div>
                             <h1 className="font-display text-2xl md:text-3xl text-[var(--color-foreground)]">Your order</h1>
                             <p className="text-sm text-[var(--color-muted)]">
-                                {cart.length} line item{cart.length !== 1 ? 's' : ''} • {totalUnits} unit{totalUnits !== 1 ? 's' : ''}
+                                {cart.length} line item{cart.length !== 1 ? 's' : ''} · {totalUnits} unit{totalUnits !== 1 ? 's' : ''}
                             </p>
                         </div>
                     </div>
                     <div className="text-right">
-                        <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Current Time</p>
+                        <p className="hidden sm:flex items-center justify-end gap-1.5 text-xs font-semibold text-[var(--color-success)]">
+                            <Radio size={13} aria-hidden="true" /> Order updates live
+                        </p>
                         <p className="text-base md:text-lg font-semibold">{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                     </div>
                 </div>
-            </div>
+            </header>
 
-            <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_360px] overflow-hidden">
-                <div className="min-h-0 p-4 md:p-5">
+            <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,390px)] overflow-hidden">
+                <section className="min-h-0 p-3 md:p-5" aria-labelledby="display-items-heading">
                     <div className="h-full overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-sm">
                         <div className="sticky top-0 z-10 px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] backdrop-blur-sm">
-                            <p className="eyebrow">Scanned items</p>
+                            <p id="display-items-heading" className="eyebrow">Scanned items</p>
                         </div>
                         <div className="divide-y divide-[var(--color-border)]">
                     {cart.map((item, index) => (
@@ -260,14 +262,14 @@ export function Display() {
                     ))}
                         </div>
                     </div>
-                </div>
+                </section>
 
-                <div className="min-h-0 bg-[var(--color-surface-elevated)] backdrop-blur-md border-t lg:border-t-0 lg:border-l border-[var(--color-border)] flex flex-col shadow-xl">
-                    <div className="flex-1 overflow-y-auto p-5 md:p-6 space-y-5">
+                <aside className="min-h-0 bg-[var(--color-surface-elevated)] border-t lg:border-t-0 lg:border-l border-[var(--color-border)] flex flex-col shadow-xl" aria-labelledby="display-summary-heading">
+                    <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-5">
                         {shouldShowCustomerInfo && (
                             <CustomerIntakeBanner intake={activeCustomerIntake} customer={customer} />
                         )}
-                        <h2 className="font-display text-2xl md:text-3xl text-[var(--color-foreground)]">Order summary</h2>
+                        <h2 id="display-summary-heading" className="font-display text-2xl md:text-3xl text-[var(--color-foreground)]">Order summary</h2>
 
                         <div className="space-y-2.5 text-base md:text-lg">
                             <Row label="Subtotal" value={formatCurrency(subtotal)} />
@@ -315,15 +317,15 @@ export function Display() {
                         )}
                     </div>
 
-                    <div className="px-6 py-7 md:px-7 md:py-8 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-primary-hover)] text-[var(--color-primary-foreground)] mt-auto">
+                    <div className="px-5 py-5 md:px-7 md:py-7 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-primary-hover)] text-[var(--color-primary-foreground)] mt-auto" aria-live="polite">
                         <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.16em] opacity-70 mb-1.5">
                             {paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Total Due'}
                         </p>
-                        <p className="font-display tabular-nums text-6xl md:text-7xl leading-none">{formatCurrency(amountDue)}</p>
+                        <p className="font-display tabular-nums text-4xl sm:text-5xl xl:text-6xl leading-none break-words">{formatCurrency(amountDue)}</p>
                     </div>
-                </div>
+                </aside>
             </div>
-        </div>
+        </main>
     );
 }
 
@@ -366,12 +368,12 @@ function CustomerIntakeState({ imageUrl, intake, customer }: { imageUrl: string 
     const imageSrc = imageUrl || ravenposLogo;
 
     return (
-        <div className="h-screen w-screen flex flex-col items-center justify-center bg-[var(--color-background)] text-[var(--color-foreground)] p-8">
-            <img src={imageSrc} alt="RavenPOS" className="w-56 max-w-[70vw] h-auto mb-8" />
+        <main className="min-h-dvh w-full flex flex-col items-center justify-center bg-[var(--color-background)] text-[var(--color-foreground)] p-6 sm:p-8">
+            <DisplayBrandImage src={imageSrc} />
             <div className="w-full max-w-xl">
                 <CustomerIntakeBanner intake={intake} customer={customer} />
             </div>
-        </div>
+        </main>
     );
 }
 
@@ -388,10 +390,22 @@ function WelcomeState({ imageUrl }: { imageUrl: string | null }) {
     const imageSrc = imageUrl || ravenposLogo;
 
     return (
-        <div className="h-screen w-screen flex flex-col items-center justify-center bg-[var(--color-background)] text-[var(--color-foreground)] p-8">
-            <img src={imageSrc} alt="RavenPOS" className="w-72 max-w-[80vw] h-auto mb-8" />
+        <main className="min-h-dvh w-full flex flex-col items-center justify-center bg-[var(--color-background)] text-[var(--color-foreground)] p-6 sm:p-8">
+            <DisplayBrandImage src={imageSrc} />
             <p className="font-display text-3xl text-[var(--color-foreground)] text-center">Welcome</p>
             <p className="mt-2 text-lg text-[var(--color-muted)] text-center">We're ready when you are.</p>
+            <p className="mt-8 inline-flex items-center gap-2 text-sm font-medium text-[var(--color-muted)]" role="status">
+                <span className="h-2 w-2 rounded-full bg-[var(--color-success)]" aria-hidden="true" />
+                Waiting for the register
+            </p>
+        </main>
+    );
+}
+
+function DisplayBrandImage({ src }: { src: string }) {
+    return (
+        <div className="w-full max-w-sm rounded-2xl border border-[var(--color-border)] bg-white p-6 sm:p-8 shadow-sm mb-8">
+            <img src={src} alt="RavenPOS" className="w-full max-h-44 object-contain" />
         </div>
     );
 }

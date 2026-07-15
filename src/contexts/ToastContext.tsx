@@ -76,22 +76,22 @@ function ToastViewport({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: 
     if (typeof document === 'undefined') return null;
 
     return createPortal(
-        <div className="pointer-events-none fixed bottom-4 right-4 z-[120] flex w-full max-w-sm flex-col gap-2">
+        <div className="pointer-events-none fixed bottom-4 left-4 right-4 z-[120] flex max-w-sm flex-col gap-2 sm:left-auto sm:w-full" aria-label="Notifications">
             {toasts.map((toast) => {
                 const toneStyles = getToneStyles(toast.variant);
                 return (
                     <div
                         key={toast.id}
                         className={cn(
-                            'pointer-events-auto animate-fadeInUp rounded-xl border p-4 shadow-lg backdrop-blur',
-                            'bg-white/96'
+                            'pointer-events-auto animate-fadeInUp rounded-lg border p-4 shadow-lg',
+                            'bg-[var(--color-surface-elevated)]'
                         )}
                         style={{
                             borderColor: toneStyles.border,
                             boxShadow: `0 10px 30px -16px ${toneStyles.shadow}`,
                         }}
-                        role="status"
-                        aria-live="polite"
+                        role={toast.variant === 'error' ? 'alert' : 'status'}
+                        aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
                     >
                         <div className="flex items-start gap-3">
                             <span

@@ -254,6 +254,7 @@ export function VendorInventory() {
                             </div>
                         ) : (
                             <Table
+                                ariaLabel="Vendor inventory"
                                 data={items}
                                 columns={columns}
                                 keyExtractor={(item) => item.id}

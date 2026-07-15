@@ -57,4 +57,7 @@ consignor_payout_diffs.csv
 full ALY activity.csv
 Supabase Snippet ALY Activity Export (Consignor Records).csv
 RavensRootBreakdown/items_rows.sql
-.gitignore
+ALYWILLOW_FULL_ITEMLIST.csv
+
+ALYWILLOW_UPDATED_FORMULAS.csv
+supabase/migrations_manual/alywillow_formula_copy_update.sql

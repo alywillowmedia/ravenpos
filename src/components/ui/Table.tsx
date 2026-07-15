@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 import { Input } from './Input';
 
@@ -33,6 +33,8 @@ export interface TableProps<T> {
     virtualRowHeight?: number;
     virtualOverscan?: number;
     virtualViewportHeight?: number;
+    ariaLabel?: string;
+    stickyHeader?: boolean;
 }
 
 interface TableRowMeta {
@@ -66,9 +68,16 @@ const TableBodyRow = memo(function TableBodyRow({
             key={rowKey}
             style={rowHeight ? { height: `${rowHeight}px` } : undefined}
             onClick={(event) => onRowClick?.(item, event, rowMeta)}
+            onKeyDown={(event: KeyboardEvent<HTMLTableRowElement>) => {
+                if (!onRowClick || (event.key !== 'Enter' && event.key !== ' ')) return;
+                event.preventDefault();
+                onRowClick(item, event as unknown as MouseEvent<HTMLTableRowElement>, rowMeta);
+            }}
+            tabIndex={onRowClick ? 0 : undefined}
+            aria-label={onRowClick ? 'Open row details' : undefined}
             className={cn(
                 'bg-[var(--color-card)]',
-                onRowClick && 'cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors'
+                onRowClick && 'cursor-pointer hover:bg-[var(--color-surface-hover)] focus-visible:bg-[var(--color-surface-hover)] transition-colors'
             )}
         >
             {columns.map((col) => (
@@ -105,6 +114,8 @@ export function Table<T extends Record<string, any>>({
     virtualRowHeight = 64,
     virtualOverscan = 8,
     virtualViewportHeight = 680,
+    ariaLabel = 'Data table',
+    stickyHeader = true,
 }: TableProps<T>) {
     const [search, setSearch] = useState('');
     const [sortKey, setSortKey] = useState<string | null>(null);
@@ -232,6 +243,7 @@ export function Table<T extends Record<string, any>>({
                 <div className="p-4 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
                     <Input
                         type="search"
+                        aria-label={searchPlaceholder}
                         placeholder={searchPlaceholder}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
@@ -246,27 +258,34 @@ export function Table<T extends Record<string, any>>({
                 style={shouldVirtualize ? { maxHeight: `${virtualViewportHeight}px` } : undefined}
                 onScroll={shouldVirtualize ? handleVirtualScroll : undefined}
             >
-                <table className="w-full">
-                    <thead>
+                <table className="w-full" aria-label={ariaLabel}>
+                    <thead className={cn(stickyHeader && 'sticky top-0 z-10')}>
                         <tr className="bg-[var(--color-surface)] border-b border-[var(--color-border)]">
                             {columns.map((col) => (
                                 <th
                                     key={col.key}
                                     style={{ width: col.width, minWidth: col.minWidth }}
+                                    scope="col"
+                                    aria-sort={col.sortable && sortKey === col.key
+                                        ? (sortDirection === 'asc' ? 'ascending' : 'descending')
+                                        : undefined}
                                     className={cn(
-                                        'px-4 py-3 text-left text-xs font-medium text-[var(--color-muted)] uppercase tracking-wider',
-                                        col.sortable && 'cursor-pointer hover:text-[var(--color-foreground)] select-none'
+                                        'px-4 py-3 text-left text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wider bg-[var(--color-surface)]'
                                     )}
-                                    onClick={() => col.sortable && handleSort(col.key)}
                                 >
-                                    <div className="flex items-center gap-1">
-                                        {col.header}
-                                        {col.sortable && sortKey === col.key && (
-                                            <span className="text-[var(--color-primary)]">
-                                                {sortDirection === 'asc' ? '↑' : '↓'}
+                                    {col.sortable ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSort(col.key)}
+                                            className="-mx-2 inline-flex min-h-9 items-center gap-1 rounded-md px-2 text-left hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]"
+                                            aria-label={`Sort by ${col.header}${sortKey === col.key ? `, currently ${sortDirection === 'asc' ? 'ascending' : 'descending'}` : ''}`}
+                                        >
+                                            {col.header}
+                                            <span aria-hidden="true" className={sortKey === col.key ? 'text-[var(--color-primary)]' : 'text-[var(--color-muted-foreground)]'}>
+                                                {sortKey === col.key ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}
                                             </span>
-                                        )}
-                                    </div>
+                                        </button>
+                                    ) : col.header}
                                 </th>
                             ))}
                         </tr>
@@ -297,12 +316,9 @@ export function Table<T extends Record<string, any>>({
                                         <TableBodyRow
                                             key={keyExtractor(item)}
                                             rowKey={keyExtractor(item)}
-                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                             columns={columns as unknown as Column<Record<string, unknown>>[]}
-                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                             item={item as unknown as Record<string, unknown>}
                                             rowHeight={shouldVirtualize ? virtualRowHeight : undefined}
-                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                             onRowClick={onRowClick as unknown as ((item: Record<string, unknown>, event: MouseEvent<HTMLTableRowElement>, meta: TableRowMeta) => void) | undefined}
                                             rowMeta={{
                                                 visibleIndex: pageStartIndex + virtualIndex,
@@ -330,6 +346,7 @@ export function Table<T extends Record<string, any>>({
                         <label className="text-xs text-[var(--color-muted)] flex items-center gap-2">
                             Rows
                             <select
+                                aria-label="Rows per page"
                                 value={pageSize}
                                 onChange={(e) => setPageSize(Number(e.target.value))}
                                 className="px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-xs"
@@ -344,6 +361,7 @@ export function Table<T extends Record<string, any>>({
                         <div className="flex items-center gap-2">
                             <button
                                 type="button"
+                                aria-label="Previous page"
                                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                                 disabled={currentPage === 1}
                                 className="px-3 py-1.5 text-xs rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] disabled:opacity-50 disabled:cursor-not-allowed"
@@ -355,6 +373,7 @@ export function Table<T extends Record<string, any>>({
                             </span>
                             <button
                                 type="button"
+                                aria-label="Next page"
                                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                                 disabled={currentPage === totalPages}
                                 className="px-3 py-1.5 text-xs rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] disabled:opacity-50 disabled:cursor-not-allowed"

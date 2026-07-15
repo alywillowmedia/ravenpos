@@ -323,6 +323,7 @@ export function VendorSales() {
                 </Card>
             ) : (
                 <Table
+                    ariaLabel="Vendor sales"
                     data={filteredSales}
                     columns={columns}
                     keyExtractor={(item) => item.id}

@@ -496,8 +496,9 @@ export function Inventory() {
                                 e.stopPropagation();
                                 openEditItemModal(item);
                             }}
-                            className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors"
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)] transition-colors"
                             title="Edit"
+                            aria-label={`Edit ${item.name}`}
                         >
                             <EditIcon />
                         </button>
@@ -506,8 +507,9 @@ export function Inventory() {
                                 e.stopPropagation();
                                 setDeleteTarget(item);
                             }}
-                            className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-danger)] transition-colors"
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-muted)] hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger)] transition-colors"
                             title="Delete"
+                            aria-label={`Delete ${item.name}`}
                         >
                             <TrashIcon />
                         </button>
@@ -574,6 +576,7 @@ export function Inventory() {
                         <div className="min-w-[240px] flex-1 xl:max-w-sm">
                             <Input
                                 type="search"
+                                aria-label="Search inventory products"
                                 placeholder="Search products..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -583,6 +586,7 @@ export function Inventory() {
                         </div>
                         <div className="w-[190px]">
                             <Select
+                                aria-label="Filter inventory by consignor"
                                 options={consignorOptions}
                                 value={filterConsignor}
                                 onChange={(e) => setFilterConsignor(e.target.value)}
@@ -592,6 +596,7 @@ export function Inventory() {
                         </div>
                         <div className="w-[160px]">
                             <Select
+                                aria-label="Filter inventory by category"
                                 options={categoryOptions}
                                 value={filterCategory}
                                 onChange={(e) => setFilterCategory(e.target.value)}
@@ -684,6 +689,7 @@ export function Inventory() {
                         keyExtractor={(item) => item.id}
                         isLoading={isLoading}
                         emptyMessage="No products match your filters"
+                        ariaLabel="Inventory products"
                     />
                 )}
 

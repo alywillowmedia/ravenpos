@@ -1226,6 +1226,7 @@ export function Labels() {
                     </div>
 
                     <Table
+                        ariaLabel="Products available for labels"
                         data={filteredAndSortedItems}
                         columns={columns}
                         keyExtractor={(item) => item.id}

@@ -35,25 +35,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <div className="min-h-screen bg-[var(--color-surface)]">
             {/* Desktop Sidebar - hidden on mobile */}
             {!isMobile && <Sidebar />}
-            {!isMobile && (
-                <div
-                    aria-hidden="true"
-                    className={cn(
-                        'pointer-events-none fixed top-14 z-[35] h-6 w-6 rounded-tl-3xl bg-[var(--color-surface)]',
-                        isSidebarCollapsed ? 'left-16' : 'left-64'
-                    )}
-                />
-            )}
-
             <main className={cn(
-                isMobile ? 'mobile-content-padding' : (isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'),
-                'bg-[var(--color-surface-elevated)] transition-all duration-300 ease-in-out'
+                isMobile ? 'mobile-content-padding' : (isSidebarCollapsed ? 'lg:pl-[72px]' : 'lg:pl-64'),
+                'min-h-screen bg-[var(--color-surface)] transition-[padding] duration-200 ease-out'
             )}>
                 <PortalTopBar messaging={messaging} portalBasePath="/admin" />
                 <div
                     className={cn(
-                        'bg-[var(--color-surface)] px-4 py-6 sm:px-6',
-                        !isMobile && 'lg:rounded-tl-3xl lg:px-8'
+                        'bg-[var(--color-surface)] px-4 py-5 sm:px-6 lg:px-7'
                     )}
                 >
                     {children || <Outlet key={location.pathname} context={{ messaging }} />}

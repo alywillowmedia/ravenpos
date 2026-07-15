@@ -2,6 +2,7 @@ import {
     type ClipboardEvent,
     forwardRef,
     useEffect,
+    useId,
     useRef,
     useState,
     type InputHTMLAttributes,
@@ -37,7 +38,13 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         },
         ref
     ) => {
-        const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
+        const generatedId = useId();
+        const inputId = id || `field-${generatedId.replace(/:/g, '')}`;
+        const errorId = `${inputId}-error`;
+        const hintId = `${inputId}-hint`;
+        const describedBy = [props['aria-describedby'], error ? errorId : hint ? hintId : null]
+            .filter(Boolean)
+            .join(' ') || undefined;
         const [showMaxLengthTooltip, setShowMaxLengthTooltip] = useState(false);
         const [flashMaxLengthWarning, setFlashMaxLengthWarning] = useState(false);
         const hideTooltipTimeoutRef = useRef<number | null>(null);
@@ -119,7 +126,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         const inputStyles = `
       w-full rounded-lg
       bg-[var(--color-surface-elevated)]
-      border border-[var(--color-border)]
+      border border-[var(--color-input)]
       text-[var(--color-foreground)]
       placeholder:text-[var(--color-muted-foreground)]
       transition-all duration-150
@@ -151,8 +158,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
                         id={inputId}
                         type={type}
                         maxLength={maxLength}
+                        {...props}
                         onBeforeInput={handleBeforeInput}
                         onPaste={handlePaste}
+                        aria-invalid={error ? true : props['aria-invalid']}
+                        aria-describedby={describedBy}
                         className={cn(
                             inputStyles,
                             sizes[inputSize],
@@ -161,7 +171,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
                             flashMaxLengthWarning && 'ring-2 ring-[var(--color-danger)] ring-offset-1',
                             className
                         )}
-                        {...props}
                     />
                     {showMaxLengthTooltip && maxLength && (
                         <div className="pointer-events-none absolute -top-9 right-0 rounded-md bg-[var(--color-danger)] px-2 py-1 text-xs font-medium text-white shadow-sm">
@@ -175,10 +184,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
                     )}
                 </div>
                 {error && (
-                    <p className="text-sm text-[var(--color-danger)]">{error}</p>
+                    <p id={errorId} role="alert" className="text-sm text-[var(--color-danger)]">{error}</p>
                 )}
                 {hint && !error && (
-                    <p className="text-sm text-[var(--color-muted)]">{hint}</p>
+                    <p id={hintId} className="text-sm text-[var(--color-muted)]">{hint}</p>
                 )}
             </div>
         );
@@ -197,7 +206,13 @@ export interface TextareaProps
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
     ({ className, label, error, hint, id, maxLength, onBeforeInput, onPaste, ...props }, ref) => {
-        const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
+        const generatedId = useId();
+        const inputId = id || `field-${generatedId.replace(/:/g, '')}`;
+        const errorId = `${inputId}-error`;
+        const hintId = `${inputId}-hint`;
+        const describedBy = [props['aria-describedby'], error ? errorId : hint ? hintId : null]
+            .filter(Boolean)
+            .join(' ') || undefined;
         const [showMaxLengthTooltip, setShowMaxLengthTooltip] = useState(false);
         const [flashMaxLengthWarning, setFlashMaxLengthWarning] = useState(false);
         const hideTooltipTimeoutRef = useRef<number | null>(null);
@@ -273,7 +288,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         const textareaStyles = `
       w-full rounded-lg
       bg-[var(--color-surface-elevated)]
-      border border-[var(--color-border)]
+      border border-[var(--color-input)]
       text-[var(--color-foreground)]
       placeholder:text-[var(--color-muted-foreground)]
       transition-all duration-150
@@ -299,14 +314,16 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
                         ref={ref}
                         id={inputId}
                         maxLength={maxLength}
+                        {...props}
                         onBeforeInput={handleBeforeInput}
                         onPaste={handlePaste}
+                        aria-invalid={error ? true : props['aria-invalid']}
+                        aria-describedby={describedBy}
                         className={cn(
                             textareaStyles,
                             flashMaxLengthWarning && 'ring-2 ring-[var(--color-danger)] ring-offset-1',
                             className
                         )}
-                        {...props}
                     />
                     {showMaxLengthTooltip && maxLength && (
                         <div className="pointer-events-none absolute -top-9 right-0 rounded-md bg-[var(--color-danger)] px-2 py-1 text-xs font-medium text-white shadow-sm">
@@ -315,10 +332,10 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
                     )}
                 </div>
                 {error && (
-                    <p className="text-sm text-[var(--color-danger)]">{error}</p>
+                    <p id={errorId} role="alert" className="text-sm text-[var(--color-danger)]">{error}</p>
                 )}
                 {hint && !error && (
-                    <p className="text-sm text-[var(--color-muted)]">{hint}</p>
+                    <p id={hintId} className="text-sm text-[var(--color-muted)]">{hint}</p>
                 )}
             </div>
         );

@@ -1,4 +1,4 @@
-import { forwardRef, type SelectHTMLAttributes } from 'react';
+import { forwardRef, useId, type SelectHTMLAttributes } from 'react';
 import { cn } from '../../lib/utils';
 
 export interface SelectOption {
@@ -31,18 +31,24 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
         },
         ref
     ) => {
-        const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
+        const generatedId = useId();
+        const inputId = id || `field-${generatedId.replace(/:/g, '')}`;
+        const errorId = `${inputId}-error`;
+        const hintId = `${inputId}-hint`;
+        const describedBy = [props['aria-describedby'], error ? errorId : hint ? hintId : null]
+            .filter(Boolean)
+            .join(' ') || undefined;
 
         const sizes = {
-            sm: 'h-8 text-sm px-3',
-            md: 'h-10 text-sm px-3',
+            sm: 'h-9 min-h-[36px] text-sm px-3',
+            md: 'h-11 min-h-[44px] text-sm px-3',
             lg: 'h-12 text-base px-4',
         };
 
         const selectStyles = `
       w-full rounded-lg
       bg-[var(--color-surface-elevated)]
-      border border-[var(--color-border)]
+      border border-[var(--color-input)]
       text-[var(--color-foreground)]
       transition-all duration-150
       focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent
@@ -67,8 +73,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
                     <select
                         ref={ref}
                         id={inputId}
-                        className={cn(selectStyles, sizes[selectSize], className)}
                         {...props}
+                        aria-invalid={error ? true : props['aria-invalid']}
+                        aria-describedby={describedBy}
+                        className={cn(selectStyles, sizes[selectSize], className)}
                     >
                         {placeholder && (
                             <option value="" disabled>
@@ -90,10 +98,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
                     </div>
                 </div>
                 {error && (
-                    <p className="text-sm text-[var(--color-danger)]">{error}</p>
+                    <p id={errorId} role="alert" className="text-sm text-[var(--color-danger)]">{error}</p>
                 )}
                 {hint && !error && (
-                    <p className="text-sm text-[var(--color-muted)]">{hint}</p>
+                    <p id={hintId} className="text-sm text-[var(--color-muted)]">{hint}</p>
                 )}
             </div>
         );

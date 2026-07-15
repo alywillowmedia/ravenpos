@@ -6,6 +6,7 @@ import { useEmployee } from '../../contexts/EmployeeContext';
 import { formatTime } from '../../lib/timeCalculations';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
+import { CheckCircle2, Clock3 } from 'lucide-react';
 
 export function ClockStatusWidget() {
     const { employee, clockStatus, clockIn, clockOut } = useEmployee();
@@ -40,38 +41,17 @@ export function ClockStatusWidget() {
 
     return (
         <>
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                padding: '8px 16px',
-                backgroundColor: clockStatus.isClockedIn ? 'rgba(34, 197, 94, 0.1)' : 'rgba(156, 163, 175, 0.1)',
-                borderRadius: '8px',
-                border: `1px solid ${clockStatus.isClockedIn ? 'rgba(34, 197, 94, 0.3)' : 'rgba(156, 163, 175, 0.3)'}`,
-            }}>
-                {/* Status indicator */}
-                <div style={{
-                    width: '10px',
-                    height: '10px',
-                    borderRadius: '50%',
-                    backgroundColor: clockStatus.isClockedIn ? '#22c55e' : '#9ca3af',
-                }} />
+            <div className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${clockStatus.isClockedIn ? 'border-[var(--color-success)]/25 bg-[var(--color-success-bg)]' : 'border-[var(--color-border)] bg-[var(--color-surface)]'}`} role="status">
+                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${clockStatus.isClockedIn ? 'bg-[var(--color-success)]' : 'bg-[var(--color-muted-foreground)]'}`} aria-hidden="true" />
 
-                {/* Status text */}
-                <div style={{ flex: 1 }}>
+                <div className="min-w-0 flex-1">
                     {clockStatus.isClockedIn ? (
                         <div>
-                            <div style={{ fontSize: '14px', fontWeight: 600, color: '#22c55e' }}>
-                                Clocked In
-                            </div>
-                            <div style={{ fontSize: '12px', color: 'var(--color-gray-400)' }}>
-                                Started: {formatTime(clockStatus.startTime!)} • {clockStatus.duration}
-                            </div>
+                            <p className="text-sm font-semibold text-[var(--color-success)]">Clocked in</p>
+                            <p className="truncate text-xs text-[var(--color-muted)]">Started {formatTime(clockStatus.startTime!)} · {clockStatus.duration}</p>
                         </div>
                     ) : (
-                        <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-gray-400)' }}>
-                            Not Clocked In
-                        </div>
+                        <p className="text-sm font-medium text-[var(--color-muted)]">Not clocked in</p>
                     )}
                 </div>
 
@@ -82,8 +62,9 @@ export function ClockStatusWidget() {
                         size="sm"
                         onClick={() => setShowConfirm(true)}
                         disabled={isProcessing}
+                        isLoading={isProcessing}
                     >
-                        {isProcessing ? 'Processing...' : 'Clock Out'}
+                        Clock out
                     </Button>
                 ) : (
                     <Button
@@ -91,8 +72,9 @@ export function ClockStatusWidget() {
                         size="sm"
                         onClick={handleClockIn}
                         disabled={isProcessing}
+                        isLoading={isProcessing}
                     >
-                        {isProcessing ? 'Processing...' : 'Clock In'}
+                        Clock in
                     </Button>
                 )}
             </div>
@@ -101,34 +83,29 @@ export function ClockStatusWidget() {
             <Modal
                 isOpen={showConfirm}
                 onClose={() => setShowConfirm(false)}
-                title="Clock Out"
+                title="Clock out?"
+                description="This closes the employee's current time entry."
+                size="sm"
             >
-                <div style={{ padding: '16px' }}>
-                    <p style={{ marginBottom: '16px', color: 'var(--color-muted)' }}>
+                <div>
+                    <p className="mb-4 text-sm text-[var(--color-muted)]">
                         Are you sure you want to clock out?
                     </p>
                     {clockStatus.startTime && (
-                        <div style={{
-                            padding: '12px',
-                            backgroundColor: 'var(--color-surface)',
-                            borderRadius: '8px',
-                            marginBottom: '20px',
-                            border: '1px solid var(--color-border)',
-                        }}>
-                            <div style={{ fontSize: '14px', color: 'var(--color-muted)' }}>
-                                Time worked today
-                            </div>
-                            <div style={{ fontSize: '24px', fontWeight: 600, color: 'var(--color-primary)' }}>
-                                {clockStatus.duration}
+                        <div className="mb-5 flex items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                            <Clock3 className="text-[var(--color-primary)]" size={22} aria-hidden="true" />
+                            <div>
+                                <p className="text-xs text-[var(--color-muted)]">Time worked today</p>
+                                <p className="font-display text-2xl tabular-nums text-[var(--color-primary)]">{clockStatus.duration}</p>
                             </div>
                         </div>
                     )}
-                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                    <div className="flex flex-col-reverse justify-end gap-2 sm:flex-row">
                         <Button variant="secondary" onClick={() => setShowConfirm(false)}>
                             Cancel
                         </Button>
-                        <Button variant="primary" onClick={handleClockOut} disabled={isProcessing}>
-                            {isProcessing ? 'Processing...' : 'Clock Out'}
+                        <Button variant="primary" onClick={handleClockOut} disabled={isProcessing} isLoading={isProcessing}>
+                            Clock out
                         </Button>
                     </div>
                 </div>
@@ -138,14 +115,15 @@ export function ClockStatusWidget() {
             <Modal
                 isOpen={!!result}
                 onClose={() => setResult(null)}
-                title="Clocked Out"
+                title="Clocked out"
+                size="sm"
             >
-                <div style={{ padding: '16px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>✓</div>
-                    <p style={{ fontSize: '18px', marginBottom: '8px', color: 'var(--color-foreground)' }}>
+                <div className="py-4 text-center">
+                    <CheckCircle2 size={52} className="mx-auto mb-4 text-[var(--color-success)]" aria-hidden="true" />
+                    <p className="mb-1 text-base text-[var(--color-muted)]">
                         You worked
                     </p>
-                    <p style={{ fontSize: '24px', fontWeight: 600, color: 'var(--color-primary)', marginBottom: '24px' }}>
+                    <p className="mb-6 font-display text-2xl text-[var(--color-primary)]">
                         {result && formatHoursWorked(result.hoursWorked)}
                     </p>
                     <Button variant="primary" onClick={() => setResult(null)}>

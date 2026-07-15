@@ -30,7 +30,7 @@ export function Card({
     return (
         <div
             className={cn(
-                'rounded-xl',
+                'rounded-lg',
                 variants[variant],
                 paddings[padding],
                 className

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../lib/utils';
 
@@ -29,23 +29,73 @@ export function Modal({
 }: ModalProps) {
     const overlayRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
+    const onCloseRef = useRef(onClose);
+    const titleId = `${useId().replace(/:/g, '')}-title`;
+    const descriptionId = `${titleId}-description`;
 
-    // Close on escape key
     useEffect(() => {
-        const handleEscape = (e: KeyboardEvent) => {
-            if (closeOnEscape && e.key === 'Escape') onClose();
+        onCloseRef.current = onClose;
+    }, [onClose]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const appRoot = document.getElementById('root');
+        const wasInert = appRoot?.inert ?? false;
+        const previousOverflow = document.body.style.overflow;
+
+        document.body.style.overflow = 'hidden';
+        if (appRoot) appRoot.inert = true;
+
+        const getFocusable = () => {
+            if (!contentRef.current) return [];
+            return Array.from(contentRef.current.querySelectorAll<HTMLElement>(
+                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            )).filter((element) => element.getAttribute('aria-hidden') !== 'true');
         };
 
-        if (isOpen) {
-            document.addEventListener('keydown', handleEscape);
-            document.body.style.overflow = 'hidden';
-        }
+        const focusFrame = window.requestAnimationFrame(() => {
+            const focusable = getFocusable();
+            (focusable[0] || contentRef.current)?.focus();
+        });
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && closeOnEscape) {
+                event.preventDefault();
+                onCloseRef.current();
+                return;
+            }
+
+            if (event.key !== 'Tab') return;
+            const focusable = getFocusable();
+            if (focusable.length === 0) {
+                event.preventDefault();
+                contentRef.current?.focus();
+                return;
+            }
+
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
 
         return () => {
-            document.removeEventListener('keydown', handleEscape);
-            document.body.style.overflow = '';
+            window.cancelAnimationFrame(focusFrame);
+            document.removeEventListener('keydown', handleKeyDown);
+            document.body.style.overflow = previousOverflow;
+            if (appRoot) appRoot.inert = wasInert;
+            previousFocus?.focus();
         };
-    }, [closeOnEscape, isOpen, onClose]);
+    }, [closeOnEscape, isOpen]);
 
     // Close on overlay click
     const handleOverlayClick = (e: React.MouseEvent) => {
@@ -80,8 +130,10 @@ export function Modal({
                 ref={contentRef}
                 role="dialog"
                 aria-modal="true"
-                aria-labelledby={title ? 'modal-title' : undefined}
-                aria-describedby={description ? 'modal-description' : undefined}
+                aria-labelledby={title ? titleId : undefined}
+                aria-describedby={description ? descriptionId : undefined}
+                aria-label={!title ? 'Dialog' : undefined}
+                tabIndex={-1}
                 className={cn(
                     'w-full rounded-xl',
                     'bg-[var(--color-card)] shadow-xl',
@@ -97,7 +149,7 @@ export function Modal({
                             <div>
                                 {title && (
                                     <h2
-                                        id="modal-title"
+                                        id={titleId}
                                         className="text-lg font-semibold text-[var(--color-foreground)]"
                                     >
                                         {title}
@@ -105,7 +157,7 @@ export function Modal({
                                 )}
                                 {description && (
                                     <p
-                                        id="modal-description"
+                                        id={descriptionId}
                                         className="mt-1 text-sm text-[var(--color-muted)]"
                                     >
                                         {description}

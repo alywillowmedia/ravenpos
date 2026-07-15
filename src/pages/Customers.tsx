@@ -377,6 +377,7 @@ export function Customers() {
                 />
             ) : (
                 <Table
+                    ariaLabel="Customers"
                     data={customers}
                     columns={columns}
                     keyExtractor={(c) => c.id}

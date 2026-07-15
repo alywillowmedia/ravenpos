@@ -1,82 +1,80 @@
-import React, { useEffect } from 'react';
+import { useEffect, useId, useMemo, useRef } from 'react';
+import { Circle, CircleDot, LogOut, X } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { cn } from '../../lib/utils';
-import { Circle, CircleDot } from 'lucide-react';
+import { adminNavigation, employeeNavigation, isNavGroup, vendorNavigation, type PortalNavItem } from './portalNavigation';
 
 interface MobileMoreSheetProps {
     isOpen: boolean;
     onClose: () => void;
-    variant: 'admin' | 'employee';
+    variant: 'admin' | 'employee' | 'vendor';
 }
 
-interface MoreNavItem {
+interface NavigationSection {
     name: string;
-    href: string;
-    icon: () => React.ReactElement;
+    items: PortalNavItem[];
 }
-
-// Additional admin navigation items for the "More" sheet
-const adminMoreItems: MoreNavItem[] = [
-    { name: 'Dashboard', href: '/admin', icon: DashboardIcon },
-    { name: 'Consignors', href: '/admin/consignors', icon: ConsignorsIcon },
-    { name: 'Timecards', href: '/admin/employees', icon: TimecardIcon },
-    { name: 'Roles', href: '/admin/employees/roles', icon: EmployeesIcon },
-    { name: 'Schedule', href: '/admin/employees/schedule', icon: ScheduleIcon },
-    { name: 'Add Products', href: '/admin/add-items', icon: PlusIcon },
-    { name: 'Scan In/Out', href: '/admin/scan', icon: BarcodeIcon },
-    { name: 'Import CSV', href: '/admin/import', icon: UploadIcon },
-    { name: 'Labels', href: '/admin/labels', icon: TagIcon },
-    { name: 'Payouts', href: '/admin/payouts', icon: PayoutsIcon },
-    { name: 'Marketing Fees', href: '/admin/finances/marketing-fees', icon: MegaphoneIcon },
-    { name: 'Messages', href: '/admin/messages', icon: MessageIcon },
-    { name: 'Email Campaigns', href: '/admin/email-campaigns', icon: EmailIcon },
-    { name: 'Categories & Tax', href: '/admin/finances/categories', icon: TaxIcon },
-    { name: 'Integrations', href: '/admin/integrations', icon: IntegrationsIcon },
-    { name: 'Profile', href: '/admin/profile', icon: ProfileIcon },
-];
-
-const employeeMoreItems: MoreNavItem[] = [
-    { name: 'Sales', href: '/employee/sales', icon: ReceiptIcon },
-    { name: 'Till Count', href: '/employee/till-count', icon: CashIcon },
-    { name: 'Labels', href: '/employee/labels', icon: TagIcon },
-    { name: 'Messages', href: '/employee/messages', icon: MessageIcon },
-    { name: 'Profile', href: '/employee/profile', icon: ProfileIcon },
-];
 
 export function MobileMoreSheet({ isOpen, onClose, variant }: MobileMoreSheetProps) {
     const { signOut } = useAuth();
     const { logout: employeeLogout, clockStatus } = useEmployee();
     const navigate = useNavigate();
+    const sheetRef = useRef<HTMLDivElement | null>(null);
+    const closeRef = useRef<HTMLButtonElement | null>(null);
+    const titleId = `${useId().replace(/:/g, '')}-mobile-nav-title`;
 
-    const moreItems = variant === 'admin' ? adminMoreItems : employeeMoreItems;
+    const sections = useMemo<NavigationSection[]>(() => {
+        if (variant === 'employee') return [{ name: 'Employee tools', items: employeeNavigation }];
+        if (variant === 'vendor') return [{ name: 'Vendor tools', items: vendorNavigation }];
+        return adminNavigation.map((entry) => isNavGroup(entry)
+            ? { name: entry.name, items: entry.children }
+            : {
+                name: entry.name === 'Point of Sale' ? 'Sell' : entry.name === 'Dashboard' ? 'Overview' : 'Settings',
+                items: [entry],
+            });
+    }, [variant]);
 
-    // Lock body scroll when sheet is open
     useEffect(() => {
-        if (isOpen) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = '';
-        }
+        if (!isOpen) return;
+        const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        closeRef.current?.focus();
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                onClose();
+                return;
+            }
+            if (event.key !== 'Tab' || !sheetRef.current) return;
+            const focusable = Array.from(sheetRef.current.querySelectorAll<HTMLElement>(
+                'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            ));
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
         return () => {
-            document.body.style.overflow = '';
+            document.removeEventListener('keydown', handleKeyDown);
+            document.body.style.overflow = previousOverflow;
+            previousFocus?.focus();
         };
-    }, [isOpen]);
-
-    // Close on escape key
-    useEffect(() => {
-        const handleEscape = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-        if (isOpen) {
-            document.addEventListener('keydown', handleEscape);
-            return () => document.removeEventListener('keydown', handleEscape);
-        }
     }, [isOpen, onClose]);
 
     const handleLogout = async () => {
-        if (variant === 'admin') {
+        if (variant === 'admin' || variant === 'vendor') {
             await signOut();
         } else {
             await employeeLogout();
@@ -85,270 +83,75 @@ export function MobileMoreSheet({ isOpen, onClose, variant }: MobileMoreSheetPro
         onClose();
     };
 
-    const handleNavClick = () => {
-        onClose();
-    };
-
     if (!isOpen) return null;
 
     return (
         <>
-            {/* Overlay */}
+            <div className="mobile-sheet-overlay active" onClick={onClose} aria-hidden="true" />
             <div
-                className="mobile-sheet-overlay active"
-                onClick={onClose}
-            />
-
-            {/* Sheet */}
-            <div className={cn('mobile-sheet', isOpen && 'open')}>
-                {/* Handle */}
-                <div className="mobile-sheet-handle" />
-
-                {/* Header */}
-                <div className="px-4 pb-4 border-b border-[var(--color-border)]">
-                    <h2 className="text-lg font-semibold text-[var(--color-foreground)]">
-                        More Options
-                    </h2>
-                    {variant === 'employee' && clockStatus && (
-                        <p className="text-sm text-[var(--color-muted)] mt-1">
-                            <span className="inline-flex items-center gap-1.5">
-                                {clockStatus.isClockedIn ? <CircleDot size={14} /> : <Circle size={14} />}
-                                {clockStatus.isClockedIn ? 'Clocked In' : 'Clocked Out'}
-                            </span>
-                            {clockStatus.isClockedIn && clockStatus.startTime && (
-                                <span className="ml-2">
-                                    since {new Date(clockStatus.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                ref={sheetRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                className="mobile-sheet open"
+            >
+                <div className="mobile-sheet-handle" aria-hidden="true" />
+                <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--color-border)] bg-[var(--color-background)] px-4 pb-4">
+                    <div>
+                        <h2 id={titleId} className="text-lg font-semibold text-[var(--color-foreground)]">All workspaces</h2>
+                        {variant === 'employee' && clockStatus && (
+                            <p className="mt-1 text-sm text-[var(--color-muted)]">
+                                <span className="inline-flex items-center gap-1.5">
+                                    {clockStatus.isClockedIn ? <CircleDot size={14} /> : <Circle size={14} />}
+                                    {clockStatus.isClockedIn ? 'Clocked in' : 'Clocked out'}
                                 </span>
-                            )}
-                        </p>
-                    )}
-                </div>
-
-                {/* Navigation Grid */}
-                <div className="p-4 grid grid-cols-3 gap-3">
-                    {moreItems.map((item) => {
-                        const Icon = item.icon;
-
-                        return (
-                            <NavLink
-                                key={item.name}
-                                to={item.href}
-                                onClick={handleNavClick}
-                                className={({ isActive }) => cn(
-                                    'flex flex-col items-center justify-center p-4 rounded-xl',
-                                    'text-sm font-medium transition-all duration-150',
-                                    'touch-manipulation tap-highlight-none active:scale-95',
-                                    isActive
-                                        ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)]'
-                                        : 'bg-[var(--color-surface)] text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]'
+                                {clockStatus.isClockedIn && clockStatus.startTime && (
+                                    <span className="ml-2">since {new Date(clockStatus.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                 )}
-                            >
-                                <Icon />
-                                <span className="mt-2 text-center text-xs leading-tight">{item.name}</span>
-                            </NavLink>
-                        );
-                    })}
+                            </p>
+                        )}
+                    </div>
+                    <button ref={closeRef} type="button" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-foreground)]" aria-label="Close navigation">
+                        <X className="h-5 w-5" aria-hidden="true" />
+                    </button>
                 </div>
 
-                {/* Sign Out Button */}
-                <div className="p-4 border-t border-[var(--color-border)]">
-                    <button
-                        onClick={handleLogout}
-                        className={cn(
-                            'w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl',
-                            'text-sm font-medium transition-all duration-150',
-                            'touch-manipulation tap-highlight-none active:scale-98',
-                            'text-[var(--color-danger)] bg-[var(--color-danger-bg)]',
-                            'hover:bg-[var(--color-danger)]/20'
-                        )}
-                    >
-                        <LogoutIcon />
-                        Sign Out
+                <div className="space-y-6 p-4">
+                    {sections.map((section, sectionIndex) => (
+                        <section key={`${section.name}-${sectionIndex}`}>
+                            <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">{section.name}</h3>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                {section.items.map((item) => {
+                                    const Icon = item.icon;
+                                    return (
+                                        <NavLink
+                                            key={item.href}
+                                            to={item.href}
+                                            onClick={onClose}
+                                            className={({ isActive }) => cn(
+                                                'flex min-h-16 items-center gap-3 rounded-lg border px-3 py-3 text-sm font-medium transition-colors',
+                                                isActive
+                                                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]'
+                                                    : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-foreground)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)]'
+                                            )}
+                                        >
+                                            <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                                            <span>{item.name}</span>
+                                        </NavLink>
+                                    );
+                                })}
+                            </div>
+                        </section>
+                    ))}
+                </div>
+
+                <div className="sticky bottom-0 border-t border-[var(--color-border)] bg-[var(--color-background)] p-4">
+                    <button type="button" onClick={() => void handleLogout()} className="flex min-h-12 w-full items-center justify-center gap-3 rounded-lg bg-[var(--color-danger-bg)] px-4 text-sm font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger)]/20">
+                        <LogOut className="h-5 w-5" aria-hidden="true" />
+                        Sign out
                     </button>
                 </div>
             </div>
         </>
-    );
-}
-
-// Icons
-function DashboardIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="7" height="7" />
-            <rect x="14" y="3" width="7" height="7" />
-            <rect x="14" y="14" width="7" height="7" />
-            <rect x="3" y="14" width="7" height="7" />
-        </svg>
-    );
-}
-
-function ConsignorsIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-        </svg>
-    );
-}
-
-function EmployeesIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="8" r="5" />
-            <path d="M20 21a8 8 0 0 0-16 0" />
-        </svg>
-    );
-}
-
-function CashIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2v20" />
-            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14.5a3.5 3.5 0 0 1 0 7H7" />
-        </svg>
-    );
-}
-
-function ReceiptIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z" />
-            <path d="M8 10h8M8 14h4" />
-        </svg>
-    );
-}
-
-function TimecardIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 7v5l3 3" />
-        </svg>
-    );
-}
-
-function ScheduleIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <path d="M16 2v4M8 2v4M3 10h18" />
-        </svg>
-    );
-}
-
-function PlusIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 5v14M5 12h14" />
-        </svg>
-    );
-}
-
-function BarcodeIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 5v14" />
-            <path d="M8 5v14" />
-            <path d="M12 5v14" />
-            <path d="M17 5v14" />
-            <path d="M21 5v14" />
-        </svg>
-    );
-}
-
-function UploadIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="17 8 12 3 7 8" />
-            <line x1="12" x2="12" y1="3" y2="15" />
-        </svg>
-    );
-}
-
-function TagIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
-            <path d="M7 7h.01" />
-        </svg>
-    );
-}
-
-function PayoutsIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" x2="12" y1="2" y2="22" />
-            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-        </svg>
-    );
-}
-
-function MessageIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M7 10h10M7 14h6" />
-            <path d="M21 12a8 8 0 0 1-8 8H4l-1 1v-9a8 8 0 1 1 18 0Z" />
-        </svg>
-    );
-}
-
-function EmailIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="4" width="20" height="16" rx="2" />
-            <path d="m22 7-10 6L2 7" />
-        </svg>
-    );
-}
-
-function IntegrationsIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
-            <path d="M7 7h.01" />
-            <path d="M22 12v4a2 2 0 0 1-2 2h-1" />
-            <path d="M22 12h-4" />
-        </svg>
-    );
-}
-
-function TaxIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" x2="12" y1="2" y2="22" />
-            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-        </svg>
-    );
-}
-
-function MegaphoneIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m3 11 14-5v12L3 13v-2Z" />
-            <path d="M17 8h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
-            <path d="M7 14v4a2 2 0 0 0 2 2h1" />
-        </svg>
-    );
-}
-
-function ProfileIcon() {
-    return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 21a8 8 0 0 0-16 0" />
-            <circle cx="12" cy="8" r="5" />
-        </svg>
-    );
-}
-
-function LogoutIcon() {
-    return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16,17 21,12 16,7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-        </svg>
     );
 }

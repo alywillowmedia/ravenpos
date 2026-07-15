@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils';
 import { MobileMoreSheet } from './MobileMoreSheet';
 
 interface MobileBottomNavProps {
-    variant: 'admin' | 'employee';
+    variant: 'admin' | 'employee' | 'vendor';
 }
 
 // Admin navigation items for bottom nav
@@ -24,11 +24,19 @@ const employeeNavItems = [
     { name: 'More', href: null, icon: MenuIcon, isMenu: true },
 ];
 
+const vendorNavItems = [
+    { name: 'Overview', href: '/vendor', icon: HomeIcon },
+    { name: 'Inventory', href: '/vendor/inventory', icon: PackageIcon },
+    { name: 'Sales', href: '/vendor/sales', icon: ReceiptIcon },
+    { name: 'Payouts', href: '/vendor/payouts', icon: CashIcon },
+    { name: 'More', href: null, icon: MenuIcon, isMenu: true },
+];
+
 export function MobileBottomNav({ variant }: MobileBottomNavProps) {
     const [isMoreSheetOpen, setIsMoreSheetOpen] = useState(false);
     const location = useLocation();
 
-    const navItems = variant === 'admin' ? adminNavItems : employeeNavItems;
+    const navItems = variant === 'admin' ? adminNavItems : variant === 'vendor' ? vendorNavItems : employeeNavItems;
 
     const handleNavClick = (item: typeof navItems[0]) => {
         if (item.isMenu) {
@@ -39,7 +47,7 @@ export function MobileBottomNav({ variant }: MobileBottomNavProps) {
     return (
         <>
             <nav className="mobile-bottom-nav mobile-only">
-                <div className="flex items-center justify-around h-[49px] safe-area-horizontal">
+                <div className="flex h-14 items-center justify-around safe-area-horizontal">
                     {navItems.map((item) => {
                         const isActive = item.href ? location.pathname === item.href : false;
                         const Icon = item.icon;
@@ -49,9 +57,11 @@ export function MobileBottomNav({ variant }: MobileBottomNavProps) {
                                 <button
                                     key={item.name}
                                     onClick={() => handleNavClick(item)}
+                                    aria-haspopup="dialog"
+                                    aria-expanded={isMoreSheetOpen}
                                     className={cn(
                                         'flex flex-col items-center justify-center w-full h-full',
-                                        'text-[10px] font-medium transition-colors duration-150',
+                                        'text-xs font-medium transition-colors duration-150',
                                         'touch-manipulation tap-highlight-none select-none-touch',
                                         'text-[var(--color-muted)]'
                                     )}
@@ -68,7 +78,7 @@ export function MobileBottomNav({ variant }: MobileBottomNavProps) {
                                 to={item.href!}
                                 className={cn(
                                     'flex flex-col items-center justify-center w-full h-full',
-                                    'text-[10px] font-medium transition-colors duration-150',
+                                    'text-xs font-medium transition-colors duration-150',
                                     'touch-manipulation tap-highlight-none select-none-touch',
                                     isActive
                                         ? 'text-[var(--color-primary)]'
@@ -211,6 +221,26 @@ function ScheduleIcon({ isActive }: IconProps) {
         >
             <rect x="3" y="4" width="18" height="18" rx="2" />
             <path d="M16 2v4M8 2v4M3 10h18" />
+        </svg>
+    );
+}
+
+function HomeIcon({ isActive }: IconProps) {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={isActive ? "2.5" : "2"} strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="7" height="7" />
+            <rect x="14" y="3" width="7" height="7" />
+            <rect x="14" y="14" width="7" height="7" />
+            <rect x="3" y="14" width="7" height="7" />
+        </svg>
+    );
+}
+
+function CashIcon({ isActive }: IconProps) {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={isActive ? "2.5" : "2"} strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" x2="12" y1="2" y2="22" />
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
         </svg>
     );
 }

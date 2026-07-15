@@ -6,6 +6,8 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
+import { AuthShell } from '../../components/layout/AuthShell';
+import { CheckCircle2, Clock3, LogOut, ShoppingCart } from 'lucide-react';
 
 export function EmployeeActionSelection() {
     const navigate = useNavigate();
@@ -77,57 +79,30 @@ export function EmployeeActionSelection() {
     };
 
     return (
-        <div style={{
-            minHeight: '100vh',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: 'var(--color-gray-900)',
-            padding: '20px',
-        }}>
-            {/* Header */}
-            <div style={{ marginBottom: '48px', textAlign: 'center' }}>
-                <h1 style={{
-                    fontSize: '36px',
-                    fontWeight: 700,
-                    background: 'linear-gradient(135deg, var(--color-primary), #a855f7)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    marginBottom: '8px',
-                }}>
-                    Welcome, {employee.name}
-                </h1>
-                <p style={{ color: 'var(--color-gray-400)', fontSize: '16px' }}>
-                    {clockStatus.isClockedIn
-                        ? `Clocked in for ${clockStatus.duration}`
-                        : 'Currently clocked out'
-                    }
-                </p>
+        <AuthShell
+            eyebrow="Employee terminal"
+            title={`Welcome, ${employee.name}`}
+            description={clockStatus.isClockedIn ? `Clocked in for ${clockStatus.duration}` : 'You are currently clocked out.'}
+        >
+            <div className={`mb-5 flex items-center gap-3 rounded-xl border p-4 ${clockStatus.isClockedIn ? 'border-[var(--color-success)]/20 bg-[var(--color-success-bg)]' : 'border-[var(--color-border)] bg-[var(--color-surface)]'}`} role="status">
+                <span className={`flex h-10 w-10 items-center justify-center rounded-full ${clockStatus.isClockedIn ? 'bg-[var(--color-success)] text-white' : 'bg-[var(--color-card)] text-[var(--color-muted)]'}`} aria-hidden="true">
+                    <Clock3 size={20} />
+                </span>
+                <div>
+                    <p className="text-sm font-semibold text-[var(--color-foreground)]">{clockStatus.isClockedIn ? 'Shift in progress' : 'Ready to start a shift'}</p>
+                    <p className="text-xs text-[var(--color-muted)]">{clockStatus.isClockedIn ? clockStatus.duration : 'Clock in when you begin working.'}</p>
+                </div>
             </div>
 
-            {/* Action Buttons */}
-            <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '16px',
-                width: '100%',
-                maxWidth: '320px',
-            }}>
+            <div className="space-y-3">
                 <Button
                     size="xl"
                     onClick={handleClockAction}
                     isLoading={isProcessing}
-                    style={{
-                        width: '100%',
-                        padding: '20px',
-                        fontSize: '18px',
-                        backgroundColor: clockStatus.isClockedIn
-                            ? 'var(--color-warning)'
-                            : 'var(--color-success)',
-                    }}
+                    className={`min-h-16 w-full text-base ${clockStatus.isClockedIn ? '!bg-[var(--color-warning)] hover:!brightness-95' : '!bg-[var(--color-success)] hover:!bg-[var(--color-success-hover)]'}`}
                 >
-                    {clockStatus.isClockedIn ? '⏱ Clock Out' : '⏱ Clock In'}
+                    <Clock3 aria-hidden="true" />
+                    {clockStatus.isClockedIn ? 'Clock out' : 'Clock in'}
                 </Button>
 
                 <Button
@@ -135,58 +110,39 @@ export function EmployeeActionSelection() {
                     variant="secondary"
                     onClick={handleGoToPOS}
                     disabled={isProcessing}
-                    style={{
-                        width: '100%',
-                        padding: '20px',
-                        fontSize: '18px',
-                    }}
+                    className="min-h-16 w-full text-base"
                 >
-                    🛒 Go to POS
+                    <ShoppingCart aria-hidden="true" />
+                    Open register
                 </Button>
             </div>
 
-            {/* Logout link */}
             <button
                 onClick={handleLogout}
-                style={{
-                    marginTop: '48px',
-                    color: 'var(--color-gray-400)',
-                    fontSize: '14px',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                }}
+                className="mt-6 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg text-sm font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]"
             >
-                Switch Employee
+                <LogOut size={16} aria-hidden="true" /> Switch employee
             </button>
 
             {/* Clock In/Out Confirmation Modal */}
             <Modal
                 isOpen={!!showConfirmation}
                 onClose={handleConfirmationClose}
-                title={showConfirmation?.type === 'in' ? 'Clocked In!' : 'Clocked Out!'}
+                title={showConfirmation?.type === 'in' ? 'Clocked in' : 'Clocked out'}
                 size="sm"
             >
-                <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                    <div style={{ fontSize: '64px', marginBottom: '16px' }}>
-                        {showConfirmation?.type === 'in' ? '✓' : '👋'}
-                    </div>
+                <div className="py-5 text-center">
+                    <CheckCircle2 size={56} className="mx-auto mb-4 text-[var(--color-success)]" aria-hidden="true" />
                     {showConfirmation?.type === 'in' ? (
-                        <p style={{ fontSize: '18px', marginBottom: '24px' }}>
+                        <p className="mb-6 text-base text-[var(--color-muted)]">
                             You're now clocked in. Have a great shift!
                         </p>
                     ) : (
                         <>
-                            <p style={{ fontSize: '18px', marginBottom: '8px' }}>
+                            <p className="mb-2 text-base text-[var(--color-muted)]">
                                 You've been clocked out.
                             </p>
-                            <p style={{
-                                fontSize: '24px',
-                                fontWeight: 'bold',
-                                color: 'var(--color-primary)',
-                                marginBottom: '24px'
-                            }}>
+                            <p className="mb-6 font-display text-3xl tabular-nums text-[var(--color-primary)]">
                                 Total: {formatHours(showConfirmation?.hours || 0)}
                             </p>
                         </>
@@ -204,27 +160,27 @@ export function EmployeeActionSelection() {
                 title="Clock In?"
                 size="sm"
             >
-                <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                    <p style={{ fontSize: '16px', marginBottom: '24px', color: 'var(--color-gray-300)' }}>
+                <div className="py-4 text-center">
+                    <p className="mb-6 text-sm text-[var(--color-muted)]">
                         You're not currently clocked in. Would you like to clock in before going to the POS?
                     </p>
-                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                    <div className="flex flex-col-reverse justify-center gap-3 sm:flex-row">
                         <Button
                             variant="secondary"
                             onClick={() => handleClockInPromptResponse(false)}
-                            style={{ minWidth: '100px' }}
+                            className="sm:min-w-28"
                         >
                             No
                         </Button>
                         <Button
                             onClick={() => handleClockInPromptResponse(true)}
-                            style={{ minWidth: '100px' }}
+                            className="sm:min-w-32"
                         >
                             Yes, Clock In
                         </Button>
                     </div>
                 </div>
             </Modal>
-        </div>
+        </AuthShell>
     );
 }

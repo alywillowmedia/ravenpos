@@ -1082,6 +1082,7 @@ export function VendorLabels() {
                     </div>
 
                     <Table
+                        ariaLabel="Vendor products available for labels"
                         data={filteredAndSortedItems}
                         columns={columns}
                         keyExtractor={(item) => item.id}

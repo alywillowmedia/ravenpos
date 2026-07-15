@@ -549,6 +549,7 @@ export function ConsignorDetail() {
                             keyExtractor={(p) => p.id}
                             isLoading={paymentsLoading}
                             emptyMessage="No payments recorded"
+                            ariaLabel="Booth rent payments"
                         />
                     )}
                 </div>
@@ -575,7 +576,7 @@ export function ConsignorDetail() {
                         title="No items yet"
                         description={`${getConsignorDisplayName(consignor)} doesn't have any items in inventory.`}
                         action={
-                            <Link to={`/add-items?consignor=${id}`}>
+                            <Link to={`/admin/add-items?consignor=${id}`}>
                                 <Button>Add Items</Button>
                             </Link>
                         }
@@ -590,6 +591,7 @@ export function ConsignorDetail() {
                     searchPlaceholder="Search items..."
                     searchKeys={['name', 'sku', 'category', 'variant']}
                     isLoading={itemsLoading}
+                    ariaLabel={`${getConsignorDisplayName(consignor)} inventory`}
                 />
             )}
 
