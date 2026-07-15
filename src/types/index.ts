@@ -326,7 +326,7 @@ export interface Invoice {
     total: number;
     amount_paid: number;
     notes?: string | null;
-    paid_at: string | null;
+    paid_at: string;
     created_at: string;
     updated_at: string;
     // Joined data
@@ -400,6 +400,26 @@ export interface Payout {
     notes: string | null;
     paid_at: string;
     created_at: string;
+    updated_at?: string;
+    status?: 'draft' | 'paid' | 'voided';
+    prepared_at?: string | null;
+    prepared_by?: string | null;
+    paid_by?: string | null;
+    voided_at?: string | null;
+    voided_by?: string | null;
+    cutoff_at?: string | null;
+    source_range_start?: string | null;
+    source_range_end?: string | null;
+    range_mode?: 'all_outstanding' | 'selected_range';
+    include_prior_balance?: boolean;
+    threshold_snapshot?: number | null;
+    payable_before_invoices_snapshot?: number | null;
+    below_threshold_override_reason?: string | null;
+    payment_method?: string | null;
+    payment_reference?: string | null;
+    payment_date?: string | null;
+    historical_confidence?: 'verified' | 'reconciled' | 'legacy_unverified';
+    reconciliation_explanation?: string | null;
     // Partial payout fields
     original_amount_due: number | null;
     is_partial: boolean;

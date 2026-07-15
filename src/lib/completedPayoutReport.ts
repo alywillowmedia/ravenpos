@@ -133,7 +133,7 @@ export function printCompletedPayoutReport(
 
             ${payout.partial_reason ? `<div class="note"><strong>Partial payout reason:</strong> ${escapeHtml(payout.partial_reason)}</div>` : ''}
             ${payout.notes ? `<div class="note"><strong>Notes:</strong> ${escapeHtml(payout.notes)}</div>` : ''}
-            <p class="footer">Saved payout totals are authoritative. Sale lines reflect the current sale and refund records for the saved payout period. Generated ${escapeHtml(new Date().toLocaleString())}.</p>
+            <p class="footer">Saved payout totals and sale lines come from the immutable payout allocation and adjustment snapshots. Generated ${escapeHtml(new Date().toLocaleString())}.</p>
         </body>
         </html>
     `;

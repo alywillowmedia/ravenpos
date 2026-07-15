@@ -148,7 +148,7 @@ export function CompletedPayoutDetails({
                         <div className="mb-2">
                             <h3 className="font-medium text-sm">Sales Included ({details.saleLines.length} line items)</h3>
                             <p className="text-xs text-[var(--color-muted)]">
-                                Saved payout totals are authoritative. These lines reflect current sale and refund records for the saved payout period.
+                                Saved payout totals and lines come from the immutable payout allocation and adjustment snapshots.
                             </p>
                         </div>
                         {details.saleLines.length > 0 ? (

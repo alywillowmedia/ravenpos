@@ -38,6 +38,10 @@ Screenshot*.png
 # Local database backups
 backups/
 
+# Isolated Supabase clone runtime state
+local-supabase/supabase/.temp/
+local-supabase/supabase/.branches/
+
 # Local Alywillow barcode/import working files
 BARCODE Notebook/
 alywillow_barcode_*.md
@@ -61,3 +65,13 @@ ALYWILLOW_FULL_ITEMLIST.csv
 
 ALYWILLOW_UPDATED_FORMULAS.csv
 supabase/migrations_manual/alywillow_formula_copy_update.sql
+docs/design/vendor-payouts/01-admin-payout-queue.png
+docs/design/vendor-payouts/02-admin-vendor-workspace-v2.png
+docs/design/vendor-payouts/02-admin-vendor-workspace.png
+docs/design/vendor-payouts/03-admin-draft-review.png
+docs/design/vendor-payouts/04-admin-payout-statement.png
+docs/design/vendor-payouts/05-admin-invoice-detail.png
+docs/design/vendor-payouts/06-vendor-payouts.png
+docs/design/vendor-payouts/07-vendor-payout-statement.png
+docs/design/vendor-payouts/08-mobile-admin.png
+docs/design/vendor-payouts/09-mobile-vendor.png

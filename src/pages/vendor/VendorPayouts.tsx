@@ -1,652 +1,101 @@
-import { useState, useEffect } from 'react';
-import { Header } from '../../components/layout/Header';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
-import { Badge } from '../../components/ui/Badge';
-import { Modal, ModalFooter } from '../../components/ui/Modal';
-import { Button } from '../../components/ui/Button';
-import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
-import { EmptyState } from '../../components/ui/EmptyState';
-import { CompletedPayoutDetails } from '../../components/payouts/CompletedPayoutDetails';
-import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabase';
-import { calculateStripeTerminalProcessingFee } from '../../lib/cardFees';
-import { printCompletedPayoutReport } from '../../lib/completedPayoutReport';
+import { AlertTriangle, FileText, ReceiptText } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-    loadCompletedPayoutDetails,
-    type CompletedPayoutDetails as CompletedPayoutDetailsData,
-} from '../../lib/consignorReports';
+    FinancialEquation,
+    LedgerPageHeader,
+    ReadinessStatus,
+    ThresholdProgress,
+    TransactionLedger,
+} from '../../components/payouts/PayoutLedgerUI';
+import { Input } from '../../components/ui/Input';
+import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import { useAuth } from '../../contexts/AuthContext';
+import { getVendorPayoutWorkspace } from '../../hooks/usePayouts';
 import { formatCurrency } from '../../lib/utils';
-import type { Payout, Consignor, PaymentMethod, PaymentBreakdownEntry } from '../../types';
+import type { VendorPayoutWorkspaceData } from '../../types/payouts';
 
-interface SaleItemForPayout {
-    id: string;
-    sale_id: string;
-    name: string;
-    sku: string;
-    price: number;
-    quantity: number;
-    commission_split: number;
-    line_total: number;
-    completed_at: string;
-    payment_method: PaymentMethod;
-    card_tender_amount: number;
-    sale_net_subtotal: number;
-    consignor_pays_card_fee: boolean;
-    credit_card_fee: number;
-    refunded_quantity: number;
-}
+type VendorTab = 'sales' | 'deductions' | 'invoices' | 'statements';
 
-interface SaleFinancialContext {
-    orderDiscountRatio: number;
-    netSubtotal: number;
-}
-
-interface SaleItemFinancialRow {
-    id: string;
-    sale_id: string;
-    price: number;
-    quantity: number;
-    discount_amount?: number | null;
-}
-
-function getJoinedSaleData(salesData: unknown): {
-    completed_at: string;
-    payment_method: PaymentMethod;
-    subtotal: number;
-    total: number;
-    discount_total: number;
-    payment_breakdown: PaymentBreakdownEntry[] | null;
-} {
-    const sale = Array.isArray(salesData) ? salesData[0] : salesData;
-    if (!sale || typeof sale !== 'object' || !('completed_at' in sale)) {
-        return {
-            completed_at: '',
-            payment_method: 'cash',
-            subtotal: 0,
-            total: 0,
-            discount_total: 0,
-            payment_breakdown: null,
-        };
-    }
-
-    const parsed = sale as {
-        completed_at: string;
-        payment_method: PaymentMethod;
-        subtotal: number;
-        total: number;
-        discount_total?: number | null;
-        payment_breakdown?: PaymentBreakdownEntry[] | null;
-    };
-
-    return {
-        completed_at: parsed.completed_at,
-        payment_method: parsed.payment_method,
-        subtotal: Number(parsed.subtotal || 0),
-        total: Number(parsed.total || 0),
-        discount_total: Number(parsed.discount_total || 0),
-        payment_breakdown: parsed.payment_breakdown || null,
-    };
-}
-
-function getCardTenderAmount(
-    paymentMethod: PaymentMethod,
-    saleTotal: number,
-    saleNetSubtotal: number,
-    paymentBreakdown: PaymentBreakdownEntry[] | null
-): number {
-    if (paymentMethod === 'split') {
-        return (paymentBreakdown || [])
-            .filter((entry) => entry.method === 'card')
-            .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-    }
-
-    return paymentMethod === 'card' ? Number(saleTotal || saleNetSubtotal) : 0;
-}
-
-function buildSaleFinancialContext(
-    saleIds: string[],
-    allSaleItems: SaleItemFinancialRow[],
-    saleDiscountTotals: Map<string, number>
-): Map<string, SaleFinancialContext> {
-    const itemsBySale = new Map<string, SaleItemFinancialRow[]>();
-    for (const item of allSaleItems) {
-        const existing = itemsBySale.get(item.sale_id) || [];
-        existing.push(item);
-        itemsBySale.set(item.sale_id, existing);
-    }
-
-    const context = new Map<string, SaleFinancialContext>();
-    for (const saleId of saleIds) {
-        const itemsForSale = itemsBySale.get(saleId) || [];
-        let subtotalAfterItemDiscounts = 0;
-        let totalItemDiscounts = 0;
-
-        for (const item of itemsForSale) {
-            const rawLineTotal = Number(item.price || 0) * Number(item.quantity || 0);
-            const itemDiscount = Math.max(0, Math.min(Number(item.discount_amount || 0), rawLineTotal));
-            subtotalAfterItemDiscounts += Math.max(0, rawLineTotal - itemDiscount);
-            totalItemDiscounts += itemDiscount;
-        }
-
-        const saleDiscountTotal = Math.max(0, Number(saleDiscountTotals.get(saleId) || 0));
-        const orderDiscountTotal = Math.max(
-            0,
-            Math.min(saleDiscountTotal - totalItemDiscounts, subtotalAfterItemDiscounts)
-        );
-        const orderDiscountRatio = subtotalAfterItemDiscounts > 0
-            ? orderDiscountTotal / subtotalAfterItemDiscounts
-            : 0;
-        const netSubtotal = Math.max(0, subtotalAfterItemDiscounts - orderDiscountTotal);
-        context.set(saleId, { orderDiscountRatio, netSubtotal });
-    }
-
-    return context;
-}
-
-function getCoveredThroughDate(payout: Pick<Payout, 'period_end' | 'paid_at'>): Date | null {
-    const paidAt = new Date(payout.paid_at);
-    const periodEnd = new Date(payout.period_end || payout.paid_at);
-    if (Number.isNaN(paidAt.getTime()) && Number.isNaN(periodEnd.getTime())) return null;
-    if (Number.isNaN(periodEnd.getTime())) return paidAt;
-    if (Number.isNaN(paidAt.getTime())) return periodEnd;
-
-    return periodEnd > paidAt ? paidAt : periodEnd;
-}
-
-function getPayoutCoverageWindow(
-    payout: Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>
-): { start: Date; end: Date } | null {
-    const coveredThrough = getCoveredThroughDate(payout);
-    if (!coveredThrough || !Number.isFinite(coveredThrough.getTime())) return null;
-
-    const periodStart = new Date(payout.period_start || payout.paid_at);
-    const paidAt = new Date(payout.paid_at);
-    const start = Number.isFinite(periodStart.getTime()) ? periodStart : paidAt;
-    if (!Number.isFinite(start.getTime())) return null;
-
-    return { start, end: coveredThrough };
-}
-
-function isSaleCoveredByPayout(
-    saleDate: Date,
-    payout: Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>
-): boolean {
-    const coverageWindow = getPayoutCoverageWindow(payout);
-    if (!coverageWindow || !Number.isFinite(saleDate.getTime())) return false;
-
-    return saleDate >= coverageWindow.start && saleDate <= coverageWindow.end;
-}
-
-function isSaleCoveredByAnyPayout(
-    saleDate: Date,
-    payouts: Array<Pick<Payout, 'period_start' | 'period_end' | 'paid_at'>>
-): boolean {
-    return payouts.some((payout) => isSaleCoveredByPayout(saleDate, payout));
+function localDate(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }
 
 export function VendorPayouts() {
     const { userRecord } = useAuth();
-    const [consignor, setConsignor] = useState<Consignor | null>(null);
-    const [payouts, setPayouts] = useState<Payout[]>([]);
-    const [pendingSales, setPendingSales] = useState<SaleItemForPayout[]>([]);
+    const [range, setRange] = useState(() => {
+        const now = new Date();
+        return { start: localDate(new Date(now.getFullYear(), now.getMonth(), 1)), end: localDate(now) };
+    });
+    const [workspace, setWorkspace] = useState<VendorPayoutWorkspaceData | null>(null);
+    const [tab, setTab] = useState<VendorTab>('sales');
     const [isLoading, setIsLoading] = useState(true);
-    const [selectedPayout, setSelectedPayout] = useState<Payout | null>(null);
-    const [completedPayoutDetails, setCompletedPayoutDetails] = useState<CompletedPayoutDetailsData | null>(null);
-    const [completedPayoutError, setCompletedPayoutError] = useState<string | null>(null);
-    const [isLoadingCompletedPayout, setIsLoadingCompletedPayout] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
+    const consignorId = userRecord?.consignor_id || '';
     useEffect(() => {
-        const fetchData = async () => {
-            if (!userRecord?.consignor_id) return;
+        if (!consignorId) return;
+        let cancelled = false;
+        setIsLoading(true);
+        setError(null);
+        getVendorPayoutWorkspace(consignorId, range)
+            .then((data) => { if (!cancelled) setWorkspace(data); })
+            .catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Unable to load payouts'); })
+            .finally(() => { if (!cancelled) setIsLoading(false); });
+        return () => { cancelled = true; };
+    }, [consignorId, range]);
 
-            // Fetch consignor info
-            const { data: consignorData } = await supabase
-                .from('consignors')
-                .select('*')
-                .eq('id', userRecord.consignor_id)
-                .single();
+    const explanation = useMemo(() => {
+        if (!workspace) return '';
+        const summary = workspace.summary;
+        if (summary.readiness === 'draft') return `A payout draft for ${formatCurrency(summary.current_payable)} is being reviewed by the shop.`;
+        if (summary.readiness === 'ready') return `Your payable balance has reached the ${formatCurrency(summary.threshold)} payout threshold.`;
+        if (summary.readiness === 'accruing') return `${formatCurrency(summary.threshold_remaining)} more is needed to reach your payout threshold.`;
+        return 'All eligible earnings and deductions are settled.';
+    }, [workspace]);
 
-            setConsignor(consignorData);
+    if (isLoading || !userRecord) return <div className="flex min-h-72 items-center justify-center"><LoadingSpinner size={30} /></div>;
+    if (!workspace || error) return <div className="border border-[var(--color-danger)] bg-[var(--color-danger-bg)] p-6 text-sm text-[var(--color-danger)]">{error || 'Payout workspace unavailable.'}</div>;
 
-            // Fetch payout history
-            const { data: payoutData } = await supabase
-                .from('payouts')
-                .select('*')
-                .eq('consignor_id', userRecord.consignor_id)
-                .order('paid_at', { ascending: false });
-
-            setPayouts(payoutData || []);
-
-            // Fetch sales since last payout (including payment_method for fee calc)
-            const { data: saleItems } = await supabase
-                .from('sale_items')
-                .select('id, sale_id, name, sku, price, quantity, commission_split, discount_amount, consignor_pays_card_fee, sales!inner(completed_at, payment_method, subtotal, total, discount_total, payment_breakdown)')
-                .eq('consignor_id', userRecord.consignor_id);
-
-            const saleIds = Array.from(new Set((saleItems || []).map((item) => item.sale_id).filter(Boolean)));
-            const saleDiscountTotals = new Map<string, number>();
-            for (const item of saleItems || []) {
-                const sale = getJoinedSaleData(item.sales);
-                saleDiscountTotals.set(item.sale_id, sale.discount_total);
-            }
-
-            let allSaleItemsForContext: SaleItemFinancialRow[] = [];
-            if (saleIds.length > 0) {
-                const { data: allItems } = await supabase
-                    .from('sale_items')
-                    .select('id, sale_id, price, quantity, discount_amount')
-                    .in('sale_id', saleIds);
-                allSaleItemsForContext = (allItems || []) as SaleItemFinancialRow[];
-            }
-
-            const saleFinancialContext = buildSaleFinancialContext(
-                saleIds,
-                allSaleItemsForContext,
-                saleDiscountTotals
-            );
-
-            const refundedItemsMap = new Map<string, number>();
-            if (saleIds.length > 0) {
-                const { data: refunds } = await supabase
-                    .from('refunds')
-                    .select('items')
-                    .in('sale_id', saleIds);
-
-                for (const refund of refunds || []) {
-                    const items = refund.items as Array<{ sale_item_id: string; quantity: number }> | null | undefined;
-                    for (const item of items || []) {
-                        const current = refundedItemsMap.get(item.sale_item_id) || 0;
-                        refundedItemsMap.set(item.sale_item_id, current + Number(item.quantity || 0));
-                    }
-                }
-            }
-
-            // Filter to items since last payout
-            const pendingItems = (saleItems || [])
-                .map((item) => {
-                    const sale = getJoinedSaleData(item.sales);
-                    const rawLineTotal = Number(item.price) * Number(item.quantity);
-                    const itemDiscount = Math.max(0, Math.min(Number(item.discount_amount || 0), rawLineTotal));
-                    const lineAfterItemDiscount = Math.max(0, rawLineTotal - itemDiscount);
-                    const saleContext = saleFinancialContext.get(item.sale_id);
-                    const orderDiscountRatio = saleContext?.orderDiscountRatio || 0;
-                    const lineTotal = lineAfterItemDiscount * (1 - orderDiscountRatio);
-                    const saleNetSubtotal = saleContext?.netSubtotal || lineTotal;
-                    const cardTenderAmount = getCardTenderAmount(
-                        sale.payment_method,
-                        sale.total,
-                        saleNetSubtotal,
-                        sale.payment_breakdown
-                    );
-                    const creditCardFee = cardTenderAmount > 0 && Boolean(item.consignor_pays_card_fee)
-                        ? (saleNetSubtotal > 0
-                            ? calculateStripeTerminalProcessingFee(cardTenderAmount) * (lineTotal / saleNetSubtotal)
-                            : 0)
-                        : 0;
-
-                    return {
-                        id: item.id,
-                        sale_id: item.sale_id,
-                        name: item.name,
-                        sku: item.sku,
-                        price: Number(item.price),
-                        quantity: item.quantity,
-                        commission_split: Number(item.commission_split),
-                        line_total: lineTotal,
-                        completed_at: sale.completed_at,
-                        payment_method: sale.payment_method,
-                        card_tender_amount: cardTenderAmount,
-                        sale_net_subtotal: saleNetSubtotal,
-                        consignor_pays_card_fee: Boolean(item.consignor_pays_card_fee),
-                        credit_card_fee: creditCardFee,
-                        refunded_quantity: refundedItemsMap.get(item.id) || 0,
-                    };
-                })
-                .filter((item) => !isSaleCoveredByAnyPayout(new Date(item.completed_at), payoutData || []))
-                .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
-
-            setPendingSales(pendingItems);
-            setIsLoading(false);
-        };
-
-        fetchData();
-    }, [userRecord?.consignor_id]);
-
-    const openCompletedPayout = async (payout: Payout) => {
-        setSelectedPayout(payout);
-        setCompletedPayoutDetails(null);
-        setCompletedPayoutError(null);
-        setIsLoadingCompletedPayout(true);
-
-        try {
-            const details = await loadCompletedPayoutDetails(payout);
-            setCompletedPayoutDetails(details);
-        } catch (err) {
-            setCompletedPayoutError(err instanceof Error ? err.message : 'Could not load completed payout details.');
-        } finally {
-            setIsLoadingCompletedPayout(false);
-        }
-    };
-
-    const closeCompletedPayout = () => {
-        setSelectedPayout(null);
-        setCompletedPayoutDetails(null);
-        setCompletedPayoutError(null);
-        setIsLoadingCompletedPayout(false);
-    };
-
-    // Calculate pending balance with credit card fee deductions
-    const calculateItemEarnings = (item: SaleItemForPayout) => {
-        const effectiveQuantity = Math.max(0, item.quantity - item.refunded_quantity);
-        const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
-        const effectiveLineTotal = item.line_total * effectiveRatio;
-        const effectiveFee = item.credit_card_fee * effectiveRatio;
-
-        return (effectiveLineTotal * item.commission_split) - effectiveFee;
-    };
-
-    const pendingBalance = pendingSales.reduce(
-        (sum, item) => sum + calculateItemEarnings(item),
-        0
-    );
-
-    const pendingCreditCardFees = pendingSales.reduce(
-        (sum, item) => {
-            const effectiveQuantity = Math.max(0, item.quantity - item.refunded_quantity);
-            const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
-            return sum + (item.credit_card_fee * effectiveRatio);
-        },
-        0
-    );
-
-    const pendingGrossSales = pendingSales.reduce(
-        (sum, item) => {
-            const effectiveQuantity = Math.max(0, item.quantity - item.refunded_quantity);
-            const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
-            return sum + (item.line_total * effectiveRatio);
-        },
-        0
-    );
-
-    const pendingItemCount = pendingSales.reduce(
-        (sum, item) => sum + Math.max(0, item.quantity - item.refunded_quantity),
-        0
-    );
-
-    // Calculate total paid all time
-    const totalPaidAllTime = payouts.reduce((sum, p) => sum + Number(p.amount), 0);
-
-    if (isLoading) {
-        return (
-            <div className="flex items-center justify-center h-96">
-                <LoadingSpinner size={32} />
-            </div>
-        );
-    }
+    const { summary } = workspace;
+    const applied = workspace.required_adjustments.filter((row) => row.will_apply);
+    const pending = workspace.required_adjustments.filter((row) => !row.will_apply);
 
     return (
-        <div className="animate-fadeIn">
-            <Header
-                title="My Payouts"
-                description="View your current balance and payment history"
-            />
+        <div className="mx-auto w-full max-w-[1400px] pb-24">
+            <LedgerPageHeader title="Payouts & earnings" description="Every balance is traced to exact sale allocations, deductions, invoices, and payments." />
 
-            {/* Current Balance Section */}
-            <Card variant="elevated" className="mb-6 bg-gradient-to-br from-[var(--color-success)]/10 to-transparent border-[var(--color-success)]/30">
-                <CardContent className="p-6">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                        <div>
-                            <p className="text-sm text-[var(--color-muted)] mb-1">Current Balance</p>
-                            <p className="text-4xl font-bold text-[var(--color-success)]">
-                                {formatCurrency(pendingBalance)}
-                            </p>
-                            <p className="text-sm text-[var(--color-muted)] mt-2">
-                                {pendingItemCount} items sold since last payout
-                            </p>
-                        </div>
-                        <div className="text-right">
-                            <p className="text-xs text-[var(--color-muted)]">Commission Rate</p>
-                            <p className="text-lg font-semibold">
-                                {Math.round((consignor?.commission_split ?? 0.6) * 100)}%
-                            </p>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
+            <section className="grid border border-[var(--color-border)] bg-[var(--color-card)] lg:grid-cols-[1.2fr_1fr_1.4fr]">
+                <div className="p-5 lg:border-r lg:border-[var(--color-border)]"><p className="text-xs text-[var(--color-muted)]">Current payable</p><p className="mt-1 font-display text-4xl">{formatCurrency(summary.current_payable)}</p><div className="mt-3"><ReadinessStatus readiness={summary.readiness} /></div></div>
+                <div className="border-t border-[var(--color-border)] p-5 lg:border-r lg:border-t-0"><p className="mb-3 text-xs text-[var(--color-muted)]">Payout threshold</p><ThresholdProgress current={summary.current_payable} threshold={summary.threshold} /><p className="mt-3 text-xs text-[var(--color-muted)]">{formatCurrency(summary.current_payable)} of {formatCurrency(summary.threshold)}</p></div>
+                <div className="border-t border-[var(--color-border)] p-5 lg:border-t-0"><p className="text-xs text-[var(--color-muted)]">What this means</p><p className="mt-2 text-sm leading-6">{explanation}</p></div>
+            </section>
 
-            {/* Stats Row */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-                <Card variant="outlined">
-                    <CardContent className="p-4 text-center">
-                        <p className="text-xs text-[var(--color-muted)] uppercase">Pending Gross</p>
-                        <p className="text-xl font-bold">{formatCurrency(pendingGrossSales)}</p>
-                    </CardContent>
-                </Card>
-                <Card variant="outlined">
-                    <CardContent className="p-4 text-center">
-                        <p className="text-xs text-[var(--color-muted)] uppercase">Pending Items</p>
-                        <p className="text-xl font-bold">{pendingItemCount}</p>
-                    </CardContent>
-                </Card>
-                {pendingCreditCardFees > 0 && (
-                    <Card variant="outlined" className="border-[var(--color-warning)]">
-                        <CardContent className="p-4 text-center">
-                            <p className="text-xs text-[var(--color-warning)] uppercase">Card Fees</p>
-                            <p className="text-xl font-bold text-[var(--color-warning)]">-{formatCurrency(pendingCreditCardFees)}</p>
-                        </CardContent>
-                    </Card>
-                )}
-                <Card variant="outlined">
-                    <CardContent className="p-4 text-center">
-                        <p className="text-xs text-[var(--color-muted)] uppercase">Total Payouts</p>
-                        <p className="text-xl font-bold">{payouts.length}</p>
-                    </CardContent>
-                </Card>
-                <Card variant="outlined">
-                    <CardContent className="p-4 text-center">
-                        <p className="text-xs text-[var(--color-muted)] uppercase">Earned All Time</p>
-                        <p className="text-xl font-bold text-[var(--color-primary)]">
-                            {formatCurrency(totalPaidAllTime + pendingBalance)}
-                        </p>
-                    </CardContent>
-                </Card>
-            </div>
+            <section className="mt-5 border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">Activity report</p><p className="mt-1 text-sm">Dates change the report view only. Older unpaid money always stays in your balance.</p></div><div className="grid grid-cols-2 gap-2"><Input aria-label="Report start date" type="date" inputSize="sm" value={range.start} onChange={(event) => setRange((current) => ({ ...current, start: event.target.value }))} /><Input aria-label="Report end date" type="date" inputSize="sm" value={range.end} onChange={(event) => setRange((current) => ({ ...current, end: event.target.value }))} /></div></div>
+            </section>
 
-            {/* Pending Sales Details */}
-            {pendingSales.length > 0 && (
-                <Card variant="outlined" className="mb-6">
-                    <CardHeader>
-                        <CardTitle>Sales Since Last Payout</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="max-h-64 overflow-y-auto">
-                            <table className="w-full text-sm">
-                                <thead className="bg-[var(--color-surface)] sticky top-0">
-                                    <tr>
-                                        <th className="text-left px-3 py-2 font-medium">Date</th>
-                                        <th className="text-left px-3 py-2 font-medium">Item</th>
-                                        <th className="text-center px-3 py-2 font-medium">Qty</th>
-                                        <th className="text-right px-3 py-2 font-medium">Net Sale</th>
-                                        <th className="text-right px-3 py-2 font-medium">Your Earnings</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {pendingSales.map((item) => {
-                                        const effectiveQuantity = Math.max(0, item.quantity - item.refunded_quantity);
-                                        const effectiveRatio = item.quantity > 0 ? effectiveQuantity / item.quantity : 0;
-                                        const originalLineTotal = item.price * item.quantity * effectiveRatio;
-                                        const netLineTotal = item.line_total * effectiveRatio;
-                                        const discountAmount = Math.max(0, originalLineTotal - netLineTotal);
+            <div className="mt-5"><FinancialEquation terms={[{ label: 'Opening unpaid balance', amount: summary.opening_balance }, { label: 'Sales earnings & refunds', amount: summary.range_activity, operator: '+' }, { label: 'Applied adjustments', amount: summary.applied_adjustments, operator: '+' }, { label: 'Payouts received', amount: summary.payments_in_range, operator: '−' }, { label: 'Closing balance', amount: summary.closing_balance, operator: '=', emphasize: true }]} note={<>Your current balance today is <strong>{formatCurrency(summary.current_payable)}</strong>. Unpaid invoices are shown separately until applied to a payout or paid directly.</>} /></div>
 
-                                        return (
-                                        <tr key={item.id} className="border-t border-[var(--color-border)]">
-                                            <td className="px-3 py-2 text-[var(--color-muted)]">
-                                                {new Date(item.completed_at).toLocaleDateString()}
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <p className="font-medium">{item.name}</p>
-                                                <p className="text-xs text-[var(--color-muted)] font-mono">
-                                                    {item.sku}
-                                                </p>
-                                            </td>
-                                            <td className="px-3 py-2 text-center">
-                                                {effectiveQuantity}
-                                                {item.refunded_quantity > 0 && (
-                                                    <span className="block text-xs text-[var(--color-danger)]">
-                                                        -{item.refunded_quantity} refunded
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td className="px-3 py-2 text-right">
-                                                {discountAmount > 0.009 ? (
-                                                    <>
-                                                        <p className="text-xs text-[var(--color-muted)] line-through">
-                                                            {formatCurrency(originalLineTotal)}
-                                                        </p>
-                                                        <p>{formatCurrency(netLineTotal)}</p>
-                                                    </>
-                                                ) : (
-                                                    formatCurrency(originalLineTotal)
-                                                )}
-                                            </td>
-                                            <td className="px-3 py-2 text-right font-medium text-[var(--color-success)]">
-                                                {formatCurrency(calculateItemEarnings(item))}
-                                            </td>
-                                        </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
+            {summary.legacy_exception_count > 0 ? <div className="mt-5 flex gap-3 border border-[var(--color-warning)] bg-[var(--color-warning-bg)] p-4 text-sm text-[var(--color-warning)]"><AlertTriangle className="h-5 w-5 shrink-0" /><div><p className="font-medium">Some older records have limited detail</p><p className="mt-1 text-xs">We preserve their saved totals, but do not claim an exact sale match where the historical evidence is incomplete.</p></div></div> : null}
 
-            {/* Payout History */}
-            <Card variant="outlined">
-                <CardHeader>
-                    <CardTitle>Payout History</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    {payouts.length === 0 ? (
-                        <EmptyState
-                            icon={<HistoryIcon />}
-                            title="No payouts yet"
-                            description="Your payout history will appear here once you receive your first payment."
-                        />
-                    ) : (
-                        <div className="space-y-3">
-                            {payouts.map((payout) => (
-                                <button
-                                    key={payout.id}
-                                    onClick={() => openCompletedPayout(payout)}
-                                    className="w-full text-left p-4 rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-surface)] transition-colors"
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-[var(--color-success)]/10 text-[var(--color-success)] flex items-center justify-center">
-                                                <CheckIcon />
-                                            </div>
-                                            <div>
-                                                <p className="font-semibold text-[var(--color-success)]">
-                                                    {formatCurrency(payout.amount)}
-                                                </p>
-                                                <p className="text-sm text-[var(--color-muted)]">
-                                                    {new Date(payout.paid_at).toLocaleDateString('en-US', {
-                                                        year: 'numeric',
-                                                        month: 'long',
-                                                        day: 'numeric',
-                                                    })}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <Badge variant="success">Paid</Badge>
-                                            <p className="text-xs text-[var(--color-muted)] mt-1">
-                                                {payout.items_sold} items
-                                            </p>
-                                        </div>
-                                    </div>
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+            <nav className="mt-7 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]" aria-label="Payout details">
+                {([['sales', 'Sale history'], ['deductions', `Deductions (${workspace.required_adjustments.length})`], ['invoices', `Unpaid invoices (${workspace.invoices.length})`], ['statements', `Statements (${workspace.payout_history.length})`]] as Array<[VendorTab, string]>).map(([value, label]) => <button key={value} type="button" onClick={() => setTab(value)} className={`min-h-11 whitespace-nowrap border-b-2 px-4 text-sm font-medium ${tab === value ? 'border-[var(--color-primary)] text-[var(--color-foreground)]' : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}>{label}</button>)}
+            </nav>
 
-            {/* Payout Detail Modal */}
-            <Modal
-                isOpen={!!selectedPayout}
-                onClose={closeCompletedPayout}
-                title="Completed Payout Report"
-                description="Review the saved payout totals, linked deductions, and sales included in its recorded period."
-                size="4xl"
-            >
-                {selectedPayout && (
-                    <CompletedPayoutDetails
-                        payout={selectedPayout}
-                        details={completedPayoutDetails}
-                        isLoading={isLoadingCompletedPayout}
-                        error={completedPayoutError}
-                    />
-                )}
-                <ModalFooter>
-                    <Button variant="secondary" onClick={closeCompletedPayout}>
-                        Close
-                    </Button>
-                    <Button
-                        onClick={() => {
-                            if (selectedPayout) {
-                                printCompletedPayoutReport(
-                                    selectedPayout,
-                                    completedPayoutDetails || { saleLines: [], deductions: [] },
-                                    consignor
-                                );
-                            }
-                        }}
-                        disabled={isLoadingCompletedPayout}
-                    >
-                        Print Report
-                    </Button>
-                </ModalFooter>
-            </Modal>
+            <section className="mt-4">
+                {tab === 'sales' ? <TransactionLedger items={workspace.sale_items} statementHref={(id) => `/vendor/payouts/${id}`} emptyMessage="No sale activity in this report." /> : null}
+                {tab === 'deductions' ? <div className="grid gap-4 lg:grid-cols-2"><VendorLedgerList title="Will be applied when affordable" rows={applied} empty="No deductions are currently applicable." /><VendorLedgerList title="Pending obligations" rows={pending} empty="No pending obligations." pending /></div> : null}
+                {tab === 'invoices' ? <div className="overflow-hidden border border-[var(--color-border)] bg-[var(--color-card)]">{workspace.invoices.length === 0 ? <p className="p-10 text-center text-sm text-[var(--color-muted)]">No unpaid invoices.</p> : workspace.invoices.map((invoice) => <div key={invoice.id} className="flex min-h-16 items-center gap-4 border-b border-[var(--color-border)] px-4 last:border-b-0"><ReceiptText className="h-5 w-5 text-[var(--color-muted)]" /><div><p className="font-mono text-sm">Invoice #{invoice.invoice_number}</p><p className="text-xs text-[var(--color-muted)]">{new Date(invoice.created_at).toLocaleDateString()} · {invoice.status.replace('_', ' ')}</p></div><div className="ml-auto text-right"><p className="font-display text-xl">{formatCurrency(invoice.balance_due)}</p><p className="text-xs text-[var(--color-muted)]">not yet deducted</p></div></div>)}</div> : null}
+                {tab === 'statements' ? <div className="overflow-hidden border border-[var(--color-border)] bg-[var(--color-card)]">{workspace.payout_history.length === 0 ? <p className="p-10 text-center text-sm text-[var(--color-muted)]">No payout statements yet.</p> : workspace.payout_history.map((payout) => <Link key={payout.id} to={`/vendor/payouts/${payout.id}`} className="flex min-h-16 items-center gap-4 border-b border-[var(--color-border)] px-4 last:border-b-0 hover:bg-[var(--color-surface-hover)]"><FileText className="h-5 w-5 text-[var(--color-muted)]" /><div><p className="font-mono text-sm">Payout #{payout.id.slice(0, 8).toUpperCase()}</p><p className="text-xs text-[var(--color-muted)]">{payout.paid_at ? new Date(payout.paid_at).toLocaleDateString() : payout.status} · {payout.historical_confidence === 'legacy_unverified' ? 'legacy record' : 'exact statement'}</p></div><p className="ml-auto font-display text-xl">{formatCurrency(payout.amount)}</p></Link>)}</div> : null}
+            </section>
         </div>
     );
 }
 
-// Icons
-function HistoryIcon() {
-    return (
-        <svg
-            width="48"
-            height="48"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-            <path d="M3 3v5h5" />
-            <path d="M12 7v5l4 2" />
-        </svg>
-    );
-}
-
-function CheckIcon() {
-    return (
-        <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <polyline points="20 6 9 17 4 12" />
-        </svg>
-    );
+function VendorLedgerList({ title, rows, empty, pending = false }: { title: string; rows: VendorPayoutWorkspaceData['required_adjustments']; empty: string; pending?: boolean }) {
+    return <div className="border border-[var(--color-border)] bg-[var(--color-card)]"><h2 className="border-b border-[var(--color-border)] px-4 py-3 font-display text-xl">{title}</h2>{rows.length === 0 ? <p className="p-6 text-sm text-[var(--color-muted)]">{empty}</p> : rows.map((row) => <div key={`${row.source_table}-${row.source_reference}`} className="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-3 last:border-b-0"><div><p className="text-sm font-medium">{row.description}</p><p className={`text-xs ${pending ? 'text-[var(--color-warning)]' : 'text-[var(--color-muted)]'}`}>{pending ? row.pending_reason || 'Pending' : row.adjustment_type.replace(/_/g, ' ')}</p></div><p className="ml-auto font-medium">{formatCurrency(row.signed_amount)}</p></div>)}</div>;
 }

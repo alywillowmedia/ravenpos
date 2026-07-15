@@ -23,12 +23,6 @@ interface UpdateInvoiceRecipientInput {
     recipientEmail?: string | null;
 }
 
-const getInvoicePaymentStatus = (amountPaid: number, total: number): InvoiceStatus => {
-    if (amountPaid <= 0) return 'unpaid';
-    if (amountPaid >= total) return 'paid';
-    return 'partially_paid';
-};
-
 export function useInvoices() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -156,24 +150,32 @@ export function useInvoices() {
 
     const updateInvoiceStatus = useCallback(async (invoiceId: string, status: Exclude<InvoiceStatus, 'partially_paid'>) => {
         try {
+            if (status === 'unpaid') {
+                return { data: null, error: 'Paid invoices cannot be reset. Record a reasoned reversal instead.' };
+            }
             const { data: existingInvoice, error: fetchError } = await supabase
                 .from('invoices')
-                .select('total')
+                .select('total, amount_paid')
                 .eq('id', invoiceId)
                 .single();
 
             if (fetchError) throw fetchError;
 
-            const isPaid = status === 'paid';
+            const remaining = Number(existingInvoice.total || 0) - Number(existingInvoice.amount_paid || 0);
+            if (remaining > 0) {
+                const { error: paymentError } = await supabase.rpc('record_invoice_payment', {
+                    p_invoice_id: invoiceId,
+                    p_amount: remaining,
+                    p_paid_date: new Date().toISOString().slice(0, 10),
+                    p_reference: null,
+                    p_notes: 'Recorded through legacy mark-paid action',
+                });
+                if (paymentError) throw paymentError;
+            }
             const { data, error: updateError } = await supabase
                 .from('invoices')
-                .update({
-                    status,
-                    amount_paid: isPaid ? Number(existingInvoice.total || 0) : 0,
-                    paid_at: isPaid ? new Date().toISOString() : null,
-                })
-                .eq('id', invoiceId)
                 .select('*')
+                .eq('id', invoiceId)
                 .single();
 
             if (updateError) throw updateError;
@@ -192,28 +194,18 @@ export function useInvoices() {
                 return { data: null, error: 'Payment amount must be greater than 0' };
             }
 
-            const { data: existingInvoice, error: fetchError } = await supabase
-                .from('invoices')
-                .select('total, amount_paid')
-                .eq('id', invoiceId)
-                .single();
-
-            if (fetchError) throw fetchError;
-
-            const total = Number(existingInvoice.total || 0);
-            const currentAmountPaid = Number(existingInvoice.amount_paid || 0);
-            const nextAmountPaid = Math.min(total, Number((currentAmountPaid + numericAmount).toFixed(2)));
-            const nextStatus = getInvoicePaymentStatus(nextAmountPaid, total);
-
+            const { error: paymentError } = await supabase.rpc('record_invoice_payment', {
+                p_invoice_id: invoiceId,
+                p_amount: numericAmount,
+                p_paid_date: new Date().toISOString().slice(0, 10),
+                p_reference: null,
+                p_notes: null,
+            });
+            if (paymentError) throw paymentError;
             const { data, error: updateError } = await supabase
                 .from('invoices')
-                .update({
-                    amount_paid: nextAmountPaid,
-                    status: nextStatus,
-                    paid_at: nextStatus === 'paid' ? new Date().toISOString() : null,
-                })
-                .eq('id', invoiceId)
                 .select('*')
+                .eq('id', invoiceId)
                 .single();
 
             if (updateError) throw updateError;

@@ -542,8 +542,8 @@ function getDeferredBalanceCarryover(payouts: Payout[], endDate: string): number
 
     for (const payout of payoutTimeline) {
         if (!payout.is_partial) {
-            const isDateRangePayout = payout.notes?.startsWith('[Range Payout:') === true;
-            const includesDeferredCarryover = payout.notes?.includes('[Deferred Carryover Included]') === true;
+            const isDateRangePayout = payout.range_mode === 'selected_range';
+            const includesDeferredCarryover = payout.include_prior_balance !== false;
             if (!isDateRangePayout || includesDeferredCarryover) {
                 deferredBalanceOutstanding = 0;
             }
@@ -984,7 +984,27 @@ export async function loadConsignorTaxReport(options: ConsignorTaxReportOptions)
     );
     const reportData = await fetchConsignorReportData(consignors.map((consignor) => consignor.id));
 
-    return buildConsignorTaxReportFromData(consignors, reportData, options);
+    const report = buildConsignorTaxReportFromData(consignors, reportData, options);
+    const { data: canonicalQueue, error } = await supabase.rpc('get_payout_queue', {
+        p_range_start: options.startDate,
+        p_range_end: options.endDate,
+    });
+    if (error) throw error;
+    const canonicalByVendor = new Map((canonicalQueue as unknown as Array<{
+        vendor: { id: string };
+        summary: { closing_balance: number };
+        payout_history: Array<{ status: string; paid_at: string | null }>;
+    }> || []).map((workspace) => [workspace.vendor.id, workspace]));
+    for (const row of report.rows) {
+        const canonical = canonicalByVendor.get(row.consignor.id);
+        if (!canonical) continue;
+        row.openPayoutEstimate = roundCurrency(Number(canonical.summary.closing_balance || 0));
+        row.lastCoveredPayoutThrough = canonical.payout_history
+            .filter((payout) => payout.status === 'paid' && payout.paid_at && isDateOnOrBeforeReportEnd(payout.paid_at, options.endDate))
+            .map((payout) => payout.paid_at as string)
+            .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] || null;
+    }
+    return report;
 }
 
 export function buildConsignorTaxSummaryFilename(report: Pick<ConsignorTaxReport, 'startDate' | 'endDate'>): string {
@@ -1408,105 +1428,46 @@ export function printConsignorTaxStatements(report: ConsignorTaxReport, selected
     return true;
 }
 
-function getJoinedRecord<T>(value: T | T[] | null | undefined): T | null {
-    if (!value) return null;
-    return Array.isArray(value) ? value[0] || null : value;
-}
-
 export async function loadCompletedPayoutDetails(payout: Payout): Promise<CompletedPayoutDetails> {
-    const payoutIdFragment = payout.id.slice(0, 8);
-    const [reportData, boothRentPayments, marketingAllocations, ledgerEntries, invoiceDeductions] = await Promise.all([
-        fetchConsignorReportData([payout.consignor_id]),
-        fetchAllRows<{
-            id: string;
-            amount: number | string;
-            period_month: number;
-            period_year: number;
-            notes: string | null;
-        }>(() => supabase
-            .from('booth_rent_payments')
-            .select('id, amount, period_month, period_year, notes')
-            .eq('consignor_id', payout.consignor_id)
-            .ilike('notes', `%${payoutIdFragment}%`)
-            .order('period_year')
-            .order('period_month')
-        ),
-        fetchAllRows<{
-            id: string;
-            amount: number | string;
-            marketing_fee: { title: string; description: string | null } | Array<{ title: string; description: string | null }> | null;
-        }>(() => supabase
-            .from('marketing_fee_allocations')
-            .select('id, amount, marketing_fee:marketing_fees(title, description)')
-            .eq('deducted_payout_id', payout.id)
-            .order('created_at')
-        ),
-        fetchAllRows<{
-            id: string;
-            description: string;
-            amount: number | string;
-        }>(() => supabase
-            .from('vendor_ledger_entries')
-            .select('id, description, amount')
-            .eq('deducted_payout_id', payout.id)
-            .order('created_at')
-        ),
-        fetchAllRows<{
-            id: string;
-            amount: number | string;
-            invoice: { id: string; recipient_name: string; notes: string | null } | Array<{ id: string; recipient_name: string; notes: string | null }> | null;
-        }>(() => supabase
-            .from('invoice_payout_deductions')
-            .select('id, amount, invoice:invoices(id, recipient_name, notes)')
-            .eq('payout_id', payout.id)
-            .order('created_at')
-        ),
-    ]);
-
-    const periodStart = new Date(payout.period_start).getTime();
-    const periodEnd = new Date(payout.period_end).getTime();
-    const saleLines = (reportData.linesByConsignor.get(payout.consignor_id) || []).filter((line) => {
-        const saleDate = new Date(line.saleDate).getTime();
-        return Number.isFinite(saleDate) && saleDate >= periodStart && saleDate <= periodEnd;
+    const { data, error } = await supabase.rpc('get_payout_statement', { p_payout_id: payout.id });
+    if (error) throw error;
+    const statement = data as unknown as {
+        allocations: Array<Record<string, unknown>>;
+        adjustments: Array<Record<string, unknown>>;
+    };
+    const saleLines: CompletedPayoutSaleLine[] = (statement.allocations || []).map((row) => ({
+        saleItemId: String(row.sale_item_id),
+        saleDate: String(row.sale_timestamp),
+        saleId: String(row.sale_id),
+        sku: String(row.sku || ''),
+        itemName: String(row.item_name || ''),
+        quantity: Number(row.quantity || 0),
+        refundedQuantity: Number(row.refunded_quantity || 0),
+        unitPrice: Number(row.unit_price || 0),
+        lineTotal: Number(row.net_line_amount || 0),
+        commissionSplit: Number(row.commission_percentage || 0) / 100,
+        consignorShare: Number(row.amount_settled || 0),
+        storeShare: Number(row.net_line_amount || 0) - Number(row.vendor_earnings_before_fees || 0),
+        taxAmount: 0,
+        creditCardFee: Number(row.allocated_card_fee || 0),
+    }));
+    const deductions: CompletedPayoutDeductionLine[] = (statement.adjustments || []).filter((row) => Number(row.amount || 0) < 0).map((row) => {
+        const adjustmentType = String(row.adjustment_type || '');
+        const type: CompletedPayoutDeductionLine['type'] = adjustmentType === 'booth_rent'
+            ? 'booth_rent'
+            : adjustmentType === 'marketing_fee'
+                ? 'marketing'
+                : adjustmentType === 'invoice_deduction'
+                    ? 'invoice'
+                    : 'ledger';
+        return {
+            id: String(row.id),
+            type,
+            label: String(row.description || adjustmentType.replace(/_/g, ' ')),
+            description: String(row.source_reference || '') || null,
+            amount: Math.abs(Number(row.amount || 0)),
+        };
     });
-
-    const deductions: CompletedPayoutDeductionLine[] = [
-        ...boothRentPayments.map((payment) => ({
-            id: payment.id,
-            type: 'booth_rent' as const,
-            label: `Booth Rent ${payment.period_month}/${payment.period_year}`,
-            description: payment.notes,
-            amount: Number(payment.amount || 0),
-        })),
-        ...marketingAllocations.map((allocation) => {
-            const fee = getJoinedRecord(allocation.marketing_fee);
-            return {
-                id: allocation.id,
-                type: 'marketing' as const,
-                label: fee?.title || 'Marketing Fee',
-                description: fee?.description || null,
-                amount: Number(allocation.amount || 0),
-            };
-        }),
-        ...ledgerEntries.map((entry) => ({
-            id: entry.id,
-            type: 'ledger' as const,
-            label: entry.description,
-            description: null,
-            amount: Number(entry.amount || 0),
-        })),
-        ...invoiceDeductions.map((deduction) => {
-            const invoice = getJoinedRecord(deduction.invoice);
-            return {
-                id: deduction.id,
-                type: 'invoice' as const,
-                label: invoice ? `Invoice #${invoice.id.slice(0, 8).toUpperCase()}` : 'Vendor Invoice',
-                description: invoice?.notes || invoice?.recipient_name || null,
-                amount: Number(deduction.amount || 0),
-            };
-        }),
-    ];
-
     return { saleLines, deductions };
 }
 

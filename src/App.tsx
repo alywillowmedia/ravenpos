@@ -22,6 +22,9 @@ import { Labels } from './pages/Labels';
 import { POS } from './pages/POS';
 import { Sales } from './pages/Sales';
 import { Payouts } from './pages/Payouts';
+import { VendorPayoutWorkspace } from './pages/payouts/VendorPayoutWorkspace';
+import { PayoutDraftReview } from './pages/payouts/PayoutDraftReview';
+import { PayoutStatementPage } from './pages/payouts/PayoutStatementPage';
 import { Customers } from './pages/Customers';
 import { Employees } from './pages/Employees';
 import { EmployeeRoleSettings } from './pages/EmployeeRoleSettings';
@@ -37,6 +40,7 @@ import { AdminProfile } from './pages/AdminProfile';
 import { EmailCampaigns } from './pages/EmailCampaigns';
 import { MarketingFees } from './pages/MarketingFees';
 import { Invoices } from './pages/Invoices';
+import { InvoiceDetail } from './pages/InvoiceDetail';
 import { TaxReports } from './pages/TaxReports';
 import { Dealers } from './pages/Dealers';
 import { DealerPurchases } from './pages/DealerPurchases';
@@ -163,7 +167,11 @@ export default function App() {
                         <Route path="pos" element={<POS />} />
                         <Route path="sales" element={<Sales />} />
                         <Route path="payouts" element={<Payouts />} />
+                        <Route path="payouts/vendor/:consignorId" element={<VendorPayoutWorkspace />} />
+                        <Route path="payouts/drafts/:payoutId" element={<PayoutDraftReview />} />
+                        <Route path="payouts/history/:payoutId" element={<PayoutStatementPage />} />
                         <Route path="finances/invoices" element={<Invoices />} />
+                        <Route path="finances/invoices/:invoiceId" element={<InvoiceDetail />} />
                         <Route path="finances/tax-reports" element={<TaxReports />} />
                         <Route path="finances/categories" element={<CategoryTaxSettings />} />
                         <Route path="finances/marketing-fees" element={<MarketingFees />} />
@@ -199,6 +207,7 @@ export default function App() {
                         <Route path="labels" element={<VendorLabels />} />
                         <Route path="sales" element={<VendorSales />} />
                         <Route path="payouts" element={<VendorPayouts />} />
+                        <Route path="payouts/:payoutId" element={<PayoutStatementPage />} />
                         <Route path="storefront" element={<VendorStorefront />} />
                         <Route path="profile" element={<VendorProfile />} />
                         <Route path="messages" element={<Messages />} />
