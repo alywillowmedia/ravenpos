@@ -1,6 +1,11 @@
 import type { CompletedPayoutDetails } from './consignorReports';
 import { getConsignorDisplayName, getConsignorPayToName } from './consignors';
 import type { Consignor, Payout } from '../types';
+import type { PayoutStatementData } from '../types/payouts';
+
+type ReportConsignor = Partial<Consignor> & {
+    pay_to_name?: string | null;
+};
 
 function escapeHtml(value: unknown): string {
     return String(value ?? '')
@@ -15,13 +20,14 @@ function money(value: number | null | undefined): string {
     return Number(value || 0).toFixed(2);
 }
 
-export function printCompletedPayoutReport(
+export function buildCompletedPayoutReportHtml(
     payout: Payout,
     details: CompletedPayoutDetails,
-    consignor: Consignor | null | undefined = payout.consignor
-): boolean {
+    consignor: ReportConsignor | null | undefined = payout.consignor
+): string {
     const consignorName = consignor ? getConsignorDisplayName(consignor) : 'Unknown Vendor';
-    const payToName = consignor ? getConsignorPayToName(consignor) : consignorName;
+    const payToName = consignor?.pay_to_name?.trim()
+        || (consignor ? getConsignorPayToName(consignor) : consignorName);
     const deductionRows = details.deductions.map((deduction) => `
         <tr>
             <td>${escapeHtml(deduction.label)}</td>
@@ -138,6 +144,10 @@ export function printCompletedPayoutReport(
         </html>
     `;
 
+    return html;
+}
+
+function openPayoutReport(html: string): boolean {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return false;
 
@@ -148,4 +158,61 @@ export function printCompletedPayoutReport(
         printWindow.print();
     };
     return true;
+}
+
+export function printCompletedPayoutReport(
+    payout: Payout,
+    details: CompletedPayoutDetails,
+    consignor: ReportConsignor | null | undefined = payout.consignor
+): boolean {
+    return openPayoutReport(buildCompletedPayoutReportHtml(payout, details, consignor));
+}
+
+function buildPayoutStatementDetails(statement: PayoutStatementData): CompletedPayoutDetails {
+    return {
+        saleLines: statement.allocations.map((row) => ({
+            saleItemId: row.sale_item_id,
+            saleDate: row.sale_timestamp,
+            saleId: row.sale_id,
+            sku: row.sku,
+            itemName: row.item_name,
+            quantity: Number(row.quantity || 0),
+            refundedQuantity: Number(row.refunded_quantity || 0),
+            unitPrice: Number(row.unit_price || 0),
+            lineTotal: Number(row.net_line_amount || 0),
+            commissionSplit: Number(row.commission_percentage || 0) / 100,
+            consignorShare: Number(row.amount_settled || 0),
+            storeShare: Number(row.net_line_amount || 0) - Number(row.vendor_earnings_before_fees || 0),
+            taxAmount: 0,
+            creditCardFee: Number(row.allocated_card_fee || 0),
+        })),
+        deductions: statement.adjustments
+            .filter((row) => Number(row.amount || 0) < 0)
+            .map((row) => {
+                const adjustmentType = row.adjustment_type;
+                const type = adjustmentType === 'booth_rent'
+                    ? 'booth_rent'
+                    : adjustmentType === 'marketing_fee'
+                        ? 'marketing'
+                        : adjustmentType === 'invoice_deduction'
+                            ? 'invoice'
+                            : 'ledger';
+                return {
+                    id: row.id,
+                    type,
+                    label: row.description || adjustmentType.replace(/_/g, ' '),
+                    description: row.source_reference || null,
+                    amount: Math.abs(Number(row.amount || 0)),
+                };
+            }),
+    };
+}
+
+export function buildPayoutStatementReportHtml(statement: PayoutStatementData): string {
+    const payout = statement.payout as unknown as Payout;
+    return buildCompletedPayoutReportHtml(payout, buildPayoutStatementDetails(statement), statement.vendor);
+}
+
+export function printPayoutStatementReport(statement: PayoutStatementData): boolean {
+    return openPayoutReport(buildPayoutStatementReportHtml(statement));
 }

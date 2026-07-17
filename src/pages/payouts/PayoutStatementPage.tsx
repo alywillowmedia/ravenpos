@@ -8,6 +8,7 @@ import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { Modal, ModalFooter } from '../../components/ui/Modal';
 import { useToast } from '../../contexts/ToastContext';
 import { getPayoutStatement, voidPayout } from '../../hooks/usePayouts';
+import { printPayoutStatementReport } from '../../lib/completedPayoutReport';
 import { formatCurrency } from '../../lib/utils';
 import type { PayoutStatementData } from '../../types/payouts';
 
@@ -63,6 +64,13 @@ export function PayoutStatementPage() {
         URL.revokeObjectURL(url);
     };
 
+    const print = () => {
+        if (!statement) return;
+        if (!printPayoutStatementReport(statement)) {
+            toast.error('Unable to open payout report', 'Allow pop-ups for RavenPOS, then try printing again.');
+        }
+    };
+
     const confirmVoid = async () => {
         if (!voidReason.trim()) return;
         setIsVoiding(true);
@@ -92,7 +100,7 @@ export function PayoutStatementPage() {
                     title={`Payout statement #${payoutId.slice(0, 8).toUpperCase()}`}
                     description={`${statement.vendor.business_name || statement.vendor.name} · ${payout.status} · ${payout.historical_confidence.replace(/_/g, ' ')}`}
                     locked
-                    actions={<><Button variant="secondary" leftIcon={<Printer className="h-4 w-4" />} onClick={() => window.print()}>Print</Button><Button variant="secondary" leftIcon={<Download className="h-4 w-4" />} onClick={download}>Export</Button>{!isVendor && payout.status === 'paid' ? <Button variant="danger" leftIcon={<RotateCcw className="h-4 w-4" />} onClick={() => setShowVoid(true)}>Void</Button> : null}</>}
+                    actions={<><Button variant="secondary" leftIcon={<Printer className="h-4 w-4" />} onClick={print}>Print</Button><Button variant="secondary" leftIcon={<Download className="h-4 w-4" />} onClick={download}>Export</Button>{!isVendor && payout.status === 'paid' ? <Button variant="danger" leftIcon={<RotateCcw className="h-4 w-4" />} onClick={() => setShowVoid(true)}>Void</Button> : null}</>}
                 />
             </div>
 
