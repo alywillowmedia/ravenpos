@@ -180,8 +180,12 @@ export interface PayoutStatementData {
         payment_date: string | null;
         cutoff_at: string | null;
         range_mode: PayoutRangeMode;
+        source_range_start: string | null;
+        source_range_end: string | null;
         include_prior_balance: boolean;
         threshold_snapshot: number | null;
+        payable_before_invoices_snapshot: number | null;
+        below_threshold_override_reason: string | null;
         historical_confidence: HistoricalConfidence;
         reconciliation_explanation: string | null;
         notes: string | null;
