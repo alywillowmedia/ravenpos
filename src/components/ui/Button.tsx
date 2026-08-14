@@ -47,7 +47,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
             secondary: `
         bg-[var(--color-surface)] text-[var(--color-foreground)]
         border border-[var(--color-border)]
-        hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-muted-foreground)]
+        shadow-[var(--shadow-control)]
+        hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-border-strong)]
         focus-visible:ring-[var(--color-ring)]
       `,
             ghost: `

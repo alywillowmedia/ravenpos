@@ -2,6 +2,37 @@ import { describe, expect, it } from 'vitest';
 import { parseReaderCustomerInput, type CollectInputsResult } from '../../src/hooks/useStripeTerminal';
 
 describe('Stripe Terminal customer input parsing', () => {
+    it('combines required first and last name reader inputs for Supabase', () => {
+        const result: CollectInputsResult = {
+            inputs: [
+                { id: 'customer_first_name', value: ' Jane ' },
+                { id: 'customer_last_name', value: ' Raven ' },
+                { id: 'customer_phone', phone: '5551234567' },
+                { id: 'customer_email', email: 'jane@example.com', toggleResults: [{ enabled: true }] },
+            ],
+        };
+
+        expect(parseReaderCustomerInput(result)).toEqual({
+            name: 'Jane Raven',
+            phone: '5551234567',
+            email: 'jane@example.com',
+            acceptsMarketing: true,
+        });
+    });
+
+    it('rejects split reader names when the last name is missing', () => {
+        const result: CollectInputsResult = {
+            inputs: [
+                { id: 'customer_first_name', value: 'Jane' },
+                { id: 'customer_last_name', value: '' },
+                { id: 'customer_phone', skipped: true },
+                { id: 'customer_email', skipped: true },
+            ],
+        };
+
+        expect(parseReaderCustomerInput(result)).toBeNull();
+    });
+
     it('reads nested values returned by collected reader inputs', () => {
         const result: CollectInputsResult = {
             collectInputs: {

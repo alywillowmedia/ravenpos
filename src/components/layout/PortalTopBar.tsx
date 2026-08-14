@@ -87,7 +87,7 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
 
     return (
         <>
-            <header className="sticky top-0 z-30 h-16 border-b border-[var(--color-border)] bg-[var(--color-surface-elevated)]/96 backdrop-blur">
+            <header className="sticky top-0 z-30 h-16 border-b border-[var(--color-border)] bg-[var(--color-surface-elevated)]/96 shadow-[var(--shadow-shell)] backdrop-blur">
                 <div className="flex h-full items-center justify-between gap-3 px-4 sm:px-6 lg:px-7">
                     <div className="min-w-0">
                         <p className="truncate text-xs font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">

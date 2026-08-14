@@ -16,9 +16,9 @@
   --color-foreground: #1a1714;   /* charcoal ink */
   --color-muted: #625a50;        /* stone — AA on light surfaces */
   --color-muted-foreground: #756c60;
-  --color-border: #d9d1c6;       /* warm structural hairline */
-  --color-border-strong: #968b7d;
-  --color-input: #968b7d;
+  --color-border: #e5ded5;       /* quiet warm hairline */
+  --color-border-strong: #b5aa9d;
+  --color-input: #c9beb1;
   --color-ring: #8a2b22;
 
   /* Surface colors */
@@ -60,6 +60,9 @@
   --shadow-md: 0 2px 4px -1px rgb(26 23 20 / 0.06), 0 8px 20px -12px rgb(26 23 20 / 0.12);
   --shadow-lg: 0 4px 8px -2px rgb(26 23 20 / 0.07), 0 16px 32px -14px rgb(26 23 20 / 0.16);
   --shadow-xl: 0 8px 16px -4px rgb(26 23 20 / 0.08), 0 28px 48px -18px rgb(26 23 20 / 0.22);
+  --shadow-control: 0 1px 2px rgb(26 23 20 / 0.045), 0 4px 12px -8px rgb(26 23 20 / 0.14);
+  --shadow-surface: 0 1px 2px rgb(26 23 20 / 0.04), 0 12px 28px -18px rgb(26 23 20 / 0.2);
+  --shadow-shell: 0 10px 32px -26px rgb(26 23 20 / 0.24);
 
   /* Transitions */
   --transition-fast: 100ms ease;
@@ -89,15 +92,24 @@
   --color-foreground: #f3ede4;   /* warm off-white */
   --color-muted: #c0b3a3;
   --color-muted-foreground: #ada08f;
-  --color-border: #4b4038;
-  --color-border-strong: #8a7b6e;
-  --color-input: #8a7b6e;
+  --color-border: #352c26;
+  --color-border-strong: #62544a;
+  --color-input: #51443b;
   --color-ring: #c8745e;
 
   --color-surface: #1d1713;
   --color-surface-elevated: #241c17;
   --color-surface-hover: #2a221c;
   --color-card: #211a16;
+
+  /* Dark surfaces separate through tone and depth, not bright outlines. */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.2);
+  --shadow-md: inset 0 1px 0 rgb(255 247 237 / 0.025), 0 2px 5px rgb(0 0 0 / 0.22), 0 12px 28px -20px rgb(0 0 0 / 0.8);
+  --shadow-lg: inset 0 1px 0 rgb(255 247 237 / 0.03), 0 5px 12px rgb(0 0 0 / 0.28), 0 22px 40px -24px rgb(0 0 0 / 0.88);
+  --shadow-xl: inset 0 1px 0 rgb(255 247 237 / 0.035), 0 10px 24px rgb(0 0 0 / 0.34), 0 30px 56px -28px rgb(0 0 0 / 0.94);
+  --shadow-control: inset 0 1px 0 rgb(255 247 237 / 0.02), 0 2px 8px -4px rgb(0 0 0 / 0.72);
+  --shadow-surface: inset 0 1px 0 rgb(255 247 237 / 0.025), 0 2px 5px rgb(0 0 0 / 0.24), 0 16px 34px -24px rgb(0 0 0 / 0.9);
+  --shadow-shell: 0 12px 36px -28px rgb(0 0 0 / 0.95);
 
   /* Lifted clay — warmer/brighter so it carries on a dark canvas */
   --color-primary: #cf7a64;

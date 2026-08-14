@@ -57,7 +57,7 @@ export function Tabs({ tabs, activeTab, onChange, className, size = 'md', ariaLa
                             "min-w-max flex-1 font-medium leading-5 transition-colors duration-150 focus-visible:z-10",
                             buttonSize,
                             isActive
-                                ? "bg-[var(--color-card)] text-[var(--color-primary)] shadow-sm ring-1 ring-[var(--color-border)]"
+                                ? "bg-[var(--color-card)] text-[var(--color-primary)] shadow-[var(--shadow-control)]"
                                 : "text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]"
                         )}
                         type="button"

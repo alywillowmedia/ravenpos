@@ -2528,11 +2528,11 @@ export function POS() {
                     <Card variant="default" className="flex-1 min-h-0 overflow-hidden">
                         <CardContent className="h-full flex flex-col min-h-0">
                             {/* Payment Method Toggle */}
-                            <div className="flex gap-2 mb-4">
+                            <div className="grid grid-cols-4 gap-2 mb-4">
                                 <button
                                     onClick={() => setPaymentMethod('cash')}
                                     aria-pressed={paymentMethod === 'cash'}
-                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'cash'
+                                    className={`min-w-0 py-2 px-1 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${paymentMethod === 'cash'
                                         ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                         }`}
@@ -2544,7 +2544,7 @@ export function POS() {
                                     onClick={() => setPaymentMethod('check')}
                                     aria-pressed={paymentMethod === 'check'}
                                     disabled={isOfflineMode}
-                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'check'
+                                    className={`min-w-0 py-2 px-1 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${paymentMethod === 'check'
                                         ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                         } ${isOfflineMode ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -2556,7 +2556,7 @@ export function POS() {
                                     onClick={() => setPaymentMethod('card')}
                                     aria-pressed={paymentMethod === 'card'}
                                     disabled={isOfflineMode}
-                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'card'
+                                    className={`min-w-0 py-2 px-1 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${paymentMethod === 'card'
                                         ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                         } ${isOfflineMode ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -2568,7 +2568,7 @@ export function POS() {
                                     onClick={() => setPaymentMethod('split')}
                                     aria-pressed={paymentMethod === 'split'}
                                     disabled={isOfflineMode}
-                                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${paymentMethod === 'split'
+                                    className={`min-w-0 py-2 px-1 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${paymentMethod === 'split'
                                         ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                         } ${isOfflineMode ? 'opacity-50 cursor-not-allowed' : ''}`}

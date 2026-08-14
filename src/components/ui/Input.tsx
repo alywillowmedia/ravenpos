@@ -127,6 +127,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       w-full rounded-lg
       bg-[var(--color-surface-elevated)]
       border border-[var(--color-input)]
+      shadow-[var(--shadow-control)]
       text-[var(--color-foreground)]
       placeholder:text-[var(--color-muted-foreground)]
       transition-all duration-150
@@ -289,6 +290,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
       w-full rounded-lg
       bg-[var(--color-surface-elevated)]
       border border-[var(--color-input)]
+      shadow-[var(--shadow-control)]
       text-[var(--color-foreground)]
       placeholder:text-[var(--color-muted-foreground)]
       transition-all duration-150

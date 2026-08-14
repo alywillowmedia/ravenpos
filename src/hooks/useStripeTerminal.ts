@@ -80,7 +80,7 @@ interface CollectInputToggle {
 }
 
 interface CollectInputRequest {
-    id: 'customer_name' | 'customer_phone' | 'customer_email';
+    id: 'customer_first_name' | 'customer_last_name' | 'customer_phone' | 'customer_email';
     formType: CollectInputFormType;
     title: string;
     description?: string;
@@ -277,6 +277,7 @@ function getInputKind(input: CollectInputResponse | undefined): string | null {
 function getCollectedInput(result: CollectInputsResult, index: number, id: string, kind: CollectInputFormType): CollectInputResponse | undefined {
     const inputs = getCollectedInputs(result);
     return inputs.find((input) => input.id === id)
+        || (getInputKind(inputs[index]) === kind ? inputs[index] : undefined)
         || inputs.find((input) => getInputKind(input) === kind)
         || inputs[index];
 }
@@ -362,12 +363,22 @@ function getInputValue(input: CollectInputResponse | undefined): string {
 }
 
 export function parseReaderCustomerInput(result: CollectInputsResult): ReaderCustomerInput | null {
-    const nameInput = getCollectedInput(result, 0, 'customer_name', 'text');
-    const phoneInput = getCollectedInput(result, 1, 'customer_phone', 'phone');
-    const emailInput = getCollectedInput(result, 2, 'customer_email', 'email');
-    const name = getInputValue(nameInput).trim();
+    const inputs = getCollectedInputs(result);
+    const usesSplitNameInputs = inputs.some((input) => (
+        input.id === 'customer_first_name' || input.id === 'customer_last_name'
+    )) || inputs.filter((input) => getInputKind(input) === 'text').length >= 2;
 
-    if (!name) {
+    const firstNameInput = getCollectedInput(result, 0, 'customer_first_name', 'text');
+    const lastNameInput = usesSplitNameInputs
+        ? getCollectedInput(result, 1, 'customer_last_name', 'text')
+        : undefined;
+    const phoneInput = getCollectedInput(result, usesSplitNameInputs ? 2 : 1, 'customer_phone', 'phone');
+    const emailInput = getCollectedInput(result, usesSplitNameInputs ? 3 : 2, 'customer_email', 'email');
+    const firstName = getInputValue(firstNameInput).trim();
+    const lastName = getInputValue(lastNameInput).trim();
+    const name = usesSplitNameInputs ? `${firstName} ${lastName}`.trim() : firstName;
+
+    if (!firstName || (usesSplitNameInputs && !lastName)) {
         return null;
     }
 
@@ -660,10 +671,18 @@ export function useStripeTerminal() {
             const result = await terminalRef.current.collectInputs({
                 inputs: [
                     {
-                        id: 'customer_name',
+                        id: 'customer_first_name',
                         formType: 'text',
-                        title: 'Join Ravenlia',
-                        description: 'Enter your name to save your customer profile.',
+                        title: 'First Name',
+                        description: 'Enter your first name to start your customer profile.',
+                        required: true,
+                        submitButtonText: 'Continue',
+                    },
+                    {
+                        id: 'customer_last_name',
+                        formType: 'text',
+                        title: 'Last Name',
+                        description: 'Enter your last name to complete your customer profile.',
                         required: true,
                         submitButtonText: 'Continue',
                     },

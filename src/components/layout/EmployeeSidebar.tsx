@@ -58,10 +58,10 @@ export function EmployeeSidebar() {
     return (
         <>
             <aside aria-label="Employee navigation" className={cn(
-                'fixed inset-y-0 left-0 z-40 flex flex-col border-r border-[var(--color-border)] bg-[var(--color-surface-elevated)] transition-[width] duration-200',
+                'fixed inset-y-0 left-0 z-40 flex flex-col border-r border-[var(--color-border)] bg-[var(--color-surface-elevated)] shadow-[var(--shadow-shell)] transition-[width] duration-200',
                 isCollapsed ? 'w-[72px]' : 'w-64'
             )}>
-                <div className={cn('flex h-16 items-center border-b border-[var(--color-border)]', isCollapsed ? 'justify-center px-2' : 'px-4')}>
+                <div className={cn('flex h-16 items-center', isCollapsed ? 'justify-center px-2' : 'px-4')}>
                     {isCollapsed ? (
                         <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--color-primary)] font-semibold text-[var(--color-primary-foreground)]">R</span>
                     ) : (
