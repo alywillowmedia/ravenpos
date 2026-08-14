@@ -116,6 +116,13 @@ export function buildEmployeeSchedulePrintHtml({
         const dateKey = schedulePrintDateKey(day);
         const outsideMonth = isMonth && (day < period.start || day > period.end);
         const dayShifts = outsideMonth ? [] : (shiftsByDate.get(dateKey) || []);
+        const densityClass = isMonth
+            ? dayShifts.length >= 4
+                ? ' dense'
+                : dayShifts.length === 3
+                    ? ' medium'
+                    : ' roomy'
+            : '';
         const shiftMarkup = outsideMonth
             ? ''
             : dayShifts.length === 0
@@ -128,7 +135,7 @@ export function buildEmployeeSchedulePrintHtml({
                 </div>`).join('');
 
         return `
-            <section class="day${outsideMonth ? ' outside' : ''}">
+            <section class="day${outsideMonth ? ' outside' : ''}${densityClass}">
                 <div class="day-heading">
                     <strong>${escapeHtml(day.toLocaleDateString([], { weekday: 'short' }))}</strong>
                     <span>${escapeHtml(day.toLocaleDateString([], { month: 'short', day: 'numeric' }))}</span>
@@ -154,21 +161,22 @@ export function buildEmployeeSchedulePrintHtml({
         .weekdays { height: .24in; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); align-items: end; }
         .weekdays div { padding: 0 5px 3px; font-size: 8px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #555; }
         .calendar { height: 7.08in; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(${period.rowCount}, minmax(0, 1fr)); border-top: 1px solid #777; border-left: 1px solid #777; }
-        .day { min-width: 0; min-height: 0; overflow: hidden; border-right: 1px solid #777; border-bottom: 1px solid #777; padding: ${isMonth ? '3px' : '6px'}; }
+        .day { min-width: 0; min-height: 0; overflow: hidden; border-right: 1px solid #777; border-bottom: 1px solid #777; padding: ${isMonth ? '2px' : '6px'}; }
         .day.outside { background: #f3f3f3; color: #999; }
         .day-heading { display: flex; justify-content: space-between; gap: 4px; padding-bottom: ${isMonth ? '2px' : '5px'}; border-bottom: 1px solid #ddd; font-size: ${isMonth ? '7px' : '10px'}; }
-        .shifts { display: flex; flex-direction: column; gap: ${isMonth ? '1px' : '4px'}; padding-top: ${isMonth ? '2px' : '5px'}; }
-        .shift { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px; align-items: baseline; font-size: ${isMonth ? '6.5px' : range === 'two_weeks' ? '8px' : '10px'}; line-height: 1.16; }
-        .name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 700; }
-        .time { white-space: nowrap; color: #444; }
+        .shifts { display: flex; flex-direction: column; gap: ${isMonth ? '1px' : '5px'}; padding-top: ${isMonth ? '1px' : '5px'}; }
+        .shift { break-inside: avoid; border: 1px solid #d7d7d7; border-left: ${isMonth ? '2px' : '3px'} solid #555; border-radius: ${isMonth ? '2px' : '4px'}; background: #f7f7f7; padding: ${isMonth ? '1px 3px' : range === 'two_weeks' ? '3px 4px' : '5px 6px'}; font-size: ${isMonth ? '7.25px' : range === 'two_weeks' ? '8px' : '10px'}; line-height: 1.18; }
+        ${isMonth ? '.day.medium .shift { padding: 2px 3px; font-size: 8px; } .day.roomy .shift { padding: 3px 4px; font-size: 9px; }' : ''}
+        .name { display: block; min-width: 0; overflow-wrap: anywhere; font-weight: 750; }
+        .time { display: block; margin-top: ${isMonth ? '1px' : '2px'}; white-space: nowrap; color: #444; font-size: .9em; }
         .time-off.full .name, .time-off.full .time { text-decoration: line-through; color: #777; }
         .time-off.partial .name, .time-off.partial .time { color: #7c2d12; }
-        .off-label { grid-column: 1 / -1; color: #9f1239; font-size: 5.5px; font-weight: 800; letter-spacing: .05em; }
+        .off-label { display: block; margin-top: 2px; color: #9f1239; font-size: 5.5px; font-weight: 800; letter-spacing: .05em; }
         .empty { padding-top: 3px; color: #aaa; font-size: ${isMonth ? '6px' : '9px'}; font-style: italic; }
         @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
     </style>
 </head>
-<body>
+<body class="${range}">
     <header>
         <div><h1>Employee Schedule</h1><div class="range">${escapeHtml(period.label)}</div></div>
         <div class="summary">${shifts.length} shifts<br>${totalHours.toFixed(1)} scheduled hours<br>${teamCount} team members</div>

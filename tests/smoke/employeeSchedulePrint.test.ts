@@ -29,6 +29,25 @@ describe('employee schedule printing', () => {
         expect(month.rowCount).toBe(6);
     });
 
+    it('scales month cards up when a day has room', () => {
+        const period = getSchedulePrintPeriod('month', new Date(2026, 7, 14));
+        const html = buildEmployeeSchedulePrintHtml({
+            period,
+            range: 'month',
+            shifts: [{
+                employeeId: 'employee-1',
+                employeeName: 'Hailey Abigail Croom',
+                date: '2026-08-12',
+                startTime: '09:45',
+                endTime: '16:00',
+            }],
+        });
+
+        expect(html).toContain('class="day roomy"');
+        expect(html).toContain('.day.roomy .shift { padding: 3px 4px; font-size: 9px; }');
+        expect(html).toContain('font-size: 7.25px');
+    });
+
     it('escapes employee names in generated print markup', () => {
         const period = getSchedulePrintPeriod('week', new Date(2026, 7, 14));
         const html = buildEmployeeSchedulePrintHtml({
@@ -45,5 +64,7 @@ describe('employee schedule printing', () => {
 
         expect(html).toContain('&lt;script&gt;alert(&quot;no&quot;)&lt;/script&gt;');
         expect(html).not.toContain('<script>alert("no")</script>');
+        expect(html).toContain('overflow-wrap: anywhere');
+        expect(html).not.toContain('text-overflow: ellipsis');
     });
 });
