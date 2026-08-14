@@ -8,6 +8,7 @@ import { Select } from '../components/ui/Select';
 import { EmptyState, UsersIcon } from '../components/ui/EmptyState';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Modal, ModalFooter } from '../components/ui/Modal';
+import { InactiveEmployeeToggle } from '../components/employees/InactiveEmployeeToggle';
 import { useEmployees } from '../hooks/useEmployees';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -541,6 +542,7 @@ export function EmployeePayouts() {
     const [payoutHistory, setPayoutHistory] = useState<EmployeePayoutRow[]>([]);
     const [selectedHistoryPayout, setSelectedHistoryPayout] = useState<EmployeePayoutRow | null>(null);
     const [timecardSummary, setTimecardSummary] = useState<TimecardLoadSummary | null>(null);
+    const [showInactiveEmployees, setShowInactiveEmployees] = useState(false);
 
     const [hoursLoadStatus, setHoursLoadStatus] = useState<'idle' | 'loading' | 'error'>('idle');
     const hoursLoadRequestRef = useRef(0);
@@ -548,15 +550,23 @@ export function EmployeePayouts() {
 
     const ytdTotals = useMemo(() => getCurrentYearYtd(payoutHistory), [payoutHistory]);
 
+    const inactiveEmployeeCount = useMemo(
+        () => employees.filter((employee) => !employee.is_active).length,
+        [employees]
+    );
+
     const filteredEmployees = useMemo(() => {
-        if (!searchQuery.trim()) return employees;
+        const statusFiltered = showInactiveEmployees
+            ? employees
+            : employees.filter((employee) => employee.is_active);
+        if (!searchQuery.trim()) return statusFiltered;
 
         const query = searchQuery.toLowerCase().trim();
-        return employees.filter((employee) => {
+        return statusFiltered.filter((employee) => {
             const employer = employee.employer || '';
             return employee.name.toLowerCase().includes(query) || employer.toLowerCase().includes(query);
         });
-    }, [employees, searchQuery]);
+    }, [employees, searchQuery, showInactiveEmployees]);
 
     const refreshBusinessProfiles = useCallback(async () => {
         const { data, error: profileError } = await supabase
@@ -1197,12 +1207,21 @@ export function EmployeePayouts() {
 
                     <Card variant="outlined" className="mb-5">
                         <CardContent className="p-4">
-                            <Input
-                                label="Search employees"
-                                placeholder="Name or employer"
-                                value={searchQuery}
-                                onChange={(event) => setSearchQuery(event.target.value)}
-                            />
+                            <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                                <div className="flex-1">
+                                    <Input
+                                        label="Search employees"
+                                        placeholder="Name or employer"
+                                        value={searchQuery}
+                                        onChange={(event) => setSearchQuery(event.target.value)}
+                                    />
+                                </div>
+                                <InactiveEmployeeToggle
+                                    showInactive={showInactiveEmployees}
+                                    inactiveCount={inactiveEmployeeCount}
+                                    onChange={setShowInactiveEmployees}
+                                />
+                            </div>
                         </CardContent>
                     </Card>
 
@@ -1231,7 +1250,12 @@ export function EmployeePayouts() {
                                 return (
                                     <Card key={employee.id} variant="outlined" className="h-full">
                                         <CardHeader className="mb-2">
-                                            <CardTitle className="text-base">{employee.name}</CardTitle>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <CardTitle className="text-base">{employee.name}</CardTitle>
+                                                {!employee.is_active && (
+                                                    <span className="text-xs font-semibold text-[var(--color-muted)]">Inactive</span>
+                                                )}
+                                            </div>
                                         </CardHeader>
                                         <CardContent className="space-y-2 text-sm">
                                             <div className="flex justify-between">

@@ -1,6 +1,6 @@
 // Admin Employees Page - Manage employees and view time clock data
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent } from '../components/ui/Card';
@@ -13,6 +13,7 @@ import { AddEmployeeModal } from '../components/employees/AddEmployeeModal';
 import { AuthorizeDeviceModal } from '../components/employees/AuthorizeDeviceModal';
 import { EmployeeCredentials } from '../components/employees/EmployeeCredentials';
 import { TimeEntriesTable } from '../components/employees/TimeEntriesTable';
+import { InactiveEmployeeToggle } from '../components/employees/InactiveEmployeeToggle';
 import { EditTimeEntryModal, type TimeEntryUpdate } from '../components/employees/EditTimeEntryModal';
 import { useEmployees } from '../hooks/useEmployees';
 import { useEmployeeRoles } from '../hooks/useEmployeeRoles';
@@ -64,6 +65,7 @@ export function Employees() {
     const [timeEntryCount, setTimeEntryCount] = useState(0);
     const [editingTimeEntry, setEditingTimeEntry] = useState<TimeEntry | null>(null);
     const [showSensitiveNumbers, setShowSensitiveNumbers] = useState(false);
+    const [showInactiveEmployees, setShowInactiveEmployees] = useState(false);
     const [isSendingSchedules, setIsSendingSchedules] = useState(false);
     const [scheduleSendMessage, setScheduleSendMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const [isScheduleEmailModalOpen, setIsScheduleEmailModalOpen] = useState(false);
@@ -72,6 +74,15 @@ export function Employees() {
     const [isLoadingSchedulePreview, setIsLoadingSchedulePreview] = useState(false);
     const [schedulePreviewError, setSchedulePreviewError] = useState<string | null>(null);
     const [schedulePreview, setSchedulePreview] = useState<SchedulePreview | null>(null);
+
+    const inactiveEmployeeCount = useMemo(
+        () => employees.filter((employee) => !employee.is_active).length,
+        [employees]
+    );
+    const visibleEmployees = useMemo(
+        () => showInactiveEmployees ? employees : employees.filter((employee) => employee.is_active),
+        [employees, showInactiveEmployees]
+    );
 
     const handleAddEmployee = async (input: EmployeeInput): Promise<{ error: string | null }> => {
         const { error } = await createEmployee(input);
@@ -291,7 +302,12 @@ export function Employees() {
                 title="Timecards"
                 description="Manage employee accounts and review time clock activity"
                 actions={
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
+                        <InactiveEmployeeToggle
+                            showInactive={showInactiveEmployees}
+                            inactiveCount={inactiveEmployeeCount}
+                            onChange={setShowInactiveEmployees}
+                        />
                         <Button
                             variant="secondary"
                             onClick={() => setShowSensitiveNumbers((prev) => !prev)}
@@ -359,6 +375,18 @@ export function Employees() {
                         </Button>
                     </CardContent>
                 </Card>
+            ) : visibleEmployees.length === 0 ? (
+                <Card variant="outlined">
+                    <CardContent className="py-12 text-center">
+                        <div className="mb-4 flex justify-center text-[var(--color-muted)]">
+                            <UserRound size={44} />
+                        </div>
+                        <h3 className="text-lg font-medium mb-2">No active employees</h3>
+                        <p className="text-[var(--color-muted)]">
+                            Use “Show inactive employees” above to review archived employee timecards.
+                        </p>
+                    </CardContent>
+                </Card>
             ) : (
                 <Card variant="outlined">
                     <div className="overflow-x-auto">
@@ -374,7 +402,7 @@ export function Employees() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {employees.map((emp) => (
+                                {visibleEmployees.map((emp) => (
                                     <tr key={emp.id} className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]">
                                         <td className="px-4 py-3">
                                             <p className="font-medium">{emp.name}</p>

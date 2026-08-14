@@ -10,6 +10,15 @@ import { Tabs } from '../components/ui/Tabs';
 import { useEmployees } from '../hooks/useEmployees';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { Printer } from 'lucide-react';
+import {
+    buildEmployeeSchedulePrintHtml,
+    getSchedulePrintPeriod,
+    openEmployeeSchedulePrintWindow,
+    schedulePrintDateKey,
+    type SchedulePrintRange,
+    type SchedulePrintShift,
+} from '../lib/employeeSchedulePrint';
 
 type ViewMode = 'week' | 'month';
 type AdminTab = 'schedule' | 'templates' | 'requests';
@@ -377,6 +386,10 @@ export function EmployeeSchedule() {
     const [shiftModalMode, setShiftModalMode] = useState<ShiftModalMode>('add');
     const [processingOverrideId, setProcessingOverrideId] = useState<string | null>(null);
     const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+    const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+    const [isPrintingSchedule, setIsPrintingSchedule] = useState(false);
+    const [printRange, setPrintRange] = useState<SchedulePrintRange>('week');
+    const [printAnchorDate, setPrintAnchorDate] = useState(toDateKey(new Date()));
     const [notice, setNotice] = useState<Notice>(null);
     const [templateEmployeeId, setTemplateEmployeeId] = useState('');
     const [templateEffectiveFrom, setTemplateEffectiveFrom] = useState(toDateKey(new Date()));
@@ -1054,6 +1067,138 @@ export function EmployeeSchedule() {
         setAnchorDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + direction, 1));
     };
 
+    const handleOpenPrintModal = () => {
+        setPrintAnchorDate(toDateKey(anchorDate));
+        setNotice(null);
+        setIsPrintModalOpen(true);
+    };
+
+    const handlePrintSchedule = async () => {
+        const period = getSchedulePrintPeriod(printRange, parseDateKey(printAnchorDate));
+        const startKey = schedulePrintDateKey(period.start);
+        const endKey = schedulePrintDateKey(period.end);
+        const printWindow = window.open('', '_blank', 'width=1100,height=850');
+        if (!printWindow) {
+            setNotice({ type: 'error', message: 'The print window was blocked. Allow pop-ups and try again.' });
+            return;
+        }
+        setIsPrintingSchedule(true);
+        setNotice(null);
+
+        const [oneTimeResult, recurringResult, overrideResult, timeOffResult] = await Promise.all([
+            supabase
+                .from('employee_schedules')
+                .select('id, employee_id, shift_date, start_time, end_time, notes')
+                .gte('shift_date', startKey)
+                .lte('shift_date', endKey),
+            supabase
+                .from('employee_recurring_schedules')
+                .select('id, employee_id, weekday, cycle_length_days, day_offset, start_time, end_time, notes, active_from, active_until')
+                .lte('active_from', endKey)
+                .or(`active_until.is.null,active_until.gte.${startKey}`),
+            supabase
+                .from('employee_schedule_day_overrides')
+                .select('id, employee_id, shift_date, is_day_off, notes')
+                .eq('is_day_off', true)
+                .gte('shift_date', startKey)
+                .lte('shift_date', endKey),
+            supabase
+                .from('employee_time_off_requests')
+                .select('id, employee_id, start_date, end_date, is_full_day, start_time, end_time, reason, status, reviewed_by, reviewed_at, review_notes, created_at')
+                .eq('status', 'approved')
+                .lte('start_date', endKey)
+                .gte('end_date', startKey),
+        ]);
+
+        const printError = oneTimeResult.error || recurringResult.error || overrideResult.error || timeOffResult.error;
+        if (printError) {
+            printWindow.close();
+            setIsPrintingSchedule(false);
+            setNotice({ type: 'error', message: `Could not prepare the print schedule: ${printError.message}` });
+            return;
+        }
+
+        const printOneTimeShifts = (oneTimeResult.data || []) as OneTimeShift[];
+        const printRecurringSchedules = (recurringResult.data || []) as RecurringSchedule[];
+        const printDayOffOverrides = (overrideResult.data || []) as DayOffOverride[];
+        const printTimeOffRequests = (timeOffResult.data || []) as TimeOffRequest[];
+        const activeEmployeeIds = new Set(activeEmployees.map((employee) => employee.id));
+        const overriddenShiftKeys = new Set(printOneTimeShifts.map((shift) => shiftKey(shift.employee_id, shift.shift_date)));
+        const dayOffKeys = new Set(
+            printDayOffOverrides
+                .filter((override) => override.is_day_off)
+                .map((override) => shiftKey(override.employee_id, override.shift_date))
+        );
+        for (const key of dayOffKeys) overriddenShiftKeys.add(key);
+
+        const effectiveShifts: DisplayShift[] = printOneTimeShifts
+            .filter((shift) => activeEmployeeIds.has(shift.employee_id))
+            .filter((shift) => !dayOffKeys.has(shiftKey(shift.employee_id, shift.shift_date)))
+            .map((shift) => ({
+                id: shift.id,
+                source: 'one_time',
+                employee_id: shift.employee_id,
+                shift_date: shift.shift_date,
+                start_time: shift.start_time,
+                end_time: shift.end_time,
+                notes: shift.notes,
+            }));
+
+        for (const schedule of printRecurringSchedules) {
+            if (!activeEmployeeIds.has(schedule.employee_id)) continue;
+            for (const day of period.days) {
+                const dayKey = schedulePrintDateKey(day);
+                if (dayKey < startKey || dayKey > endKey) continue;
+                if (!matchesRecurringOnDate(schedule, day, dayKey)) continue;
+                if (overriddenShiftKeys.has(shiftKey(schedule.employee_id, dayKey))) continue;
+                effectiveShifts.push({
+                    id: `print-${schedule.id}-${dayKey}`,
+                    source: 'recurring',
+                    employee_id: schedule.employee_id,
+                    shift_date: dayKey,
+                    start_time: schedule.start_time,
+                    end_time: schedule.end_time,
+                    notes: schedule.notes,
+                });
+            }
+        }
+
+        const printShifts: SchedulePrintShift[] = effectiveShifts.map((shift) => {
+            let timeOffImpact: ShiftTimeOffImpact = 'none';
+            for (const request of printTimeOffRequests) {
+                if (request.employee_id !== shift.employee_id) continue;
+                const impact = getRequestShiftImpact(request, shift.shift_date, shift.start_time, shift.end_time);
+                if (impact === 'full') {
+                    timeOffImpact = 'full';
+                    break;
+                }
+                if (impact === 'partial') timeOffImpact = 'partial';
+            }
+
+            return {
+                employeeId: shift.employee_id,
+                employeeName: employeeNameById.get(shift.employee_id) || 'Unknown employee',
+                date: shift.shift_date,
+                startTime: shift.start_time,
+                endTime: shift.end_time,
+                timeOffImpact: timeOffImpact === 'none' ? undefined : timeOffImpact,
+            };
+        });
+
+        const opened = openEmployeeSchedulePrintWindow(buildEmployeeSchedulePrintHtml({
+            period,
+            range: printRange,
+            shifts: printShifts,
+        }), printWindow);
+
+        setIsPrintingSchedule(false);
+        if (!opened) {
+            setNotice({ type: 'error', message: 'The print window was blocked. Allow pop-ups and try again.' });
+            return;
+        }
+        setIsPrintModalOpen(false);
+    };
+
     return (
         <div className="animate-fadeIn">
             <Header
@@ -1081,7 +1226,13 @@ export function EmployeeSchedule() {
                             Month
                         </Button>
                         {activeTab === 'schedule' && (
-                            <Button onClick={() => openAddModalForDay(toDateKey(new Date()))}>+ Add Day Shift</Button>
+                            <>
+                                <Button variant="secondary" onClick={handleOpenPrintModal}>
+                                    <Printer size={16} />
+                                    Print
+                                </Button>
+                                <Button onClick={() => openAddModalForDay(toDateKey(new Date()))}>+ Add Day Shift</Button>
+                            </>
                         )}
                     </div>
                 )}
@@ -1556,6 +1707,46 @@ export function EmployeeSchedule() {
                     </CardContent>
                 </Card>
             )}
+
+            <Modal
+                isOpen={isPrintModalOpen}
+                onClose={() => setIsPrintModalOpen(false)}
+                title="Print Schedule"
+                description="Choose a range to format the full schedule on one landscape page."
+                size="md"
+            >
+                <div className="space-y-4">
+                    <Select
+                        label="Print range"
+                        value={printRange}
+                        onChange={(event) => setPrintRange(event.target.value as SchedulePrintRange)}
+                        options={[
+                            { value: 'week', label: '1 week' },
+                            { value: 'two_weeks', label: '2 weeks' },
+                            { value: 'month', label: '1 month' },
+                        ]}
+                    />
+                    <Input
+                        label={printRange === 'month' ? 'Date in month' : 'Date in week'}
+                        type="date"
+                        value={printAnchorDate}
+                        onChange={(event) => setPrintAnchorDate(event.target.value)}
+                        hint={printRange === 'month'
+                            ? 'The calendar month containing this date will print.'
+                            : 'The week containing this date will start on Monday.'}
+                        required
+                    />
+                    <ModalFooter>
+                        <Button type="button" variant="secondary" onClick={() => setIsPrintModalOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button type="button" onClick={() => void handlePrintSchedule()} isLoading={isPrintingSchedule}>
+                            <Printer size={16} />
+                            Open Print Version
+                        </Button>
+                    </ModalFooter>
+                </div>
+            </Modal>
 
             <Modal
                 isOpen={isShiftModalOpen}
