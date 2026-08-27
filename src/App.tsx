@@ -128,6 +128,8 @@ export default function App() {
                     <Route path="/employee" element={<EmployeeLayout />}>
                         <Route index element={<Navigate to="/employee/action-selection" replace />} />
                         <Route path="pos" element={<POS />} />
+                        <Route path="inventory" element={<Inventory />} />
+                        <Route path="add-items" element={<AddItems />} />
                         <Route path="till-count" element={<EmployeeTillCount />} />
                         <Route path="sales" element={<Sales />} />
                         <Route path="schedule" element={<EmployeeSelfSchedule />} />
@@ -173,6 +175,7 @@ export default function App() {
                         <Route path="finances/invoices" element={<Invoices />} />
                         <Route path="finances/invoices/:invoiceId" element={<InvoiceDetail />} />
                         <Route path="finances/tax-reports" element={<TaxReports />} />
+                        <Route path="finances/till-floats" element={<EmployeeTillCount />} />
                         <Route path="finances/categories" element={<CategoryTaxSettings />} />
                         <Route path="finances/marketing-fees" element={<MarketingFees />} />
                         <Route path="customers" element={<Customers />} />

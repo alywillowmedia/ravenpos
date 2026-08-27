@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useLocation, useSearchParams, useNavigate } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
@@ -17,6 +17,9 @@ type Mode = 'single' | 'batch';
 export function AddItems() {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
+    const location = useLocation();
+    const isEmployeePortal = location.pathname.startsWith('/employee/');
+    const inventoryPath = isEmployeePortal ? '/employee/inventory' : '/admin/inventory';
 
     const defaultConsignorId = searchParams.get('consignor') || '';
 
@@ -89,7 +92,7 @@ export function AddItems() {
                                 placeholder="Select consignor..."
                             />
                         </div>
-                        {!selectedConsignor && activeConsignors.length === 0 && (
+                        {!isEmployeePortal && !selectedConsignor && activeConsignors.length === 0 && (
                             <Button variant="secondary" onClick={() => navigate('/admin/consignors')}>
                                 Add a Consignor First
                             </Button>
@@ -135,7 +138,7 @@ export function AddItems() {
                                     consignors={activeConsignors}
                                     categories={getCategoryNames()}
                                     onSubmit={handleSingleSubmit}
-                                    onCancel={() => navigate('/admin/inventory')}
+                                    onCancel={() => navigate(inventoryPath)}
                                     hideConsignor
                                     defaultConsignorId={selectedConsignor}
                                 />
@@ -172,7 +175,7 @@ export function AddItems() {
                     <Button variant="secondary" onClick={() => setSuccessModal(null)}>
                         Add More
                     </Button>
-                    <Button onClick={() => navigate('/admin/inventory')}>
+                    <Button onClick={() => navigate(inventoryPath)}>
                         View Inventory
                     </Button>
                 </div>

@@ -97,6 +97,7 @@ export const adminNavigation: PortalNavEntry[] = [
         name: 'Reports & finance',
         icon: WalletCards,
         children: [
+            { name: 'Till floats', href: '/admin/finances/till-floats', icon: CircleDollarSign },
             { name: 'Tax reports', href: '/admin/finances/tax-reports', icon: FileText },
             { name: 'Categories & tax', href: '/admin/finances/categories', icon: Percent },
             { name: 'Marketing fees', href: '/admin/finances/marketing-fees', icon: Megaphone },
@@ -117,6 +118,8 @@ export const adminNavigation: PortalNavEntry[] = [
 
 export const employeeNavigation: PortalNavItem[] = [
     { name: 'Point of Sale', href: '/employee/pos', icon: ShoppingCart, emphasis: 'primary' },
+    { name: 'Inventory', href: '/employee/inventory', icon: Package },
+    { name: 'Add products', href: '/employee/add-items', icon: PlusCircle },
     { name: 'Till count', href: '/employee/till-count', icon: CircleDollarSign },
     { name: 'Sales', href: '/employee/sales', icon: ReceiptText },
     { name: 'Customers', href: '/employee/customers', icon: Users },

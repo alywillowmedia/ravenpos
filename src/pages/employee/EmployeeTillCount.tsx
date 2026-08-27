@@ -6,6 +6,7 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { useToast } from '../../contexts/ToastContext';
 import { useEmployee } from '../../contexts/EmployeeContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { formatCurrency } from '../../lib/utils';
 import { supabase } from '../../lib/supabase';
 import { printTillCountReceipt } from '../../lib/printTillCountReceipt';
@@ -21,6 +22,17 @@ interface AdminContact {
     id: string;
     email: string;
     full_name: string | null;
+}
+
+interface TillFloatRecord {
+    id: string;
+    business_date: string;
+    opening_float: number | null;
+    ending_float: number | null;
+    opening_recorded_at: string | null;
+    ending_recorded_at: string | null;
+    opening_recorded_by_name: string | null;
+    ending_recorded_by_name: string | null;
 }
 
 const CASH_DENOMINATIONS = [
@@ -74,11 +86,16 @@ function formatBusinessDate(dateValue: string): string {
 
 export function EmployeeTillCount() {
     const { employee } = useEmployee();
+    const { userRecord } = useAuth();
     const toast = useToast();
+    const staffName = employee?.name || userRecord?.full_name || userRecord?.email || 'Staff member';
 
     const [isLoading, setIsLoading] = useState(true);
     const [isSendingEmail, setIsSendingEmail] = useState(false);
+    const [savingFloatType, setSavingFloatType] = useState<'opening' | 'ending' | 'report' | null>(null);
     const [openingFloatInput, setOpeningFloatInput] = useState('');
+    const [floatHistory, setFloatHistory] = useState<TillFloatRecord[]>([]);
+    const [floatRefreshKey, setFloatRefreshKey] = useState(0);
     const [selectedDate, setSelectedDate] = useState(() => getLocalDateInputValue());
     const [expectedCashFromSales, setExpectedCashFromSales] = useState(0);
     const [offlineUnsyncedCashNetTotal, setOfflineUnsyncedCashNetTotal] = useState(0);
@@ -101,7 +118,7 @@ export function EmployeeTillCount() {
             setIsLoading(true);
             const { startIso, endIso } = getDayRangeIso(selectedDate);
 
-            const [adminsResult, salesResult, refundsResult, dealerPurchasesResult, giftCardsResult, offlineUnsyncedCashTotal] = await Promise.all([
+            const [adminsResult, salesResult, refundsResult, dealerPurchasesResult, giftCardsResult, floatRecordResult, floatHistoryResult, offlineUnsyncedCashTotal] = await Promise.all([
                 supabase.rpc('get_chat_admin_contacts'),
                 supabase
                     .from('sales')
@@ -124,6 +141,16 @@ export function EmployeeTillCount() {
                     .select('original_amount, purchase_payment_method')
                     .gte('issued_at', startIso)
                     .lte('issued_at', endIso),
+                supabase
+                    .from('till_float_records')
+                    .select('id, business_date, opening_float, ending_float, opening_recorded_at, ending_recorded_at, opening_recorded_by_name, ending_recorded_by_name')
+                    .eq('business_date', selectedDate)
+                    .maybeSingle(),
+                supabase
+                    .from('till_float_records')
+                    .select('id, business_date, opening_float, ending_float, opening_recorded_at, ending_recorded_at, opening_recorded_by_name, ending_recorded_by_name')
+                    .order('business_date', { ascending: false })
+                    .limit(31),
                 getOfflineUnsyncedCashNetTotal({
                     dateStart: startIso,
                     dateEnd: endIso,
@@ -134,6 +161,19 @@ export function EmployeeTillCount() {
                 toast.error('Failed to load admins', adminsResult.error.message);
             } else {
                 setAdmins((adminsResult.data || []) as AdminContact[]);
+            }
+
+            if (floatRecordResult.error || floatHistoryResult.error) {
+                toast.error(
+                    'Failed to load float history',
+                    floatRecordResult.error?.message || floatHistoryResult.error?.message || 'Please refresh and try again.'
+                );
+            } else {
+                const selectedRecord = floatRecordResult.data as TillFloatRecord | null;
+                setOpeningFloatInput(
+                    selectedRecord?.opening_float == null ? '' : Number(selectedRecord.opening_float).toFixed(2)
+                );
+                setFloatHistory((floatHistoryResult.data || []) as TillFloatRecord[]);
             }
 
             if (salesResult.error || refundsResult.error || giftCardsResult.error) {
@@ -176,7 +216,7 @@ export function EmployeeTillCount() {
         };
 
         void loadPageData();
-    }, [selectedDate, toast]);
+    }, [floatRefreshKey, selectedDate, toast]);
 
     const countedTotal = useMemo(() => fromCurrencyCents(
         getCountedDrawerCents(CASH_DENOMINATIONS, denominationCounts)
@@ -213,6 +253,44 @@ export function EmployeeTillCount() {
         setCheckAmountInput('');
     };
 
+    const persistFloatRecord = async (
+        openingAmount: number | null,
+        endingAmount: number | null,
+        savingType: 'opening' | 'ending' | 'report'
+    ): Promise<boolean> => {
+        setSavingFloatType(savingType);
+        const { error } = await supabase.rpc('save_till_float_record', {
+            p_business_date: selectedDate,
+            p_opening_float: openingAmount,
+            p_ending_float: endingAmount,
+        });
+        setSavingFloatType(null);
+
+        if (error) {
+            toast.error('Failed to save till floats', error.message);
+            return false;
+        }
+
+        setFloatRefreshKey((key) => key + 1);
+        return true;
+    };
+
+    const handleSaveOpeningFloat = async () => {
+        if (openingFloatInput.trim() === '' || !Number.isFinite(Number(openingFloatInput)) || Number(openingFloatInput) < 0) {
+            toast.error('Enter a valid opening float');
+            return;
+        }
+        if (await persistFloatRecord(openingFloat, null, 'opening')) {
+            toast.success('Opening float saved', `${selectedBusinessDateLabel}: ${formatCurrency(openingFloat)}`);
+        }
+    };
+
+    const handleSaveEndingFloat = async () => {
+        if (await persistFloatRecord(null, countedTotal, 'ending')) {
+            toast.success('Ending float saved', `${selectedBusinessDateLabel}: ${formatCurrency(countedTotal)}`);
+        }
+    };
+
     const handleSendEmail = async () => {
         const selectedAdmin = admins.find((admin) => admin.id === selectedAdminId);
         if (!selectedAdmin) {
@@ -221,6 +299,11 @@ export function EmployeeTillCount() {
         }
 
         setIsSendingEmail(true);
+        const saved = await persistFloatRecord(openingFloat, countedTotal, 'report');
+        if (!saved) {
+            setIsSendingEmail(false);
+            return;
+        }
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const denominationBreakdown = CASH_DENOMINATIONS.map((denomination) => {
             const quantity = Math.max(0, Number.parseInt(denominationCounts[denomination.key] || '0', 10) || 0);
@@ -236,7 +319,7 @@ export function EmployeeTillCount() {
             body: {
                 adminEmail: selectedAdmin.email,
                 adminName: selectedAdmin.full_name || selectedAdmin.email,
-                employeeName: employee?.name || 'Employee',
+                employeeName: staffName,
                 report: {
                     countedAt,
                     businessDate: selectedDate,
@@ -281,6 +364,9 @@ export function EmployeeTillCount() {
     };
 
     const handlePrintReceipt = async () => {
+        const saved = await persistFloatRecord(openingFloat, countedTotal, 'report');
+        if (!saved) return;
+
         const selectedAdmin = admins.find((admin) => admin.id === selectedAdminId);
         const denominationBreakdown = CASH_DENOMINATIONS.map((denomination) => {
             const quantity = Math.max(0, Number.parseInt(denominationCounts[denomination.key] || '0', 10) || 0);
@@ -293,7 +379,7 @@ export function EmployeeTillCount() {
 
         const result = await printTillCountReceipt(
             {
-                submittedBy: employee?.name || 'Employee',
+                submittedBy: staffName,
                 recipientName: selectedAdmin?.full_name || selectedAdmin?.email,
             },
             {
@@ -340,7 +426,7 @@ export function EmployeeTillCount() {
         <div className="animate-fadeIn">
             <Header
                 title="Cash Till Counter"
-                description="Count the drawer and send a till-count receipt to an admin."
+                description="Record opening and ending floats, count the drawer, and send a till-count receipt."
             />
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4">
@@ -401,6 +487,15 @@ export function EmployeeTillCount() {
                             onChange={(event) => setOpeningFloatInput(event.target.value)}
                             placeholder="0.00"
                         />
+                        <Button
+                            variant="secondary"
+                            onClick={handleSaveOpeningFloat}
+                            isLoading={savingFloatType === 'opening'}
+                            disabled={isLoading || savingFloatType !== null}
+                            className="w-full"
+                        >
+                            Save Opening Float
+                        </Button>
                         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
                             <p className="text-xs text-[var(--color-muted)]">Total Collected = Total Received</p>
                             <p className="text-sm mt-1">
@@ -489,15 +584,23 @@ export function EmployeeTillCount() {
                                 />
                             </div>
                             <Button
+                                variant="secondary"
+                                onClick={handleSaveEndingFloat}
+                                isLoading={savingFloatType === 'ending'}
+                                disabled={isLoading || savingFloatType !== null}
+                            >
+                                Save Ending Float
+                            </Button>
+                            <Button
                                 onClick={handleSendEmail}
-                                disabled={isLoading || isSendingEmail || !selectedAdminId}
+                                disabled={isLoading || isSendingEmail || savingFloatType !== null || !selectedAdminId}
                             >
                                 {isSendingEmail ? 'Sending...' : 'Email Till Receipt'}
                             </Button>
                             <Button
                                 variant="secondary"
                                 onClick={handlePrintReceipt}
-                                disabled={isLoading}
+                                disabled={isLoading || savingFloatType !== null}
                             >
                                 Print Till Receipt
                             </Button>
@@ -508,6 +611,52 @@ export function EmployeeTillCount() {
                     </CardContent>
                 </Card>
             </div>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle>Float History</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {floatHistory.length === 0 ? (
+                        <p className="text-sm text-[var(--color-muted)]">No opening or ending floats have been saved yet.</p>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[680px] text-left text-sm">
+                                <thead>
+                                    <tr className="border-b border-[var(--color-border)] text-xs uppercase tracking-wide text-[var(--color-muted)]">
+                                        <th className="px-3 py-3 font-medium">Business date</th>
+                                        <th className="px-3 py-3 font-medium">Opening float</th>
+                                        <th className="px-3 py-3 font-medium">Recorded by</th>
+                                        <th className="px-3 py-3 font-medium">Ending float</th>
+                                        <th className="px-3 py-3 font-medium">Recorded by</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {floatHistory.map((record) => (
+                                        <tr key={record.id} className="border-b border-[var(--color-border)] last:border-0">
+                                            <td className="px-3 py-3 font-medium text-[var(--color-foreground)]">
+                                                {formatBusinessDate(record.business_date)}
+                                            </td>
+                                            <td className="px-3 py-3 tabular-nums">
+                                                {record.opening_float == null ? '—' : formatCurrency(Number(record.opening_float))}
+                                            </td>
+                                            <td className="px-3 py-3 text-[var(--color-muted)]">
+                                                {record.opening_recorded_by_name || '—'}
+                                            </td>
+                                            <td className="px-3 py-3 tabular-nums">
+                                                {record.ending_float == null ? '—' : formatCurrency(Number(record.ending_float))}
+                                            </td>
+                                            <td className="px-3 py-3 text-[var(--color-muted)]">
+                                                {record.ending_recorded_by_name || '—'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
         </div>
     );
 }

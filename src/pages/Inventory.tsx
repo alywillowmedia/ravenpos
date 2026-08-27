@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Table, type Column } from '../components/ui/Table';
@@ -36,6 +36,9 @@ function formatAddedDate(value: string): string {
 
 export function Inventory() {
     const navigate = useNavigate();
+    const location = useLocation();
+    const isEmployeePortal = location.pathname.startsWith('/employee/');
+    const addItemsPath = isEmployeePortal ? '/employee/add-items' : '/admin/add-items';
     const { userRecord } = useAuth();
     const [view, setView] = useState<'products' | 'discounts'>('products');
     const [inventoryPage, setInventoryPage] = useState(1);
@@ -64,7 +67,7 @@ export function Inventory() {
     const {
         items: discountTabItems,
     } = useInventory({
-        autoFetch: view === 'discounts',
+        autoFetch: !isEmployeePortal && view === 'discounts',
         queryProfile: 'labels',
     });
 
@@ -502,22 +505,24 @@ export function Inventory() {
                         >
                             <EditIcon />
                         </button>
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteTarget(item);
-                            }}
-                            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-muted)] hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger)] transition-colors"
-                            title="Delete"
-                            aria-label={`Delete ${item.name}`}
-                        >
-                            <TrashIcon />
-                        </button>
+                        {!isEmployeePortal && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleteTarget(item);
+                                }}
+                                className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-muted)] hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger)] transition-colors"
+                                title="Delete"
+                                aria-label={`Delete ${item.name}`}
+                            >
+                                <TrashIcon />
+                            </button>
+                        )}
                     </div>
                 ),
             },
         ];
-    }, [bulkEdit, filteredItemIds, showProductDetails]);
+    }, [bulkEdit, filteredItemIds, isEmployeePortal, showProductDetails]);
 
     const viewTabs = [
         { id: 'products', label: 'Products' },
@@ -541,10 +546,12 @@ export function Inventory() {
                                     <BulkEditIcon />
                                     Bulk Edit
                                 </Button>
-                                <Button variant="secondary" onClick={() => navigate('/admin/import')}>
-                                    Import CSV
-                                </Button>
-                                <Button onClick={() => navigate('/admin/add-items')}>
+                                {!isEmployeePortal && (
+                                    <Button variant="secondary" onClick={() => navigate('/admin/import')}>
+                                        Import CSV
+                                    </Button>
+                                )}
+                                <Button onClick={() => navigate(addItemsPath)}>
                                     <PlusIcon />
                                     Add Products
                                 </Button>
@@ -559,17 +566,19 @@ export function Inventory() {
             />
 
             <div className="mb-6 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <Tabs
-                    tabs={viewTabs}
-                    activeTab={view}
-                    onChange={(id) => {
-                        if (id === 'products' || id === 'discounts') {
-                            setView(id);
-                        }
-                    }}
-                    size="sm"
-                    className="w-full max-w-[260px] shrink-0 bg-[var(--color-card)]"
-                />
+                {!isEmployeePortal && (
+                    <Tabs
+                        tabs={viewTabs}
+                        activeTab={view}
+                        onChange={(id) => {
+                            if (id === 'products' || id === 'discounts') {
+                                setView(id);
+                            }
+                        }}
+                        size="sm"
+                        className="w-full max-w-[260px] shrink-0 bg-[var(--color-card)]"
+                    />
+                )}
 
                 {view === 'products' && (
                     <div className="flex w-full flex-wrap items-center gap-2 xl:justify-end">
@@ -676,7 +685,7 @@ export function Inventory() {
                         title="No inventory yet"
                         description="Add products to your inventory to get started."
                         action={
-                            <Button onClick={() => navigate('/admin/add-items')}>
+                            <Button onClick={() => navigate(addItemsPath)}>
                                 <PlusIcon />
                                 Add Products
                             </Button>
