@@ -12,6 +12,7 @@ import { Button } from '../../components/ui/Button';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { useToast } from '../../contexts/ToastContext';
 import { getVendorPayoutWorkspace, savePayoutDraft } from '../../hooks/usePayouts';
+import { hasUnpaidBalance } from '../../lib/payoutLedger';
 import { formatCurrency } from '../../lib/utils';
 import type { VendorPayoutWorkspaceData } from '../../types/payouts';
 
@@ -72,6 +73,7 @@ export function VendorPayoutWorkspace() {
     );
 
     const { vendor, summary } = workspace;
+    const unpaidSaleItems = workspace.sale_items.filter(hasUnpaidBalance);
     const requiredApplied = workspace.required_adjustments.filter((row) => row.will_apply);
     const pending = workspace.required_adjustments.filter((row) => !row.will_apply);
 
@@ -135,7 +137,7 @@ export function VendorPayoutWorkspace() {
 
             <nav className="mt-7 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]" aria-label="Vendor payout workspace">
                 {([
-                    ['activity', 'Unpaid activity'],
+                    ['activity', `Unpaid items (${unpaidSaleItems.length})`],
                     ['deductions', `Deductions (${workspace.required_adjustments.length})`],
                     ['invoices', `Invoices (${workspace.invoices.length})`],
                     ['history', `Payout history (${workspace.payout_history.length})`],
@@ -145,7 +147,7 @@ export function VendorPayoutWorkspace() {
             </nav>
 
             <section className="mt-4">
-                {tab === 'activity' ? <TransactionLedger items={workspace.sale_items} statementHref={(id) => `/admin/payouts/history/${id}`} /> : null}
+                {tab === 'activity' ? <TransactionLedger items={unpaidSaleItems} statementHref={(id) => `/admin/payouts/history/${id}`} emptyMessage="No unpaid sale items." /> : null}
                 {tab === 'deductions' ? (
                     <div className="grid gap-4 lg:grid-cols-2">
                         <LedgerList title="Will apply when affordable" rows={requiredApplied.map((row) => ({ id: `${row.source_table}-${row.source_reference}`, label: row.description, amount: row.signed_amount, meta: row.adjustment_type.replace(/_/g, ' ') }))} empty="No required deductions are currently applicable." />

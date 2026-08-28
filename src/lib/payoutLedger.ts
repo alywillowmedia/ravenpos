@@ -33,6 +33,11 @@ export function allocationStatus(input: { eligibleCents: number; paidCents: numb
     return 'paid' as const;
 }
 
+/** A sale item belongs in an unpaid-items view only while at least one cent remains payable. */
+export function hasUnpaidBalance(item: { remaining_amount: number }): boolean {
+    return toCents(item.remaining_amount) > 0;
+}
+
 export function selectInvoicesOldestFirst(availableCents: number, invoices: Array<{ id: string; createdAt: string; balanceCents: number }>) {
     let available = Math.max(0, Math.round(availableCents));
     return [...invoices]

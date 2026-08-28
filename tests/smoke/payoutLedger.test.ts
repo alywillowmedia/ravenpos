@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocateCents, allocationStatus, reportEquation, selectInvoicesOldestFirst, toCents } from '../../src/lib/payoutLedger';
+import { allocateCents, allocationStatus, hasUnpaidBalance, reportEquation, selectInvoicesOldestFirst, toCents } from '../../src/lib/payoutLedger';
 
 describe('payout ledger invariants', () => {
     it('distributes discount remainders deterministically across a multi-vendor sale', () => {
@@ -23,6 +23,14 @@ describe('payout ledger invariants', () => {
         expect(allocationStatus({ eligibleCents: 5000, paidCents: 5000, refundedQuantity: 0, quantity: 1 })).toBe('paid');
         expect(allocationStatus({ eligibleCents: 0, paidCents: 0, refundedQuantity: 1, quantity: 1 })).toBe('refunded');
         expect(allocationStatus({ eligibleCents: 5000, paidCents: 0, refundedQuantity: 0, quantity: 1, legacyUncertain: true })).toBe('legacy_uncertain');
+    });
+
+    it('shows only sale items with a remaining payable balance in unpaid-items views', () => {
+        expect(hasUnpaidBalance({ remaining_amount: 14 })).toBe(true);
+        expect(hasUnpaidBalance({ remaining_amount: 0.01 })).toBe(true);
+        expect(hasUnpaidBalance({ remaining_amount: 0 })).toBe(false);
+        expect(hasUnpaidBalance({ remaining_amount: 0.004 })).toBe(false);
+        expect(hasUnpaidBalance({ remaining_amount: -5 })).toBe(false);
     });
 
     it('preselects invoice applications oldest-first and partially applies the last invoice', () => {

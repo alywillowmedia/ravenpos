@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCAL_WORKDIR="${ROOT_DIR}/local-supabase"
 BACKUP_ROOT="${SUPABASE_CLONE_BACKUP_ROOT:-${ROOT_DIR}/backups/supabase-clone}"
 PAYOUT_MIGRATION="${ROOT_DIR}/supabase/migrations/20260715120000_vendor_payout_ledger_rework.sql"
+PAYOUT_STALE_DRAFT_FIX="${ROOT_DIR}/supabase/migrations/20260827210000_fix_stale_payout_draft_allocations.sql"
 LOCAL_DB_PORT="55322"
 
 LOCAL_ADMIN_EMAIL="${LOCAL_ADMIN_EMAIL:-local-admin@ravenpos.test}"
@@ -245,6 +246,7 @@ apply_payout_migration() {
 
   printf 'Applying payout ledger migration to the LOCAL clone only.\n'
   psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --file "$PAYOUT_MIGRATION"
+  psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --file "$PAYOUT_STALE_DRAFT_FIX"
 
   payouts_after="$(psql "$LOCAL_DB_URL" --tuples-only --no-align --set ON_ERROR_STOP=1 \
     --command "SELECT COUNT(*) || '|' || COALESCE(SUM(amount), 0) FROM public.payouts")"

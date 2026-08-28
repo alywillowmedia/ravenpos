@@ -8,12 +8,15 @@ const statement = {
         consignor_id: 'vendor-1',
         amount: 9.99,
         status: 'paid',
-        paid_at: '2026-07-17T12:00:00Z',
+        paid_at: '2026-07-20T12:00:00Z',
         payment_method: 'check',
         payment_reference: '2065',
         payment_date: '2026-07-17',
         period_start: '2026-05-01',
         period_end: '2026-05-31',
+        range_mode: 'selected_range',
+        source_range_start: '2026-05-01',
+        source_range_end: '2026-06-30',
         sales_count: 1,
         items_sold: 1,
         gross_sales: 14.99,
@@ -86,6 +89,10 @@ describe('buildPayoutStatementReportHtml', () => {
         expect(html).toContain('Invoice #1001');
         expect(html).toContain('Recorded Payout');
         expect(html).toContain('$9.99');
+        expect(html).toContain('<span class="label">Selected Date Range</span>5/1/2026 - 6/30/2026');
+        expect(html).toContain('<span class="label">Paid Date</span>7/17/2026');
+        expect(html).not.toContain('<span class="label">Paid Date</span>7/20/2026');
+        expect(html).toContain('<span class="label">Check Number</span>2065');
     });
 
     it('does not include admin page chrome in the printable document', () => {

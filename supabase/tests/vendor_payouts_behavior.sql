@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(28);
+SELECT plan(31);
 SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
 
 INSERT INTO public.consignors (
@@ -186,6 +186,76 @@ SELECT is(
   0.00::numeric,
   'sub-millisecond boundary precision cannot create a false payable balance'
 );
+
+-- A historical sale range is only an inclusion boundary. Refunds recorded after
+-- that boundary must still reduce a draft's current payable allocation, otherwise
+-- finalize_payout rejects every refresh of the draft with SQLSTATE 40001.
+INSERT INTO public.consignors (
+  id, consignor_number, name, business_name, commission_split,
+  consignor_pays_card_fee, payout_threshold_override, is_active
+) VALUES (
+  'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'TEST-RANGE',
+  'Range Vendor', 'Range Vendor Studio', 1, FALSE, 0, TRUE
+);
+
+INSERT INTO public.sales (
+  id, completed_at, subtotal, tax_amount, total, payment_method,
+  discount_total, payment_breakdown, refund_status
+) VALUES (
+  'ffffffff-ffff-ffff-ffff-ffffffffffff',
+  '2026-03-01 12:00:00+00', 20, 0, 20, 'cash', 0,
+  '[{"method":"cash","amount":20}]'::jsonb, 'partial'
+);
+
+INSERT INTO public.sale_items (
+  id, sale_id, consignor_id, sku, name, price, quantity,
+  commission_split, discount_amount, consignor_pays_card_fee
+) VALUES (
+  'eeeeeeee-ffff-eeee-ffff-eeeeeeeeeeee',
+  'ffffffff-ffff-ffff-ffff-ffffffffffff',
+  'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+  'RANGE-REFUND', 'Range Refund Item', 10, 2, 1, 0, FALSE
+);
+
+INSERT INTO public.refunds (
+  id, sale_id, refund_amount, payment_method, items, created_at
+) VALUES (
+  'ffffffff-eeee-ffff-eeee-ffffffffffff',
+  'ffffffff-ffff-ffff-ffff-ffffffffffff',
+  10, 'cash',
+  '[{"sale_item_id":"eeeeeeee-ffff-eeee-ffff-eeeeeeeeeeee","quantity":1,"restocked":true}]'::jsonb,
+  '2026-03-02 12:00:00+00'
+);
+
+INSERT INTO public.payouts (
+  id, consignor_id, amount, period_start, period_end, paid_at, status,
+  historical_confidence
+) VALUES (
+  'eeeeeeee-eeee-ffff-ffff-eeeeeeeeeeee',
+  'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 0, NOW(), NOW(), NULL,
+  'draft', 'verified'
+);
+
+SELECT lives_ok($$
+  SELECT public.save_payout_draft(
+    'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+    'eeeeeeee-eeee-ffff-ffff-eeeeeeeeeeee',
+    'selected_range', '2026-03-01', '2026-03-01', FALSE,
+    NULL, NULL, NULL, NULL
+  )
+$$, 'historical-range draft refresh uses current refund state');
+SELECT is(
+  (SELECT amount_settled FROM public.payout_sale_allocations
+   WHERE payout_id = 'eeeeeeee-eeee-ffff-ffff-eeeeeeeeeeee'),
+  10.00::numeric,
+  'post-range refund reduces the current sale allocation'
+);
+SELECT lives_ok($$
+  SELECT public.finalize_payout(
+    'eeeeeeee-eeee-ffff-ffff-eeeeeeeeeeee',
+    'check', '2026-03-03', 'RANGE-REFUND-TEST', NULL, NULL
+  )
+$$, 'refreshed historical-range payout finalizes without a false allocation conflict');
 
 SELECT * FROM finish();
 ROLLBACK;

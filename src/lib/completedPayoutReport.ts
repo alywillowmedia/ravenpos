@@ -20,6 +20,14 @@ function money(value: number | null | undefined): string {
     return Number(value || 0).toFixed(2);
 }
 
+function reportDate(value: string | null | undefined): string {
+    if (!value) return '—';
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? new Date(`${value}T12:00:00`)
+        : new Date(value);
+    return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString();
+}
+
 export function buildCompletedPayoutReportHtml(
     payout: Payout,
     details: CompletedPayoutDetails,
@@ -53,6 +61,12 @@ export function buildCompletedPayoutReportHtml(
     const originalDue = payout.original_amount_due === null || payout.original_amount_due === undefined
         ? null
         : Number(payout.original_amount_due);
+    const rangeStart = payout.source_range_start || payout.period_start;
+    const rangeEnd = payout.source_range_end || payout.period_end;
+    const hasSelectedRange = Boolean(payout.source_range_start && payout.source_range_end);
+    const paymentReferenceLabel = payout.payment_method?.trim().toLowerCase() === 'check'
+        ? 'Check Number'
+        : 'Payment Reference';
 
     const html = `
         <!DOCTYPE html>
@@ -89,8 +103,10 @@ export function buildCompletedPayoutReportHtml(
             <p><strong>${escapeHtml(consignorName)}</strong> (${escapeHtml(consignor?.consignor_number || '')})</p>
             <p>Pay To: ${escapeHtml(payToName)}</p>
             <div class="meta">
-                <div><span class="label">Paid At</span>${escapeHtml(new Date(payout.paid_at).toLocaleString())}</div>
-                <div><span class="label">Payout Period</span>${escapeHtml(new Date(payout.period_start).toLocaleDateString())} - ${escapeHtml(new Date(payout.period_end).toLocaleDateString())}</div>
+                <div><span class="label">Paid Date</span>${escapeHtml(reportDate(payout.payment_date || payout.paid_at))}</div>
+                <div><span class="label">${hasSelectedRange ? 'Selected Date Range' : 'Payout Period'}</span>${escapeHtml(reportDate(rangeStart))} - ${escapeHtml(reportDate(rangeEnd))}</div>
+                <div><span class="label">Payment Method</span>${escapeHtml(payout.payment_method || 'Unspecified')}</div>
+                <div><span class="label">${paymentReferenceLabel}</span>${escapeHtml(payout.payment_reference || '—')}</div>
                 <div><span class="label">Payout ID</span>${escapeHtml(payout.id)}</div>
                 <div><span class="label">Transactions</span>${payout.sales_count}</div>
                 <div><span class="label">Items Sold</span>${payout.items_sold}</div>
