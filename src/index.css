@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../New-Rav-design-sys.css";
 
 /* ========================================
    RavenPOS Design System
@@ -6,31 +7,23 @@
    ======================================== */
 
 @theme {
-  /* ----------------------------------------
-     Light mode — "Gallery" palette
-     Warm bone canvas, charcoal ink, one deep
-     clay accent. Mirrors the Ravenlia landing
-     page so the admin/POS feels like the brand.
-     ---------------------------------------- */
-  --color-background: #f7f4ef;   /* bone canvas */
-  --color-foreground: #1a1714;   /* charcoal ink */
-  --color-muted: #625a50;        /* stone — AA on light surfaces */
-  --color-muted-foreground: #756c60;
-  --color-border: #e5ded5;       /* quiet warm hairline */
-  --color-border-strong: #b5aa9d;
-  --color-input: #c9beb1;
-  --color-ring: #8a2b22;
-
-  /* Surface colors */
-  --color-surface: #f1ece3;      /* subtle inset */
-  --color-surface-elevated: #ffffff;
-  --color-surface-hover: #efe9e0;
-  --color-card: #ffffff;
-
-  /* Primary accent — deep clay */
-  --color-primary: #8a2b22;
-  --color-primary-hover: #71211a;
-  --color-primary-foreground: #fbf9f5;
+  /* Shared identity from New-Rav-design-sys.css. Keep semantic app
+     names so every existing screen consumes the same source tokens. */
+  --color-background: var(--dw-bg);
+  --color-foreground: var(--dw-ink);
+  --color-muted: var(--dw-muted);
+  --color-muted-foreground: var(--dw-muted);
+  --color-border: color-mix(in srgb, var(--dw-faint) 60%, var(--dw-bg));
+  --color-border-strong: var(--dw-faint);
+  --color-input: var(--dw-faint);
+  --color-ring: var(--dw-ink);
+  --color-surface: var(--dw-surface);
+  --color-surface-elevated: var(--dw-bg);
+  --color-surface-hover: color-mix(in srgb, var(--dw-faint) 35%, var(--dw-surface));
+  --color-card: var(--dw-bg);
+  --color-primary: var(--dw-ink);
+  --color-primary-hover: color-mix(in srgb, var(--dw-ink) 88%, var(--dw-bg));
+  --color-primary-foreground: var(--dw-bg);
 
   /* Semantic colors — warm-leaning so nothing clashes with the bone canvas */
   --color-success: #4a6b3a;
@@ -45,29 +38,27 @@
   --color-info-bg: #e8eef4;
 
   /* Typography */
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: 'SF Mono', 'Fira Code', ui-monospace, monospace;
 
   /* Spacing */
   --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
+  --radius-md: var(--dw-radius);
+  --radius-lg: var(--dw-radius);
+  --radius-xl: var(--dw-panel-radius);
   --radius-full: 9999px;
 
-  /* Shadows — warm-tinted (charcoal, not pure black) so they sit softly on bone */
-  --shadow-sm: 0 1px 2px 0 rgb(26 23 20 / 0.05);
-  --shadow-md: 0 2px 4px -1px rgb(26 23 20 / 0.06), 0 8px 20px -12px rgb(26 23 20 / 0.12);
-  --shadow-lg: 0 4px 8px -2px rgb(26 23 20 / 0.07), 0 16px 32px -14px rgb(26 23 20 / 0.16);
-  --shadow-xl: 0 8px 16px -4px rgb(26 23 20 / 0.08), 0 28px 48px -18px rgb(26 23 20 / 0.22);
-  --shadow-control: 0 1px 2px rgb(26 23 20 / 0.045), 0 4px 12px -8px rgb(26 23 20 / 0.14);
-  --shadow-surface: 0 1px 2px rgb(26 23 20 / 0.04), 0 12px 28px -18px rgb(26 23 20 / 0.2);
-  --shadow-shell: 0 10px 32px -26px rgb(26 23 20 / 0.24);
-
-  /* Transitions */
-  --transition-fast: 100ms ease;
-  --transition-base: 150ms ease;
-  --transition-slow: 300ms ease;
+  /* Quiet neutral elevation; larger panels use the supplied shadow. */
+  --shadow-sm: 0 1px 2px rgb(32 33 34 / 0.04);
+  --shadow-md: 0 4px 18px rgb(32 33 34 / 0.05);
+  --shadow-lg: var(--dw-shadow);
+  --shadow-xl: var(--dw-shadow);
+  --shadow-control: none;
+  --shadow-surface: 0 2px 12px rgb(32 33 34 / 0.035);
+  --shadow-shell: 0 1px 0 var(--color-border);
+  --transition-fast: 100ms var(--dw-ease);
+  --transition-base: 180ms var(--dw-ease);
+  --transition-slow: 300ms var(--dw-ease);
 
   /* Mobile-specific tokens */
   --mobile-bottom-nav-height: 90px;
@@ -82,39 +73,9 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  /* ----------------------------------------
-     Dark mode — "Warm charcoal"
-     Neutral warm near-black (no blue cast),
-     charcoal surfaces, a lifted clay accent.
-     The refined counterpart to the gallery light.
-     ---------------------------------------- */
-  --color-background: #17120f;   /* warm near-black */
-  --color-foreground: #f3ede4;   /* warm off-white */
-  --color-muted: #c0b3a3;
-  --color-muted-foreground: #ada08f;
-  --color-border: #352c26;
-  --color-border-strong: #62544a;
-  --color-input: #51443b;
-  --color-ring: #c8745e;
-
-  --color-surface: #1d1713;
-  --color-surface-elevated: #241c17;
-  --color-surface-hover: #2a221c;
-  --color-card: #211a16;
-
-  /* Dark surfaces separate through tone and depth, not bright outlines. */
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.2);
-  --shadow-md: inset 0 1px 0 rgb(255 247 237 / 0.025), 0 2px 5px rgb(0 0 0 / 0.22), 0 12px 28px -20px rgb(0 0 0 / 0.8);
-  --shadow-lg: inset 0 1px 0 rgb(255 247 237 / 0.03), 0 5px 12px rgb(0 0 0 / 0.28), 0 22px 40px -24px rgb(0 0 0 / 0.88);
-  --shadow-xl: inset 0 1px 0 rgb(255 247 237 / 0.035), 0 10px 24px rgb(0 0 0 / 0.34), 0 30px 56px -28px rgb(0 0 0 / 0.94);
-  --shadow-control: inset 0 1px 0 rgb(255 247 237 / 0.02), 0 2px 8px -4px rgb(0 0 0 / 0.72);
-  --shadow-surface: inset 0 1px 0 rgb(255 247 237 / 0.025), 0 2px 5px rgb(0 0 0 / 0.24), 0 16px 34px -24px rgb(0 0 0 / 0.9);
-  --shadow-shell: 0 12px 36px -28px rgb(0 0 0 / 0.95);
-
-  /* Lifted clay — warmer/brighter so it carries on a dark canvas */
-  --color-primary: #cf7a64;
-  --color-primary-hover: #db8c77;
-  --color-primary-foreground: #1a120e;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.12);
+  --shadow-md: 0 4px 18px rgb(0 0 0 / 0.14);
+  --shadow-surface: 0 2px 12px rgb(0 0 0 / 0.1);
 
   --color-success: #82a86a;
   --color-success-hover: #92b87a;
@@ -146,7 +107,8 @@ body {
   margin: 0;
   background-color: var(--color-background);
   color: var(--color-foreground);
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.6;
   min-width: 320px;
 }
 
@@ -180,33 +142,9 @@ textarea {
    one restrained clay accent. Imagery provides the color.
    ======================================== */
 .ravenlia-storefront {
-  --color-background: #f7f4ef;   /* bone canvas */
-  --color-foreground: #1a1714;   /* charcoal ink */
-  --color-muted: #625a50;        /* stone — readable on bone and white */
-  --color-muted-foreground: #756c60;
-  --color-border: #d9d1c6;       /* visible structural hairline */
-  --color-input: #968b7d;
-  --color-ring: #8a2b22;
-
-  --color-surface: #f1ece3;      /* subtle inset */
-  --color-surface-elevated: #ffffff; /* cards */
-  --color-surface-hover: #efe9e0;
-  --color-card: #ffffff;
-
-  --color-primary: #8a2b22;      /* deep clay, used sparingly */
-  --color-primary-hover: #71211a;
-  --color-primary-foreground: #fbf9f5;
-
-  --color-success: #4a6b3a;
-  --color-success-hover: #3d5a30;
-  --color-success-bg: #eaf0e2;
-  --color-danger-hover: #71211a;
-
-  /* gallery elevation — soft, warm-tinted, never harsh */
-  --shadow-gallery: 0 1px 2px rgb(26 23 20 / 0.04), 0 8px 24px -12px rgb(26 23 20 / 0.10);
-  --shadow-gallery-lifted: 0 2px 4px rgb(26 23 20 / 0.05), 0 18px 40px -16px rgb(26 23 20 / 0.18);
-
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --shadow-gallery: var(--shadow-surface);
+  --shadow-gallery-lifted: var(--dw-shadow);
+  font-family: var(--font-sans);
   background: var(--color-background);
   color: var(--color-foreground);
 }
@@ -225,14 +163,14 @@ textarea {
 .ravenlia-storefront h2,
 .ravenlia-storefront h3,
 .ravenlia-storefront .ravenlia-display {
-  font-family: "Fraunces", "Palatino Linotype", "Book Antiqua", Palatino, serif;
+  font-family: var(--font-sans);
   font-weight: 400;
   letter-spacing: -0.015em;
 }
 
 /* Small caps eyebrow / label treatment */
 .ravenlia-storefront .ravenlia-eyebrow {
-  font-family: "Inter", sans-serif;
+  font-family: var(--font-sans);
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-size: 0.6875rem;
@@ -252,14 +190,14 @@ textarea {
 
 .text-display {
   font-size: 3rem;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.1;
   letter-spacing: -0.025em;
 }
 
 .text-h1 {
   font-size: 2.25rem;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.2;
   letter-spacing: -0.02em;
 }
@@ -298,11 +236,9 @@ textarea {
   font-size: 0.875em;
 }
 
-/* Brand display serif — the Ravenlia voice (Fraunces), usable anywhere in
-   the app, not just the storefront. Reserve for "money moments" and a few
-   key headings so the POS reads as the gallery's own, not a generic terminal. */
+/* Shared display typography for headings and POS totals. */
 .font-display {
-  font-family: "Fraunces", "Palatino Linotype", "Book Antiqua", Palatino, serif;
+  font-family: var(--font-sans);
   letter-spacing: -0.02em;
 }
 
@@ -322,7 +258,7 @@ textarea {
    ======================================== */
 
 :focus-visible {
-  outline: 3px solid var(--color-ring);
+  outline: 2px solid var(--color-ring);
   outline-offset: 2px;
 }
 

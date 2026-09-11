@@ -125,9 +125,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 
         const inputStyles = `
       w-full rounded-lg
-      bg-[var(--color-surface-elevated)]
+      bg-[var(--color-surface)]
       border border-[var(--color-input)]
-      shadow-[var(--shadow-control)]
+
       text-[var(--color-foreground)]
       placeholder:text-[var(--color-muted-foreground)]
       transition-all duration-150
@@ -288,9 +288,9 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
 
         const textareaStyles = `
       w-full rounded-lg
-      bg-[var(--color-surface-elevated)]
+      bg-[var(--color-surface)]
       border border-[var(--color-input)]
-      shadow-[var(--shadow-control)]
+
       text-[var(--color-foreground)]
       placeholder:text-[var(--color-muted-foreground)]
       transition-all duration-150

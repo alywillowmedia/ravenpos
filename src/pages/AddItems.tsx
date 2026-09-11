@@ -108,7 +108,7 @@ export function AddItems() {
                         <button
                             onClick={() => setMode('single')}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${mode === 'single'
-                                ? 'bg-[var(--color-primary)] text-white'
+                                ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                 : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
                                 }`}
                         >
@@ -117,7 +117,7 @@ export function AddItems() {
                         <button
                             onClick={() => setMode('batch')}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${mode === 'batch'
-                                ? 'bg-[var(--color-primary)] text-white'
+                                ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                 : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
                                 }`}
                         >

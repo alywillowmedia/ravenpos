@@ -29,10 +29,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     ) => {
         const baseStyles = `
       inline-flex items-center justify-center gap-2
-      font-medium rounded-lg
-      transition-all duration-150 ease-out
-      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
-      disabled:opacity-50 disabled:cursor-not-allowed
+      font-semibold rounded-lg
+      transition-[background-color,opacity,transform] duration-200 ease-[var(--dw-ease)]
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-background)]
+      disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
       active:scale-[0.98]
       touch-manipulation tap-highlight-none select-none
     `;
@@ -42,12 +42,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         bg-[var(--color-primary)] text-[var(--color-primary-foreground)]
         hover:bg-[var(--color-primary-hover)]
         focus-visible:ring-[var(--color-primary)]
-        shadow-sm hover:shadow-md
+
       `,
             secondary: `
         bg-[var(--color-surface)] text-[var(--color-foreground)]
-        border border-[var(--color-border)]
-        shadow-[var(--shadow-control)]
+        border border-transparent
         hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-border-strong)]
         focus-visible:ring-[var(--color-ring)]
       `,
@@ -60,13 +59,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         bg-[var(--color-danger)] text-white
         hover:bg-[var(--color-danger-hover)]
         focus-visible:ring-[var(--color-danger)]
-        shadow-sm hover:shadow-md
+
       `,
             success: `
         bg-[var(--color-success)] text-white
         hover:bg-[var(--color-success-hover)]
         focus-visible:ring-[var(--color-success)]
-        shadow-sm hover:shadow-md
+
       `,
         };
 

@@ -1,0 +1,51 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.116.0"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.116.0": "a38014743786a06c7dbf095a99e9ef3b38c0ec16bff076fc7cd403991192b34e"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@eslint/js@^9.18.0",
+        "npm:@radix-ui/react-hover-card@^1.1.15",
+        "npm:@supabase/supabase-js@^2.106.1",
+        "npm:@tailwindcss/vite@4",
+        "npm:@types/papaparse@^5.3.15",
+        "npm:@types/react-dom@19",
+        "npm:@types/react@19",
+        "npm:@vitejs/plugin-react@^4.3.0",
+        "npm:concurrently@^8.2.2",
+        "npm:electron-builder@^26.8.1",
+        "npm:electron-store@^8.1.0",
+        "npm:electron-updater@^6.8.3",
+        "npm:electron@^42.2.0",
+        "npm:eslint-plugin-react-hooks@^5.1.0",
+        "npm:eslint-plugin-react-refresh@~0.4.16",
+        "npm:eslint@^9.18.0",
+        "npm:globals@^15.14.0",
+        "npm:jsbarcode@^3.11.6",
+        "npm:jspdf@^4.2.1",
+        "npm:lucide-react@0.562",
+        "npm:motion@^12.34.3",
+        "npm:node-thermal-printer@^4.3.0",
+        "npm:papaparse@^5.4.1",
+        "npm:qss@3",
+        "npm:react-dom@19",
+        "npm:react-router-dom@^7.17.0",
+        "npm:react@19",
+        "npm:recharts@^3.6.0",
+        "npm:shadcn@^4.8.0",
+        "npm:stripe@^20.2.0",
+        "npm:tailwindcss@4",
+        "npm:typescript-eslint@^8.20.0",
+        "npm:typescript@5.7",
+        "npm:vite@^6.4.2",
+        "npm:vitest@^4.1.8",
+        "npm:wait-on@^9.0.10"
+      ]
+    }
+  }
+}

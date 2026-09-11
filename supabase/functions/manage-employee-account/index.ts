@@ -22,7 +22,7 @@ interface DeleteEmployeeAccountRequest {
 }
 
 interface ArchiveEmployeeRequest {
-    action: 'archive_employee' | 'remove_employee'
+    action: 'archive_employee' | 'remove_employee' | 'delete_employee'
     employeeId: string
 }
 
@@ -406,7 +406,7 @@ Deno.serve(async (req) => {
             )
         }
 
-        if (body.action === 'archive_employee' || body.action === 'remove_employee') {
+        if (body.action === 'archive_employee' || body.action === 'remove_employee' || body.action === 'delete_employee') {
             const employeeId = body.employeeId?.trim()
             if (!employeeId) {
                 return new Response(
@@ -484,18 +484,7 @@ Deno.serve(async (req) => {
 
             for (const portalUser of portalUsers || []) {
                 if (portalUser.role === 'employee') {
-                    const { error: deleteUserError } = await adminClient
-                        .from('users')
-                        .delete()
-                        .eq('id', portalUser.id)
-
-                    if (deleteUserError) {
-                        return new Response(
-                            JSON.stringify({ error: deleteUserError.message }),
-                            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                        )
-                    }
-
+                    // Auth deletion cascades to public.users; keep the link until it succeeds so retries can find it.
                     const { error: deleteAuthError } = await adminClient.auth.admin.deleteUser(portalUser.id)
                     if (deleteAuthError) {
                         return new Response(
@@ -545,10 +534,22 @@ Deno.serve(async (req) => {
                 }
             }
 
+            if (body.action === 'delete_employee') {
+                const { error: deleteEmployeeError } = await adminClient
+                    .from('employees').delete().eq('id', employeeId)
+                if (deleteEmployeeError) {
+                    return new Response(
+                        JSON.stringify({ error: `Access was removed, but permanent deletion failed: ${deleteEmployeeError.message}. You can retry deletion.` }),
+                        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                    )
+                }
+            }
+
             return new Response(
                 JSON.stringify({
                     success: true,
-                    archived: true,
+                    archived: body.action !== 'delete_employee',
+                    deleted: body.action === 'delete_employee',
                     closedOpenTimeEntries: openEntries?.length ?? 0,
                     removedPortalLinks: portalUsers?.length ?? 0,
                 }),

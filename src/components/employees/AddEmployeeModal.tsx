@@ -12,9 +12,10 @@ interface AddEmployeeModalProps {
     onSubmit: (data: EmployeeInput, newPin?: string) => Promise<{ error: string | null }>;
     employee?: Employee | null; // If provided, we're editing
     roleOptions: EmployeeRole[];
+    onRemove?: () => void;
 }
 
-export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee, roleOptions }: AddEmployeeModalProps) {
+export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee, roleOptions, onRemove }: AddEmployeeModalProps) {
     const [name, setName] = useState('');
     const [hourlyRate, setHourlyRate] = useState('');
     const [pin, setPin] = useState('');
@@ -285,6 +286,11 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee, roleOpti
                 )}
 
                 <div className="flex gap-3 pt-4">
+                    {isEditing && onRemove && (
+                        <Button type="button" variant="danger" onClick={onRemove} disabled={isSubmitting}>
+                            Remove
+                        </Button>
+                    )}
                     <Button type="button" variant="ghost" onClick={onClose} className="flex-1">
                         Cancel
                     </Button>

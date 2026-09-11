@@ -197,10 +197,10 @@ export function useEmployees() {
     };
 
     // Archive employee while preserving historical time/payroll records.
-    const removeEmployee = async (id: string): Promise<{ error: string | null }> => {
+    const removeEmployee = async (id: string, action: 'remove_employee' | 'delete_employee' = 'remove_employee'): Promise<{ error: string | null }> => {
         try {
             const { error: archiveError } = await invokeEmployeeAccountManagement({
-                action: 'remove_employee',
+                action,
                 employeeId: id,
             });
 

@@ -47,9 +47,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
 
         const selectStyles = `
       w-full rounded-lg
-      bg-[var(--color-surface-elevated)]
+      bg-[var(--color-surface)]
       border border-[var(--color-input)]
-      shadow-[var(--shadow-control)]
+
       text-[var(--color-foreground)]
       transition-all duration-150
       focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent

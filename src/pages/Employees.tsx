@@ -60,6 +60,8 @@ export function Employees() {
     const [isLoadingEntries, setIsLoadingEntries] = useState(false);
     const [salesCount, setSalesCount] = useState(0);
     const [employeeActionError, setEmployeeActionError] = useState<string | null>(null);
+    const [removalMode, setRemovalMode] = useState<'inactive' | 'archive' | 'delete'>('archive');
+    const [showRemovalConfirmation, setShowRemovalConfirmation] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<EmployeeWithStats | null>(null);
     const [isDeletingEmployee, setIsDeletingEmployee] = useState(false);
     const [deleteEmployeeError, setDeleteEmployeeError] = useState<string | null>(null);
@@ -210,7 +212,9 @@ export function Employees() {
         setDeleteEmployeeError(null);
         setIsDeletingEmployee(true);
 
-        const { error: deletionError } = await removeEmployee(deleteTarget.id);
+        const { error: deletionError } = await (removalMode === 'inactive'
+            ? updateEmployee(deleteTarget.id, { is_active: false })
+            : removeEmployee(deleteTarget.id, removalMode === 'delete' ? 'delete_employee' : 'remove_employee'));
 
         setIsDeletingEmployee(false);
         if (deletionError) {
@@ -219,6 +223,8 @@ export function Employees() {
         }
 
         setDeleteTarget(null);
+        setShowRemovalConfirmation(false);
+        setViewingEmployee(null);
         setTimeEntryCount(0);
     };
 
@@ -486,12 +492,14 @@ export function Employees() {
                                                 >
                                                     Edit
                                                 </Button>
-                                                {!emp.removed_at && (
+                                                {(
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
                                                         onClick={() => {
                                                             setDeleteEmployeeError(null);
+                                                            setRemovalMode(emp.removed_at ? 'delete' : 'archive');
+                                                            setShowRemovalConfirmation(false);
                                                             setDeleteTarget(emp);
                                                         }}
                                                     >
@@ -548,6 +556,15 @@ export function Employees() {
                 onClose={() => setEditingEmployee(null)}
                 onSubmit={handleEditEmployee}
                 employee={editingEmployee}
+                onRemove={() => {
+                    const employee = employees.find((candidate) => candidate.id === editingEmployee?.id);
+                    if (!employee) return;
+                    setEditingEmployee(null);
+                    setRemovalMode('archive');
+                    setShowRemovalConfirmation(false);
+                    setDeleteEmployeeError(null);
+                    setDeleteTarget(employee);
+                }}
                 roleOptions={employeeRoles}
             />
 
@@ -651,8 +668,39 @@ export function Employees() {
                 onClose={() => setShowAuthModal(false)}
             />
 
+            <Modal
+                isOpen={!!deleteTarget && !showRemovalConfirmation}
+                onClose={() => setDeleteTarget(null)}
+                title={`Remove ${deleteTarget?.name || 'Employee'}`}
+                size="md"
+            >
+                <div className="space-y-3">
+                    {([
+                        { value: 'inactive', title: 'Make inactive', description: 'Disable employee login. Keep the profile, credentials, schedules, and history for later reactivation.' },
+                        { value: 'archive', title: 'Archive / remove', description: 'Hide from the roster, revoke access, close any open shift, and clear future schedules. Keep history and allow restoration.' },
+                        { value: 'delete', title: 'Permanently delete', description: 'Delete the employee profile, timecards, payroll and payouts, schedules, and employee login. Sales stay, without the employee link. Cannot be undone.' },
+                    ] as const).map((option) => (
+                        <label key={option.value} className="flex gap-3 rounded-lg border border-[var(--color-border)] p-4">
+                            <input type="radio" name="employee-removal" value={option.value}
+                                checked={removalMode === option.value}
+                                disabled={!!deleteTarget?.removed_at && option.value !== 'delete'}
+                                onChange={() => setRemovalMode(option.value)} />
+                            <span>
+                                <span className="block font-medium">{option.title}</span>
+                                <span className="block text-sm text-[var(--color-muted)]">{option.description}</span>
+                            </span>
+                        </label>
+                    ))}
+                </div>
+                <ModalFooter>
+                    <Button variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+                    <Button onClick={() => setShowRemovalConfirmation(true)}>Continue</Button>
+                </ModalFooter>
+            </Modal>
+
             <DeleteConfirmationModal
-                isOpen={!!deleteTarget}
+                key={`${deleteTarget?.id}-${removalMode}-${showRemovalConfirmation}`}
+                isOpen={!!deleteTarget && showRemovalConfirmation}
                 onClose={() => {
                     if (isDeletingEmployee) return;
                     setDeleteTarget(null);
@@ -662,17 +710,26 @@ export function Employees() {
                 isLoading={isDeletingEmployee}
                 targetName={deleteTarget?.name || ''}
                 itemCount={timeEntryCount}
-                title="Remove Employee"
-                warningLabel="This removes active access but keeps historical records"
-                warningIntro={`Removing ${deleteTarget?.name || 'this employee'} will:`}
-                consequences={[
+                title={removalMode === 'delete' ? 'Permanently Delete Employee' : removalMode === 'inactive' ? 'Make Employee Inactive' : 'Archive Employee'}
+                warningLabel={removalMode === 'delete' ? 'Permanent deletion cannot be undone' : 'Historical records will be kept'}
+                warningIntro={`This action for ${deleteTarget?.name || 'this employee'} will:`}
+                consequences={removalMode === 'delete' ? [
+                    'Permanently delete the employee profile, all timecards, payroll settings, and employee payout records',
+                    'Delete schedules, time-off requests, PIN sessions, and employee-only portal login',
+                    'Keep store sales, purchases, till records, and messages, but remove their link to this employee',
+                    'Keep any linked admin or vendor account, removing only its employee access',
+                ] : removalMode === 'inactive' ? [
+                    'Disable employee PIN and portal access until the profile is reactivated',
+                    'Keep the profile in the inactive roster, with credentials, schedules, timecards, payroll, and payouts unchanged',
+                    'Leave any open shift unchanged; clock them out separately if needed',
+                ] : [
                     `Keep ${timeEntryCount} saved time entr${timeEntryCount === 1 ? 'y' : 'ies'}, payroll records, payouts, and past history for reference`,
                     'Remove them from the roster; their profile remains available under Show removed employees',
                     'Remove PIN sessions and employee portal access',
                     'Close any open shift and clear future schedule assignments',
                 ]}
-                confirmActionLabel="Remove"
-                confirmButtonLabel="Remove Employee"
+                confirmActionLabel={removalMode === 'delete' ? 'Delete' : removalMode === 'inactive' ? 'Deactivate' : 'Archive'}
+                confirmButtonLabel={removalMode === 'delete' ? 'Permanently Delete Employee' : removalMode === 'inactive' ? 'Make Inactive' : 'Archive Employee'}
                 description={deleteEmployeeError || undefined}
             />
 
