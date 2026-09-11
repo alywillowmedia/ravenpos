@@ -197,10 +197,10 @@ export function useEmployees() {
     };
 
     // Archive employee while preserving historical time/payroll records.
-    const archiveEmployee = async (id: string): Promise<{ error: string | null }> => {
+    const removeEmployee = async (id: string): Promise<{ error: string | null }> => {
         try {
             const { error: archiveError } = await invokeEmployeeAccountManagement({
-                action: 'archive_employee',
+                action: 'remove_employee',
                 employeeId: id,
             });
 
@@ -212,7 +212,20 @@ export function useEmployees() {
             return { error: null };
         } catch (err) {
             console.error(err);
-            return { error: 'Failed to archive employee' };
+            return { error: 'Failed to remove employee' };
+        }
+    };
+
+    // Restore to the inactive roster; access must be explicitly re-enabled.
+    const restoreEmployee = async (id: string): Promise<{ error: string | null }> => {
+        try {
+            const { error } = await supabase.from('employees')
+                .update({ removed_at: null, is_active: false }).eq('id', id);
+            if (error) return { error: error.message };
+            await fetchEmployees();
+            return { error: null };
+        } catch {
+            return { error: 'Failed to restore employee' };
         }
     };
 
@@ -440,7 +453,8 @@ export function useEmployees() {
         fetchEmployees,
         createEmployee,
         updateEmployee,
-        archiveEmployee,
+        removeEmployee,
+        restoreEmployee,
         getEmployee,
         getTimeEntries,
         manualClockIn,

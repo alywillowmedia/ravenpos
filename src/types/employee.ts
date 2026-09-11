@@ -7,6 +7,7 @@ export interface Employee {
     profile_image_url?: string | null;
     hourly_rate: number;
     is_active: boolean;
+    removed_at?: string | null;
     employer?: 'Ravenlia' | 'Alywillow' | null;
     employment_type?: string | null;
     address_line_1?: string | null;

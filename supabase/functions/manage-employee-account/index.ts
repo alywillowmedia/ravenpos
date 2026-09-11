@@ -22,7 +22,7 @@ interface DeleteEmployeeAccountRequest {
 }
 
 interface ArchiveEmployeeRequest {
-    action: 'archive_employee'
+    action: 'archive_employee' | 'remove_employee'
     employeeId: string
 }
 
@@ -406,7 +406,7 @@ Deno.serve(async (req) => {
             )
         }
 
-        if (body.action === 'archive_employee') {
+        if (body.action === 'archive_employee' || body.action === 'remove_employee') {
             const employeeId = body.employeeId?.trim()
             if (!employeeId) {
                 return new Response(
@@ -531,7 +531,7 @@ Deno.serve(async (req) => {
                     .or(`active_until.is.null,active_until.gte.${today}`),
                 adminClient
                     .from('employees')
-                    .update({ is_active: false })
+                    .update({ is_active: false, ...(body.action === 'remove_employee' ? { removed_at: nowIso } : {}) })
                     .eq('id', employeeId),
             ]
 

@@ -42,7 +42,8 @@ export function Employees() {
         error,
         createEmployee,
         updateEmployee,
-        archiveEmployee,
+        removeEmployee,
+        restoreEmployee,
         getTimeEntries,
         manualClockIn,
         manualClockOut,
@@ -65,6 +66,8 @@ export function Employees() {
     const [timeEntryCount, setTimeEntryCount] = useState(0);
     const [editingTimeEntry, setEditingTimeEntry] = useState<TimeEntry | null>(null);
     const [showSensitiveNumbers, setShowSensitiveNumbers] = useState(false);
+    const [showRemovedEmployees, setShowRemovedEmployees] = useState(false);
+    const [restoringEmployeeId, setRestoringEmployeeId] = useState<string | null>(null);
     const [showInactiveEmployees, setShowInactiveEmployees] = useState(false);
     const [isSendingSchedules, setIsSendingSchedules] = useState(false);
     const [scheduleSendMessage, setScheduleSendMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -76,13 +79,24 @@ export function Employees() {
     const [schedulePreview, setSchedulePreview] = useState<SchedulePreview | null>(null);
 
     const inactiveEmployeeCount = useMemo(
-        () => employees.filter((employee) => !employee.is_active).length,
+        () => employees.filter((employee) => !employee.is_active && !employee.removed_at).length,
         [employees]
     );
     const visibleEmployees = useMemo(
-        () => showInactiveEmployees ? employees : employees.filter((employee) => employee.is_active),
-        [employees, showInactiveEmployees]
+        () => employees.filter((employee) => employee.removed_at
+            ? showRemovedEmployees
+            : showInactiveEmployees || employee.is_active),
+        [employees, showInactiveEmployees, showRemovedEmployees]
     );
+
+    const handleRestoreEmployee = async (employee: EmployeeWithStats) => {
+        setRestoringEmployeeId(employee.id);
+        setEmployeeActionError(null);
+        const { error } = await restoreEmployee(employee.id);
+        setRestoringEmployeeId(null);
+        if (error) setEmployeeActionError(error);
+        else setShowInactiveEmployees(true);
+    };
 
     const handleAddEmployee = async (input: EmployeeInput): Promise<{ error: string | null }> => {
         const { error } = await createEmployee(input);
@@ -196,7 +210,7 @@ export function Employees() {
         setDeleteEmployeeError(null);
         setIsDeletingEmployee(true);
 
-        const { error: deletionError } = await archiveEmployee(deleteTarget.id);
+        const { error: deletionError } = await removeEmployee(deleteTarget.id);
 
         setIsDeletingEmployee(false);
         if (deletionError) {
@@ -334,6 +348,20 @@ export function Employees() {
                 }
             />
 
+            {employees.some((employee) => employee.removed_at) && (
+                <div className="mb-4">
+                    <Button variant="secondary" aria-pressed={showRemovedEmployees}
+                        onClick={() => setShowRemovedEmployees(!showRemovedEmployees)}>
+                        {showRemovedEmployees ? 'Hide removed employees' : 'Show removed employees'}
+                    </Button>
+                    {showRemovedEmployees && (
+                        <p className="mt-2 text-sm text-[var(--color-muted)]">
+                            Restoring returns an employee to the inactive roster. Edit their profile to reactivate them and set up access again.
+                        </p>
+                    )}
+                </div>
+            )}
+
             {scheduleSendMessage && (
                 <div className={`mb-4 p-3 rounded-lg text-sm ${scheduleSendMessage.type === 'success'
                     ? 'bg-[var(--color-success-bg)] text-[var(--color-success)]'
@@ -383,7 +411,7 @@ export function Employees() {
                         </div>
                         <h3 className="text-lg font-medium mb-2">No active employees</h3>
                         <p className="text-[var(--color-muted)]">
-                            Use “Show inactive employees” above to review archived employee timecards.
+                            Use the filters above to review inactive or removed employees and their timecards.
                         </p>
                     </CardContent>
                 </Card>
@@ -438,7 +466,7 @@ export function Employees() {
                                             {emp.is_active ? (
                                                 <Badge variant="success">Active</Badge>
                                             ) : (
-                                                <Badge variant="secondary">Inactive</Badge>
+                                                <Badge variant="secondary">{emp.removed_at ? 'Removed' : 'Inactive'}</Badge>
                                             )}
                                         </td>
                                         <td className="px-4 py-3">
@@ -454,10 +482,11 @@ export function Employees() {
                                                     variant="ghost"
                                                     size="sm"
                                                     onClick={() => setEditingEmployee(emp)}
+                                                    disabled={!!emp.removed_at}
                                                 >
                                                     Edit
                                                 </Button>
-                                                {emp.is_active && (
+                                                {!emp.removed_at && (
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
@@ -466,7 +495,15 @@ export function Employees() {
                                                             setDeleteTarget(emp);
                                                         }}
                                                     >
-                                                        Archive
+                                                        Remove
+                                                    </Button>
+                                                )}
+                                                {emp.removed_at && (
+                                                    <Button variant="ghost" size="sm"
+                                                        disabled={!!restoringEmployeeId}
+                                                        isLoading={restoringEmployeeId === emp.id}
+                                                        onClick={() => void handleRestoreEmployee(emp)}>
+                                                        Restore
                                                     </Button>
                                                 )}
                                                 {emp.clockStatus === 'clocked_in' && (
@@ -617,6 +654,7 @@ export function Employees() {
             <DeleteConfirmationModal
                 isOpen={!!deleteTarget}
                 onClose={() => {
+                    if (isDeletingEmployee) return;
                     setDeleteTarget(null);
                     setDeleteEmployeeError(null);
                 }}
@@ -624,17 +662,17 @@ export function Employees() {
                 isLoading={isDeletingEmployee}
                 targetName={deleteTarget?.name || ''}
                 itemCount={timeEntryCount}
-                title="Archive Employee"
+                title="Remove Employee"
                 warningLabel="This removes active access but keeps historical records"
-                warningIntro={`Archiving ${deleteTarget?.name || 'this employee'} will:`}
+                warningIntro={`Removing ${deleteTarget?.name || 'this employee'} will:`}
                 consequences={[
                     `Keep ${timeEntryCount} saved time entr${timeEntryCount === 1 ? 'y' : 'ies'}, payroll records, payouts, and past history for reference`,
-                    'Mark the employee inactive so they no longer appear as an active worker',
+                    'Remove them from the roster; their profile remains available under Show removed employees',
                     'Remove PIN sessions and employee portal access',
                     'Close any open shift and clear future schedule assignments',
                 ]}
-                confirmActionLabel="Archive"
-                confirmButtonLabel="Archive Employee"
+                confirmActionLabel="Remove"
+                confirmButtonLabel="Remove Employee"
                 description={deleteEmployeeError || undefined}
             />
 
