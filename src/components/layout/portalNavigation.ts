@@ -116,13 +116,21 @@ export const adminNavigation: PortalNavEntry[] = [
     { name: 'Profile & settings', href: '/admin/profile', icon: UserCircle },
 ];
 
-export const employeeNavigation: PortalNavItem[] = [
+export const employeeNavigation: PortalNavEntry[] = [
     { name: 'Point of Sale', href: '/employee/pos', icon: ShoppingCart, emphasis: 'primary' },
     { name: 'Inventory', href: '/employee/inventory', icon: Package },
     { name: 'Add products', href: '/employee/add-items', icon: PlusCircle },
     { name: 'Till count', href: '/employee/till-count', icon: CircleDollarSign },
     { name: 'Sales', href: '/employee/sales', icon: ReceiptText },
-    { name: 'Customers', href: '/employee/customers', icon: Users },
+    {
+        name: 'Relationships',
+        icon: ContactRound,
+        children: [
+            { name: 'Consignors', href: '/employee/consignors', icon: Store },
+            { name: 'Customers', href: '/employee/customers', icon: Users },
+            { name: 'Dealers', href: '/employee/dealers', icon: ContactRound },
+        ],
+    },
     { name: 'Labels', href: '/employee/labels', icon: Barcode },
     { name: 'Schedule', href: '/employee/schedule', icon: CalendarDays },
     { name: 'Messages', href: '/employee/messages', icon: MessageSquare },

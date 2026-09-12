@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Table, type Column } from '../components/ui/Table';
@@ -20,6 +21,7 @@ const EMPTY_DEALER_FORM: DealerInput = {
 };
 
 export function Dealers() {
+    const isEmployee = useLocation().pathname.startsWith('/employee/');
     const { dealers, isLoading, createDealer, updateDealer, deleteDealer } = useDealers();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isAddDealerDirty, setIsAddDealerDirty] = useState(false);
@@ -144,7 +146,7 @@ export function Dealers() {
                     >
                         <EditIcon />
                     </button>
-                    <button
+                    {!isEmployee && <button
                         onClick={(e) => {
                             e.stopPropagation();
                             setDeleteTarget(dealer);
@@ -153,7 +155,7 @@ export function Dealers() {
                         title="Delete"
                     >
                         <TrashIcon />
-                    </button>
+                    </button>}
                 </div>
             ),
         },

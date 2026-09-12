@@ -26,7 +26,19 @@ export function MobileMoreSheet({ isOpen, onClose, variant }: MobileMoreSheetPro
     const titleId = `${useId().replace(/:/g, '')}-mobile-nav-title`;
 
     const sections = useMemo<NavigationSection[]>(() => {
-        if (variant === 'employee') return [{ name: 'Employee tools', items: employeeNavigation }];
+        if (variant === 'employee') {
+            const sections: NavigationSection[] = [];
+            for (const entry of employeeNavigation) {
+                if (isNavGroup(entry)) {
+                    sections.push({ name: entry.name, items: entry.children });
+                } else {
+                    const last = sections[sections.length - 1];
+                    if (last?.name === 'Employee tools') last.items.push(entry);
+                    else sections.push({ name: 'Employee tools', items: [entry] });
+                }
+            }
+            return sections;
+        }
         if (variant === 'vendor') return [{ name: 'Vendor tools', items: vendorNavigation }];
         return adminNavigation.map((entry) => isNavGroup(entry)
             ? { name: entry.name, items: entry.children }

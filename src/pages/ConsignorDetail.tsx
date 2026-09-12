@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
@@ -39,6 +39,8 @@ const MONTH_NAMES = [
 export function ConsignorDetail() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const isEmployee = useLocation().pathname.startsWith('/employee/');
+    const portalBase = isEmployee ? '/employee' : '/admin';
     const toast = useToast();
     const { getConsignorById, updateConsignor } = useConsignors();
     const { items, isLoading: itemsLoading } = useInventory({
@@ -52,7 +54,7 @@ export function ConsignorDetail() {
         deletePayment,
         yearlyTotal,
         paidMonths
-    } = useBoothRentPayments(id);
+    } = useBoothRentPayments(isEmployee ? undefined : id);
 
     const [consignor, setConsignor] = useState<Consignor | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -250,7 +252,7 @@ export function ConsignorDetail() {
                 title="Consignor not found"
                 description="The consignor you're looking for doesn't exist."
                 action={
-                    <Button onClick={() => navigate('/admin/consignors')}>
+                    <Button onClick={() => navigate(`${portalBase}/consignors`)}>
                         Back to Consignors
                     </Button>
                 }
@@ -360,7 +362,7 @@ export function ConsignorDetail() {
         <div className="animate-fadeIn">
             <div className="mb-6">
                 <Link
-                    to="/admin/consignors"
+                    to={`${portalBase}/consignors`}
                     className="text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)] transition-colors"
                 >
                     ← Back to Consignors
@@ -372,10 +374,10 @@ export function ConsignorDetail() {
                 description={`Consignor ${consignor.consignor_number}`}
                 actions={
                     <>
-                        <Button variant="secondary" onClick={() => setIsExportModalOpen(true)}>
+                        {!isEmployee && <Button variant="secondary" onClick={() => setIsExportModalOpen(true)}>
                             <DownloadIcon />
                             Export CSV
-                        </Button>
+                        </Button>}
                         <Button variant="secondary" onClick={() => setIsEditModalOpen(true)}>
                             Edit
                         </Button>
@@ -519,7 +521,7 @@ export function ConsignorDetail() {
             )}
 
             {/* Booth Rent Payments Section - Only show if consignor has booth rent */}
-            {monthlyRent > 0 && (
+            {!isEmployee && monthlyRent > 0 && (
                 <div className="mb-8">
                     <div className="flex items-center justify-between mb-4">
                         <div>
@@ -556,15 +558,15 @@ export function ConsignorDetail() {
             )}
 
             {/* Vendor Credentials */}
-            <VendorCredentials
+            {!isEmployee && <VendorCredentials
                 consignorId={id!}
                 consignorEmail={consignor.email || undefined}
-            />
+            />}
 
             {/* Inventory */}
             <div className="flex items-center justify-between mb-4 mt-8">
                 <h2 className="text-lg font-semibold">Inventory</h2>
-                <Link to={`/admin/add-items?consignor=${id}`}>
+                <Link to={`${portalBase}/add-items?consignor=${id}`}>
                     <Button size="sm">Add Items</Button>
                 </Link>
             </div>
@@ -576,7 +578,7 @@ export function ConsignorDetail() {
                         title="No items yet"
                         description={`${getConsignorDisplayName(consignor)} doesn't have any items in inventory.`}
                         action={
-                            <Link to={`/admin/add-items?consignor=${id}`}>
+                            <Link to={`${portalBase}/add-items?consignor=${id}`}>
                                 <Button>Add Items</Button>
                             </Link>
                         }

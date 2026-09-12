@@ -39,7 +39,7 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
     const navigation = useMemo(() => {
         if (portalBasePath === '/admin') return flattenNavigation(adminNavigation);
         if (portalBasePath === '/vendor') return vendorNavigation;
-        return employeeNavigation;
+        return flattenNavigation(employeeNavigation);
     }, [portalBasePath]);
 
     const currentPage = navigation.find((item) => pathIsActive(location.pathname, item.href));

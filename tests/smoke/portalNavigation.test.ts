@@ -13,7 +13,7 @@ const flattenAdminHrefs = () => adminNavigation.flatMap((entry) => (
 
 describe('portal navigation registry', () => {
     it('keeps every portal destination unique', () => {
-        for (const hrefs of [flattenAdminHrefs(), employeeNavigation.map((item) => item.href), vendorNavigation.map((item) => item.href)]) {
+        for (const hrefs of [flattenAdminHrefs(), employeeNavigation.flatMap((entry) => isNavGroup(entry) ? entry.children.map((item) => item.href) : [entry.href]), vendorNavigation.map((item) => item.href)]) {
             expect(new Set(hrefs).size).toBe(hrefs.length);
         }
     });
@@ -29,8 +29,17 @@ describe('portal navigation registry', () => {
             '/admin/messages',
             '/admin/profile',
         ]));
-        expect(employeeNavigation.map((item) => item.href)).toContain('/employee/till-count');
+        expect(employeeNavigation.flatMap((entry) => isNavGroup(entry) ? entry.children.map((item) => item.href) : [entry.href])).toContain('/employee/till-count');
         expect(vendorNavigation.map((item) => item.href)).toContain('/vendor/storefront');
+    });
+
+    it('groups all employee relationships inside the employee portal', () => {
+        const relationships = employeeNavigation.find((entry) => entry.name === 'Relationships');
+        expect(relationships && isNavGroup(relationships) ? relationships.children.map((item) => item.href) : []).toEqual([
+            '/employee/consignors',
+            '/employee/customers',
+            '/employee/dealers',
+        ]);
     });
 
     it('does not mark sibling sections active', () => {

@@ -134,6 +134,9 @@ export default function App() {
                         <Route path="sales" element={<Sales />} />
                         <Route path="schedule" element={<EmployeeSelfSchedule />} />
                         <Route path="customers" element={<Customers />} />
+                        <Route path="consignors" element={<Consignors />} />
+                        <Route path="consignors/:id" element={<ConsignorDetail />} />
+                        <Route path="dealers" element={<Dealers />} />
                         <Route path="labels" element={<Labels />} />
                         <Route path="messages" element={<Messages />} />
                         <Route path="profile" element={<EmployeePinProfile />} />

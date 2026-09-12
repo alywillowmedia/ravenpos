@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Table, type Column } from '../components/ui/Table';
@@ -26,6 +26,8 @@ import type { Consignor, ConsignorInput } from '../types';
 
 export function Consignors() {
     const navigate = useNavigate();
+    const isEmployee = useLocation().pathname.startsWith('/employee/');
+    const portalBase = isEmployee ? '/employee' : '/admin';
     const toast = useToast();
     const { consignors, isLoading, error, createConsignor, deleteConsignor } = useConsignors();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -225,14 +227,14 @@ export function Consignors() {
                 description="Manage your vendors and their commission splits."
                 actions={
                     <>
-                        <Button
+                        {!isEmployee && <Button
                             variant="secondary"
                             onClick={() => setIsExportModalOpen(true)}
                             disabled={isLoading || consignors.length === 0}
                         >
                             <DownloadIcon />
                             Export CSV
-                        </Button>
+                        </Button>}
                         <Button onClick={openAddConsignorModal}>
                             <PlusIcon />
                             Add Consignor
@@ -262,12 +264,12 @@ export function Consignors() {
             ) : (
                 <Table
                     data={consignors}
-                    columns={columns}
+                    columns={isEmployee ? columns.filter((column) => column.key !== 'actions') : columns}
                     keyExtractor={(c) => c.id}
                     searchable
                     searchPlaceholder="Search consignors..."
                     searchKeys={['name', 'business_name', 'first_name', 'last_name', 'consignor_number', 'email', 'phone', 'booth_location']}
-                    onRowClick={(c) => navigate(`/admin/consignors/${c.id}`)}
+                    onRowClick={(c) => navigate(`${portalBase}/consignors/${c.id}`)}
                     isLoading={isLoading}
                     emptyMessage="No consignors found"
                     ariaLabel="Consignors"

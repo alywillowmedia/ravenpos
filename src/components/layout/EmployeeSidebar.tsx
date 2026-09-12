@@ -9,7 +9,7 @@ import { cn } from '../../lib/utils';
 import { ClockStatusWidget } from '../employee/ClockStatusWidget';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
-import { employeeNavigation, pathIsActive } from './portalNavigation';
+import { employeeNavigation, isNavGroup, pathIsActive, type PortalNavItem } from './portalNavigation';
 
 export function EmployeeSidebar() {
     const location = useLocation();
@@ -55,6 +55,25 @@ export function EmployeeSidebar() {
         navigate('/employee/login');
     };
 
+    function renderNavItem(item: PortalNavItem) {
+        const active = pathIsActive(location.pathname, item.href);
+        const Icon = item.icon;
+        return (
+            <NavLink key={item.href} to={item.href} aria-current={active ? 'page' : undefined} title={isCollapsed ? item.name : undefined} className={cn(
+                'flex min-h-11 items-center rounded-lg text-sm font-medium transition-colors',
+                isCollapsed ? 'justify-center px-2' : 'gap-3 px-3',
+                active
+                    ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                    : item.emphasis === 'primary'
+                        ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)] hover:bg-[var(--color-primary)]/15'
+                        : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]'
+            )}>
+                <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+                {!isCollapsed && item.name}
+            </NavLink>
+        );
+    }
+
     return (
         <>
             <aside aria-label="Employee navigation" className={cn(
@@ -86,25 +105,14 @@ export function EmployeeSidebar() {
                 )}
 
                 <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
-                    {employeeNavigation.map((item) => {
-                        const active = pathIsActive(location.pathname, item.href);
-                        const Icon = item.icon;
-                        return (
-                            <NavLink key={item.href} to={item.href} aria-current={active ? 'page' : undefined} title={isCollapsed ? item.name : undefined} className={cn(
-                                'flex min-h-11 items-center rounded-lg text-sm font-medium transition-colors',
-                                isCollapsed ? 'justify-center px-2' : 'gap-3 px-3',
-                                active
-                                    ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
-                                    : item.emphasis === 'primary'
-                                        ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)] hover:bg-[var(--color-primary)]/15'
-                                        : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]'
-                            )}>
-                                <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-                                {!isCollapsed && item.name}
-                            </NavLink>
-                        );
-                    })}
+                    {employeeNavigation.flatMap((entry) => isNavGroup(entry)
+                        ? [
+                            ...(!isCollapsed ? [<p key={entry.name} className="px-3 pt-4 pb-1 text-xs font-medium uppercase tracking-wider text-[var(--color-muted)]">{entry.name}</p>] : []),
+                            ...entry.children.map(renderNavItem),
+                        ]
+                        : [renderNavItem(entry)])}
                 </nav>
+
 
                 <div className="shrink-0 space-y-2 border-t border-[var(--color-border)] p-2">
                     {!isCollapsed && <div className="px-1"><ClockStatusWidget /></div>}
