@@ -7,7 +7,9 @@ import { Select } from '../components/ui/Select';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { useDealers } from '../hooks/useDealers';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useEmployee } from '../contexts/EmployeeContext';
 import { useToast } from '../contexts/ToastContext';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -91,6 +93,9 @@ function toTimestamp(value: string): string | null {
 
 export function DealerPurchases() {
     const { userRecord } = useAuth();
+    const { employee } = useEmployee();
+    // Employees can record purchases; editing or deleting history stays admin-only.
+    const isEmployee = useLocation().pathname.startsWith('/employee/');
     const toast = useToast();
     const { dealers, createDealer, searchDealers } = useDealers();
 
@@ -295,7 +300,8 @@ export function DealerPurchases() {
                 payment_method: paymentMethod,
                 check_number: paymentMethod === 'check' ? checkNumber.trim() : null,
                 notes: purchaseNotes.trim() || null,
-                processed_by_user: userRecord?.id || null,
+                processed_by_user: isEmployee ? null : userRecord?.id || null,
+                processed_by_employee: isEmployee ? employee?.id ?? null : null,
             })
             .select('id')
             .single();
@@ -599,7 +605,7 @@ export function DealerPurchases() {
                                         leftIcon={isSearchingDealer ? <LoadingSpinner size={16} /> : <SearchIcon />}
                                     />
                                     {showDealerDropdown && dealerResults.length > 0 && (
-                                        <div className="absolute z-10 w-full mt-1 bg-white border border-[var(--color-border)] rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                                        <div className="absolute z-10 w-full mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg max-h-56 overflow-y-auto">
                                             {dealerResults.map((dealer) => (
                                                 <button
                                                     key={dealer.id}
@@ -637,7 +643,7 @@ export function DealerPurchases() {
                                         type="button"
                                         onClick={() => setPaymentMethod(method)}
                                         className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${paymentMethod === method
-                                            ? 'bg-[var(--color-primary)] text-white'
+                                            ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                             : 'text-[var(--color-muted)] hover:text-[var(--color-foreground)]'
                                             }`}
                                     >
@@ -818,13 +824,15 @@ export function DealerPurchases() {
                         <div className="rounded-lg border border-[var(--color-border)] p-4">
                             <div className="flex items-center justify-between gap-3">
                                 <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Purchase Comments</p>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => openCommentModal(selectedHistoryPurchase)}
-                                >
-                                    {selectedHistoryPurchase.notes ? 'Edit Comment' : 'Add Comment'}
-                                </Button>
+                                {!isEmployee && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => openCommentModal(selectedHistoryPurchase)}
+                                    >
+                                        {selectedHistoryPurchase.notes ? 'Edit Comment' : 'Add Comment'}
+                                    </Button>
+                                )}
                             </div>
                             <p className="mt-2 whitespace-pre-wrap text-sm text-[var(--color-foreground)]">
                                 {selectedHistoryPurchase.notes?.trim() || 'No comments yet.'}
@@ -868,7 +876,7 @@ export function DealerPurchases() {
                     </div>
                 )}
                 <ModalFooter>
-                    {selectedHistoryPurchase && (
+                    {selectedHistoryPurchase && !isEmployee && (
                         <>
                             <Button
                                 variant="danger"

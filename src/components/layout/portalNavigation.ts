@@ -129,6 +129,7 @@ export const employeeNavigation: PortalNavEntry[] = [
             { name: 'Consignors', href: '/employee/consignors', icon: Store },
             { name: 'Customers', href: '/employee/customers', icon: Users },
             { name: 'Dealers', href: '/employee/dealers', icon: ContactRound },
+            { name: 'Purchase from dealer', href: '/employee/dealers/purchases', icon: HandCoins },
         ],
     },
     { name: 'Labels', href: '/employee/labels', icon: Barcode },

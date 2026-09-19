@@ -137,6 +137,7 @@ export default function App() {
                         <Route path="consignors" element={<Consignors />} />
                         <Route path="consignors/:id" element={<ConsignorDetail />} />
                         <Route path="dealers" element={<Dealers />} />
+                        <Route path="dealers/purchases" element={<DealerPurchases />} />
                         <Route path="labels" element={<Labels />} />
                         <Route path="messages" element={<Messages />} />
                         <Route path="profile" element={<EmployeePinProfile />} />
