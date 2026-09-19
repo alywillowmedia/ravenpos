@@ -611,7 +611,7 @@ export function ImportCSV() {
 
 function StepNumber({ children }: { children: React.ReactNode }) {
     return (
-        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--color-primary)] text-white text-xs font-medium flex items-center justify-center">
+        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] text-xs font-medium flex items-center justify-center">
             {children}
         </span>
     );

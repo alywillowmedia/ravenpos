@@ -157,9 +157,9 @@ export function ShopifySetup() {
                 {(['store', 'location', 'webhook', 'done'] as WizardStep[]).map((s, i) => (
                     <div key={s} className="flex items-center">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${step === s
-                                ? 'bg-[var(--color-primary)] text-white'
+                                ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                 : i < ['store', 'location', 'webhook', 'done'].indexOf(step)
-                                    ? 'bg-[var(--color-success)] text-white'
+                                    ? 'bg-[var(--color-success)] text-[var(--color-success-foreground)]'
                                     : 'bg-[var(--color-surface)] text-[var(--color-muted)]'
                             }`}>
                             {i < ['store', 'location', 'webhook', 'done'].indexOf(step) ? '✓' : i + 1}

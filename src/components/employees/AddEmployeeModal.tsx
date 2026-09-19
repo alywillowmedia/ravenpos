@@ -163,7 +163,7 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee, roleOpti
                         <select
                             value={employer}
                             onChange={(e) => setEmployer(e.target.value as typeof employer)}
-                            className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                            className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                         >
                             <option value="">Select...</option>
                             <option value="Ravenlia">Ravenlia</option>
@@ -175,7 +175,7 @@ export function AddEmployeeModal({ isOpen, onClose, onSubmit, employee, roleOpti
                         <select
                             value={employmentType}
                             onChange={(e) => setEmploymentType(e.target.value)}
-                            className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                            className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                         >
                             <option value="">Select...</option>
                             {activeRoleOptions.map((role) => (

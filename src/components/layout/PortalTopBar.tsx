@@ -137,7 +137,7 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
                             >
                                 <Bell className="h-[18px] w-[18px]" aria-hidden="true" />
                                 {messaging.unreadCount > 0 && (
-                                    <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-[var(--color-danger)] px-1.5 py-0.5 text-center text-[10px] font-bold text-white">
+                                    <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-[var(--color-danger)] px-1.5 py-0.5 text-center text-[10px] font-bold text-[var(--color-danger-foreground)]">
                                         {messaging.unreadCount > 99 ? '99+' : messaging.unreadCount}
                                     </span>
                                 )}

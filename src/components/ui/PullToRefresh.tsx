@@ -113,7 +113,7 @@ export function PullToRefresh({
             >
                 <div
                     className={cn(
-                        'w-8 h-8 rounded-full bg-white shadow-md',
+                        'w-8 h-8 rounded-full bg-[var(--color-card)] shadow-md',
                         'flex items-center justify-center',
                         showSpinner && 'pull-to-refresh-spinner'
                     )}

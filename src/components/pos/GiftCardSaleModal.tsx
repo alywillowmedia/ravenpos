@@ -199,8 +199,8 @@ export function GiftCardSaleModal({
                                     type="button"
                                     onClick={() => setAmount(value)}
                                     className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${amount === value
-                                        ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white'
-                                        : 'border-[var(--color-border)] bg-white hover:bg-[var(--color-surface-hover)]'
+                                        ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                                        : 'border-[var(--color-border)] bg-[var(--color-card)] hover:bg-[var(--color-surface-hover)]'
                                         }`}
                                 >
                                     ${value}
@@ -247,7 +247,7 @@ export function GiftCardSaleModal({
                                 type="button"
                                 onClick={() => setPaymentMethod('cash')}
                                 className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${paymentMethod === 'cash'
-                                    ? 'bg-[var(--color-primary)] text-white'
+                                    ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                     : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                     }`}
                             >
@@ -257,7 +257,7 @@ export function GiftCardSaleModal({
                                 type="button"
                                 onClick={() => setPaymentMethod('card')}
                                 className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${paymentMethod === 'card'
-                                    ? 'bg-[var(--color-primary)] text-white'
+                                    ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                     : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                     }`}
                             >

@@ -297,7 +297,7 @@ export function Dashboard() {
                     <CardContent>
                         <ol className="space-y-3 text-sm text-[var(--color-muted)]">
                             <li className="flex items-start gap-3">
-                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center text-xs font-medium">
+                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] flex items-center justify-center text-xs font-medium">
                                     1
                                 </span>
                                 <span>
@@ -305,7 +305,7 @@ export function Dashboard() {
                                 </span>
                             </li>
                             <li className="flex items-start gap-3">
-                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center text-xs font-medium">
+                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] flex items-center justify-center text-xs font-medium">
                                     2
                                 </span>
                                 <span>
@@ -313,7 +313,7 @@ export function Dashboard() {
                                 </span>
                             </li>
                             <li className="flex items-start gap-3">
-                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center text-xs font-medium">
+                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] flex items-center justify-center text-xs font-medium">
                                     3
                                 </span>
                                 <span>
@@ -321,7 +321,7 @@ export function Dashboard() {
                                 </span>
                             </li>
                             <li className="flex items-start gap-3">
-                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center text-xs font-medium">
+                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] flex items-center justify-center text-xs font-medium">
                                     4
                                 </span>
                                 <span>

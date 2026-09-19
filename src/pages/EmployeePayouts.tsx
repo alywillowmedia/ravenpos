@@ -1874,7 +1874,7 @@ function PayoutPreview({
                 </div>
             </div>
 
-            <div className="flex flex-col gap-2 border-t border-[var(--color-border)] bg-[var(--color-primary)] px-4 py-4 text-white sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 border-t border-[var(--color-border)] bg-[var(--color-primary)] px-4 py-4 text-[var(--color-primary-foreground)] sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <div className="text-xs font-semibold uppercase opacity-80">Final Net Pay</div>
                     <div className="mt-1 text-sm opacity-80">Gross pay minus employee withholdings.</div>
@@ -1910,12 +1910,12 @@ function PayoutWorkspaceTabs({
                         onClick={() => onChange(tab.id)}
                         className={`rounded-lg border px-4 py-3 text-left transition ${
                             isActive
-                                ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white'
+                                ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                 : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-foreground)] hover:border-[var(--color-primary)]'
                         }`}
                     >
                         <div className="text-sm font-semibold">{tab.label}</div>
-                        <div className={`mt-1 text-xs ${isActive ? 'text-white/80' : 'text-[var(--color-muted)]'}`}>
+                        <div className={`mt-1 text-xs ${isActive ? 'text-[var(--color-primary-foreground)]/80' : 'text-[var(--color-muted)]'}`}>
                             {tab.detail}
                         </div>
                     </button>

@@ -96,7 +96,7 @@ export const LinkPreview = ({
                 <HoverCardPrimitive.Trigger asChild>
                     <a
                         onMouseMove={handleMouseMove}
-                        className={cn('text-black dark:text-white', className)}
+                        className={cn('text-[var(--color-foreground)]', className)}
                         href={url}
                     >
                         {children}
@@ -131,7 +131,7 @@ export const LinkPreview = ({
                             >
                                 <a
                                     href={url}
-                                    className="group relative block p-1 bg-white border-2 border-transparent shadow rounded-xl hover:border-neutral-200"
+                                    className="group relative block p-1 bg-[var(--color-card)] border-2 border-transparent shadow rounded-xl hover:border-[var(--color-border-strong)]"
                                     style={{ fontSize: 0 }}
                                 >
                                     <img

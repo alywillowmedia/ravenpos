@@ -185,7 +185,7 @@ export function Messages() {
                                         </div>
 
                                         {thread.unreadCount > 0 && (
-                                            <span className="shrink-0 rounded-full bg-[var(--color-primary)] px-2 py-0.5 text-[10px] font-semibold text-white">
+                                            <span className="shrink-0 rounded-full bg-[var(--color-primary)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-primary-foreground)]">
                                                 {thread.unreadCount}
                                             </span>
                                         )}
@@ -256,15 +256,15 @@ export function Messages() {
                                     className={cn(
                                         'max-w-[80%] rounded-xl px-3 py-2',
                                         message.isOwn
-                                            ? 'bg-[var(--color-primary)] text-white'
+                                            ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                             : 'bg-[var(--color-surface)] text-[var(--color-foreground)]'
                                     )}
                                 >
-                                    <p className={cn('text-[11px]', message.isOwn ? 'text-white/80' : 'text-[var(--color-muted)]')}>
+                                    <p className={cn('text-[11px]', message.isOwn ? 'text-[var(--color-primary-foreground)]/80' : 'text-[var(--color-muted)]')}>
                                         {message.senderLabel}
                                     </p>
                                     <p className="text-sm whitespace-pre-wrap break-words">{message.body}</p>
-                                    <p className={cn('mt-1 text-[11px]', message.isOwn ? 'text-white/80' : 'text-[var(--color-muted)]')}>
+                                    <p className={cn('mt-1 text-[11px]', message.isOwn ? 'text-[var(--color-primary-foreground)]/80' : 'text-[var(--color-muted)]')}>
                                         {messaging.formatDateTime(message.created_at)}
                                     </p>
                                 </div>
@@ -351,7 +351,7 @@ function Avatar({ name, imageUrl, sizeClassName = 'h-8 w-8', active = false }: A
                 'flex shrink-0 items-center justify-center rounded-full text-xs font-semibold',
                 sizeClassName,
                 active
-                    ? 'bg-[var(--color-primary)] text-white'
+                    ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                     : 'bg-[var(--color-surface)] text-[var(--color-muted)]'
             )}
         >

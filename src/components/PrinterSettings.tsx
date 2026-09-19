@@ -157,7 +157,7 @@ export function PrinterSettings({ isOpen, onClose }: PrinterSettingsProps) {
                                         : 'border-[var(--color-muted)]'
                                     }`}>
                                     {selectedPrinter === null && (
-                                        <div className="w-2 h-2 rounded-full bg-white" />
+                                        <div className="w-2 h-2 rounded-full bg-[var(--color-primary-foreground)]" />
                                     )}
                                 </div>
                                 <div>
@@ -191,7 +191,7 @@ export function PrinterSettings({ isOpen, onClose }: PrinterSettingsProps) {
                                                         : 'border-[var(--color-muted)]'
                                                     }`}>
                                                     {selectedPrinter === printer.name && (
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                                                        <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-primary-foreground)]" />
                                                     )}
                                                 </div>
                                                 <div className="flex-1 min-w-0">

@@ -23,7 +23,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                <span className="p-1 rounded bg-[var(--color-success-bg)] text-[var(--color-success)]">
                                     <PlusIcon className="w-4 h-4" />
                                 </span>
                                 RavenPOS v2
@@ -88,7 +88,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
 
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                <span className="p-1 rounded bg-[var(--color-info-bg)] text-[var(--color-info)]">
                                     <SparklesIcon className="w-4 h-4" />
                                 </span>
                                 Accessibility & Reliability
@@ -108,7 +108,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                <span className="p-1 rounded bg-[var(--color-success-bg)] text-[var(--color-success)]">
                                     <PlusIcon className="w-4 h-4" />
                                 </span>
                                 New In v1.5
@@ -129,7 +129,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                <span className="p-1 rounded bg-[var(--color-success-bg)] text-[var(--color-success)]">
                                     <PlusIcon className="w-4 h-4" />
                                 </span>
                                 Recent Pushes
@@ -164,7 +164,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                <span className="p-1 rounded bg-[var(--color-success-bg)] text-[var(--color-success)]">
                                     <PlusIcon className="w-4 h-4" />
                                 </span>
                                 New Features
@@ -190,7 +190,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
 
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                <span className="p-1 rounded bg-[var(--color-info-bg)] text-[var(--color-info)]">
                                     <SparklesIcon className="w-4 h-4" />
                                 </span>
                                 Improvements
@@ -225,7 +225,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
 
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                <span className="p-1 rounded bg-[var(--color-warning-bg)] text-[var(--color-warning)]">
                                     <WrenchIcon className="w-4 h-4" />
                                 </span>
                                 Bug Fixes
@@ -242,7 +242,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                <span className="p-1 rounded bg-[var(--color-success-bg)] text-[var(--color-success)]">
                                     <PlusIcon className="w-4 h-4" />
                                 </span>
                                 New Features
@@ -275,7 +275,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                <span className="p-1 rounded bg-[var(--color-success-bg)] text-[var(--color-success)]">
                                     <PlusIcon className="w-4 h-4" />
                                 </span>
                                 New Features
@@ -307,7 +307,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                <span className="p-1 rounded bg-[var(--color-success-bg)] text-[var(--color-success)]">
                                     <PlusIcon className="w-4 h-4" />
                                 </span>
                                 New Features
@@ -362,7 +362,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
 
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                <span className="p-1 rounded bg-[var(--color-warning-bg)] text-[var(--color-warning)]">
                                     <WrenchIcon className="w-4 h-4" />
                                 </span>
                                 Bug Fixes
@@ -378,7 +378,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
 
                         <div className="space-y-3">
                             <h3 className="font-semibold text-lg text-[var(--color-foreground)] flex items-center gap-2">
-                                <span className="p-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                <span className="p-1 rounded bg-[var(--color-info-bg)] text-[var(--color-info)]">
                                     <SparklesIcon className="w-4 h-4" />
                                 </span>
                                 Improvements

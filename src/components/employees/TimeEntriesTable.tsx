@@ -109,7 +109,7 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
                             key={f}
                             onClick={() => setFilter(f)}
                             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${filter === f
-                                ? 'bg-[var(--color-primary)] text-white'
+                                ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                 : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                 }`}
                         >
@@ -135,7 +135,7 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
                             type="date"
                             value={customStart}
                             onChange={(e) => setCustomStart(e.target.value)}
-                            className="px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white"
+                            className="px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)]"
                             max={customEnd || undefined}
                         />
                     </label>
@@ -145,7 +145,7 @@ export function TimeEntriesTable({ entries, isLoading, onDateRangeChange, onEdit
                             type="date"
                             value={customEnd}
                             onChange={(e) => setCustomEnd(e.target.value)}
-                            className="px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white"
+                            className="px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)]"
                             min={customStart || undefined}
                         />
                     </label>

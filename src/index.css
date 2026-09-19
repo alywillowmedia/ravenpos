@@ -36,6 +36,10 @@
   --color-danger-bg: #f7e7e3;
   --color-info: #3a6594;
   --color-info-bg: #e8eef4;
+  /* Text on solid success/danger fills. Tracks the canvas so it stays
+     legible when dark mode lightens the fill. */
+  --color-success-foreground: var(--dw-bg);
+  --color-danger-foreground: var(--dw-bg);
 
   /* Typography */
   --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;

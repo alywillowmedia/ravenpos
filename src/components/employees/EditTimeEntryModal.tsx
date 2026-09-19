@@ -210,7 +210,7 @@ export function EditTimeEntryModal({ isOpen, onClose, onSubmit, entry }: EditTim
                         value={notes}
                         onChange={(e) => setNotes(e.target.value)}
                         placeholder="Optional notes about this shift..."
-                        className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] min-h-[80px]"
+                        className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] min-h-[80px]"
                     />
                 </div>
 

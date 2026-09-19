@@ -145,7 +145,7 @@ export function ScanInventory() {
                             <button
                                 onClick={() => setMode('add')}
                                 className={`px-4 py-2 text-sm font-medium transition-colors ${mode === 'add'
-                                        ? 'bg-[var(--color-success)] text-white'
+                                        ? 'bg-[var(--color-success)] text-[var(--color-success-foreground)]'
                                         : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)]'
                                     }`}
                             >
@@ -157,7 +157,7 @@ export function ScanInventory() {
                             <button
                                 onClick={() => setMode('remove')}
                                 className={`px-4 py-2 text-sm font-medium transition-colors ${mode === 'remove'
-                                        ? 'bg-[var(--color-danger)] text-white'
+                                        ? 'bg-[var(--color-danger)] text-[var(--color-danger-foreground)]'
                                         : 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)]'
                                     }`}
                             >

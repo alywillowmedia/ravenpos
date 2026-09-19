@@ -56,13 +56,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         focus-visible:ring-[var(--color-ring)]
       `,
             danger: `
-        bg-[var(--color-danger)] text-white
+        bg-[var(--color-danger)] text-[var(--color-danger-foreground)]
         hover:bg-[var(--color-danger-hover)]
         focus-visible:ring-[var(--color-danger)]
 
       `,
             success: `
-        bg-[var(--color-success)] text-white
+        bg-[var(--color-success)] text-[var(--color-success-foreground)]
         hover:bg-[var(--color-success-hover)]
         focus-visible:ring-[var(--color-success)]
 

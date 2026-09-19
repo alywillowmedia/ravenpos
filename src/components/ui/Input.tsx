@@ -174,7 +174,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
                         )}
                     />
                     {showMaxLengthTooltip && maxLength && (
-                        <div className="pointer-events-none absolute -top-9 right-0 rounded-md bg-[var(--color-danger)] px-2 py-1 text-xs font-medium text-white shadow-sm">
+                        <div className="pointer-events-none absolute -top-9 right-0 rounded-md bg-[var(--color-danger)] px-2 py-1 text-xs font-medium text-[var(--color-danger-foreground)] shadow-sm">
                             Max {maxLength} characters
                         </div>
                     )}
@@ -328,7 +328,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
                         )}
                     />
                     {showMaxLengthTooltip && maxLength && (
-                        <div className="pointer-events-none absolute -top-9 right-0 rounded-md bg-[var(--color-danger)] px-2 py-1 text-xs font-medium text-white shadow-sm">
+                        <div className="pointer-events-none absolute -top-9 right-0 rounded-md bg-[var(--color-danger)] px-2 py-1 text-xs font-medium text-[var(--color-danger-foreground)] shadow-sm">
                             Max {maxLength} characters
                         </div>
                     )}

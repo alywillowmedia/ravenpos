@@ -45,7 +45,7 @@ export function CategoryCard({ category }: CategoryCardProps) {
             </div>
 
             {/* Content */}
-            <div className="p-3 bg-white">
+            <div className="p-3 bg-[var(--color-card)]">
                 <h3 className="text-sm font-semibold text-[var(--color-foreground)] group-hover:text-[var(--color-primary)] transition-colors line-clamp-1">
                     {category.name}
                 </h3>

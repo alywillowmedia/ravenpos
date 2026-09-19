@@ -162,9 +162,9 @@ export function StripeReaderSetupModal({
                             <div
                                 key={num}
                                 className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${activeStep
-                                    ? 'bg-[var(--color-primary)] text-white'
+                                    ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                     : isComplete
-                                        ? 'bg-[var(--color-success)] text-white'
+                                        ? 'bg-[var(--color-success)] text-[var(--color-success-foreground)]'
                                         : 'bg-[var(--color-surface)] text-[var(--color-muted)]'
                                     }`}
                             >

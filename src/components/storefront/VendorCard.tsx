@@ -16,7 +16,7 @@ export function VendorCard({ vendor }: VendorCardProps) {
     return (
         <Link
             to={buildVendorPath(vendor)}
-            className="group flex-shrink-0 w-64 bg-white rounded-2xl border border-[var(--color-border)] p-5 hover:shadow-lg hover:border-[var(--color-primary)]/30 transition-all duration-300"
+            className="group flex-shrink-0 w-64 bg-[var(--color-card)] rounded-2xl border border-[var(--color-border)] p-5 hover:shadow-lg hover:border-[var(--color-primary)]/30 transition-all duration-300"
         >
             {/* Vendor Avatar */}
             {vendor.storefront_logo_url ? (

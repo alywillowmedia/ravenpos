@@ -132,7 +132,7 @@ export function AuthorizeDeviceModal({ isOpen, onClose }: AuthorizeDeviceModalPr
                                     className={`
                                         px-3 py-2 rounded-lg text-sm font-medium transition-all
                                         ${selectedDuration === preset.hours
-                                            ? 'bg-[var(--color-primary)] text-white'
+                                            ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                             : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-[var(--color-foreground)]'
                                         }
                                     `}

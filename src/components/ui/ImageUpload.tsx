@@ -103,7 +103,7 @@ export function ImageUpload({
                             <button
                                 type="button"
                                 onClick={triggerFileInput}
-                                className="flex h-11 w-11 items-center justify-center rounded-lg bg-white text-[#374151] transition-colors hover:bg-[#f3f4f6]"
+                                className="flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--color-card)] text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface-hover)]"
                                 title="Replace image"
                                 aria-label="Replace image"
                             >
@@ -124,7 +124,7 @@ export function ImageUpload({
                             <button
                                 type="button"
                                 onClick={handleRemove}
-                                className="flex h-11 w-11 items-center justify-center rounded-lg bg-white text-[#b42318] transition-colors hover:bg-[#fef3f2]"
+                                className="flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--color-card)] text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger-bg)]"
                                 title="Remove image"
                                 aria-label="Remove image"
                             >
@@ -260,7 +260,7 @@ export function ImageUploadCompact({
                         <button
                             type="button"
                             onClick={() => onChange(null)}
-                            className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-danger)] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                            className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-danger)] text-[var(--color-danger-foreground)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
                             title="Remove"
                             aria-label="Remove image"
                         >

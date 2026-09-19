@@ -85,7 +85,7 @@ export function EmployeeActionSelection() {
             description={clockStatus.isClockedIn ? `Clocked in for ${clockStatus.duration}` : 'You are currently clocked out.'}
         >
             <div className={`mb-5 flex items-center gap-3 rounded-xl border p-4 ${clockStatus.isClockedIn ? 'border-[var(--color-success)]/20 bg-[var(--color-success-bg)]' : 'border-[var(--color-border)] bg-[var(--color-surface)]'}`} role="status">
-                <span className={`flex h-10 w-10 items-center justify-center rounded-full ${clockStatus.isClockedIn ? 'bg-[var(--color-success)] text-white' : 'bg-[var(--color-card)] text-[var(--color-muted)]'}`} aria-hidden="true">
+                <span className={`flex h-10 w-10 items-center justify-center rounded-full ${clockStatus.isClockedIn ? 'bg-[var(--color-success)] text-[var(--color-success-foreground)]' : 'bg-[var(--color-card)] text-[var(--color-muted)]'}`} aria-hidden="true">
                     <Clock3 size={20} />
                 </span>
                 <div>

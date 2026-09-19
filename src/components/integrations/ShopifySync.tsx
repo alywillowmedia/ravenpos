@@ -246,7 +246,7 @@ export function ShopifySync() {
             {/* Confirmation Modal */}
             {showSyncConfirm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+                    <div className="bg-[var(--color-card)] rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
                         <h2 className="text-xl font-bold text-[var(--color-foreground)] flex items-center gap-2">
                             <WarningIcon />
                             Force Sync from Shopify

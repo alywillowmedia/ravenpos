@@ -352,7 +352,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
                                         <select
                                             value={item.quantity}
                                             onChange={(e) => updateItemQuantity(index, parseInt(e.target.value))}
-                                            className="px-2 py-1 text-sm rounded border border-[var(--color-border)] bg-white"
+                                            className="px-2 py-1 text-sm rounded border border-[var(--color-border)] bg-[var(--color-card)]"
                                         >
                                             {Array.from({ length: item.max_quantity }, (_, i) => i + 1).map(n => (
                                                 <option key={n} value={n}>{n}</option>

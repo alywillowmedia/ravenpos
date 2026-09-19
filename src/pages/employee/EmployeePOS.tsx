@@ -480,7 +480,7 @@ export function EmployeePOS() {
                                 <button
                                     onClick={() => setPaymentMethod('cash')}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${paymentMethod === 'cash'
-                                        ? 'bg-[var(--color-primary)] text-white'
+                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                         }`}
                                 >
@@ -489,7 +489,7 @@ export function EmployeePOS() {
                                 <button
                                     onClick={() => setPaymentMethod('check')}
                                     className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${paymentMethod === 'check'
-                                        ? 'bg-[var(--color-primary)] text-white'
+                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                         : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                         }`}
                                 >

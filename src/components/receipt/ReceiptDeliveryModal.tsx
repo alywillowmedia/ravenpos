@@ -144,7 +144,7 @@ export function ReceiptDeliveryModal({
                 {/* Success Message */}
                 {status === 'success' && successMessage && (
                     <div className="flex items-center gap-3 p-4 rounded-xl bg-[var(--color-success-bg)] border border-[var(--color-success)]/20">
-                        <div className="w-10 h-10 rounded-full bg-[var(--color-success)] flex items-center justify-center flex-shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-[var(--color-success)] flex items-center text-[var(--color-success-foreground)] justify-center flex-shrink-0">
                             <CheckIcon />
                         </div>
                         <p className="text-[var(--color-success)] font-medium">{successMessage}</p>
@@ -295,7 +295,7 @@ function EmailIcon() {
 
 function CheckIcon() {
     return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20 6 9 17l-5-5" />
         </svg>
     );

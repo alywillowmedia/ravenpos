@@ -91,7 +91,7 @@ export function DiscountModal({
                         <button
                             onClick={() => setDiscountType('percentage')}
                             className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${discountType === 'percentage'
-                                ? 'bg-[var(--color-primary)] text-white'
+                                ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                 : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                 }`}
                         >
@@ -101,7 +101,7 @@ export function DiscountModal({
                         <button
                             onClick={() => setDiscountType('fixed')}
                             className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${discountType === 'fixed'
-                                ? 'bg-[var(--color-primary)] text-white'
+                                ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                 : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
                                 }`}
                         >
