@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/supabasePaging';
 
 export interface SalesTrendData {
     date: string;
@@ -46,12 +47,46 @@ interface AnalyticsRangeOptions {
     endDate?: Date;
 }
 
+type SaleTotalRow = {
+    completed_at: string;
+    total: number | string | null;
+};
+
 type SaleItemCategoryRow = {
     price: number | string | null;
     quantity: number | string | null;
     item: { category?: string | null } | Array<{ category?: string | null }> | null;
-    sale: { completed_at?: string | null } | Array<{ completed_at?: string | null }> | null;
 };
+
+type CustomerCreatedRow = {
+    created_at: string;
+};
+
+function resolveDateRange(days: number, hourly: boolean, rangeOptions?: AnalyticsRangeOptions) {
+    const endDate = rangeOptions?.endDate ? new Date(rangeOptions.endDate) : new Date();
+    const startDate = rangeOptions?.startDate ? new Date(rangeOptions.startDate) : new Date();
+
+    if (!rangeOptions?.startDate) {
+        if (hourly) {
+            // Last 24 hours
+            startDate.setHours(endDate.getHours() - 24);
+        } else {
+            startDate.setDate(endDate.getDate() - days);
+        }
+    }
+
+    return { startDate, endDate };
+}
+
+function fetchSaleTotals(startDate: Date, endDate: Date) {
+    return fetchAllRows<SaleTotalRow>(() => supabase
+        .from('sales')
+        .select('completed_at, total')
+        .gte('completed_at', startDate.toISOString())
+        .lte('completed_at', endDate.toISOString())
+        .order('completed_at', { ascending: true })
+        .order('id', { ascending: true }));
+}
 
 export function useAnalytics() {
     const [isLoading, setIsLoading] = useState(false);
@@ -78,30 +113,12 @@ export function useAnalytics() {
     ) => {
         try {
             startLoading();
-            const endDate = rangeOptions?.endDate ? new Date(rangeOptions.endDate) : new Date();
-            const startDate = rangeOptions?.startDate ? new Date(rangeOptions.startDate) : new Date();
-
-            if (!rangeOptions?.startDate) {
-                if (hourly) {
-                    // Last 24 hours
-                    startDate.setHours(endDate.getHours() - 24);
-                } else {
-                    startDate.setDate(endDate.getDate() - days);
-                }
-            }
-
-            const { data, error } = await supabase
-                .from('sales')
-                .select('completed_at, total')
-                .gte('completed_at', startDate.toISOString())
-                .lte('completed_at', endDate.toISOString())
-                .order('completed_at', { ascending: true });
-
-            if (error) throw error;
+            const { startDate, endDate } = resolveDateRange(days, hourly, rangeOptions);
+            const data = await fetchSaleTotals(startDate, endDate);
 
             if (hourly && !rangeOptions?.startDate) {
                 // Group by hour for last 24 hours
-                const grouped = (data || []).reduce((acc: Record<string, SalesTrendData>, sale) => {
+                const grouped = data.reduce((acc: Record<string, SalesTrendData>, sale) => {
                     const saleDate = new Date(sale.completed_at);
                     const hourKey = saleDate.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true });
                     const dateKey = `${saleDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${hourKey}`;
@@ -126,7 +143,7 @@ export function useAnalytics() {
                 return { data: result, error: null };
             } else {
                 // Group by date
-                const grouped = (data || []).reduce((acc: Record<string, SalesTrendData>, sale) => {
+                const grouped = data.reduce((acc: Record<string, SalesTrendData>, sale) => {
                     const date = new Date(sale.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     if (!acc[date]) {
                         acc[date] = { date, amount: 0, count: 0 };
@@ -161,10 +178,17 @@ export function useAnalytics() {
         }
     }, []);
 
-    const getSalesByCategory = useCallback(async (rangeOptions?: AnalyticsRangeOptions) => {
+    const getSalesByCategory = useCallback(async (
+        days: number = 30,
+        hourly: boolean = false,
+        rangeOptions?: AnalyticsRangeOptions
+    ) => {
         try {
             startLoading();
-            const { data, error } = await supabase
+            const { startDate, endDate } = resolveDateRange(days, hourly, rangeOptions);
+
+            // Filter on the sale date in the database so the range applies before rows are paged.
+            const data = await fetchAllRows<SaleItemCategoryRow>(() => supabase
                 .from('sale_items')
                 .select(`
                     id,
@@ -173,27 +197,15 @@ export function useAnalytics() {
                     item:items (
                         category
                     ),
-                    sale:sales (
+                    sales!inner (
                         completed_at
                     )
-                `);
+                `)
+                .gte('sales.completed_at', startDate.toISOString())
+                .lte('sales.completed_at', endDate.toISOString())
+                .order('id', { ascending: true }));
 
-            if (error) throw error;
-
-            const filteredByRange = (data as SaleItemCategoryRow[] || []).filter((item) => {
-                if (!rangeOptions?.startDate && !rangeOptions?.endDate) return true;
-                const saleData = item.sale;
-                const completedAtRaw = Array.isArray(saleData)
-                    ? saleData[0]?.completed_at
-                    : saleData?.completed_at;
-                const completedAt = completedAtRaw ? new Date(completedAtRaw) : null;
-                if (!completedAt) return false;
-                if (rangeOptions?.startDate && completedAt < rangeOptions.startDate) return false;
-                if (rangeOptions?.endDate && completedAt > rangeOptions.endDate) return false;
-                return true;
-            });
-
-            const grouped = filteredByRange.reduce((acc: Record<string, SalesByCategoryData>, item) => {
+            const grouped = data.reduce((acc: Record<string, SalesByCategoryData>, item) => {
                 const itemData = item.item;
                 const categoryRaw = Array.isArray(itemData) ? itemData[0]?.category : itemData?.category;
                 const category = categoryRaw || 'Uncategorized';
@@ -225,16 +237,7 @@ export function useAnalytics() {
     ) => {
         try {
             startLoading();
-            const endDate = rangeOptions?.endDate ? new Date(rangeOptions.endDate) : new Date();
-            const startDate = rangeOptions?.startDate ? new Date(rangeOptions.startDate) : new Date();
-
-            if (!rangeOptions?.startDate) {
-                if (hourly) {
-                    startDate.setHours(endDate.getHours() - 24);
-                } else {
-                    startDate.setDate(endDate.getDate() - days);
-                }
-            }
+            const { startDate, endDate } = resolveDateRange(days, hourly, rangeOptions);
 
             // First, get the count of customers created before the start date
             const { count: previousCount, error: countError } = await supabase
@@ -244,17 +247,16 @@ export function useAnalytics() {
 
             if (countError) throw countError;
 
-            const { data, error } = await supabase
+            const data = await fetchAllRows<CustomerCreatedRow>(() => supabase
                 .from('customers')
                 .select('created_at')
                 .gte('created_at', startDate.toISOString())
-                .order('created_at', { ascending: true });
-
-            if (error) throw error;
+                .order('created_at', { ascending: true })
+                .order('id', { ascending: true }));
 
             if (hourly && !rangeOptions?.startDate) {
                 // Group by hour
-                const grouped = (data || []).reduce((acc: Record<string, number>, customer) => {
+                const grouped = data.reduce((acc: Record<string, number>, customer) => {
                     const custDate = new Date(customer.created_at);
                     const hourKey = custDate.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true });
                     const dateKey = `${custDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${hourKey}`;
@@ -279,7 +281,7 @@ export function useAnalytics() {
                 return { data: result, error: null };
             } else {
                 // Group by date
-                const grouped = (data || []).reduce((acc: Record<string, number>, customer) => {
+                const grouped = data.reduce((acc: Record<string, number>, customer) => {
                     const date = new Date(customer.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     acc[date] = (acc[date] || 0) + 1;
                     return acc;
@@ -322,26 +324,8 @@ export function useAnalytics() {
         try {
             startLoading();
 
-            const endDate = rangeOptions?.endDate ? new Date(rangeOptions.endDate) : new Date();
-            const startDate = rangeOptions?.startDate ? new Date(rangeOptions.startDate) : new Date();
-
-            if (!rangeOptions?.startDate) {
-                if (hourly) {
-                    startDate.setHours(endDate.getHours() - 24);
-                } else {
-                    startDate.setDate(endDate.getDate() - days);
-                }
-            }
-
-            let query = supabase
-                .from('sales')
-                .select('completed_at, total')
-                .gte('completed_at', startDate.toISOString())
-                .lte('completed_at', endDate.toISOString())
-                .order('completed_at', { ascending: true });
-
-            const { data, error } = await query;
-            if (error) throw error;
+            const { startDate, endDate } = resolveDateRange(days, hourly, rangeOptions);
+            const data = await fetchSaleTotals(startDate, endDate);
 
             const hourLabels = [
                 '12 AM', '1 AM', '2 AM', '3 AM', '4 AM', '5 AM',
@@ -354,7 +338,7 @@ export function useAnalytics() {
             const hourlyBuckets = hourLabels.map((label) => ({ label, count: 0, amount: 0, averageCount: 0, averageAmount: 0 }));
             const weekdayBuckets = weekdayLabels.map((label) => ({ label, count: 0, amount: 0, averageCount: 0, averageAmount: 0 }));
 
-            for (const sale of data || []) {
+            for (const sale of data) {
                 const date = new Date(sale.completed_at);
                 const hour = date.getHours();
                 const weekday = date.getDay();

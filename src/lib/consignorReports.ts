@@ -3,16 +3,8 @@ import { getConsignorDisplayName, getConsignorPayToName } from './consignors';
 import { isConsignorScheduled } from './consignorStatus';
 import { type CsvCell, toLocalDateSlug } from './csvExport';
 import { supabase } from './supabase';
+import { fetchAllRows } from './supabasePaging';
 import type { BoothRentPayment, Consignor, Item, PaymentBreakdownEntry, PaymentMethod, Payout } from '../types';
-
-const SUPABASE_PAGE_SIZE = 1000;
-
-type SupabasePagedQuery<T> = {
-    range: (from: number, to: number) => PromiseLike<{
-        data: T[] | null;
-        error: unknown;
-    }>;
-};
 
 interface SaleJoin {
     id: string;
@@ -291,24 +283,6 @@ export const CONSIGNOR_DETAIL_EXPORT_SECTION_GROUPS: Array<{
 
 export const DEFAULT_CONSIGNOR_DETAIL_EXPORT_SECTIONS = CONSIGNOR_DETAIL_EXPORT_SECTION_GROUPS
     .flatMap((group) => group.options.map((option) => option.key));
-
-async function fetchAllRows<T>(createQuery: () => SupabasePagedQuery<T>): Promise<T[]> {
-    const rows: T[] = [];
-
-    for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
-        const to = from + SUPABASE_PAGE_SIZE - 1;
-        const { data, error } = await createQuery().range(from, to);
-
-        if (error) throw error;
-
-        const page = data || [];
-        rows.push(...page);
-
-        if (page.length < SUPABASE_PAGE_SIZE) break;
-    }
-
-    return rows;
-}
 
 function roundCurrency(value: number): number {
     return Number(value.toFixed(2));

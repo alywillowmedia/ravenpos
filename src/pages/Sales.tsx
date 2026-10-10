@@ -596,7 +596,7 @@ export function Sales() {
 
             const [trendRes, categoryRes, busyRes] = await Promise.all([
                 getSalesTrend(30, false, rangeOptions),
-                getSalesByCategory(rangeOptions),
+                getSalesByCategory(30, false, rangeOptions),
                 getBusyTimeAnalytics(30, false, rangeOptions),
             ]);
 

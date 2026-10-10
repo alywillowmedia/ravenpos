@@ -97,7 +97,7 @@ export function Dashboard() {
             const rangeOptions = isCustom ? { startDate: customStart, endDate: customEnd } : undefined;
             const [trendRes, categoryRes, growthRes, busyRes] = await Promise.all([
                 getSalesTrend(days, isHourly, rangeOptions),
-                getSalesByCategory(rangeOptions),
+                getSalesByCategory(days, isHourly, rangeOptions),
                 getCustomerGrowth(days, isHourly, rangeOptions),
                 getBusyTimeAnalytics(days, isHourly, rangeOptions)
             ]);
