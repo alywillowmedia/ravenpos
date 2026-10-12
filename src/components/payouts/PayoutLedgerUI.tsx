@@ -43,6 +43,14 @@ export function LedgerPageHeader({
     );
 }
 
+export function PayToName({ name, className }: { name: string; className?: string }) {
+    return (
+        <span className={className}>
+            Pay to <strong className="font-medium text-[var(--color-foreground)]">{name}</strong>
+        </span>
+    );
+}
+
 export function ReadinessStatus({
     readiness,
     confidence,

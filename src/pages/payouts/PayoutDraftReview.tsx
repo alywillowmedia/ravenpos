@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowLeft, CalendarRange, CheckCircle2, FileLock2, Save } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { LedgerPageHeader } from '../../components/payouts/PayoutLedgerUI';
+import { LedgerPageHeader, PayToName } from '../../components/payouts/PayoutLedgerUI';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
@@ -176,7 +176,7 @@ export function PayoutDraftReview() {
             <LedgerPageHeader
                 breadcrumb={<Link className="inline-flex items-center gap-1 hover:text-[var(--color-foreground)]" to={`/admin/payouts/vendor/${statement.vendor.id}`}><ArrowLeft className="h-3.5 w-3.5" /> Vendor workspace</Link>}
                 title={`Review payout · ${statement.vendor.business_name || statement.vendor.name}`}
-                description={`Draft #${payoutId.slice(0, 8).toUpperCase()} · ${statement.payout.range_mode === 'selected_range' ? 'Selected activity range' : 'All outstanding activity'} · Prior balance ${statement.payout.include_prior_balance ? 'included' : 'excluded'}`}
+                description={`Pay to ${statement.vendor.pay_to_name} · Draft #${payoutId.slice(0, 8).toUpperCase()} · ${statement.payout.range_mode === 'selected_range' ? 'Selected activity range' : 'All outstanding activity'} · Prior balance ${statement.payout.include_prior_balance ? 'included' : 'excluded'}`}
                 actions={<Button variant="secondary" leftIcon={<Save className="h-4 w-4" />} isLoading={isSaving} onClick={() => void persistDraft()}>Save draft</Button>}
             />
 
@@ -276,7 +276,7 @@ export function PayoutDraftReview() {
                 </main>
 
                 <aside className="h-fit border border-[var(--color-border)] bg-[var(--color-card)] xl:sticky xl:top-4">
-                    <div className="border-b border-[var(--color-border)] p-5"><p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Reconciliation summary</p><p className="mt-1 font-display text-3xl">{formatCurrency(Number(paymentAmount || 0))}</p><p className="text-xs text-[var(--color-muted)]">Payment to vendor</p></div>
+                    <div className="border-b border-[var(--color-border)] p-5"><p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Reconciliation summary</p><p className="mt-1 font-display text-3xl">{formatCurrency(Number(paymentAmount || 0))}</p><PayToName name={statement.vendor.pay_to_name} className="block text-xs text-[var(--color-muted)]" /></div>
                     <dl className="space-y-2 border-b border-[var(--color-border)] p-5 text-sm">
                         <div className="flex justify-between"><dt>Sale allocations</dt><dd>{formatCurrency(sourceTotal)}</dd></div>
                         <div className="flex justify-between"><dt>Carried balance</dt><dd>{formatCurrency(carriedTotal)}</dd></div>

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LedgerPageHeader, ReadinessStatus, ThresholdProgress } from '../components/payouts/PayoutLedgerUI';
+import { LedgerPageHeader, PayToName, ReadinessStatus, ThresholdProgress } from '../components/payouts/PayoutLedgerUI';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -62,7 +62,7 @@ export function Payouts() {
 
     const filtered = useMemo(() => queue.filter((workspace) => {
         const vendor = workspace.vendor;
-        const matchesSearch = !deferredSearch || [vendor.name, vendor.business_name, vendor.consignor_number]
+        const matchesSearch = !deferredSearch || [vendor.name, vendor.business_name, vendor.pay_to_name, vendor.consignor_number]
             .filter(Boolean)
             .some((value) => String(value).toLowerCase().includes(deferredSearch));
         const matchesStatus = status === 'all'
@@ -260,6 +260,7 @@ export function Payouts() {
                                                 <td className="px-3 py-3">
                                                     <p className="font-medium">{workspace.vendor.business_name || workspace.vendor.name}</p>
                                                     <p className="text-xs text-[var(--color-muted)]">{workspace.vendor.consignor_number}</p>
+                                                    <PayToName name={workspace.vendor.pay_to_name} className="text-xs text-[var(--color-muted)]" />
                                                 </td>
                                                 <td className="px-3 py-3 text-right">{formatCurrency(workspace.summary.opening_balance)}</td>
                                                 <td className="px-3 py-3 text-right">{formatCurrency(workspace.summary.range_activity)}</td>
@@ -294,6 +295,7 @@ export function Payouts() {
                                         <div>
                                             <p className="font-medium">{workspace.vendor.business_name || workspace.vendor.name}</p>
                                             <p className="text-xs text-[var(--color-muted)]">{workspace.vendor.consignor_number}</p>
+                                            <PayToName name={workspace.vendor.pay_to_name} className="text-xs text-[var(--color-muted)]" />
                                         </div>
                                         <p className="font-display text-2xl">{formatCurrency(workspace.summary.current_payable)}</p>
                                     </div>

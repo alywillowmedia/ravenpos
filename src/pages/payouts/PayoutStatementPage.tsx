@@ -42,6 +42,7 @@ export function PayoutStatementPage() {
         const rows: unknown[][] = [
             ['Payout statement', payoutId],
             ['Vendor', statement.vendor.business_name || statement.vendor.name],
+            ['Pay to', statement.vendor.pay_to_name],
             ['Status', statement.payout.status],
             ['Amount paid', statement.payout.amount],
             ['Payment date', statement.payout.payment_date || statement.payout.paid_at || ''],
@@ -98,13 +99,13 @@ export function PayoutStatementPage() {
                 <LedgerPageHeader
                     breadcrumb={<Link className="inline-flex items-center gap-1 hover:text-[var(--color-foreground)]" to={backHref}><ArrowLeft className="h-3.5 w-3.5" /> {isVendor ? 'Payouts' : 'Vendor workspace'}</Link>}
                     title={`Payout statement #${payoutId.slice(0, 8).toUpperCase()}`}
-                    description={`${statement.vendor.business_name || statement.vendor.name} · ${payout.status} · ${payout.historical_confidence.replace(/_/g, ' ')}`}
+                    description={`${statement.vendor.business_name || statement.vendor.name} · Pay to ${statement.vendor.pay_to_name} · ${payout.status} · ${payout.historical_confidence.replace(/_/g, ' ')}`}
                     locked
                     actions={<><Button variant="secondary" leftIcon={<Printer className="h-4 w-4" />} onClick={print}>Print</Button><Button variant="secondary" leftIcon={<Download className="h-4 w-4" />} onClick={download}>Export</Button>{!isVendor && payout.status === 'paid' ? <Button variant="danger" leftIcon={<RotateCcw className="h-4 w-4" />} onClick={() => setShowVoid(true)}>Void</Button> : null}</>}
                 />
             </div>
 
-            <header className="hidden border-b-2 border-black pb-5 print:block"><h1 className="text-3xl font-semibold">Payout statement</h1><p>#{payoutId.toUpperCase()} · {statement.vendor.business_name || statement.vendor.name}</p></header>
+            <header className="hidden border-b-2 border-black pb-5 print:block"><h1 className="text-3xl font-semibold">Payout statement</h1><p>#{payoutId.toUpperCase()} · {statement.vendor.business_name || statement.vendor.name}</p><p>Pay to: {statement.vendor.pay_to_name}</p></header>
 
             {!statement.is_exact ? (
                 <div className="mb-5 flex gap-3 border border-[var(--color-warning)] bg-[var(--color-warning-bg)] p-4 text-sm text-[var(--color-warning)]">
@@ -131,7 +132,7 @@ export function PayoutStatementPage() {
 
             <section className="mt-6 border border-[var(--color-border)] bg-[var(--color-card)] p-5 text-sm"><h2 className="font-display text-xl">Audit details</h2><dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-xs text-[var(--color-muted)]">Confidence</dt><dd className="mt-1 capitalize">{payout.historical_confidence.replace(/_/g, ' ')}</dd></div><div><dt className="text-xs text-[var(--color-muted)]">Range mode</dt><dd className="mt-1 capitalize">{payout.range_mode.replace(/_/g, ' ')}</dd></div><div><dt className="text-xs text-[var(--color-muted)]">Prior balance</dt><dd className="mt-1">{payout.include_prior_balance ? 'Included' : 'Excluded'}</dd></div><div><dt className="text-xs text-[var(--color-muted)]">Threshold snapshot</dt><dd className="mt-1">{payout.threshold_snapshot == null ? '—' : formatCurrency(Number(payout.threshold_snapshot))}</dd></div></dl>{payout.notes ? <p className="mt-4 border-t border-[var(--color-border)] pt-4 text-[var(--color-muted)]">{payout.notes}</p> : null}</section>
 
-            <Modal isOpen={showVoid} onClose={() => setShowVoid(false)} title="Void this payout?" description="This creates reversal records. The original statement cannot be edited or deleted." size="sm">
+            <Modal isOpen={showVoid} onClose={() => setShowVoid(false)} title="Void this payout?" description={`Payout to ${statement.vendor.pay_to_name}. This creates reversal records. The original statement cannot be edited or deleted.`} size="sm">
                 <Input label="Reason" value={voidReason} onChange={(event) => setVoidReason(event.target.value)} required autoFocus />
                 <ModalFooter><Button variant="secondary" onClick={() => setShowVoid(false)}>Cancel</Button><Button variant="danger" isLoading={isVoiding} disabled={!voidReason.trim()} onClick={confirmVoid}>Void payout</Button></ModalFooter>
             </Modal>
