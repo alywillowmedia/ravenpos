@@ -4,6 +4,7 @@ import { formatSupabaseError } from '../lib/supabaseError';
 import type {
     FinalizePayoutInput,
     InvoiceWorkspaceData,
+    PayoutRangePreview,
     PayoutStatementData,
     SavePayoutDraftInput,
     VendorPayoutWorkspaceData,
@@ -25,6 +26,15 @@ export async function getPayoutQueue(range: PayoutQueueRange): Promise<VendorPay
     });
     if (error) throw new Error(rpcError(error, 'Failed to load the payout queue'));
     return (data || []) as unknown as VendorPayoutWorkspaceData[];
+}
+
+export async function getPayoutRangePreview(range: { start: string; end: string }): Promise<PayoutRangePreview[]> {
+    const { data, error } = await supabase.rpc('get_payout_range_preview', {
+        p_range_start: range.start,
+        p_range_end: range.end,
+    });
+    if (error) throw new Error(rpcError(error, 'Failed to load the range payout preview'));
+    return (data || []) as unknown as PayoutRangePreview[];
 }
 
 export async function getVendorPayoutWorkspace(

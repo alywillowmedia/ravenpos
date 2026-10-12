@@ -54,7 +54,8 @@ export function VendorPayoutWorkspace() {
                 rangeMode: selectedRange ? 'selected_range' : 'all_outstanding',
                 sourceRangeStart: selectedRange ? range.start : null,
                 sourceRangeEnd: selectedRange ? range.end : null,
-                includePriorBalance: true,
+                // A range payout covers only sales inside the range; older balances wait.
+                includePriorBalance: !selectedRange,
                 invoiceApplications: null,
             });
             navigate(`/admin/payouts/drafts/${payoutId}`);
@@ -88,7 +89,7 @@ export function VendorPayoutWorkspace() {
                         {summary.draft_id ? (
                             <Button onClick={() => navigate(`/admin/payouts/drafts/${summary.draft_id}`)}>Continue draft</Button>
                         ) : (
-                            <Button onClick={createDraft} isLoading={isSaving} disabled={summary.current_payable <= 0}>Prepare payout</Button>
+                            <Button onClick={createDraft} isLoading={isSaving} disabled={summary.current_payable <= 0}>{selectedRange ? 'Prepare range payout' : 'Prepare payout'}</Button>
                         )}
                     </>
                 )}

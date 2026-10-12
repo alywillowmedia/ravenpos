@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ravenpos-local-clone",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["scripts/local-supabase-clone.sh", "dev"],
+      "port": 5173
+    }
+  ]
+}

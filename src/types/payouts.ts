@@ -108,6 +108,18 @@ export interface VendorPayoutWorkspaceData {
     payout_history: PayoutHistorySummary[];
 }
 
+export interface PayoutRangePreview {
+    consignor_id: string;
+    sales_count: number;
+    items_count: number;
+    range_earnings: number;
+    already_paid: number;
+    deductions: number;
+    invoice_balance: number;
+    invoices_applied: number;
+    estimated_payout: number;
+}
+
 export interface SavePayoutDraftInput {
     consignorId: string;
     payoutId?: string | null;

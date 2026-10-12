@@ -55,10 +55,12 @@ export function ReadinessStatus({
     readiness,
     confidence,
     compact = false,
+    label,
 }: {
     readiness: PayoutReadiness;
     confidence?: HistoricalConfidence;
     compact?: boolean;
+    label?: string;
 }) {
     const config: Record<PayoutReadiness, { label: string; color: string }> = {
         ready: { label: 'Ready to pay', color: 'var(--color-success)' },
@@ -72,7 +74,7 @@ export function ReadinessStatus({
         <div className={compact ? 'space-y-0.5' : 'space-y-1'}>
             <span className="inline-flex items-center gap-2 text-sm font-medium">
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: current.color }} aria-hidden="true" />
-                {current.label}
+                {label ?? current.label}
             </span>
             {confidence === 'legacy_unverified' ? (
                 <span className="flex items-center gap-1 text-xs text-[var(--color-warning)]">
