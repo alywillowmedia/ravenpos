@@ -17,11 +17,26 @@ import {
     toCurrencyCents,
 } from '../../lib/cashReconciliation';
 import { calculateTillAccountabilityMetrics, type TillAccountabilityMetrics } from '../../lib/tillAccountability';
+import type { PaymentBreakdownEntry } from '../../types';
 
 interface AdminContact {
     id: string;
     email: string;
     full_name: string | null;
+}
+
+interface RefundRow {
+    sale_id: string;
+    refund_amount: number;
+    payment_method: string;
+    payment_breakdown: PaymentBreakdownEntry[] | null;
+}
+
+interface RefundSaleRow {
+    id: string;
+    total: number;
+    tax_amount: number;
+    card_fee_amount: number | null;
 }
 
 interface TillFloatRecord {
@@ -99,6 +114,7 @@ export function EmployeeTillCount() {
     const [selectedDate, setSelectedDate] = useState(() => getLocalDateInputValue());
     const [expectedCashFromSales, setExpectedCashFromSales] = useState(0);
     const [offlineUnsyncedCashNetTotal, setOfflineUnsyncedCashNetTotal] = useState(0);
+    const [giftCardCashSalesTotal, setGiftCardCashSalesTotal] = useState(0);
     const [accountability, setAccountability] = useState<TillAccountabilityMetrics>(() =>
         calculateTillAccountabilityMetrics({ sales: [], refunds: [], giftCardsSold: [] })
     );
@@ -122,12 +138,12 @@ export function EmployeeTillCount() {
                 supabase.rpc('get_chat_admin_contacts'),
                 supabase
                     .from('sales')
-                    .select('subtotal, tax_amount, total, discount_total, card_fee_amount, store_credit_used, payment_method, payment_breakdown, cash_tendered, change_given')
+                    .select('subtotal, tax_amount, total, discount_total, card_fee_amount, store_credit_used, gift_card_used, payment_method, payment_breakdown, cash_tendered, change_given')
                     .gte('completed_at', startIso)
                     .lte('completed_at', endIso),
                 supabase
                     .from('refunds')
-                    .select('refund_amount, payment_method')
+                    .select('sale_id, refund_amount, payment_method, payment_breakdown')
                     .gte('created_at', startIso)
                     .lte('created_at', endIso),
                 supabase
@@ -185,6 +201,7 @@ export function EmployeeTillCount() {
                     || 'Please refresh and try again.'
                 );
                 setExpectedCashFromSales(0);
+                setGiftCardCashSalesTotal(0);
                 setIsLoading(false);
                 return;
             }
@@ -201,15 +218,39 @@ export function EmployeeTillCount() {
                 );
             }
 
+            // Refund amounts include tax and card fee; load each refunded sale's
+            // make-up so the refund can be split (the sale may be from another day).
+            const refundRows = (refundsResult.data || []) as RefundRow[];
+            const refundSaleIds = Array.from(new Set(refundRows.map((refund) => refund.sale_id).filter(Boolean)));
+            const refundSalesById = new Map<string, RefundSaleRow>();
+            if (refundSaleIds.length > 0) {
+                const { data: refundSales, error: refundSalesError } = await supabase
+                    .from('sales')
+                    .select('id, total, tax_amount, card_fee_amount')
+                    .in('id', refundSaleIds);
+                if (!refundSalesError) {
+                    for (const sale of (refundSales || []) as RefundSaleRow[]) {
+                        refundSalesById.set(sale.id, sale);
+                    }
+                }
+            }
+
+            // Sales are bucketed by tender (store credit and gift card redemptions
+            // never count as drawer cash); gift cards sold for cash
+            // (purchase_payment_method) add to the drawer.
             const metrics = calculateTillAccountabilityMetrics({
                 sales: salesResult.data || [],
-                refunds: refundsResult.data || [],
+                refunds: refundRows.map((refund) => ({
+                    ...refund,
+                    sale: refundSalesById.get(refund.sale_id) || null,
+                })),
                 giftCardsSold: giftCardsResult.data || [],
                 dealerCashPurchases,
                 offlineUnsyncedCashSales: offlineUnsyncedCashTotal,
             });
             const expectedFromSalesCents = toCurrencyCents(metrics.expectedCashFromSales);
             setOfflineUnsyncedCashNetTotal(offlineUnsyncedCashTotal);
+            setGiftCardCashSalesTotal(metrics.giftCardSalesCash);
             setAccountability(metrics);
             setExpectedCashFromSales(fromCurrencyCents(expectedFromSalesCents));
             setIsLoading(false);
@@ -345,6 +386,8 @@ export function EmployeeTillCount() {
                         checksInHand: accountability.checksInHand,
                         creditCardsBatchTotal: accountability.creditCardsBatchTotal,
                         storeCreditRedeemed: accountability.storeCreditRedeemed,
+                        giftCardRedeemed: accountability.giftCardRedeemed,
+                        giftCardSalesCash: accountability.giftCardSalesCash,
                         totalReceived: accountability.totalReceived,
                         difference: accountability.difference,
                         dealerCashPurchases: accountability.dealerCashPurchases,
@@ -445,10 +488,15 @@ export function EmployeeTillCount() {
                                     disabled={isLoading}
                                 />
                             </div>
-                            <p className="text-xs text-[var(--color-muted)]">From {selectedBusinessDateLabel} Cash Activity (sales - refunds - dealer buys)</p>
+                            <p className="text-xs text-[var(--color-muted)]">From {selectedBusinessDateLabel} Cash Activity (cash sales + gift cards sold for cash - cash refunds - dealer buys)</p>
                             <p className="text-2xl font-bold">
                                 {isLoading ? 'Loading...' : formatCurrency(expectedCashFromSales)}
                             </p>
+                            {giftCardCashSalesTotal > 0.009 && (
+                                <p className="text-xs text-[var(--color-muted)] mt-1">
+                                    Includes gift cards sold for cash: +{formatCurrency(giftCardCashSalesTotal)}
+                                </p>
+                            )}
                             {offlineUnsyncedCashNetTotal > 0.009 && (
                                 <p className="text-xs text-[var(--color-muted)] mt-1">
                                     Includes offline unsynced cash sales: +{formatCurrency(offlineUnsyncedCashNetTotal)}
@@ -510,11 +558,11 @@ export function EmployeeTillCount() {
                             <div className="mt-2 space-y-1 text-[var(--color-muted)]">
                                 <p>Gross Product Sales: {formatCurrency(accountability.grossProductSales)}</p>
                                 <p>Discounts: -{formatCurrency(accountability.discounts)}</p>
-                                <p>Returns: -{formatCurrency(accountability.returns)}</p>
+                                <p>Returns (pre-tax): -{formatCurrency(accountability.returns)}</p>
                                 <p>Allowances: -{formatCurrency(accountability.allowances)}</p>
                                 <p>Net Sales: {formatCurrency(accountability.netSales)}</p>
-                                <p>Sales Tax: {formatCurrency(accountability.salesTax)}</p>
-                                <p>Credit Card Fees: {formatCurrency(accountability.creditCardFeesCharged)}</p>
+                                <p>Sales Tax (net of refunds): {formatCurrency(accountability.salesTax)}</p>
+                                <p>Credit Card Fees (net of refunds): {formatCurrency(accountability.creditCardFeesCharged)}</p>
                                 <p>Gift Certificates Sold: {formatCurrency(accountability.giftCertificatesSold)}</p>
                             </div>
                             <p className="font-semibold text-[var(--color-foreground)] mt-3">How Customers Paid</p>
@@ -522,7 +570,8 @@ export function EmployeeTillCount() {
                                 <p>Cash in Drawer: {formatCurrency(accountability.cashInDrawer)}</p>
                                 <p>Checks in Hand: {formatCurrency(accountability.checksInHand)}</p>
                                 <p>Credit Cards (Batch): {formatCurrency(accountability.creditCardsBatchTotal)}</p>
-                                <p>Store Credit Redeemed: {formatCurrency(accountability.storeCreditRedeemed)}</p>
+                                <p>Store Credit Redeemed (not cash): {formatCurrency(accountability.storeCreditRedeemed)}</p>
+                                <p>Gift Cards Redeemed (not cash): {formatCurrency(accountability.giftCardRedeemed)}</p>
                                 <p>Dealer Purchases (Cash Out): -{formatCurrency(accountability.dealerCashPurchases)}</p>
                             </div>
                         </div>

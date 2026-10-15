@@ -18,7 +18,7 @@ import { useEmployee } from '../contexts/EmployeeContext';
 import { useInventory } from '../hooks/useInventory';
 import { useInventoryPricingDiscounts } from '../hooks/useInventoryPricingDiscounts';
 import { useConsignors } from '../hooks/useConsignors';
-import { useSales } from '../hooks/useSales';
+import { findSavedSale, useSales, verifyTenderBalances, type CompleteSaleParams } from '../hooks/useSales';
 import { useInvoices } from '../hooks/useInvoices';
 import { useCategories } from '../hooks/useCategories';
 import { useCustomers } from '../hooks/useCustomers';
@@ -166,6 +166,8 @@ export function POS() {
         collectCustomerInputs,
         cancelCustomerInputs,
         collectCardPayment,
+        capturePayment,
+        releaseCardPayment,
     } = useStripeTerminal();
 
     // Fetch categories to ensure tax rates are synced from database
@@ -200,6 +202,14 @@ export function POS() {
     const [splitCheckAmount, setSplitCheckAmount] = useState('');
     const [splitCheckNumber, setSplitCheckNumber] = useState('');
     const [isCollectingCard, setIsCollectingCard] = useState(false);
+    // A card authorization that could not be captured or released automatically.
+    const [pendingCardHold, setPendingCardHold] = useState<{
+        paymentIntentId: string;
+        amountInCents: number;
+        saleSaved: boolean | null;
+        message: string;
+    } | null>(null);
+    const [isResolvingCardHold, setIsResolvingCardHold] = useState(false);
     const [showReaderModal, setShowReaderModal] = useState(false);
     const [showReaderSetupModal, setShowReaderSetupModal] = useState(false);
     const [showRefundModal, setShowRefundModal] = useState(false);
@@ -342,10 +352,15 @@ export function POS() {
 
         return Array.from(optionsById.values()).sort((a, b) => a.label.localeCompare(b.label));
     }, [cart]);
+    // A vendor in the cart that this customer actually has scoped credit for.
+    const vendorOptionWithCredit = useMemo(() => storeCreditVendorOptions.find((option) => (
+        Number(selectedCustomer?.vendor_store_credits?.find((credit) => credit.consignor_id === option.id)?.balance || 0) > 0
+    )) || null, [selectedCustomer, storeCreditVendorOptions]);
     const preferredStoreCreditVendorId = useMemo(() => {
+        if (vendorOptionWithCredit) return vendorOptionWithCredit.id;
         const alywillowOption = storeCreditVendorOptions.find((option) => option.shortcode === 'ALY');
         return alywillowOption?.id || storeCreditVendorOptions[0]?.id || '';
-    }, [storeCreditVendorOptions]);
+    }, [storeCreditVendorOptions, vendorOptionWithCredit]);
     const selectedStoreCreditVendor = storeCreditVendorOptions.find((option) => option.id === storeCreditConsignorId) || null;
     const eligibleSubtotalAfterDiscounts = cart.reduce((sum, cartItem) => {
         const consignorPays = (cartItem.item.consignor as { consignor_pays_card_fee?: boolean } | undefined)?.consignor_pays_card_fee ?? false;
@@ -413,6 +428,17 @@ export function POS() {
         };
     }, [selectedCustomer]);
     const cashPrice = Math.max(0, Math.round((total - appliedGiftCardAmount - appliedStoreCredit) * 100) / 100);
+    // Store credit and gift card are tenders on the sale, applied before the remainder.
+    const creditTenders = {
+        storeCredit: appliedStoreCredit > 0
+            ? { amount: appliedStoreCredit, consignorId: storeCreditConsignorIdForSale }
+            : null,
+        giftCard: appliedGiftCard && appliedGiftCardAmount > 0
+            ? { code: appliedGiftCard.code, amount: appliedGiftCardAmount }
+            : null,
+    };
+    const hasCreditTenders = appliedStoreCredit > 0 || appliedGiftCardAmount > 0;
+    const isCoveredByCreditTenders = cart.length > 0 && hasCreditTenders && cashPrice <= 0;
     const cardFeeAmount = calculateCardSurchargeAmount(cashPrice, cardFeeRatio);
     const cardPrice = Math.max(0, Math.round((cashPrice + cardFeeAmount) * 100) / 100);
     const parsedSplitCashAmount = Math.max(0, parseFloat(splitCashAmount) || 0);
@@ -523,13 +549,31 @@ export function POS() {
         }
     }, [isOfflineMode, paymentMethod]);
 
+    const wasOfflineRef = useRef(false);
     useEffect(() => {
-        if (!isOfflineMode) return;
+        if (!isOfflineMode) {
+            // Store credit was switched off while offline; turn it back on.
+            if (wasOfflineRef.current) {
+                wasOfflineRef.current = false;
+                setUseStoreCredit(true);
+            }
+            return;
+        }
+        wasOfflineRef.current = true;
         setUseStoreCredit(false);
         setAppliedGiftCard(null);
         setGiftCardInput('');
         setShowGiftCardEntry(false);
     }, [isOfflineMode]);
+
+    // Auto-apply vendor-scoped credit when the customer has no general credit
+    // but does have credit for a vendor whose items are in the cart.
+    useEffect(() => {
+        if (!useStoreCredit || storeCreditScope !== 'all') return;
+        if (generalStoreCreditBalance > 0 || !vendorOptionWithCredit) return;
+        setStoreCreditScope('vendor');
+        setStoreCreditConsignorId(vendorOptionWithCredit.id);
+    }, [generalStoreCreditBalance, storeCreditScope, useStoreCredit, vendorOptionWithCredit]);
 
     useEffect(() => {
         if (storeCreditScope !== 'vendor') return;
@@ -941,27 +985,27 @@ export function POS() {
             return;
         }
 
-        const { data: sale, error, queuedOffline } = await completeSale(
-            cart,
+        if (!isOfflineMode) {
+            const balanceError = await verifyTenderBalances({ customerId: selectedCustomer?.id, ...creditTenders });
+            if (balanceError) {
+                setScanError(balanceError);
+                return;
+            }
+        }
+
+        const { data: sale, error, queuedOffline } = await completeSale({
+            cartItems: cart,
             subtotal,
             taxTotal,
-            cashPrice,
-            cashAmount,
-            change,
-            selectedCustomer?.id,
-            'cash',
-            undefined,
+            customerId: selectedCustomer?.id,
             orderDiscounts,
-            appliedStoreCredit,
-            0,
-            appliedGiftCard?.code,
-            appliedGiftCardAmount,
-            undefined,
-            userRecord?.id,
-            employee?.id,
-            undefined,
-            storeCreditConsignorIdForSale
-        );
+            ...creditTenders,
+            remainder: cashPrice > 0
+                ? { method: 'cash', amount: cashPrice, tendered: cashAmount, change }
+                : { method: 'none' },
+            processedByUserId: userRecord?.id,
+            processedByEmployeeId: employee?.id,
+        });
 
         if (error) {
             setScanError(error);
@@ -988,6 +1032,82 @@ export function POS() {
             setScanError('Sale saved locally. It will sync to Supabase automatically when internet returns.');
             await refreshOfflineSalesStatus();
         }
+    };
+
+    // Card payments are only authorized until the sale is saved. Capture after a
+    // successful save; release the hold when the sale definitely did not save.
+    const completeCardTenderSale = async (
+        params: CompleteSaleParams,
+        card: { paymentIntentId: string; amountInCents: number } | null
+    ): Promise<{ data: Sale | null; error: string | null }> => {
+        const result = await completeSale(params);
+        if (!card) return result;
+
+        const captureSavedSale = async (sale: Sale) => {
+            const { error: captureError } = await capturePayment(card.paymentIntentId);
+            if (captureError) {
+                setPendingCardHold({
+                    ...card,
+                    saleSaved: true,
+                    message: `The sale saved, but the card payment could not be finalized (${captureError}). Capture it before the hold expires.`,
+                });
+            }
+            return { data: sale, error: null };
+        };
+
+        if (result.data && !result.error) {
+            return captureSavedSale(result.data);
+        }
+
+        const lookup = await findSavedSale(result.attemptedSaleId);
+        if (lookup.status === 'saved') {
+            // The sale saved but the response was lost; finish it normally.
+            return captureSavedSale(lookup.sale);
+        }
+
+        if (lookup.status === 'missing') {
+            const { error: releaseError } = await releaseCardPayment(card.paymentIntentId, card.amountInCents);
+            if (!releaseError) {
+                return { data: null, error: `${result.error} The card was not charged.` };
+            }
+            setPendingCardHold({
+                ...card,
+                saleSaved: false,
+                message: `The sale did not save and the card hold could not be released (${releaseError}).`,
+            });
+            return { data: null, error: result.error };
+        }
+
+        setPendingCardHold({
+            ...card,
+            saleSaved: null,
+            message: 'Could not confirm whether the sale saved. Check Sales history: capture the card if the sale is there, release it if not.',
+        });
+        return { data: null, error: result.error };
+    };
+
+    const handleCapturePendingCardHold = async () => {
+        if (!pendingCardHold) return;
+        setIsResolvingCardHold(true);
+        const { error } = await capturePayment(pendingCardHold.paymentIntentId);
+        setIsResolvingCardHold(false);
+        if (error) {
+            setPendingCardHold({ ...pendingCardHold, message: `Capture failed again: ${error}` });
+            return;
+        }
+        setPendingCardHold(null);
+    };
+
+    const handleReleasePendingCardHold = async () => {
+        if (!pendingCardHold) return;
+        setIsResolvingCardHold(true);
+        const { error } = await releaseCardPayment(pendingCardHold.paymentIntentId, pendingCardHold.amountInCents);
+        setIsResolvingCardHold(false);
+        if (error) {
+            setPendingCardHold({ ...pendingCardHold, message: `Release failed: ${error}. Refund it in the Stripe dashboard.` });
+            return;
+        }
+        setPendingCardHold(null);
     };
 
     const handleCompleteCardSale = async (options: { skipCustomerPrompt?: boolean; customerId?: string | null } = {}) => {
@@ -1017,6 +1137,13 @@ export function POS() {
         setShowCustomerIntakePrompt(false);
         setScanError(null);
 
+        const saleCustomerId = options.customerId ?? selectedCustomer?.id;
+        const balanceError = await verifyTenderBalances({ customerId: saleCustomerId, ...creditTenders });
+        if (balanceError) {
+            setScanError(balanceError);
+            return;
+        }
+
         let paymentIntentId: string | undefined;
         let cardLast4: string | undefined;
 
@@ -1024,7 +1151,7 @@ export function POS() {
             setIsCollectingCard(true);
             // Convert total due to cents for Stripe
             const amountInCents = Math.round(amountDue * 100);
-            const cardResult = await collectCardPayment(amountInCents);
+            const cardResult = await collectCardPayment(amountInCents, { captureLater: true });
             if (cardResult.error) {
                 setScanError(cardResult.error);
                 setIsCollectingCard(false);
@@ -1034,27 +1161,20 @@ export function POS() {
             cardLast4 = cardResult.cardLast4;
         }
 
-        const { data: sale, error } = await completeSale(
-            cart,
+        const { data: sale, error } = await completeCardTenderSale({
+            cartItems: cart,
             subtotal,
             taxTotal,
-            amountDue,
-            0,
-            0,
-            options.customerId ?? selectedCustomer?.id,
-            'card',
-            paymentIntentId,
+            customerId: saleCustomerId,
             orderDiscounts,
-            appliedStoreCredit,
-            cardFeeAmount,
-            appliedGiftCard?.code,
-            appliedGiftCardAmount,
-            undefined,
-            userRecord?.id,
-            employee?.id,
-            undefined,
-            storeCreditConsignorIdForSale
-        );
+            cardFeeAmount: amountDue > 0 ? cardFeeAmount : 0,
+            ...creditTenders,
+            remainder: amountDue > 0
+                ? { method: 'card', amount: amountDue, stripePaymentIntentId: paymentIntentId, cardLast4 }
+                : { method: 'none' },
+            processedByUserId: userRecord?.id,
+            processedByEmployeeId: employee?.id,
+        }, paymentIntentId ? { paymentIntentId, amountInCents: Math.round(amountDue * 100) } : null);
 
         if (amountDue > 0) {
             setIsCollectingCard(false);
@@ -1156,27 +1276,25 @@ export function POS() {
         }
         if (cart.length === 0) return;
 
-        const { data: sale, error } = await completeSale(
-            cart,
+        const balanceError = await verifyTenderBalances({ customerId: selectedCustomer?.id, ...creditTenders });
+        if (balanceError) {
+            setScanError(balanceError);
+            return;
+        }
+
+        const { data: sale, error } = await completeSale({
+            cartItems: cart,
             subtotal,
             taxTotal,
-            cashPrice,
-            0,
-            0,
-            selectedCustomer?.id,
-            'check',
-            undefined,
+            customerId: selectedCustomer?.id,
             orderDiscounts,
-            appliedStoreCredit,
-            0,
-            appliedGiftCard?.code,
-            appliedGiftCardAmount,
-            checkNumber.trim() || undefined,
-            userRecord?.id,
-            employee?.id,
-            undefined,
-            storeCreditConsignorIdForSale
-        );
+            ...creditTenders,
+            remainder: cashPrice > 0
+                ? { method: 'check', amount: cashPrice, checkNumber: checkNumber.trim() || null }
+                : { method: 'none' },
+            processedByUserId: userRecord?.id,
+            processedByEmployeeId: employee?.id,
+        });
 
         if (error) {
             setScanError(error);
@@ -1225,12 +1343,18 @@ export function POS() {
 
         setScanError(null);
 
+        const balanceError = await verifyTenderBalances({ customerId: selectedCustomer?.id, ...creditTenders });
+        if (balanceError) {
+            setScanError(balanceError);
+            return;
+        }
+
         let paymentIntentId: string | undefined;
         let cardLast4: string | undefined;
 
         if (splitCardTotal > 0) {
             setIsCollectingCard(true);
-            const cardResult = await collectCardPayment(Math.round(splitCardTotal * 100));
+            const cardResult = await collectCardPayment(Math.round(splitCardTotal * 100), { captureLater: true });
             if (cardResult.error) {
                 setScanError(cardResult.error);
                 setIsCollectingCard(false);
@@ -1260,27 +1384,18 @@ export function POS() {
             }] : []),
         ];
 
-        const { data: sale, error } = await completeSale(
-            cart,
+        const { data: sale, error } = await completeCardTenderSale({
+            cartItems: cart,
             subtotal,
             taxTotal,
-            splitTotal,
-            splitCashApplied > 0 ? splitTenderedCash : 0,
-            splitCashApplied > 0 ? splitCashChange : 0,
-            selectedCustomer?.id,
-            'split',
-            paymentIntentId,
+            customerId: selectedCustomer?.id,
             orderDiscounts,
-            appliedStoreCredit,
-            splitCardFeeAmount,
-            appliedGiftCard?.code,
-            appliedGiftCardAmount,
-            splitCheckNumber.trim() || undefined,
-            userRecord?.id,
-            employee?.id,
-            paymentBreakdown,
-            storeCreditConsignorIdForSale
-        );
+            cardFeeAmount: splitCardFeeAmount,
+            ...creditTenders,
+            remainder: { method: 'split', entries: paymentBreakdown },
+            processedByUserId: userRecord?.id,
+            processedByEmployeeId: employee?.id,
+        }, paymentIntentId ? { paymentIntentId, amountInCents: Math.round(splitCardTotal * 100) } : null);
 
         if (splitCardTotal > 0) {
             setIsCollectingCard(false);
@@ -1294,7 +1409,6 @@ export function POS() {
         if (sale) {
             const saleWithSplit: Sale = {
                 ...sale,
-                payment_breakdown: paymentBreakdown,
                 card_last4: cardLast4 || null,
                 check_number: splitCheckNumber.trim() || null,
             };
@@ -1313,10 +1427,58 @@ export function POS() {
 
         setCompletedSale(sale ? {
             ...sale,
-            payment_breakdown: paymentBreakdown,
             card_last4: cardLast4 || null,
             check_number: splitCheckNumber.trim() || null,
         } : null);
+    };
+
+    // Store credit and/or gift card cover the whole order: nothing left to charge.
+    const handleCompleteCreditOnlySale = async () => {
+        if (isOfflineMode) {
+            setScanError('Store credit and gift cards require internet.');
+            return;
+        }
+        if (cart.length === 0 || !isCoveredByCreditTenders) return;
+
+        setScanError(null);
+        const balanceError = await verifyTenderBalances({ customerId: selectedCustomer?.id, ...creditTenders });
+        if (balanceError) {
+            setScanError(balanceError);
+            return;
+        }
+
+        const { data: sale, error } = await completeSale({
+            cartItems: cart,
+            subtotal,
+            taxTotal,
+            customerId: selectedCustomer?.id,
+            orderDiscounts,
+            ...creditTenders,
+            remainder: { method: 'none' },
+            processedByUserId: userRecord?.id,
+            processedByEmployeeId: employee?.id,
+        });
+
+        if (error) {
+            setScanError(error);
+            return;
+        }
+
+        if (sale) {
+            const receiptData = createReceiptData(sale, cart);
+            setCompletedReceiptData(receiptData);
+            setCompletedCart([...cart]);
+            setShowReceiptDelivery(true);
+            if (selectedCustomer && appliedStoreCredit > 0) {
+                setSelectedCustomer(applyStoreCreditToCustomer(selectedCustomer));
+            }
+            if (appliedGiftCard && appliedGiftCardAmount > 0) {
+                const remaining = Math.max(0, appliedGiftCard.balance - appliedGiftCardAmount);
+                setAppliedGiftCard(remaining > 0 ? { ...appliedGiftCard, balance: remaining } : null);
+            }
+        }
+
+        setCompletedSale(sale);
     };
 
     const handleNewSale = () => {
@@ -1862,6 +2024,10 @@ export function POS() {
         }
 
         const balance = Number(giftCard.current_balance || 0);
+        if (giftCard.expires_at && new Date(giftCard.expires_at).getTime() <= Date.now()) {
+            setGiftCardError('Gift card has expired');
+            return;
+        }
         if (!giftCard.is_active || balance <= 0) {
             setGiftCardError('Gift card has no available balance');
             return;
@@ -1879,6 +2045,50 @@ export function POS() {
         setGiftCardInput('');
         setShowGiftCardEntry(false);
         setGiftCardError(null);
+    };
+
+    // "Store Credit" payment button: adds or removes the customer's credit as a tender.
+    const handleStoreCreditTender = () => {
+        if (isOfflineMode) {
+            setScanError('Store credit requires internet.');
+            return;
+        }
+        if (!selectedCustomer) {
+            setScanError('Add the customer to this sale to use their store credit.');
+            return;
+        }
+        if (appliedStoreCredit > 0) {
+            setUseStoreCredit(false);
+            return;
+        }
+        if (generalStoreCreditBalance > 0) {
+            setStoreCreditScope('all');
+            setStoreCreditConsignorId('');
+        } else if (vendorOptionWithCredit) {
+            setStoreCreditScope('vendor');
+            setStoreCreditConsignorId(vendorOptionWithCredit.id);
+        } else if (selectedCustomerHasAnyStoreCredit) {
+            setScanError(`${selectedCustomer.name}'s store credit is for a vendor with no items in this sale.`);
+            return;
+        } else {
+            setScanError(`${selectedCustomer.name} has no store credit.`);
+            return;
+        }
+        setScanError(null);
+        setUseStoreCredit(true);
+    };
+
+    // "Gift Card" payment button: opens code entry, or removes an applied card.
+    const handleGiftCardTender = () => {
+        if (isOfflineMode) {
+            setGiftCardError('Gift cards require internet. Offline mode supports cash sales only.');
+            return;
+        }
+        if (appliedGiftCard) {
+            handleRemoveGiftCard();
+            return;
+        }
+        setShowGiftCardEntry((visible) => !visible);
     };
 
     const handleCreateCustomer = async () => {
@@ -1956,6 +2166,27 @@ export function POS() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 xl:gap-6 flex-1 min-h-0 overflow-y-auto lg:overflow-hidden px-1 pt-1">
                 {/* Left: Scanner + Cart */}
                 <div className="lg:col-span-2 flex flex-col gap-4">
+                    {pendingCardHold && (
+                        <div role="alert" className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger-bg)] p-3 text-sm">
+                            <p className="font-medium text-[var(--color-danger)]">
+                                Card payment needs attention ({formatCurrency(pendingCardHold.amountInCents / 100)})
+                            </p>
+                            <p className="mt-1">{pendingCardHold.message}</p>
+                            <p className="mt-1 font-mono text-xs text-[var(--color-muted)]">{pendingCardHold.paymentIntentId}</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                                {pendingCardHold.saleSaved !== false && (
+                                    <Button size="sm" onClick={handleCapturePendingCardHold} isLoading={isResolvingCardHold}>
+                                        Capture card payment
+                                    </Button>
+                                )}
+                                {pendingCardHold.saleSaved !== true && (
+                                    <Button size="sm" variant="secondary" onClick={handleReleasePendingCardHold} isLoading={isResolvingCardHold}>
+                                        Release / refund card
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    )}
                     {/* Scanner Input */}
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                         <form onSubmit={handleScan} className="flex flex-1 items-start gap-2" aria-label="Scan or enter an item">
@@ -2416,15 +2647,21 @@ export function POS() {
                                 <span className="text-[var(--color-muted)]">Tax</span>
                                 <span className="tabular-nums">{formatCurrency(taxTotal)}</span>
                             </div>
+                            {hasCreditTenders && (
+                                <div className="flex justify-between text-sm font-medium">
+                                    <span>Order Total</span>
+                                    <span className="tabular-nums">{formatCurrency(total)}</span>
+                                </div>
+                            )}
                             {appliedStoreCredit > 0 && (
                                 <div className="flex justify-between text-sm text-[var(--color-success)]">
-                                    <span>{storeCreditLabel}</span>
+                                    <span>Paid with {storeCreditLabel}</span>
                                     <span>-{formatCurrency(appliedStoreCredit)}</span>
                                 </div>
                             )}
                             {appliedGiftCardAmount > 0 && (
                                 <div className="flex justify-between text-sm text-[var(--color-success)]">
-                                    <span>Gift Card</span>
+                                    <span>Paid with Gift Card</span>
                                     <span>-{formatCurrency(appliedGiftCardAmount)}</span>
                                 </div>
                             )}
@@ -2441,7 +2678,7 @@ export function POS() {
                                 </>
                             )}
                             <div className="flex justify-between items-baseline pt-3 border-t border-[var(--color-border)]">
-                                <span className="eyebrow">{paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Amount Due'}</span>
+                                <span className="eyebrow">{isCoveredByCreditTenders ? 'Amount Due' : paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Amount Due'}</span>
                                 <span className="font-display text-3xl tabular-nums text-[var(--color-primary)] leading-none">
                                     {formatCurrency(amountDue)}
                                 </span>
@@ -2453,51 +2690,8 @@ export function POS() {
                             )}
 
                             {/* Adjustments — quiet, unified actions kept out of the figure column */}
-                            {(cart.length > 0 || appliedGiftCard || showGiftCardEntry) && (
+                            {cart.length > 0 && (
                                 <div className="pt-3 border-t border-[var(--color-border)] space-y-2">
-                                    {appliedGiftCard && (
-                                        <div className="rounded-lg bg-[var(--color-success-bg)] border border-[var(--color-success)]/20 p-2">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="text-xs font-mono text-[var(--color-foreground)]">{appliedGiftCard.code}</span>
-                                                <button
-                                                    onClick={handleRemoveGiftCard}
-                                                    className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
-                                                >
-                                                    Remove
-                                                </button>
-                                            </div>
-                                            <p className="mt-1 text-xs text-[var(--color-muted)]">
-                                                Balance: {formatCurrency(appliedGiftCard.balance)}
-                                            </p>
-                                        </div>
-                                    )}
-
-                                    {showGiftCardEntry && !appliedGiftCard && (
-                                        <div className="flex gap-2 w-full">
-                                            <Input
-                                                value={giftCardInput}
-                                                onChange={(e) => setGiftCardInput(e.target.value.toUpperCase())}
-                                                placeholder="Gift card code"
-                                                disabled={isOfflineMode}
-                                                className="w-full text-sm"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                variant="secondary"
-                                                onClick={handleApplyGiftCard}
-                                                isLoading={isApplyingGiftCard}
-                                                className="shrink-0"
-                                                disabled={isOfflineMode}
-                                            >
-                                                Apply
-                                            </Button>
-                                        </div>
-                                    )}
-
-                                    {giftCardError && (
-                                        <p className="text-xs text-[var(--color-danger)]">{giftCardError}</p>
-                                    )}
-
                                     {cart.length > 0 && (
                                         <div className="flex items-center gap-1">
                                             <button
@@ -2507,16 +2701,6 @@ export function POS() {
                                                 <DiscountIcon />
                                                 Add discount
                                             </button>
-                                            {!appliedGiftCard && (
-                                                <button
-                                                    onClick={() => setShowGiftCardEntry((v) => !v)}
-                                                    aria-expanded={showGiftCardEntry}
-                                                    className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--color-primary)]/5 ${showGiftCardEntry ? 'text-[var(--color-primary)]' : 'text-[var(--color-muted)] hover:text-[var(--color-primary)]'}`}
-                                                >
-                                                    <GiftCardIcon />
-                                                    Gift card
-                                                </button>
-                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -2578,7 +2762,133 @@ export function POS() {
                                 </button>
                             </div>
 
-                            {paymentMethod === 'cash' ? (
+                            {/* Store credit and gift card are tenders too: they pay part or all of the order first */}
+                            <div className="grid grid-cols-2 gap-2 mb-4">
+                                <button
+                                    onClick={handleStoreCreditTender}
+                                    aria-pressed={appliedStoreCredit > 0}
+                                    disabled={isOfflineMode}
+                                    className={`min-w-0 py-2 px-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${appliedStoreCredit > 0
+                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                                        : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
+                                        } ${isOfflineMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    <StoreCreditIcon />
+                                    <span className="truncate">
+                                        Store Credit
+                                        {selectedCustomer && selectedCustomerHasAnyStoreCredit && appliedStoreCredit <= 0
+                                            ? ` (${formatCurrency(generalStoreCreditBalance > 0 ? generalStoreCreditBalance : availableStoreCredit)})`
+                                            : ''}
+                                    </span>
+                                </button>
+                                <button
+                                    onClick={handleGiftCardTender}
+                                    aria-pressed={Boolean(appliedGiftCard) || showGiftCardEntry}
+                                    disabled={isOfflineMode}
+                                    className={`min-w-0 py-2 px-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap ${appliedGiftCard
+                                        ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                                        : 'bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
+                                        } ${isOfflineMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    <GiftCardIcon />
+                                    Gift Card
+                                </button>
+                            </div>
+
+                            {showGiftCardEntry && !appliedGiftCard && (
+                                <div className="mb-4 space-y-2">
+                                    <div className="flex gap-2 w-full">
+                                        <Input
+                                            value={giftCardInput}
+                                            onChange={(e) => setGiftCardInput(e.target.value.toUpperCase())}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') void handleApplyGiftCard();
+                                            }}
+                                            placeholder="Gift card code"
+                                            disabled={isOfflineMode}
+                                            className="w-full text-sm"
+                                            autoFocus
+                                        />
+                                        <Button
+                                            variant="secondary"
+                                            onClick={handleApplyGiftCard}
+                                            isLoading={isApplyingGiftCard}
+                                            className="shrink-0"
+                                            disabled={isOfflineMode}
+                                        >
+                                            Apply
+                                        </Button>
+                                    </div>
+                                    {giftCardError && (
+                                        <p className="text-xs text-[var(--color-danger)]">{giftCardError}</p>
+                                    )}
+                                </div>
+                            )}
+
+                            {hasCreditTenders && (
+                                <div className="mb-4 rounded-lg border border-[var(--color-border)] p-3 space-y-2 text-sm">
+                                    <p className="eyebrow">Payments applied</p>
+                                    {appliedStoreCredit > 0 && (
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="font-medium">{storeCreditLabel}</p>
+                                                <p className="text-xs text-[var(--color-muted)]">
+                                                    {formatCurrency(Math.max(0, availableStoreCredit - appliedStoreCredit))} left after this sale
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <span className="tabular-nums">{formatCurrency(appliedStoreCredit)}</span>
+                                                <button
+                                                    onClick={() => setUseStoreCredit(false)}
+                                                    className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {appliedGiftCard && appliedGiftCardAmount > 0 && (
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="font-medium">Gift Card ••••{appliedGiftCard.code.slice(-4)}</p>
+                                                <p className="text-xs text-[var(--color-muted)]">
+                                                    {formatCurrency(Math.max(0, appliedGiftCard.balance - appliedGiftCardAmount))} left after this sale
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <span className="tabular-nums">{formatCurrency(appliedGiftCardAmount)}</span>
+                                                <button
+                                                    onClick={handleRemoveGiftCard}
+                                                    className="text-xs text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between font-semibold pt-2 border-t border-[var(--color-border)]">
+                                        <span>{isCoveredByCreditTenders ? 'Fully paid' : 'Remaining to pay'}</span>
+                                        <span className="tabular-nums">{formatCurrency(cashPrice)}</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {isCoveredByCreditTenders ? (
+                                <div className="mt-auto pt-3 border-t border-[var(--color-border)] shrink-0">
+                                    <Button
+                                        size="xl"
+                                        className="w-full"
+                                        onClick={handleCompleteCreditOnlySale}
+                                        isLoading={isProcessing}
+                                    >
+                                        {appliedStoreCredit > 0 && appliedGiftCardAmount > 0
+                                            ? 'Complete with Store Credit + Gift Card'
+                                            : appliedStoreCredit > 0
+                                                ? 'Complete with Store Credit'
+                                                : 'Complete with Gift Card'}
+                                    </Button>
+                                </div>
+                            ) : paymentMethod === 'cash' ? (
                                 <>
                                     <div className="flex-1 min-h-0 overflow-y-auto pr-1">
                                         <p className="text-sm font-medium mb-2">Cash Tendered</p>
@@ -2914,9 +3224,7 @@ export function POS() {
                                         >
                                             {isCollectingCard
                                                 ? 'Processing...'
-                                                : amountDue > 0
-                                                    ? `Charge ${formatCurrency(amountDue)}`
-                                                    : 'Complete Sale (Credit Only)'}
+                                                : `Charge ${formatCurrency(amountDue)}`}
                                         </Button>
                                     </div>
                                 </>
@@ -3375,6 +3683,8 @@ export function POS() {
                 connectedReader={!!connectedReader}
                 onOpenReaderModal={handleDiscoverReaders}
                 collectCardPayment={collectCardPayment}
+                capturePayment={capturePayment}
+                releaseCardPayment={releaseCardPayment}
                 purchaserCustomerId={selectedCustomer?.id || null}
             />
 
@@ -3651,6 +3961,15 @@ function GiftCardIcon() {
             <path d="M3 12h18" />
             <path d="M7.5 8a2.5 2.5 0 1 1 0-5c1.1 0 2 .9 2 2v3" />
             <path d="M16.5 8a2.5 2.5 0 1 0 0-5c-1.1 0-2 .9-2 2v3" />
+        </svg>
+    );
+}
+
+function StoreCreditIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1" />
+            <path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4" />
         </svg>
     );
 }

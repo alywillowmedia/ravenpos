@@ -4,6 +4,7 @@ import { isConsignorScheduled } from './consignorStatus';
 import { type CsvCell, toLocalDateSlug } from './csvExport';
 import { supabase } from './supabase';
 import { fetchAllRows } from './supabasePaging';
+import { getSaleTenderAmount } from './tenders';
 import type { BoothRentPayment, Consignor, Item, PaymentBreakdownEntry, PaymentMethod, Payout } from '../types';
 
 interface SaleJoin {
@@ -325,14 +326,11 @@ function getJoinedSaleData(row: SaleItemReportRow): SaleJoin | null {
     return Array.isArray(row.sale) ? row.sale[0] || null : row.sale;
 }
 
-function getCardTenderAmount(sale: SaleJoin, saleNetSubtotal: number): number {
-    if (sale.payment_method === 'split') {
-        return (sale.payment_breakdown || [])
-            .filter((entry) => entry.method === 'card')
-            .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-    }
-
-    return sale.payment_method === 'card' ? Number(sale.total || saleNetSubtotal) : 0;
+// Card-fee basis is the card tender only, matching the server payout ledger:
+// the whole total for 'card', the card entries for 'split', and 0 for cash,
+// check, store credit and gift card.
+function getCardTenderAmount(sale: SaleJoin): number {
+    return getSaleTenderAmount(sale, 'card');
 }
 
 function buildSaleFinancialContext(
@@ -882,7 +880,7 @@ async function fetchConsignorReportData(
         const effectiveRatio = Number(item.quantity || 0) > 0 ? effectiveQuantity / Number(item.quantity || 0) : 0;
         const effectiveLineTotal = netLineTotal * effectiveRatio;
         const commissionSplit = Number(item.commission_split || 0);
-        const cardTenderAmount = getCardTenderAmount(sale, saleNetSubtotal);
+        const cardTenderAmount = getCardTenderAmount(sale);
         const creditCardFee = cardTenderAmount > 0 && Boolean(item.consignor_pays_card_fee)
             ? (saleNetSubtotal > 0
                 ? calculateStripeTerminalProcessingFee(cardTenderAmount) * (netLineTotal / saleNetSubtotal) * effectiveRatio

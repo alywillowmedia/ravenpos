@@ -2,7 +2,10 @@ import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { formatSupabaseError } from '../lib/supabaseError';
 import { enqueueOfflineCashSale } from '../lib/offlineCashSales';
-import type { CartItem, Sale, SaleItem, PaymentMethod, Discount, PaymentBreakdownEntry } from '../types';
+import type { CartItem, Sale, SaleItem, PaymentMethod, Discount } from '../types';
+import { buildSaleTenders, derivePaymentMethod, type SaleRemainderPayment } from '../lib/tenders';
+
+export type { SaleRemainderPayment };
 import type { OfflineCashSalePayload } from '../types/offline';
 
 function isElectronRuntime(): boolean {
@@ -13,36 +16,122 @@ interface CompleteSaleResult {
     data: Sale | null;
     error: string | null;
     queuedOffline?: boolean;
+    // The id this sale was sent with, so a failure can be checked against the database.
+    attemptedSaleId?: string | null;
+}
+
+export type SavedSaleLookup =
+    | { status: 'saved'; sale: Sale }
+    | { status: 'missing' }
+    | { status: 'unknown'; error: string };
+
+/**
+ * After completeSale reports an error, tells whether the sale row exists anyway
+ * (e.g. the response was lost) so a card hold is only released when nothing saved.
+ */
+export async function findSavedSale(saleId: string | null | undefined): Promise<SavedSaleLookup> {
+    if (!saleId) return { status: 'missing' };
+    const { data, error } = await supabase
+        .from('sales')
+        .select('*')
+        .eq('id', saleId)
+        .maybeSingle();
+    if (error) return { status: 'unknown', error: formatSupabaseError(error, 'Could not check the sale') };
+    return data ? { status: 'saved', sale: data as Sale } : { status: 'missing' };
+}
+
+export interface CompleteSaleParams {
+    cartItems: CartItem[];
+    subtotal: number;
+    taxTotal: number;
+    customerId?: string | null;
+    orderDiscounts?: Discount[];
+    cardFeeAmount?: number;
+    storeCredit?: { amount: number; consignorId: string | null } | null;
+    giftCard?: { code: string; amount: number } | null;
+    remainder: SaleRemainderPayment;
+    processedByUserId?: string | null;
+    processedByEmployeeId?: string | null;
+}
+
+function roundMoney(value: number): number {
+    return Math.max(0, Math.round(Number(value || 0) * 100) / 100);
+}
+
+/**
+ * Re-reads the customer's credit and the gift card right before payment, so a
+ * balance that changed since the customer was selected is caught before a card
+ * is charged.
+ */
+export async function verifyTenderBalances(params: {
+    customerId?: string | null;
+    storeCredit?: { amount: number; consignorId: string | null } | null;
+    giftCard?: { code: string; amount: number } | null;
+}): Promise<string | null> {
+    const creditAmount = roundMoney(params.storeCredit?.amount || 0);
+    if (creditAmount > 0) {
+        if (!params.customerId) return 'Store credit needs a customer on the sale.';
+        let available = 0;
+        if (params.storeCredit?.consignorId) {
+            const { data, error } = await supabase
+                .from('customer_vendor_store_credits')
+                .select('balance')
+                .eq('customer_id', params.customerId)
+                .eq('consignor_id', params.storeCredit.consignorId)
+                .maybeSingle();
+            if (error) return formatSupabaseError(error, 'Could not check store credit balance');
+            available = Number(data?.balance || 0);
+        } else {
+            const { data, error } = await supabase
+                .from('customers')
+                .select('store_credit')
+                .eq('id', params.customerId)
+                .single();
+            if (error) return formatSupabaseError(error, 'Could not check store credit balance');
+            available = Number(data?.store_credit || 0);
+        }
+        if (available + 0.005 < creditAmount) {
+            return `Store credit balance is now ${available.toFixed(2)}. Re-select the customer to refresh it.`;
+        }
+    }
+
+    const giftCardAmount = roundMoney(params.giftCard?.amount || 0);
+    if (giftCardAmount > 0 && params.giftCard?.code) {
+        const { data, error } = await supabase.rpc('get_gift_card_by_code', {
+            p_code: params.giftCard.code.trim().toUpperCase(),
+        });
+        if (error) return formatSupabaseError(error, 'Could not check gift card balance');
+        const card = Array.isArray(data) ? data[0] : data;
+        if (!card) return 'Gift card not found.';
+        if (!card.is_active) return 'Gift card is inactive.';
+        if (card.expires_at && new Date(card.expires_at).getTime() <= Date.now()) return 'Gift card has expired.';
+        if (Number(card.current_balance || 0) + 0.005 < giftCardAmount) {
+            return `Gift card balance is now ${Number(card.current_balance || 0).toFixed(2)}. Remove and re-apply it.`;
+        }
+    }
+
+    return null;
 }
 
 export function useSales() {
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const completeSale = useCallback(async (
-        cartItems: CartItem[],
-        subtotal: number,
-        taxTotal: number,
-        total: number,
-        cashTendered: number,
-        changeGiven: number,
-        customerId?: string | null,
-        paymentMethod: PaymentMethod = 'cash',
-        stripePaymentIntentId?: string,
-        orderDiscounts: Discount[] = [],
-        storeCreditUsed = 0,
-        cardFeeAmount = 0,
-        giftCardCode?: string,
-        giftCardUsed = 0,
-        checkNumber?: string,
-        processedByUserId?: string | null,
-        processedByEmployeeId?: string | null,
-        paymentBreakdown?: PaymentBreakdownEntry[],
-        storeCreditConsignorId?: string | null
-    ): Promise<CompleteSaleResult> => {
-        let creditDeducted = false;
-        let vendorCreditDeductedFrom: string | null = null;
-        let giftCardDeducted = false;
+    const completeSale = useCallback(async (params: CompleteSaleParams): Promise<CompleteSaleResult> => {
+        const {
+            cartItems,
+            subtotal,
+            taxTotal,
+            customerId,
+            orderDiscounts = [],
+            cardFeeAmount = 0,
+            storeCredit,
+            giftCard,
+            remainder,
+            processedByUserId,
+            processedByEmployeeId,
+        } = params;
+        let attemptedSaleId: string | null = null;
 
         try {
             setIsProcessing(true);
@@ -56,28 +145,29 @@ export function useSales() {
                 (sum, d) => sum + d.calculatedAmount, 0
             );
             const discountTotal = itemDiscountTotal + orderDiscountTotal;
-            const roundedStoreCreditUsed = Math.max(0, Math.round(storeCreditUsed * 100) / 100);
-            const roundedCardFeeAmount = Math.max(0, Math.round(cardFeeAmount * 100) / 100);
-            const roundedGiftCardUsed = Math.max(0, Math.round(giftCardUsed * 100) / 100);
-            const normalizedGiftCardCode = giftCardCode?.trim().toUpperCase();
-            const isOfflineCashMode = isElectronRuntime() && typeof navigator !== 'undefined' && !navigator.onLine && paymentMethod === 'cash';
-            const normalizedPaymentBreakdown = paymentBreakdown?.map((entry) => ({
-                ...entry,
-                amount: Math.max(0, Math.round(Number(entry.amount || 0) * 100) / 100),
-                tendered: entry.tendered == null ? null : Math.max(0, Math.round(Number(entry.tendered || 0) * 100) / 100),
-                change: entry.change == null ? null : Math.max(0, Math.round(Number(entry.change || 0) * 100) / 100),
-                check_number: entry.check_number?.trim() || null,
-                stripe_payment_intent_id: entry.stripe_payment_intent_id || null,
-                card_last4: entry.card_last4 || null,
-            })).filter((entry) => entry.amount > 0);
+            const tenders = buildSaleTenders({ storeCredit, giftCard, remainder });
+            const total = Math.round(tenders.reduce((sum, entry) => sum + Math.round(entry.amount * 100), 0)) / 100;
+            const storeCreditUsed = roundMoney(storeCredit?.amount || 0);
+            const giftCardUsed = roundMoney(giftCard?.amount || 0);
+            const fallbackMethod: PaymentMethod = remainder.method === 'none' ? 'cash' : remainder.method;
+            const paymentMethod = derivePaymentMethod(tenders, fallbackMethod);
+            const cashEntry = tenders.find((entry) => entry.method === 'cash');
+            const checkEntry = tenders.find((entry) => entry.method === 'check');
+            const cardEntry = tenders.find((entry) => entry.method === 'card');
+            const isOfflineCashMode = isElectronRuntime()
+                && typeof navigator !== 'undefined'
+                && !navigator.onLine
+                && remainder.method === 'cash';
 
             if (isOfflineCashMode) {
-                if (roundedStoreCreditUsed > 0 || roundedGiftCardUsed > 0 || normalizedGiftCardCode) {
+                if (storeCreditUsed > 0 || giftCardUsed > 0) {
                     return {
                         data: null,
                         error: 'Offline cash mode does not support store credit or gift cards.',
                     };
                 }
+                const cashTendered = remainder.method === 'cash' ? remainder.tendered : 0;
+                const changeGiven = remainder.method === 'cash' ? remainder.change : 0;
 
                 const saleId = crypto.randomUUID();
                 const completedAt = new Date().toISOString();
@@ -168,48 +258,20 @@ export function useSales() {
                 return { data: offlineSale, error: null, queuedOffline: true };
             }
 
-            // Deduct gift card first; if later steps fail, we'll attempt to restore it.
-            if (normalizedGiftCardCode && roundedGiftCardUsed > 0) {
-                const { error: giftCardError } = await supabase.rpc('redeem_gift_card', {
-                    p_code: normalizedGiftCardCode,
-                    p_amount: roundedGiftCardUsed,
-                });
-
-                if (giftCardError) throw giftCardError;
-                giftCardDeducted = true;
-            }
-
-            // Deduct store credit first; if later steps fail, we'll attempt to restore it.
-            if (customerId && roundedStoreCreditUsed > 0) {
-                const { error: creditError } = storeCreditConsignorId
-                    ? await supabase.rpc('adjust_customer_vendor_store_credit', {
-                        p_customer_id: customerId,
-                        p_consignor_id: storeCreditConsignorId,
-                        p_amount_change: -roundedStoreCreditUsed,
-                    })
-                    : await supabase.rpc('adjust_customer_store_credit', {
-                        p_customer_id: customerId,
-                        p_amount_change: -roundedStoreCreditUsed,
-                    });
-
-                if (creditError) throw creditError;
-                if (storeCreditConsignorId) {
-                    vendorCreditDeductedFrom = storeCreditConsignorId;
-                } else {
-                    creditDeducted = true;
-                }
-            }
-
             const saleId = crypto.randomUUID();
+            attemptedSaleId = saleId;
             const salePayload = {
                 id: saleId,
+                // Tells create_pos_sale_with_items to deduct credit and gift card
+                // balances itself, in the same transaction as the sale.
+                tenders_version: 2,
                 subtotal,
                 tax_amount: taxTotal,
                 total,
                 payment_method: paymentMethod,
-                cash_tendered: paymentMethod === 'cash' || paymentMethod === 'split' ? cashTendered : null,
-                change_given: paymentMethod === 'cash' || paymentMethod === 'split' ? changeGiven : null,
-                stripe_payment_intent_id: stripePaymentIntentId || null,
+                cash_tendered: cashEntry ? cashEntry.tendered ?? cashEntry.amount : null,
+                change_given: cashEntry ? cashEntry.change ?? 0 : null,
+                stripe_payment_intent_id: cardEntry?.stripe_payment_intent_id || null,
                 customer_id: customerId || null,
                 discounts: orderDiscounts.map(d => ({
                     type: d.type,
@@ -218,15 +280,13 @@ export function useSales() {
                     calculatedAmount: d.calculatedAmount
                 })),
                 discount_total: discountTotal,
-                store_credit_used: roundedStoreCreditUsed,
-                gift_card_used: roundedGiftCardUsed,
-                card_fee_amount: roundedCardFeeAmount,
-                payment_breakdown: normalizedPaymentBreakdown && normalizedPaymentBreakdown.length > 0
-                    ? normalizedPaymentBreakdown
-                    : null,
+                store_credit_used: storeCreditUsed,
+                gift_card_used: giftCardUsed,
+                card_fee_amount: roundMoney(cardFeeAmount),
+                payment_breakdown: tenders,
                 processed_by_user: processedByUserId || null,
                 processed_by_employee: processedByEmployeeId || null,
-                ...(paymentMethod === 'check' || paymentMethod === 'split' ? { check_number: checkNumber?.trim() || null } : {}),
+                check_number: checkEntry?.check_number || null,
             };
 
             // Create sale items with discount data
@@ -291,32 +351,11 @@ export function useSales() {
                 }
             }
 
-            return { data: sale as Sale, error: null };
+            return { data: { ...(sale as Sale), card_last4: cardEntry?.card_last4 || null }, error: null, attemptedSaleId };
         } catch (err) {
-            // Best-effort rollback if we deducted store credit but sale failed
-            if (vendorCreditDeductedFrom && customerId && storeCreditUsed > 0) {
-                await supabase.rpc('adjust_customer_vendor_store_credit', {
-                    p_customer_id: customerId,
-                    p_consignor_id: vendorCreditDeductedFrom,
-                    p_amount_change: Math.round(storeCreditUsed * 100) / 100,
-                });
-            } else if (creditDeducted && customerId && storeCreditUsed > 0) {
-                await supabase.rpc('adjust_customer_store_credit', {
-                    p_customer_id: customerId,
-                    p_amount_change: Math.round(storeCreditUsed * 100) / 100,
-                });
-            }
-            // Best-effort rollback if we deducted gift card but sale failed
-            if (giftCardDeducted && giftCardCode && giftCardUsed > 0) {
-                await supabase.rpc('restore_gift_card_balance', {
-                    p_code: giftCardCode.trim().toUpperCase(),
-                    p_amount: Math.round(giftCardUsed * 100) / 100,
-                });
-            }
-
             const message = formatSupabaseError(err, 'Failed to complete sale');
             setError(message);
-            return { data: null, error: message };
+            return { data: null, error: message, attemptedSaleId };
         } finally {
             setIsProcessing(false);
         }

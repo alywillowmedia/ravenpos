@@ -125,16 +125,28 @@ export interface Dealer {
 
 export type DealerInput = Omit<Dealer, 'id' | 'created_at' | 'updated_at'>;
 
-export type PaymentMethod = 'cash' | 'card' | 'check' | 'split';
+export type PaymentMethod = 'cash' | 'card' | 'check' | 'split' | 'store_credit' | 'gift_card';
+
+// A single way of paying. A sale's payment_breakdown lists one entry per tender
+// and the entries sum to sales.total.
+export type TenderMethod = 'cash' | 'card' | 'check' | 'store_credit' | 'gift_card';
 
 export interface PaymentBreakdownEntry {
-    method: 'cash' | 'card' | 'check';
+    method: TenderMethod;
     amount: number;
     tendered?: number | null;
     change?: number | null;
     check_number?: string | null;
     stripe_payment_intent_id?: string | null;
     card_last4?: string | null;
+    // store_credit: vendor whose scoped credit was used (null = general credit)
+    consignor_id?: string | null;
+    // gift_card: the server stores the id and last 4 of the code, never the full code
+    gift_card_id?: string | null;
+    gift_card_code?: string | null;
+    code_last4?: string | null;
+    // refunds only: Stripe refund for this card portion
+    stripe_refund_id?: string | null;
 }
 
 // Discount types for POS
@@ -288,9 +300,32 @@ export interface Refund {
     customer_id: string | null;
     refund_amount: number;
     payment_method: PaymentMethod;
+    payment_breakdown?: PaymentBreakdownEntry[] | null;
     stripe_refund_id: string | null;
     items: RefundItem[];
     created_at: string;
+}
+
+export type StoreCreditEntryType =
+    | 'migrated_balance'
+    | 'manual_adjustment'
+    | 'sale_redemption'
+    | 'refund_credit'
+    | 'customer_merge';
+
+export interface StoreCreditTransaction {
+    id: string;
+    customer_id: string | null;
+    consignor_id: string | null;
+    amount: number;
+    balance_after: number;
+    entry_type: StoreCreditEntryType;
+    sale_id: string | null;
+    refund_id: string | null;
+    note: string | null;
+    actor_name: string | null;
+    created_at: string;
+    consignor?: Pick<Consignor, 'id' | 'consignor_number' | 'name'> | null;
 }
 
 export type InvoiceRecipientType = 'customer' | 'vendor';

@@ -13,11 +13,13 @@ interface GiftCardSaleModalProps {
     onClose: () => void;
     connectedReader: boolean;
     onOpenReaderModal: () => void;
-    collectCardPayment: (amountInCents: number) => Promise<{
+    collectCardPayment: (amountInCents: number, options?: { captureLater?: boolean }) => Promise<{
         paymentIntentId: string;
         cardLast4?: string;
         error: string | null;
     }>;
+    capturePayment: (paymentIntentId: string) => Promise<{ error: string | null }>;
+    releaseCardPayment: (paymentIntentId: string, amountInCents: number) => Promise<{ error: string | null }>;
     purchaserCustomerId?: string | null;
 }
 
@@ -33,6 +35,8 @@ export function GiftCardSaleModal({
     connectedReader,
     onOpenReaderModal,
     collectCardPayment,
+    capturePayment,
+    releaseCardPayment,
     purchaserCustomerId,
 }: GiftCardSaleModalProps) {
     const [amount, setAmount] = useState<number>(25);
@@ -98,7 +102,8 @@ export function GiftCardSaleModal({
                 return;
             }
 
-            const cardResult = await collectCardPayment(Math.round(amount * 100));
+            // Authorize only; the card is captured once the gift card exists.
+            const cardResult = await collectCardPayment(Math.round(amount * 100), { captureLater: true });
             if (cardResult.error) {
                 setError(cardResult.error);
                 setIsSubmitting(false);
@@ -121,9 +126,25 @@ export function GiftCardSaleModal({
         const created = Array.isArray(data) ? data[0] : null;
 
         if (issueError || !created?.code) {
-            setError(issueError?.message || 'Failed to issue gift card');
+            let failure = issueError?.message || 'Failed to issue gift card';
+            if (paymentIntentId) {
+                const { error: releaseError } = await releaseCardPayment(paymentIntentId, Math.round(amount * 100));
+                failure = releaseError
+                    ? `${failure}. The card hold could not be released (${releaseError}); refund ${paymentIntentId} in Stripe.`
+                    : `${failure}. The card was not charged.`;
+            }
+            setError(failure);
             setIsSubmitting(false);
             return;
+        }
+
+        if (paymentIntentId) {
+            const { error: captureError } = await capturePayment(paymentIntentId);
+            if (captureError) {
+                setError(`Gift card ${created.code} was created, but the card payment could not be finalized (${captureError}). Capture ${paymentIntentId} in Stripe before the hold expires.`);
+                setIsSubmitting(false);
+                return;
+            }
         }
 
         const emailResult = await sendGiftCardEmail({

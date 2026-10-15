@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { syncCustomerKitSubscriber } from '../lib/kit';
-import type { Customer, CustomerInput, CustomerVendorStoreCredit } from '../types';
+import type { Customer, CustomerInput, CustomerVendorStoreCredit, StoreCreditTransaction } from '../types';
 
 type CustomerOrderSaleItem = {
     id: string;
@@ -43,17 +43,23 @@ export function useCustomers() {
     const attachVendorStoreCredits = useCallback(async (customerRows: Customer[]): Promise<Customer[]> => {
         if (customerRows.length === 0) return customerRows;
 
+        // Batch the ids: one request with every customer id overflows the URL
+        // length the API gateway accepts once there are a few hundred customers.
         const customerIds = customerRows.map((customer) => customer.id);
-        const { data, error: creditsError } = await supabase
-            .from('customer_vendor_store_credits')
-            .select(VENDOR_STORE_CREDIT_SELECT)
-            .in('customer_id', customerIds)
-            .order('created_at', { ascending: true });
+        const rows: Record<string, unknown>[] = [];
+        for (let start = 0; start < customerIds.length; start += 100) {
+            const { data, error: creditsError } = await supabase
+                .from('customer_vendor_store_credits')
+                .select(VENDOR_STORE_CREDIT_SELECT)
+                .in('customer_id', customerIds.slice(start, start + 100))
+                .order('created_at', { ascending: true });
 
-        if (creditsError) throw creditsError;
+            if (creditsError) throw creditsError;
+            rows.push(...((data || []) as Record<string, unknown>[]));
+        }
 
         const creditsByCustomer = new Map<string, CustomerVendorStoreCredit[]>();
-        for (const row of data || []) {
+        for (const row of rows) {
             const credit = normalizeVendorStoreCredit(row as Record<string, unknown>);
             const existing = creditsByCustomer.get(credit.customer_id) || [];
             existing.push(credit);
@@ -134,8 +140,10 @@ export function useCustomers() {
 
             if (updateError) throw updateError;
 
+            // Return the customer with vendor credits attached so POS keeps showing them.
+            const [customerWithCredits] = await attachVendorStoreCredits([data as Customer]);
             setCustomers((prev) =>
-                prev.map((c) => (c.id === id ? { ...data, vendor_store_credits: c.vendor_store_credits || [] } : c))
+                prev.map((c) => (c.id === id ? customerWithCredits : c))
             );
             const kitWarning = await syncCustomerKitSubscriber({
                 customerId: data.id,
@@ -146,12 +154,12 @@ export function useCustomers() {
             if (kitWarning) {
                 console.warn('[Kit] update sync failed:', kitWarning);
             }
-            return { data, error: null };
+            return { data: customerWithCredits, error: null };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to update customer';
             return { data: null, error: message };
         }
-    }, []);
+    }, [attachVendorStoreCredits]);
 
     const deleteCustomer = useCallback(async (id: string) => {
         try {
@@ -231,16 +239,19 @@ export function useCustomers() {
             }
 
             if (phoneDigits) {
+                // Match the digits in any formatting ("(540) 553-1431", "+15405531431")
+                // on the server instead of scanning only the first page of customers.
+                const lastTenDigits = phoneDigits.slice(-10);
                 const { data, error: phoneError } = await supabase
                     .from('customers')
                     .select('*')
-                    .not('phone', 'is', null)
+                    .ilike('phone', `%${lastTenDigits.split('').join('%')}%`)
                     .order('created_at', { ascending: true })
-                    .limit(100);
+                    .limit(50);
 
                 if (phoneError) throw phoneError;
                 const match = (data || []).find((customer) =>
-                    String(customer.phone || '').replace(/\D/g, '') === phoneDigits
+                    String(customer.phone || '').replace(/\D/g, '').slice(-10) === lastTenDigits
                 );
 
                 if (match) {
@@ -269,6 +280,12 @@ export function useCustomers() {
                     tax_amount,
                     total,
                     payment_method,
+                    payment_breakdown,
+                    store_credit_used,
+                    gift_card_used,
+                    card_fee_amount,
+                    discount_total,
+                    check_number,
                     cash_tendered,
                     change_given,
                     refund_status
@@ -329,8 +346,6 @@ export function useCustomers() {
 
             const normalized = salesData.map((sale) => ({
                 ...sale,
-                check_number: null,
-                discount_total: null,
                 sale_items: itemsBySale[sale.id] || [],
             }));
 
@@ -341,7 +356,67 @@ export function useCustomers() {
         }
     }, []);
 
-    const addStoreCredit = useCallback(async (customerId: string, amount: number) => {
+    // Moves a duplicate customer's orders, refunds, gift cards, invoices, and store
+    // credit onto the kept customer, then deletes the duplicate.
+    const mergeCustomers = useCallback(async (keepCustomerId: string, duplicateCustomerId: string) => {
+        try {
+            const { data, error: mergeError } = await supabase.rpc('merge_customers', {
+                p_keep_customer_id: keepCustomerId,
+                p_duplicate_customer_id: duplicateCustomerId,
+            });
+
+            if (mergeError) throw mergeError;
+
+            const [mergedCustomer] = await attachVendorStoreCredits([data as Customer]);
+            setCustomers((prev) => prev
+                .filter((customer) => customer.id !== duplicateCustomerId)
+                .map((customer) => (customer.id === keepCustomerId ? mergedCustomer : customer)));
+            return { data: mergedCustomer, error: null };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to merge customers';
+            return { data: null, error: message };
+        }
+    }, [attachVendorStoreCredits]);
+
+    // Every store credit change for a customer, oldest first, with the running balance.
+    const getStoreCreditHistory = useCallback(async (customerId: string) => {
+        try {
+            const { data, error: historyError } = await supabase
+                .from('store_credit_transactions')
+                .select(`
+                    id,
+                    customer_id,
+                    consignor_id,
+                    amount,
+                    balance_after,
+                    entry_type,
+                    sale_id,
+                    refund_id,
+                    note,
+                    actor_name,
+                    created_at,
+                    consignor:consignors(id, consignor_number, name)
+                `)
+                .eq('customer_id', customerId)
+                .order('created_at', { ascending: true })
+                .order('id', { ascending: true });
+
+            if (historyError) throw historyError;
+
+            const entries = (data || []).map((row) => ({
+                ...(row as unknown as StoreCreditTransaction),
+                amount: Number(row.amount || 0),
+                balance_after: Number(row.balance_after || 0),
+                consignor: row.consignor as unknown as CustomerVendorStoreCredit['consignor'],
+            }));
+            return { data: entries, error: null };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to load store credit history';
+            return { data: [], error: message };
+        }
+    }, []);
+
+    const addStoreCredit = useCallback(async (customerId: string, amount: number, note?: string) => {
         try {
             const roundedAmount = Math.round(amount * 100) / 100;
             if (roundedAmount === 0) {
@@ -351,6 +426,7 @@ export function useCustomers() {
             const { data, error: rpcError } = await supabase.rpc('adjust_customer_store_credit', {
                 p_customer_id: customerId,
                 p_amount_change: roundedAmount,
+                p_note: note?.trim() || null,
             });
 
             if (rpcError) throw rpcError;
@@ -366,7 +442,7 @@ export function useCustomers() {
         }
     }, []);
 
-    const addVendorStoreCredit = useCallback(async (customerId: string, consignorId: string, amount: number) => {
+    const addVendorStoreCredit = useCallback(async (customerId: string, consignorId: string, amount: number, note?: string) => {
         try {
             const roundedAmount = Math.round(amount * 100) / 100;
             if (roundedAmount === 0) {
@@ -380,6 +456,7 @@ export function useCustomers() {
                 p_customer_id: customerId,
                 p_consignor_id: consignorId,
                 p_amount_change: roundedAmount,
+                p_note: note?.trim() || null,
             });
 
             if (rpcError) throw rpcError;
@@ -435,5 +512,7 @@ export function useCustomers() {
         getCustomerOrderHistory,
         addStoreCredit,
         addVendorStoreCredit,
+        getStoreCreditHistory,
+        mergeCustomers,
     };
 }

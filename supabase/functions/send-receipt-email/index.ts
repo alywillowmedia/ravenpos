@@ -19,6 +19,18 @@ interface ReceiptItem {
     imageUrl?: string | null;
 }
 
+type TenderMethod = 'cash' | 'card' | 'check' | 'store_credit' | 'gift_card';
+
+interface PaymentBreakdownEntry {
+    method: TenderMethod;
+    amount: number;
+    tendered?: number | null;
+    change?: number | null;
+    check_number?: string | null;
+    card_last4?: string | null;
+    code_last4?: string | null;
+}
+
 interface ReceiptData {
     transactionId: string;
     date: string; // ISO string when sent over JSON
@@ -29,8 +41,11 @@ interface ReceiptData {
     tax: number;
     storeCreditUsed?: number;
     giftCardUsed?: number;
+    // Full order total; the tenders in paymentBreakdown sum to it.
     total: number;
-    paymentMethod: 'cash' | 'card' | 'check';
+    cardFeeAmount?: number;
+    paymentMethod: TenderMethod | 'split';
+    paymentBreakdown?: PaymentBreakdownEntry[] | null;
     cardLast4?: string;
     checkNumber?: string;
     cashTendered?: number;
@@ -141,6 +156,60 @@ function generateCode39BarcodeHTML(value: string): string {
     `
 }
 
+// Tender helpers mirror src/lib/tenders.ts (edge functions can't import app code).
+const TENDER_ORDER: TenderMethod[] = ['store_credit', 'gift_card', 'cash', 'check', 'card']
+const TENDER_LABELS: Record<TenderMethod, string> = {
+    store_credit: 'Store Credit',
+    gift_card: 'Gift Card',
+    cash: 'Cash',
+    check: 'Check',
+    card: 'Card',
+}
+
+function isTenderMethod(value: unknown): value is TenderMethod {
+    return typeof value === 'string' && value in TENDER_LABELS
+}
+
+function formatTenderLabel(method: string | null | undefined): string {
+    if (isTenderMethod(method)) return TENDER_LABELS[method]
+    if (method === 'split') return 'Split'
+    return 'Unknown'
+}
+
+// "Gift Card ••••4F2A", "Card ••••9550", "Check #1042"
+function describeTender(entry: PaymentBreakdownEntry): string {
+    const label = TENDER_LABELS[entry.method]
+    if (entry.method === 'gift_card' && entry.code_last4) return `${label} ••••${entry.code_last4}`
+    if (entry.method === 'card' && entry.card_last4) return `${label} ••••${entry.card_last4}`
+    if (entry.method === 'check' && entry.check_number) return `${label} #${entry.check_number}`
+    return label
+}
+
+// Every tender on the sale. Receipts without a breakdown (older sales) are read
+// as store credit + gift card + the single payment method for the total.
+function getReceiptTenders(receipt: ReceiptData): PaymentBreakdownEntry[] {
+    const tenders = (Array.isArray(receipt.paymentBreakdown) ? receipt.paymentBreakdown : [])
+        .filter((entry) => isTenderMethod(entry?.method) && Number(entry.amount) > 0)
+        .sort((a, b) => TENDER_ORDER.indexOf(a.method) - TENDER_ORDER.indexOf(b.method))
+    if (tenders.length > 0) return tenders
+
+    const fallback: PaymentBreakdownEntry[] = []
+    if (Number(receipt.storeCreditUsed) > 0) fallback.push({ method: 'store_credit', amount: Number(receipt.storeCreditUsed) })
+    if (Number(receipt.giftCardUsed) > 0) fallback.push({ method: 'gift_card', amount: Number(receipt.giftCardUsed) })
+    const method = receipt.paymentMethod
+    if (Number(receipt.total) > 0 && (method === 'cash' || method === 'check' || method === 'card')) {
+        fallback.push({
+            method,
+            amount: Number(receipt.total),
+            tendered: method === 'cash' ? receipt.cashTendered ?? null : null,
+            change: method === 'cash' ? receipt.changeGiven ?? null : null,
+            check_number: method === 'check' ? receipt.checkNumber ?? null : null,
+            card_last4: method === 'card' ? receipt.cardLast4 ?? null : null,
+        })
+    }
+    return fallback
+}
+
 function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
     const formatDate = (dateStr: string) => {
         const date = new Date(dateStr);
@@ -158,14 +227,7 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
         });
     };
 
-    const formatCurrency = (amount: number) => '$' + amount.toFixed(2);
-    const formatCardLast4 = (last4?: string) => {
-        if (!last4) return null
-        const digits = last4.replace(/\D/g, '').slice(-4)
-        if (digits.length !== 4) return null
-        return `•••• ${digits}`
-    }
-    const maskedCard = formatCardLast4(receipt.cardLast4)
+    const formatCurrency = (amount: number) => '$' + Number(amount).toFixed(2);
     const receiptNumber = receipt.transactionId.slice(0, 8).toUpperCase()
     const barcodeHTML = generateCode39BarcodeHTML(receiptNumber)
 
@@ -206,34 +268,24 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
     `;
     }).join('');
 
-    const paymentHTML = receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined
-        ? `
+    const paymentRow = (label: string, amount: number, extraStyle = '') => `
             <tr>
-                <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Cash Tendered</td>
-                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">${formatCurrency(receipt.cashTendered)}</td>
-            </tr>
-            <tr>
-                <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; font-weight: bold;">Change</td>
-                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; font-weight: bold;">${formatCurrency(receipt.changeGiven ?? 0)}</td>
-            </tr>
-        `
-        : receipt.paymentMethod === 'check'
-            ? `
-            <tr>
-                <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Paid by</td>
-                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Check</td>
-            </tr>
-            <tr>
-                <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Check #</td>
-                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">${receipt.checkNumber ? receipt.checkNumber : 'N/A'}</td>
-            </tr>
-        `
-        : `
-            <tr>
-                <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;">Paid by</td>
-                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;">${maskedCard ? `Card (${maskedCard})` : 'Card'}</td>
+                <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px;${extraStyle}">${escapeHtml(label)}</td>
+                <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px;${extraStyle}">${formatCurrency(amount)}</td>
             </tr>
         `;
+    const tenders = getReceiptTenders(receipt);
+    const paymentHTML = tenders.length > 0
+        ? tenders.map((entry) => {
+            const cashDetails = entry.method === 'cash' && entry.tendered != null && Number(entry.tendered) > Number(entry.amount)
+                ? paymentRow('Tendered', Number(entry.tendered), ' padding-left: 12px; color: #666;')
+                    + paymentRow('Change', Number(entry.change || 0), ' padding-left: 12px; font-weight: bold;')
+                : '';
+            return paymentRow(describeTender(entry), Number(entry.amount)) + cashDetails;
+        }).join('')
+        : Number(receipt.total) > 0
+            ? paymentRow(formatTenderLabel(receipt.paymentMethod), Number(receipt.total))
+            : '';
 
     return `
 <!DOCTYPE html>
@@ -295,16 +347,10 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
                                     <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">${formatCurrency(receipt.tax)}</td>
                                 </tr>
                                 ` : ''}
-                                ${receipt.storeCreditUsed && receipt.storeCreditUsed > 0 ? `
+                                ${receipt.cardFeeAmount && receipt.cardFeeAmount > 0 ? `
                                 <tr>
-                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Store Credit</td>
-                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">-${formatCurrency(receipt.storeCreditUsed)}</td>
-                                </tr>
-                                ` : ''}
-                                ${receipt.giftCardUsed && receipt.giftCardUsed > 0 ? `
-                                <tr>
-                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Gift Card</td>
-                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">-${formatCurrency(receipt.giftCardUsed)}</td>
+                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Card Fee</td>
+                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">${formatCurrency(receipt.cardFeeAmount)}</td>
                                 </tr>
                                 ` : ''}
                                 <tr>
@@ -319,6 +365,7 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
                     <tr>
                         <td style="padding: 0 32px 16px 32px;">
                             <div style="border-bottom: 2px dashed #ddd; margin-bottom: 16px;"></div>
+                            <p style="margin: 0 0 4px 0; font-size: 12px; color: #999; text-transform: uppercase;">Payment</p>
                             <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%;">
                                 ${paymentHTML}
                             </table>

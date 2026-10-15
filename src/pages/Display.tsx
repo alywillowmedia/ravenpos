@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { formatCurrency } from '../lib/utils';
+import { describeTender, getSaleTenders, sortTenders } from '../lib/tenders';
 import { ShoppingCartIcon, TagIcon, Store, CheckCircle, Receipt, CreditCard, Wallet, Radio } from 'lucide-react';
 import type { CartItem, Discount, Sale, PaymentMethod } from '../types';
 import ravenposLogo from '../../assets/ravenpos_logo.svg';
@@ -114,29 +115,45 @@ export function Display() {
         customer = null,
         customerIntake = null,
     } = data;
+    // Store credit and gift card are payments, applied before the remainder is due.
+    const hasCreditPayments = appliedStoreCredit > 0 || appliedGiftCard > 0;
+    const orderTotal = total + cardFeeAmount;
     const activeCustomerIntake = customerIntake && customerIntake.status !== 'idle' ? customerIntake : null;
     const hasCustomer = Boolean(customer?.name?.trim());
     const shouldShowCustomerInfo = hasCustomer || Boolean(activeCustomerIntake);
 
     if (completedSale) {
+        const completedTenders = sortTenders(getSaleTenders(completedSale));
         return (
             <main className="min-h-dvh w-full flex flex-col items-center justify-center bg-[var(--color-background)] text-[var(--color-foreground)] p-5 sm:p-8 animate-fadeIn">
                 <div className="bg-[var(--color-success-bg)] border border-[var(--color-success)]/20 shadow-sm p-5 rounded-full mb-5" aria-hidden="true">
                     <CheckCircle size={64} className="text-[var(--color-success)]" />
                 </div>
-                <h1 className="font-display text-4xl sm:text-5xl md:text-6xl text-center mb-2">Payment approved</h1>
+                <h1 className="font-display text-4xl sm:text-5xl md:text-6xl text-center mb-2">Payment complete</h1>
                 <p className="text-lg sm:text-xl text-[var(--color-muted)] text-center mb-7">Thank you for shopping with us.</p>
 
                 <div className="w-full max-w-lg bg-[var(--color-card)] p-6 sm:p-8 rounded-2xl shadow-lg text-[var(--color-foreground)] border border-[var(--color-border)]">
                     <div className="flex justify-between items-baseline mb-4">
-                        <span className="eyebrow">Total paid</span>
-                        <span className="font-display tabular-nums text-3xl">{formatCurrency(completedSale.total)}</span>
+                        <span className="eyebrow">Order total</span>
+                        <span className="font-display tabular-nums text-3xl">{formatCurrency(Number(completedSale.total || 0))}</span>
                     </div>
 
                     {(completedSale.card_fee_amount || 0) > 0 && (
                         <div className="flex justify-between items-center text-sm mb-3">
                             <span className="text-[var(--color-muted)]">Card fee included</span>
                             <span className="tabular-nums">{formatCurrency(Number(completedSale.card_fee_amount || 0))}</span>
+                        </div>
+                    )}
+
+                    {completedTenders.length > 0 && (
+                        <div className="pt-4 mb-4 border-t border-[var(--color-border)] space-y-2">
+                            <p className="eyebrow">Paid with</p>
+                            {completedTenders.map((entry, index) => (
+                                <div key={`${entry.method}-${index}`} className="flex justify-between items-center text-lg">
+                                    <span className="text-[var(--color-muted)]">{describeTender(entry)}</span>
+                                    <span className="font-medium tabular-nums">{formatCurrency(entry.amount)}</span>
+                                </div>
+                            ))}
                         </div>
                     )}
 
@@ -277,16 +294,22 @@ export function Display() {
                                 <Row label="Discounts" value={`-${formatCurrency(discountTotal)}`} valueClassName="text-[var(--color-success)]" />
                             )}
                             <Row label="Tax" value={formatCurrency(taxTotal)} />
-                            {appliedStoreCredit > 0 && (
-                                <Row label={storeCreditLabel} value={`-${formatCurrency(appliedStoreCredit)}`} valueClassName="text-[var(--color-success)]" />
-                            )}
-                            {appliedGiftCard > 0 && (
-                                <Row label="Gift Card" value={`-${formatCurrency(appliedGiftCard)}`} valueClassName="text-[var(--color-success)]" />
-                            )}
                             {cardFeeAmount > 0 && (
                                 <Row label="Card Processing Fee" value={formatCurrency(cardFeeAmount)} valueClassName="text-[var(--color-warning)]" />
                             )}
                         </div>
+
+                        {hasCreditPayments && (
+                            <div className="pt-3 border-t border-[var(--color-border)] space-y-2.5 text-base md:text-lg">
+                                <Row label="Total" value={formatCurrency(orderTotal)} />
+                                {appliedStoreCredit > 0 && (
+                                    <Row label={`Paid with ${storeCreditLabel}`} value={`-${formatCurrency(appliedStoreCredit)}`} valueClassName="text-[var(--color-success)]" />
+                                )}
+                                {appliedGiftCard > 0 && (
+                                    <Row label="Paid with Gift Card" value={`-${formatCurrency(appliedGiftCard)}`} valueClassName="text-[var(--color-success)]" />
+                                )}
+                            </div>
+                        )}
 
                         {orderDiscounts.length > 0 && (
                             <div className="pt-3 border-t border-[var(--color-border)] space-y-1.5">
@@ -319,7 +342,7 @@ export function Display() {
 
                     <div className="px-5 py-5 md:px-7 md:py-7 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-primary-hover)] text-[var(--color-primary-foreground)] mt-auto" aria-live="polite">
                         <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.16em] opacity-70 mb-1.5">
-                            {paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Total Due'}
+                            {hasCreditPayments ? 'Balance Due' : paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Total Due'}
                         </p>
                         <p className="font-display tabular-nums text-4xl sm:text-5xl xl:text-6xl leading-none break-words">{formatCurrency(amountDue)}</p>
                     </div>

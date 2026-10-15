@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Button } from '../ui/Button';
 import { formatCurrency, formatDateTime } from '../../lib/utils';
-import { printReceipt, createReceiptData } from '../../lib/printReceipt';
+import { printReceipt, createReceiptData, getReceiptTenders } from '../../lib/printReceipt';
+import { describeTender, formatTenderLabel } from '../../lib/tenders';
 import type { CartItem, Sale } from '../../types';
 
 interface ReceiptProps {
@@ -13,9 +14,7 @@ interface ReceiptProps {
 export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
     const [isPrinting, setIsPrinting] = useState(false);
     const receiptData = createReceiptData(sale, items);
-    const maskedCardLast4 = sale.card_last4
-        ? `•••• ${String(sale.card_last4).replace(/\D/g, '').slice(-4)}`
-        : null;
+    const tenders = getReceiptTenders(receiptData);
 
     const handlePrintReceipt = async () => {
         setIsPrinting(true);
@@ -85,18 +84,6 @@ export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
                         <span>Tax</span>
                         <span>{formatCurrency(receiptData.tax)}</span>
                     </div>
-                    {(sale.store_credit_used || 0) > 0 && (
-                        <div className="flex justify-between text-[var(--color-muted)]">
-                            <span>Store Credit</span>
-                            <span>-{formatCurrency(Number(sale.store_credit_used || 0))}</span>
-                        </div>
-                    )}
-                    {(sale.gift_card_used || 0) > 0 && (
-                        <div className="flex justify-between text-[var(--color-muted)]">
-                            <span>Gift Card</span>
-                            <span>-{formatCurrency(Number(sale.gift_card_used || 0))}</span>
-                        </div>
-                    )}
                     {(sale.card_fee_amount || 0) > 0 && (
                         <div className="flex justify-between text-[var(--color-muted)]">
                             <span>Card Fee</span>
@@ -107,67 +94,35 @@ export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
                         <span>Total</span>
                         <span>{formatCurrency(receiptData.total)}</span>
                     </div>
-                    {sale.payment_method === 'split' && sale.payment_breakdown && sale.payment_breakdown.length > 0 && (
-                        <div className="pt-2 border-t border-dashed border-[var(--color-border)] mt-2 space-y-1">
-                            <div className="flex justify-between">
-                                <span>Paid by</span>
-                                <span>Split</span>
-                            </div>
-                            {sale.payment_breakdown.map((entry, index) => (
-                                <div key={`${entry.method}-${index}`} className="flex justify-between text-[var(--color-muted)]">
-                                    <span>
-                                        {entry.method === 'cash' ? 'Cash' : entry.method === 'check' ? 'Check' : 'Card'}
-                                        {entry.method === 'check' && entry.check_number ? ` #${entry.check_number}` : ''}
-                                    </span>
-                                    <span>{formatCurrency(Number(entry.amount || 0))}</span>
-                                </div>
-                            ))}
-                            {(sale.change_given || 0) > 0 && (
-                                <div className="flex justify-between font-bold text-[var(--color-success)]">
-                                    <span>Change</span>
-                                    <span>{formatCurrency(Number(sale.change_given))}</span>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                    {sale.payment_method === 'cash' && (
-                        <>
-                            <div className="flex justify-between pt-2 border-t border-dashed border-[var(--color-border)] mt-2">
-                                <span>Cash</span>
-                                <span>{formatCurrency(Number(sale.cash_tendered))}</span>
-                            </div>
-                            <div className="flex justify-between font-bold text-[var(--color-success)]">
-                                <span>Change</span>
-                                <span>{formatCurrency(Number(sale.change_given))}</span>
-                            </div>
-                        </>
-                    )}
-                    {sale.payment_method === 'card' && (
-                        <>
-                            <div className="flex justify-between pt-2 border-t border-dashed border-[var(--color-border)] mt-2">
-                                <span>Paid by</span>
-                                <span>Card</span>
-                            </div>
-                            {maskedCardLast4 && (
-                                <div className="flex justify-between text-[var(--color-muted)]">
-                                    <span>Card</span>
-                                    <span>{maskedCardLast4}</span>
-                                </div>
-                            )}
-                        </>
-                    )}
-                    {sale.payment_method === 'check' && (
-                        <>
-                            <div className="flex justify-between pt-2 border-t border-dashed border-[var(--color-border)] mt-2">
-                                <span>Paid by</span>
-                                <span>Check</span>
-                            </div>
+                    <div className="pt-2 border-t border-dashed border-[var(--color-border)] mt-2 space-y-1">
+                        <p>Payment</p>
+                        {tenders.length === 0 && receiptData.total > 0 && (
                             <div className="flex justify-between text-[var(--color-muted)]">
-                                <span>Check #</span>
-                                <span>{sale.check_number ? sale.check_number : 'N/A'}</span>
+                                <span>{formatTenderLabel(receiptData.paymentMethod)}</span>
+                                <span>{formatCurrency(receiptData.total)}</span>
                             </div>
-                        </>
-                    )}
+                        )}
+                        {tenders.map((entry, index) => (
+                            <div key={`${entry.method}-${index}`}>
+                                <div className="flex justify-between text-[var(--color-muted)]">
+                                    <span>{describeTender(entry)}</span>
+                                    <span>{formatCurrency(entry.amount)}</span>
+                                </div>
+                                {entry.method === 'cash' && entry.tendered != null && entry.tendered > entry.amount && (
+                                    <>
+                                        <div className="flex justify-between text-[var(--color-muted)] pl-3">
+                                            <span>Tendered</span>
+                                            <span>{formatCurrency(entry.tendered)}</span>
+                                        </div>
+                                        <div className="flex justify-between font-bold text-[var(--color-success)] pl-3">
+                                            <span>Change</span>
+                                            <span>{formatCurrency(entry.change || 0)}</span>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
                 {/* Footer */}

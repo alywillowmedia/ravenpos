@@ -1,5 +1,7 @@
 // Receipt data types for thermal printing
 
+import type { PaymentBreakdownEntry, PaymentMethod } from './index';
+
 /**
  * Individual item on a receipt
  */
@@ -31,18 +33,13 @@ export interface ReceiptData {
     tax: number;
     storeCreditUsed?: number;
     giftCardUsed?: number;
+    // Full order total (subtotal - discounts + tax + card fee); tenders sum to it.
     total: number;
     cardFeeAmount?: number;
     cardLast4?: string;
-    paymentMethod: 'cash' | 'card' | 'check' | 'split';
-    paymentBreakdown?: Array<{
-        method: 'cash' | 'card' | 'check';
-        amount: number;
-        tendered?: number | null;
-        change?: number | null;
-        check_number?: string | null;
-        card_last4?: string | null;
-    }>;
+    paymentMethod: PaymentMethod;
+    // Every tender on the sale, including store credit and gift card.
+    paymentBreakdown?: PaymentBreakdownEntry[] | null;
     checkNumber?: string;
     cashTendered?: number;
     changeGiven?: number;
@@ -68,6 +65,8 @@ export interface RefundReceiptData {
     date: Date;
     items: RefundReceiptItem[];
     refundAmount: number;
-    paymentMethod: 'cash' | 'card' | 'check' | 'split';
+    paymentMethod: PaymentMethod;
+    // Per-tender refund allocation; sums to refundAmount.
+    paymentBreakdown?: PaymentBreakdownEntry[] | null;
     stripeRefundId?: string;
 }

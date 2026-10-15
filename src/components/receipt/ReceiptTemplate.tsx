@@ -1,4 +1,6 @@
 import type { ReceiptData } from '../../types/receipt';
+import { getReceiptTenders } from '../../lib/printReceipt';
+import { describeTender, formatTenderLabel } from '../../lib/tenders';
 
 interface ReceiptTemplateProps {
     receipt: ReceiptData;
@@ -25,13 +27,7 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
     const formatCurrency = (amount: number) => {
         return '$' + amount.toFixed(2);
     };
-    const formatCardLast4 = (last4?: string) => {
-        if (!last4) return null;
-        const digits = last4.replace(/\D/g, '').slice(-4);
-        if (digits.length !== 4) return null;
-        return `•••• ${digits}`;
-    };
-    const maskedCard = formatCardLast4(receipt.cardLast4);
+    const tenders = getReceiptTenders(receipt);
 
     return (
         <div style={{
@@ -147,16 +143,10 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
                         <span>{formatCurrency(receipt.tax)}</span>
                     </div>
                 )}
-                {receipt.storeCreditUsed !== undefined && receipt.storeCreditUsed > 0 && (
+                {(receipt.cardFeeAmount || 0) > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Store Credit</span>
-                        <span>-{formatCurrency(receipt.storeCreditUsed)}</span>
-                    </div>
-                )}
-                {receipt.giftCardUsed !== undefined && receipt.giftCardUsed > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Gift Card</span>
-                        <span>-{formatCurrency(receipt.giftCardUsed)}</span>
+                        <span>Card Fee</span>
+                        <span>{formatCurrency(receipt.cardFeeAmount || 0)}</span>
                     </div>
                 )}
                 <div style={{
@@ -180,57 +170,38 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
             }} />
 
             <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Payment</span>
-                    <span>{receipt.paymentMethod === 'split' ? 'SPLIT' : receipt.paymentMethod.toUpperCase()}</span>
-                </div>
-                {receipt.paymentMethod === 'split' && receipt.paymentBreakdown && (
-                    <>
-                        {receipt.paymentBreakdown.map((entry, index) => (
-                            <div key={`${entry.method}-${index}`} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span>
-                                    {entry.method === 'cash' ? 'Cash' : entry.method === 'check' ? 'Check' : 'Card'}
-                                    {entry.method === 'check' && entry.check_number ? ` #${entry.check_number}` : ''}
-                                </span>
-                                <span>{formatCurrency(entry.amount)}</span>
-                            </div>
-                        ))}
-                        {(receipt.changeGiven || 0) > 0 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                                <span>Change</span>
-                                <span>{formatCurrency(receipt.changeGiven ?? 0)}</span>
-                            </div>
-                        )}
-                    </>
-                )}
-                {receipt.paymentMethod === 'card' && maskedCard && (
+                <div style={{ fontWeight: 'bold' }}>Payment</div>
+                {tenders.length === 0 && receipt.total > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Card</span>
-                        <span>{maskedCard}</span>
+                        <span>{formatTenderLabel(receipt.paymentMethod)}</span>
+                        <span>{formatCurrency(receipt.total)}</span>
                     </div>
                 )}
-                {receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined && (
-                    <>
+                {tenders.map((entry, index) => (
+                    <div key={`${entry.method}-${index}`}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span>Cash</span>
-                            <span>{formatCurrency(receipt.cashTendered)}</span>
+                            <span>{describeTender(entry)}</span>
+                            <span>{formatCurrency(entry.amount)}</span>
                         </div>
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            fontWeight: 'bold',
-                        }}>
-                            <span>Change</span>
-                            <span>{formatCurrency(receipt.changeGiven ?? 0)}</span>
-                        </div>
-                    </>
-                )}
-                {receipt.paymentMethod === 'check' && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Check</span>
-                        <span>{receipt.checkNumber ? `#${receipt.checkNumber}` : 'N/A'}</span>
+                        {entry.method === 'cash' && entry.tendered != null && entry.tendered > entry.amount && (
+                            <>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '8px' }}>
+                                    <span>Tendered</span>
+                                    <span>{formatCurrency(entry.tendered)}</span>
+                                </div>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    paddingLeft: '8px',
+                                    fontWeight: 'bold',
+                                }}>
+                                    <span>Change</span>
+                                    <span>{formatCurrency(entry.change || 0)}</span>
+                                </div>
+                            </>
+                        )}
                     </div>
-                )}
+                ))}
             </div>
 
             {/* Footer */}

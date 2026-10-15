@@ -228,6 +228,90 @@ function formatCardLast4(last4) {
     return `**** ${digits}`;
 }
 
+// Tender helpers mirror src/lib/tenders.ts (this file can't import TypeScript).
+const TENDER_ORDER = ['store_credit', 'gift_card', 'cash', 'check', 'card'];
+const TENDER_LABELS = {
+    store_credit: 'Store Credit',
+    gift_card: 'Gift Card',
+    cash: 'Cash',
+    check: 'Check',
+    card: 'Card',
+};
+
+function formatTenderLabel(method) {
+    if (TENDER_LABELS[method]) return TENDER_LABELS[method];
+    if (method === 'split') return 'Split';
+    return 'Unknown';
+}
+
+// "Gift Card **4F2A", "Card **** 9550", "Check #1042"
+function describeTender(entry) {
+    const label = formatTenderLabel(entry.method);
+    const maskedCard = entry.method === 'card' ? formatCardLast4(entry.card_last4) : null;
+    if (entry.method === 'gift_card' && entry.code_last4) return `${label} **${entry.code_last4}`;
+    if (maskedCard) return `${label} ${maskedCard}`;
+    if (entry.method === 'check' && entry.check_number) return `${label} #${entry.check_number}`;
+    return label;
+}
+
+function getTenderEntries(breakdown) {
+    return (Array.isArray(breakdown) ? breakdown : [])
+        .filter((entry) => entry && TENDER_LABELS[entry.method] && Number(entry.amount) > 0)
+        .sort((a, b) => TENDER_ORDER.indexOf(a.method) - TENDER_ORDER.indexOf(b.method));
+}
+
+// Every tender on the sale. Receipts without a breakdown (older sales) are read
+// as store credit + gift card + the single payment method for the total.
+function getReceiptTenders(receipt) {
+    const tenders = getTenderEntries(receipt.paymentBreakdown);
+    if (tenders.length > 0) return tenders;
+
+    const fallback = [];
+    if (Number(receipt.storeCreditUsed) > 0) fallback.push({ method: 'store_credit', amount: Number(receipt.storeCreditUsed) });
+    if (Number(receipt.giftCardUsed) > 0) fallback.push({ method: 'gift_card', amount: Number(receipt.giftCardUsed) });
+    if (Number(receipt.total) > 0 && ['cash', 'check', 'card'].includes(receipt.paymentMethod)) {
+        fallback.push({
+            method: receipt.paymentMethod,
+            amount: Number(receipt.total),
+            tendered: receipt.paymentMethod === 'cash' ? receipt.cashTendered : null,
+            change: receipt.paymentMethod === 'cash' ? receipt.changeGiven : null,
+            check_number: receipt.paymentMethod === 'check' ? receipt.checkNumber : null,
+            card_last4: receipt.paymentMethod === 'card' ? receipt.cardLast4 : null,
+        });
+    }
+    return fallback;
+}
+
+// Payment section rows: one per tender, with Tendered/Change under cash.
+function getPaymentLines(receipt) {
+    const tenders = getReceiptTenders(receipt);
+    if (tenders.length === 0) {
+        return Number(receipt.total) > 0
+            ? [{ label: formatTenderLabel(receipt.paymentMethod), amount: Number(receipt.total) }]
+            : [];
+    }
+
+    const lines = [];
+    for (const entry of tenders) {
+        lines.push({ label: describeTender(entry), amount: Number(entry.amount) });
+        if (entry.method === 'cash' && entry.tendered != null && Number(entry.tendered) > Number(entry.amount)) {
+            lines.push({ label: '  Tendered', amount: Number(entry.tendered) });
+            lines.push({ label: '  Change', amount: Number(entry.change || 0), bold: true });
+        }
+    }
+    return lines;
+}
+
+// Where a refund went, per tender; older refunds have only paymentMethod.
+function getRefundTenders(receipt) {
+    const tenders = getTenderEntries(receipt.paymentBreakdown);
+    if (tenders.length > 0) return tenders;
+    if (TENDER_LABELS[receipt.paymentMethod] && Number(receipt.refundAmount) > 0) {
+        return [{ method: receipt.paymentMethod, amount: Number(receipt.refundAmount) }];
+    }
+    return [];
+}
+
 function printTransactionBarcode(printer, transactionId) {
     const receiptNumber = String(transactionId || '').slice(0, 8).toUpperCase();
     if (!receiptNumber) return;
@@ -292,20 +376,11 @@ function buildSaleReceiptText(receipt) {
     if (receipt.cardFeeAmount && receipt.cardFeeAmount > 0) {
         lines.push(lineItem('Card Fee', formatCurrency(receipt.cardFeeAmount)));
     }
-    if (receipt.storeCreditUsed && receipt.storeCreditUsed > 0) {
-        lines.push(lineItem('Store Credit', `-${formatCurrency(receipt.storeCreditUsed)}`));
-    }
     lines.push(lineItem('TOTAL', formatCurrency(receipt.total)));
     lines.push('-'.repeat(RECEIPT_COLUMNS));
-    lines.push(lineItem('Payment', receipt.paymentMethod.toUpperCase()));
-    const maskedCard = formatCardLast4(receipt.cardLast4);
-    if (receipt.paymentMethod === 'card' && maskedCard) {
-        lines.push(lineItem('Card', maskedCard));
-    }
-
-    if (receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined) {
-        lines.push(lineItem('Cash', formatCurrency(receipt.cashTendered)));
-        lines.push(lineItem('Change', formatCurrency(receipt.changeGiven || 0)));
+    lines.push('Payment');
+    for (const line of getPaymentLines(receipt)) {
+        lines.push(lineItem(line.label, formatCurrency(line.amount)));
     }
 
     lines.push('-'.repeat(RECEIPT_COLUMNS));
@@ -344,11 +419,19 @@ function buildRefundReceiptText(receipt) {
     lines.push('-'.repeat(RECEIPT_COLUMNS));
     lines.push(lineItem('REFUND TOTAL', `-${formatCurrency(receipt.refundAmount)}`));
     lines.push('-'.repeat(RECEIPT_COLUMNS));
-    lines.push(lineItem('Refund Method', receipt.paymentMethod.toUpperCase()));
+    const refundTenders = getRefundTenders(receipt);
+    if (refundTenders.length > 0) {
+        lines.push('Refunded to:');
+        for (const entry of refundTenders) {
+            lines.push(lineItem(describeTender(entry), formatCurrency(entry.amount)));
+        }
+    } else {
+        lines.push(lineItem('Refund Method', formatTenderLabel(receipt.paymentMethod)));
+    }
     if (receipt.stripeRefundId) lines.push(`Stripe ID: ${receipt.stripeRefundId}`);
     lines.push('-'.repeat(RECEIPT_COLUMNS));
 
-    if (receipt.paymentMethod === 'card') {
+    if (refundTenders.some((entry) => entry.method === 'card')) {
         lines.push('Card refunds may take 5-10');
         lines.push('business days to appear.');
         lines.push('');
@@ -606,13 +689,6 @@ async function printReceipt(receipt) {
             ]);
         }
 
-        if (receipt.storeCreditUsed && receipt.storeCreditUsed > 0) {
-            printer.tableCustom([
-                { text: 'Store Credit', align: 'LEFT', width: 0.6 },
-                { text: `-${formatCurrency(receipt.storeCreditUsed)}`, align: 'RIGHT', width: 0.4 },
-            ]);
-        }
-
         printer.bold(true);
         printer.tableCustom([
             { text: 'TOTAL', align: 'LEFT', width: 0.6 },
@@ -622,30 +698,15 @@ async function printReceipt(receipt) {
 
         printer.drawLine();
 
-        // Payment
-        printer.tableCustom([
-            { text: 'Payment', align: 'LEFT', width: 0.6 },
-            { text: receipt.paymentMethod.toUpperCase(), align: 'RIGHT', width: 0.4 },
-        ]);
-        const maskedCard = formatCardLast4(receipt.cardLast4);
-        if (receipt.paymentMethod === 'card' && maskedCard) {
+        // Payment: one line per tender
+        printer.println('Payment');
+        for (const line of getPaymentLines(receipt)) {
+            if (line.bold) printer.bold(true);
             printer.tableCustom([
-                { text: 'Card', align: 'LEFT', width: 0.6 },
-                { text: maskedCard, align: 'RIGHT', width: 0.4 },
+                { text: line.label, align: 'LEFT', width: 0.6 },
+                { text: formatCurrency(line.amount), align: 'RIGHT', width: 0.4 },
             ]);
-        }
-
-        if (receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined) {
-            printer.tableCustom([
-                { text: 'Cash', align: 'LEFT', width: 0.6 },
-                { text: formatCurrency(receipt.cashTendered), align: 'RIGHT', width: 0.4 },
-            ]);
-            printer.bold(true);
-            printer.tableCustom([
-                { text: 'Change', align: 'LEFT', width: 0.6 },
-                { text: formatCurrency(receipt.changeGiven || 0), align: 'RIGHT', width: 0.4 },
-            ]);
-            printer.bold(false);
+            if (line.bold) printer.bold(false);
         }
 
         printer.drawLine();
@@ -755,11 +816,22 @@ async function printRefundReceipt(receipt) {
 
         printer.drawLine();
 
-        // Payment method
-        printer.tableCustom([
-            { text: 'Refund Method', align: 'LEFT', width: 0.6 },
-            { text: receipt.paymentMethod.toUpperCase(), align: 'RIGHT', width: 0.4 },
-        ]);
+        // Payment method: one line per tender refunded to
+        const refundTenders = getRefundTenders(receipt);
+        if (refundTenders.length > 0) {
+            printer.println('Refunded to:');
+            for (const entry of refundTenders) {
+                printer.tableCustom([
+                    { text: describeTender(entry), align: 'LEFT', width: 0.6 },
+                    { text: formatCurrency(entry.amount), align: 'RIGHT', width: 0.4 },
+                ]);
+            }
+        } else {
+            printer.tableCustom([
+                { text: 'Refund Method', align: 'LEFT', width: 0.6 },
+                { text: formatTenderLabel(receipt.paymentMethod), align: 'RIGHT', width: 0.4 },
+            ]);
+        }
 
         if (receipt.stripeRefundId) {
             printer.setTextSize(0, 0);
@@ -770,7 +842,7 @@ async function printRefundReceipt(receipt) {
 
         // Footer
         printer.alignCenter();
-        if (receipt.paymentMethod === 'card') {
+        if (refundTenders.some((entry) => entry.method === 'card')) {
             printer.println('Card refunds may take 5-10');
             printer.println('business days to appear.');
             printer.newLine();

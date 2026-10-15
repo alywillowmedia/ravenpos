@@ -4,12 +4,15 @@ import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { EmptyState } from '../ui/EmptyState';
 import { formatCurrency } from '../../lib/utils';
 import { supabase } from '../../lib/supabase';
+import { formatSalePaymentLabel, getSaleTenderAmount, type SaleTenderSource } from '../../lib/tenders';
+import type { PaymentBreakdownEntry } from '../../types';
 
-type EmployeeSaleRecord = {
+type EmployeeSaleRecord = SaleTenderSource & {
     id: string;
     completed_at: string;
     total: number;
-    payment_method: 'cash' | 'card' | 'check' | string;
+    payment_method: string;
+    payment_breakdown?: PaymentBreakdownEntry[] | null;
 };
 
 interface EmployeeSalesSummaryProps {
@@ -27,12 +30,6 @@ function startOfDay(date: Date) {
     const next = new Date(date);
     next.setHours(0, 0, 0, 0);
     return next;
-}
-
-function formatPaymentMethod(method: string) {
-    if (method === 'cash') return 'Cash';
-    if (method === 'check') return 'Check';
-    return 'Card';
 }
 
 export function EmployeeSalesSummary({
@@ -66,7 +63,7 @@ export function EmployeeSalesSummary({
 
             const { data, error: salesError } = await supabase
                 .from('sales')
-                .select('id, completed_at, total, payment_method')
+                .select('id, completed_at, total, payment_method, payment_breakdown, store_credit_used, gift_card_used, cash_tendered, change_given')
                 .eq('processed_by_employee', employeeId)
                 .gte('completed_at', start.toISOString())
                 .lt('completed_at', endExclusive.toISOString())
@@ -87,16 +84,19 @@ export function EmployeeSalesSummary({
     }, [days, employeeId, endDateExclusive, startDate]);
 
     const totals = useMemo(() => {
+        // Bucket by tender so split sales count toward each method they used;
+        // store credit and gift card redemptions are not cash, card or check.
         return sales.reduce(
             (acc, sale) => {
-                const total = Number(sale.total || 0);
-                acc.total += total;
-                if (sale.payment_method === 'cash') acc.cash += total;
-                if (sale.payment_method === 'card') acc.card += total;
-                if (sale.payment_method === 'check') acc.check += total;
+                acc.total += Number(sale.total || 0);
+                acc.cash += getSaleTenderAmount(sale, 'cash');
+                acc.card += getSaleTenderAmount(sale, 'card');
+                acc.check += getSaleTenderAmount(sale, 'check');
+                acc.storeCredit += getSaleTenderAmount(sale, 'store_credit');
+                acc.giftCard += getSaleTenderAmount(sale, 'gift_card');
                 return acc;
             },
-            { total: 0, cash: 0, card: 0, check: 0 }
+            { total: 0, cash: 0, card: 0, check: 0, storeCredit: 0, giftCard: 0 }
         );
     }, [sales]);
 
@@ -130,6 +130,11 @@ export function EmployeeSalesSummary({
                         <p className="text-sm font-semibold mt-2">
                             {formatCurrency(totals.card)} / {formatCurrency(totals.cash)} / {formatCurrency(totals.check)}
                         </p>
+                        {(totals.storeCredit > 0 || totals.giftCard > 0) && (
+                            <p className="mt-1 text-xs text-[var(--color-muted)]">
+                                Store credit {formatCurrency(totals.storeCredit)} · Gift card {formatCurrency(totals.giftCard)}
+                            </p>
+                        )}
                     </CardContent>
                 </Card>
             </div>
@@ -166,7 +171,7 @@ export function EmployeeSalesSummary({
                                             Receipt #{sale.id.slice(0, 8)}
                                         </p>
                                         <p className="text-xs text-[var(--color-muted)]">
-                                            {new Date(sale.completed_at).toLocaleString()} · {formatPaymentMethod(sale.payment_method)}
+                                            {new Date(sale.completed_at).toLocaleString()} · {formatSalePaymentLabel(sale)}
                                         </p>
                                     </div>
                                     <p className="text-sm font-semibold text-[var(--color-foreground)]">

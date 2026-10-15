@@ -1,7 +1,8 @@
 import type { ReceiptData, ReceiptItem, RefundReceiptData } from '../types/receipt';
-import type { CartItem, Sale } from '../types';
+import type { CartItem, PaymentBreakdownEntry, Sale } from '../types';
 import '../types/electron.d.ts';
 import { calculateCartDiscountBreakdown } from './saleDiscounts';
+import { describeTender, formatTenderLabel, getSaleTenders, isTenderMethod, sortTenders } from './tenders';
 
 /**
  * Detect if running inside Electron desktop app
@@ -145,7 +146,7 @@ export function createReceiptData(
         };
     });
 
-    return {
+    const receipt: ReceiptData = {
         transactionId: sale.id,
         date: new Date(sale.completed_at),
         items,
@@ -159,18 +160,60 @@ export function createReceiptData(
         cardFeeAmount: sale.card_fee_amount ? Number(sale.card_fee_amount) : 0,
         cardLast4: sale.card_last4 || undefined,
         paymentMethod: sale.payment_method,
-        paymentBreakdown: sale.payment_breakdown?.map((entry) => ({
-            method: entry.method,
-            amount: Number(entry.amount || 0),
-            tendered: entry.tendered == null ? null : Number(entry.tendered || 0),
-            change: entry.change == null ? null : Number(entry.change || 0),
-            check_number: entry.check_number || null,
-            card_last4: entry.card_last4 || null,
-        })),
+        paymentBreakdown: sale.payment_breakdown ?? null,
         checkNumber: sale.check_number || undefined,
         cashTendered: sale.cash_tendered ? Number(sale.cash_tendered) : undefined,
         changeGiven: sale.change_given ? Number(sale.change_given) : undefined,
     };
+
+    // Send every tender to the printer/email, including older sales without a breakdown.
+    return { ...receipt, paymentBreakdown: getReceiptTenders(receipt) };
+}
+
+/**
+ * Tender lines for a receipt (store credit, gift card, cash, check, card), in
+ * display order. Receipts from sales saved before payment_breakdown covered
+ * every tender fall back to the single payment method for the whole total.
+ */
+export function getReceiptTenders(receipt: ReceiptData): PaymentBreakdownEntry[] {
+    const tenders = sortTenders(getSaleTenders({
+        payment_method: receipt.paymentMethod,
+        payment_breakdown: receipt.paymentBreakdown,
+        total: receipt.total,
+        store_credit_used: receipt.storeCreditUsed,
+        gift_card_used: receipt.giftCardUsed,
+        cash_tendered: receipt.cashTendered,
+        change_given: receipt.changeGiven,
+        check_number: receipt.checkNumber,
+        card_last4: receipt.cardLast4,
+    })).map((entry) => ({
+        ...entry,
+        tendered: entry.tendered == null ? null : Number(entry.tendered),
+        change: entry.change == null ? null : Number(entry.change),
+    }));
+
+    // The Terminal card's last 4 can live only on the sale row.
+    const cardEntries = tenders.filter((entry) => entry.method === 'card');
+    if (cardEntries.length === 1 && !cardEntries[0].card_last4 && receipt.cardLast4) {
+        cardEntries[0].card_last4 = receipt.cardLast4;
+    }
+
+    return tenders;
+}
+
+/**
+ * Where a refund went, per tender (store credit, gift card, cash, check, card).
+ * Refunds recorded before per-tender refunds fall back to the single method.
+ */
+export function getRefundTenders(receipt: RefundReceiptData): PaymentBreakdownEntry[] {
+    const entries = (receipt.paymentBreakdown || [])
+        .filter((entry) => isTenderMethod(entry?.method) && Number(entry.amount || 0) > 0)
+        .map((entry) => ({ ...entry, amount: Number(entry.amount) }));
+    if (entries.length > 0) return sortTenders(entries);
+    if (isTenderMethod(receipt.paymentMethod) && receipt.refundAmount > 0) {
+        return [{ method: receipt.paymentMethod, amount: receipt.refundAmount }];
+    }
+    return [];
 }
 
 /**
@@ -190,13 +233,6 @@ function generateReceiptHTML(receipt: ReceiptData): string {
     };
 
     const formatCurrency = (amount: number) => '$' + amount.toFixed(2);
-    const formatCardLast4 = (last4?: string) => {
-        if (!last4) return null;
-        const digits = last4.replace(/\D/g, '').slice(-4);
-        if (digits.length !== 4) return null;
-        return `•••• ${digits}`;
-    };
-    const maskedCard = formatCardLast4(receipt.cardLast4);
     const receiptNumber = receipt.transactionId.slice(0, 8).toUpperCase();
     const barcodeHTML = generateCode39BarcodeHTML(receiptNumber);
 
@@ -231,60 +267,29 @@ function generateReceiptHTML(receipt: ReceiptData): string {
     `;
     }).join('');
 
-    const splitPaymentHTML = receipt.paymentBreakdown?.map((entry) => {
-        if (entry.method === 'cash') {
-            return `
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Cash</span>
-                    <span>${formatCurrency(entry.amount)}</span>
-                </div>
-                ${entry.tendered && entry.tendered > entry.amount ? `
-                    <div style="display: flex; justify-content: space-between;">
-                        <span>Cash Tendered</span>
-                        <span>${formatCurrency(entry.tendered)}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between;">
-                        <span>Change</span>
-                        <span>${formatCurrency(entry.change || 0)}</span>
-                    </div>
-                ` : ''}
-            `;
-        }
-        if (entry.method === 'check') {
-            return `
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Check</span>
-                    <span>${formatCurrency(entry.amount)}${entry.check_number ? ` #${escapeHtml(entry.check_number)}` : ''}</span>
-                </div>
-            `;
-        }
-        const entryMaskedCard = formatCardLast4(entry.card_last4 || undefined);
-        return `
+    const tenders = getReceiptTenders(receipt);
+    const paymentHTML = tenders.length > 0
+        ? tenders.map((entry) => `
             <div style="display: flex; justify-content: space-between;">
-                <span>Card</span>
-                <span>${formatCurrency(entry.amount)}${entryMaskedCard ? ` ${entryMaskedCard}` : ''}</span>
+                <span>${escapeHtml(describeTender(entry))}</span>
+                <span>${formatCurrency(entry.amount)}</span>
             </div>
-        `;
-    }).join('');
-
-    const paymentHTML = receipt.paymentMethod === 'split' && splitPaymentHTML
-        ? splitPaymentHTML
-        : receipt.paymentMethod === 'cash' && receipt.cashTendered !== undefined
-        ? `
-            <div style="display: flex; justify-content: space-between;">
-                <span>Cash</span>
-                <span>${formatCurrency(receipt.cashTendered)}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-weight: bold;">
-                <span>Change</span>
-                <span>${formatCurrency(receipt.changeGiven ?? 0)}</span>
-            </div>
-        `
-        : receipt.paymentMethod === 'check'
+            ${entry.method === 'cash' && entry.tendered != null && entry.tendered > entry.amount ? `
+                <div style="display: flex; justify-content: space-between; padding-left: 8px;">
+                    <span>Tendered</span>
+                    <span>${formatCurrency(entry.tendered)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding-left: 8px; font-weight: bold;">
+                    <span>Change</span>
+                    <span>${formatCurrency(entry.change || 0)}</span>
+                </div>
+            ` : ''}
+        `).join('')
+        : receipt.total > 0
             ? `
             <div style="display: flex; justify-content: space-between;">
-                <span>Check</span>
-                <span>${receipt.checkNumber ? `#${receipt.checkNumber}` : 'N/A'}</span>
+                <span>${formatTenderLabel(receipt.paymentMethod)}</span>
+                <span>${formatCurrency(receipt.total)}</span>
             </div>
         `
             : '';
@@ -369,18 +374,6 @@ function generateReceiptHTML(receipt: ReceiptData): string {
                     <span>${formatCurrency(receipt.tax)}</span>
                 </div>
             ` : ''}
-            ${receipt.storeCreditUsed && receipt.storeCreditUsed > 0 ? `
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Store Credit</span>
-                    <span>-${formatCurrency(receipt.storeCreditUsed)}</span>
-                </div>
-            ` : ''}
-            ${receipt.giftCardUsed && receipt.giftCardUsed > 0 ? `
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Gift Card</span>
-                    <span>-${formatCurrency(receipt.giftCardUsed)}</span>
-                </div>
-            ` : ''}
             ${receipt.cardFeeAmount && receipt.cardFeeAmount > 0 ? `
                 <div style="display: flex; justify-content: space-between;">
                     <span>Card Fee</span>
@@ -397,16 +390,7 @@ function generateReceiptHTML(receipt: ReceiptData): string {
 
         <!-- Payment -->
         <div>
-            <div style="display: flex; justify-content: space-between;">
-                <span>Payment</span>
-                <span>${receipt.paymentMethod === 'split' ? 'SPLIT' : receipt.paymentMethod.toUpperCase()}</span>
-            </div>
-            ${receipt.paymentMethod === 'card' && maskedCard ? `
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Card</span>
-                    <span>${maskedCard}</span>
-                </div>
-            ` : ''}
+            <div style="font-weight: bold;">Payment</div>
             ${paymentHTML}
         </div>
 
@@ -526,6 +510,22 @@ function generateRefundReceiptHTML(receipt: RefundReceiptData): string {
 
     const formatCurrency = (amount: number) => '$' + amount.toFixed(2);
 
+    const refundTenders = getRefundTenders(receipt);
+    const refundMethodHTML = refundTenders.length > 0
+        ? refundTenders.map((entry) => `
+            <div style="display: flex; justify-content: space-between;">
+                <span>Refunded to ${escapeHtml(describeTender(entry))}</span>
+                <span>${formatCurrency(entry.amount)}</span>
+            </div>
+        `).join('')
+        : `
+            <div style="display: flex; justify-content: space-between;">
+                <span>Refund Method</span>
+                <span>${formatTenderLabel(receipt.paymentMethod)}</span>
+            </div>
+        `;
+    const hasCardRefund = refundTenders.some((entry) => entry.method === 'card');
+
     const itemsHTML = receipt.items.map(item => `
         <div style="margin-bottom: 8px;">
             <div style="display: flex; justify-content: space-between;">
@@ -622,10 +622,7 @@ function generateRefundReceiptHTML(receipt: RefundReceiptData): string {
 
         <!-- Payment -->
         <div>
-            <div style="display: flex; justify-content: space-between;">
-                <span>Refund Method</span>
-                <span>${receipt.paymentMethod.toUpperCase()}</span>
-            </div>
+            ${refundMethodHTML}
             ${receipt.stripeRefundId ? `
             <div style="font-size: 10px; color: #666; margin-top: 4px;">
                 Stripe ID: ${receipt.stripeRefundId}
@@ -637,7 +634,7 @@ function generateRefundReceiptHTML(receipt: RefundReceiptData): string {
 
         <!-- Footer -->
         <div style="text-align: center; font-size: 11px;">
-            ${receipt.paymentMethod === 'card' ? `
+            ${hasCardRefund ? `
             <div style="margin-bottom: 8px;">
                 Card refunds may take 5-10 business days<br/>to appear on your statement.
             </div>

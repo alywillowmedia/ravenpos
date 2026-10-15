@@ -9,7 +9,8 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { useCustomers } from '../hooks/useCustomers';
 import { useConsignors } from '../hooks/useConsignors';
 import { formatCurrency, formatDate } from '../lib/utils';
-import type { Customer, CustomerInput, PaymentMethod } from '../types';
+import { describeTender, formatSalePaymentLabel, getSaleTenders, sortTenders } from '../lib/tenders';
+import type { Customer, CustomerInput, PaymentBreakdownEntry, PaymentMethod, StoreCreditTransaction } from '../types';
 
 interface OrderHistoryItem {
     id: string;
@@ -18,6 +19,10 @@ interface OrderHistoryItem {
     tax_amount: number;
     total: number;
     payment_method: PaymentMethod;
+    payment_breakdown?: PaymentBreakdownEntry[] | null;
+    store_credit_used?: number | null;
+    gift_card_used?: number | null;
+    card_fee_amount?: number | null;
     check_number?: string | null;
     cash_tendered: number | null;
     change_given: number | null;
@@ -43,8 +48,20 @@ interface SignupContact {
 type CreditScope = 'general' | 'vendor';
 type CreditOperation = 'add' | 'subtract';
 
+// Tells two same-named customers apart in the merge confirmation.
+const describeCustomerForMerge = (customer: Customer) =>
+    [customer.phone, customer.email].filter(Boolean).join(', ') || `added ${formatDate(customer.created_at)}`;
+
+const CREDIT_ENTRY_LABELS: Record<StoreCreditTransaction['entry_type'], string> = {
+    migrated_balance: 'Balance carried forward',
+    manual_adjustment: 'Adjusted',
+    sale_redemption: 'Used on order',
+    refund_credit: 'Refunded to credit',
+    customer_merge: 'Merged from duplicate',
+};
+
 export function Customers() {
-    const { customers, isLoading, createCustomer, updateCustomer, deleteCustomer, getCustomerOrderHistory, addStoreCredit, addVendorStoreCredit } = useCustomers();
+    const { customers, isLoading, createCustomer, updateCustomer, deleteCustomer, getCustomerOrderHistory, addStoreCredit, addVendorStoreCredit, getStoreCreditHistory, mergeCustomers } = useCustomers();
     const { consignors } = useConsignors();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isAddCustomerDirty, setIsAddCustomerDirty] = useState(false);
@@ -63,6 +80,16 @@ export function Customers() {
     const [creditScope, setCreditScope] = useState<CreditScope>('general');
     const [creditConsignorId, setCreditConsignorId] = useState('');
     const [creditError, setCreditError] = useState<string | null>(null);
+    const [creditNote, setCreditNote] = useState('');
+    const [creditHistory, setCreditHistory] = useState<StoreCreditTransaction[]>([]);
+    const [isLoadingCreditHistory, setIsLoadingCreditHistory] = useState(false);
+    const [creditHistoryError, setCreditHistoryError] = useState<string | null>(null);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+    const [mergeSource, setMergeSource] = useState<Customer | null>(null);
+    const [mergeSearch, setMergeSearch] = useState('');
+    const [mergeTargetId, setMergeTargetId] = useState('');
+    const [isMerging, setIsMerging] = useState(false);
+    const [mergeError, setMergeError] = useState<string | null>(null);
     const [signupContact, setSignupContact] = useState<SignupContact | null>(null);
     const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
     const [formData, setFormData] = useState<CustomerInput>({
@@ -82,22 +109,37 @@ export function Customers() {
         return alywillow?.id || consignors[0]?.id || '';
     };
 
+    const loadCreditHistory = async (customerId: string) => {
+        setIsLoadingCreditHistory(true);
+        setCreditHistoryError(null);
+        const { data, error } = await getStoreCreditHistory(customerId);
+        setCreditHistory(data);
+        setCreditHistoryError(error);
+        setIsLoadingCreditHistory(false);
+    };
+
     const openCreditModal = (customer: Customer) => {
         setCreditTarget(customer);
         setCreditAmount('');
+        setCreditNote('');
         setCreditOperation('add');
         setCreditScope('general');
         setCreditConsignorId(getDefaultCreditConsignorId());
         setCreditError(null);
+        setCreditHistory([]);
+        void loadCreditHistory(customer.id);
     };
 
     const closeCreditModal = () => {
         setCreditTarget(null);
         setCreditAmount('');
+        setCreditNote('');
         setCreditOperation('add');
         setCreditScope('general');
         setCreditConsignorId('');
         setCreditError(null);
+        setCreditHistory([]);
+        setCreditHistoryError(null);
     };
 
     const handleAdd = async () => {
@@ -160,9 +202,47 @@ export function Customers() {
     const handleDelete = async () => {
         if (!deleteTarget) return;
         setIsDeleting(true);
-        await deleteCustomer(deleteTarget.id);
+        setDeleteError(null);
+        const { error } = await deleteCustomer(deleteTarget.id);
         setIsDeleting(false);
+        if (error) {
+            setDeleteError(error);
+            return;
+        }
         setDeleteTarget(null);
+    };
+
+    const closeDeleteModal = () => {
+        setDeleteTarget(null);
+        setDeleteError(null);
+    };
+
+    const openMergeModal = (customer: Customer) => {
+        closeDeleteModal();
+        setMergeSource(customer);
+        setMergeSearch('');
+        setMergeTargetId('');
+        setMergeError(null);
+    };
+
+    const closeMergeModal = () => {
+        setMergeSource(null);
+        setMergeSearch('');
+        setMergeTargetId('');
+        setMergeError(null);
+    };
+
+    const handleMerge = async () => {
+        if (!mergeSource || !mergeTargetId) return;
+        setIsMerging(true);
+        setMergeError(null);
+        const { error } = await mergeCustomers(mergeTargetId, mergeSource.id);
+        setIsMerging(false);
+        if (error) {
+            setMergeError(error);
+            return;
+        }
+        closeMergeModal();
     };
 
     const handleAddCredit = async () => {
@@ -177,8 +257,8 @@ export function Customers() {
         setIsApplyingCredit(true);
         const adjustmentAmount = creditOperation === 'subtract' ? -amount : amount;
         const { error } = creditScope === 'vendor'
-            ? await addVendorStoreCredit(creditTarget.id, creditConsignorId, adjustmentAmount)
-            : await addStoreCredit(creditTarget.id, adjustmentAmount);
+            ? await addVendorStoreCredit(creditTarget.id, creditConsignorId, adjustmentAmount, creditNote)
+            : await addStoreCredit(creditTarget.id, adjustmentAmount, creditNote);
         setIsApplyingCredit(false);
 
         if (error) {
@@ -186,7 +266,10 @@ export function Customers() {
             return;
         }
 
-        closeCreditModal();
+        // Stay open so the new entry shows up in the history.
+        setCreditAmount('');
+        setCreditNote('');
+        await loadCreditHistory(creditTarget.id);
     };
 
     const loadOrdersForCustomer = async (customerId: string) => {
@@ -201,12 +284,23 @@ export function Customers() {
         }
         setOrderHistory(data as OrderHistoryItem[]);
         setIsLoadingOrders(false);
+        return data as OrderHistoryItem[];
     };
 
-    const handleViewOrders = async (customer: Customer) => {
+    const handleViewOrders = async (customer: Customer, focusSaleId?: string) => {
         setViewOrdersCustomer(customer);
         setSelectedOrder(null);
-        await loadOrdersForCustomer(customer.id);
+        const orders = await loadOrdersForCustomer(customer.id);
+        if (focusSaleId && orders) {
+            setSelectedOrder(orders.find((order) => order.id === focusSaleId) || null);
+        }
+    };
+
+    const openOrderFromCreditHistory = (saleId: string) => {
+        if (!creditTarget) return;
+        const customer = creditTarget;
+        closeCreditModal();
+        void handleViewOrders(customer, saleId);
     };
 
     const openEditModal = (customer: Customer) => {
@@ -308,7 +402,7 @@ export function Customers() {
                             openCreditModal(c);
                         }}
                         className="p-1.5 text-[var(--color-muted)] hover:text-[var(--color-success)] transition-colors"
-                        title="Adjust Store Credit"
+                        title="Store Credit & History"
                     >
                         <CreditIcon />
                     </button>
@@ -347,6 +441,39 @@ export function Customers() {
         },
     ];
 
+    // Likely duplicates first (same email, phone, or name), otherwise search results.
+    const mergeCandidates = (() => {
+        if (!mergeSource) return [];
+        const digits = (value: string | null | undefined) => String(value || '').replace(/\D/g, '').slice(-10);
+        const sourceEmail = mergeSource.email?.trim().toLowerCase() || '';
+        const sourcePhone = digits(mergeSource.phone);
+        const sourceName = mergeSource.name.trim().toLowerCase();
+        const query = mergeSearch.trim().toLowerCase();
+        const queryDigits = digits(mergeSearch);
+        const others = customers.filter((customer) => customer.id !== mergeSource.id);
+
+        if (!query) {
+            return others.filter((customer) => (
+                (sourceEmail && customer.email?.trim().toLowerCase() === sourceEmail)
+                || (sourcePhone.length >= 7 && digits(customer.phone) === sourcePhone)
+                || customer.name.trim().toLowerCase() === sourceName
+            )).slice(0, 8);
+        }
+
+        return others.filter((customer) => (
+            customer.name.toLowerCase().includes(query)
+            || (customer.email || '').toLowerCase().includes(query)
+            || (queryDigits.length >= 3 && digits(customer.phone).includes(queryDigits))
+        )).slice(0, 8);
+    })();
+    const mergeTarget = customers.find((customer) => customer.id === mergeTargetId) || null;
+    const mergeSourceCredit = mergeSource
+        ? Number(mergeSource.store_credit || 0)
+            + (mergeSource.vendor_store_credits || []).reduce((sum, credit) => sum + Number(credit.balance || 0), 0)
+        : 0;
+
+    // The list row refreshes after an adjustment; the modal reads balances from it.
+    const creditCustomer = customers.find((customer) => customer.id === creditTarget?.id) ?? creditTarget;
     const totalSpent = orderHistory.reduce((sum, order) => sum + order.total, 0);
     const totalOrders = orderHistory.length;
 
@@ -542,15 +669,42 @@ export function Customers() {
             {/* Delete Confirmation Modal */}
             <Modal
                 isOpen={!!deleteTarget}
-                onClose={() => setDeleteTarget(null)}
+                onClose={closeDeleteModal}
                 title="Delete Customer"
                 size="sm"
             >
                 <p className="text-sm text-[var(--color-muted)]">
                     Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? Their order history will be preserved but unlinked. This action cannot be undone.
                 </p>
+                {deleteTarget && (() => {
+                    const vendorCreditTotal = (deleteTarget.vendor_store_credits || [])
+                        .reduce((sum, credit) => sum + Number(credit.balance || 0), 0);
+                    const creditTotal = Number(deleteTarget.store_credit || 0) + vendorCreditTotal;
+                    if (creditTotal <= 0) return null;
+                    return (
+                        <div className="mt-3 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger)]/30 p-3 text-sm">
+                            <p className="font-medium text-[var(--color-danger)]">
+                                This customer has {formatCurrency(creditTotal)} in store credit.
+                            </p>
+                            <p className="mt-1 text-[var(--color-muted)]">
+                                Deleting them erases that balance. If this is a duplicate account, merge it instead.
+                            </p>
+                        </div>
+                    );
+                })()}
+                {deleteError && (
+                    <p className="mt-3 text-sm text-[var(--color-danger)]">{deleteError}</p>
+                )}
+                {deleteTarget && (
+                    <button
+                        onClick={() => openMergeModal(deleteTarget)}
+                        className="mt-3 text-sm font-medium text-[var(--color-primary)] hover:underline"
+                    >
+                        Duplicate account? Merge it into another customer instead
+                    </button>
+                )}
                 <ModalFooter>
-                    <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
+                    <Button variant="ghost" onClick={closeDeleteModal}>
                         Cancel
                     </Button>
                     <Button variant="danger" onClick={handleDelete} isLoading={isDeleting}>
@@ -559,12 +713,87 @@ export function Customers() {
                 </ModalFooter>
             </Modal>
 
+            {/* Merge Duplicate Customer Modal */}
+            <Modal
+                isOpen={!!mergeSource}
+                onClose={closeMergeModal}
+                title={`Merge ${mergeSource?.name || ''} into another customer`}
+                size="md"
+            >
+                <div className="space-y-4">
+                    <p className="text-sm text-[var(--color-muted)]">
+                        Moves this customer's orders, refunds, gift cards, invoices
+                        {mergeSourceCredit > 0 ? ` and ${formatCurrency(mergeSourceCredit)} in store credit` : ''} to the
+                        customer you pick, then removes <strong>{mergeSource?.name}</strong>. The credit move shows in both accounts' history.
+                    </p>
+                    <Input
+                        label="Find the customer to keep"
+                        value={mergeSearch}
+                        onChange={(e) => {
+                            setMergeSearch(e.target.value);
+                            setMergeTargetId('');
+                        }}
+                        placeholder="Name, email, or phone"
+                    />
+                    <div className="space-y-2">
+                        {!mergeSearch.trim() && mergeCandidates.length > 0 && (
+                            <p className="text-xs text-[var(--color-muted)]">Possible matches</p>
+                        )}
+                        {mergeCandidates.length === 0 ? (
+                            <p className="text-sm text-[var(--color-muted)]">
+                                {mergeSearch.trim() ? 'No customers match.' : 'No obvious matches. Search above.'}
+                            </p>
+                        ) : (
+                            mergeCandidates.map((customer) => {
+                                const vendorCredit = (customer.vendor_store_credits || [])
+                                    .reduce((sum, credit) => sum + Number(credit.balance || 0), 0);
+                                return (
+                                    <button
+                                        key={customer.id}
+                                        onClick={() => setMergeTargetId(customer.id)}
+                                        aria-pressed={mergeTargetId === customer.id}
+                                        className={`w-full text-left rounded-lg border p-3 text-sm transition-colors ${mergeTargetId === customer.id
+                                            ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/5'
+                                            : 'border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]'
+                                            }`}
+                                    >
+                                        <p className="font-medium">{customer.name}</p>
+                                        <p className="text-xs text-[var(--color-muted)]">
+                                            {[customer.phone, customer.email].filter(Boolean).join(' · ') || 'No contact info'}
+                                            {' · '}Added {formatDate(customer.created_at)}
+                                            {' · '}Credit {formatCurrency(Number(customer.store_credit || 0) + vendorCredit)}
+                                        </p>
+                                    </button>
+                                );
+                            })
+                        )}
+                    </div>
+                    {mergeTarget && mergeSource && (
+                        <div className="rounded-lg bg-[var(--color-surface)] p-3 text-sm">
+                            Keep <strong>{mergeTarget.name}</strong> ({describeCustomerForMerge(mergeTarget)}),
+                            remove <strong>{mergeSource.name}</strong> ({describeCustomerForMerge(mergeSource)}). This cannot be undone.
+                        </div>
+                    )}
+                    {mergeError && (
+                        <p className="text-sm text-[var(--color-danger)]">{mergeError}</p>
+                    )}
+                </div>
+                <ModalFooter>
+                    <Button variant="ghost" onClick={closeMergeModal}>
+                        Cancel
+                    </Button>
+                    <Button onClick={handleMerge} isLoading={isMerging} disabled={!mergeTargetId}>
+                        Merge Customers
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
             {/* Adjust Store Credit Modal */}
             <Modal
                 isOpen={!!creditTarget}
                 onClose={closeCreditModal}
-                title={`Adjust Store Credit - ${creditTarget?.name || ''}`}
-                size="sm"
+                title={`Store Credit - ${creditTarget?.name || ''}`}
+                size="lg"
             >
                 <div className="space-y-4">
                     <div className="p-3 rounded-lg bg-[var(--color-surface)]">
@@ -575,8 +804,8 @@ export function Customers() {
                         </p>
                         <p className="text-xl font-semibold text-[var(--color-success)]">
                             {formatCurrency(creditScope === 'vendor'
-                                ? Number(creditTarget?.vendor_store_credits?.find((credit) => credit.consignor_id === creditConsignorId)?.balance || 0)
-                                : Number(creditTarget?.store_credit || 0))}
+                                ? Number(creditCustomer?.vendor_store_credits?.find((credit) => credit.consignor_id === creditConsignorId)?.balance || 0)
+                                : Number(creditCustomer?.store_credit || 0))}
                         </p>
                     </div>
                     <Select
@@ -624,13 +853,86 @@ export function Customers() {
                         onChange={(e) => setCreditAmount(e.target.value)}
                         placeholder="0.00"
                     />
+                    <Input
+                        label="Reason (shows in history)"
+                        value={creditNote}
+                        onChange={(e) => setCreditNote(e.target.value)}
+                        placeholder="e.g. Return of item, goodwill credit"
+                    />
                     {creditError && (
                         <p className="text-sm text-[var(--color-danger)]">{creditError}</p>
                     )}
+
+                    <div className="pt-2 border-t border-[var(--color-border)]">
+                        <h4 className="text-sm font-semibold mb-2">History</h4>
+                        {isLoadingCreditHistory ? (
+                            <div className="flex justify-center py-4">
+                                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--color-primary)]" />
+                            </div>
+                        ) : creditHistoryError ? (
+                            <p className="text-sm text-[var(--color-danger)]">{creditHistoryError}</p>
+                        ) : creditHistory.length === 0 ? (
+                            <p className="text-sm text-[var(--color-muted)]">No store credit activity yet.</p>
+                        ) : (
+                            <div className="rounded-lg border border-[var(--color-border)] overflow-hidden max-h-72 overflow-y-auto">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-[var(--color-surface)] sticky top-0">
+                                        <tr>
+                                            <th className="text-left px-3 py-2 font-medium">Date</th>
+                                            <th className="text-left px-3 py-2 font-medium">Activity</th>
+                                            <th className="text-right px-3 py-2 font-medium">Amount</th>
+                                            <th className="text-right px-3 py-2 font-medium">Balance</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {[...creditHistory].reverse().map((entry) => (
+                                            <tr key={entry.id} className="border-t border-[var(--color-border)] align-top">
+                                                <td className="px-3 py-2 whitespace-nowrap text-[var(--color-muted)]">
+                                                    {formatDate(entry.created_at)}
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <p>
+                                                        {CREDIT_ENTRY_LABELS[entry.entry_type] || entry.entry_type}
+                                                        {entry.sale_id && (
+                                                            <>
+                                                                {' '}
+                                                                <button
+                                                                    onClick={() => openOrderFromCreditHistory(entry.sale_id as string)}
+                                                                    className="font-mono text-xs text-[var(--color-primary)] hover:underline"
+                                                                    title="View order"
+                                                                >
+                                                                    #{entry.sale_id.slice(0, 8).toUpperCase()}
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </p>
+                                                    <p className="text-xs text-[var(--color-muted)]">
+                                                        {entry.consignor_id
+                                                            ? `${entry.consignor?.consignor_number || 'Vendor'} credit`
+                                                            : 'General credit'}
+                                                        {entry.actor_name ? ` · by ${entry.actor_name}` : ''}
+                                                    </p>
+                                                    {entry.note && (
+                                                        <p className="text-xs text-[var(--color-muted)] italic">{entry.note}</p>
+                                                    )}
+                                                </td>
+                                                <td className={`px-3 py-2 text-right tabular-nums ${entry.amount >= 0 ? 'text-[var(--color-success)]' : ''}`}>
+                                                    {entry.amount >= 0 ? '+' : '−'}{formatCurrency(Math.abs(entry.amount))}
+                                                </td>
+                                                <td className="px-3 py-2 text-right tabular-nums">
+                                                    {formatCurrency(entry.balance_after)}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
                 </div>
                 <ModalFooter>
                     <Button variant="ghost" onClick={closeCreditModal}>
-                        Cancel
+                        Close
                     </Button>
                     <Button
                         onClick={handleAddCredit}
@@ -749,6 +1051,12 @@ export function Customers() {
                                 <span className="text-[var(--color-muted)]">Tax</span>
                                 <span>{formatCurrency(selectedOrder.tax_amount)}</span>
                             </div>
+                            {(selectedOrder.card_fee_amount || 0) > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--color-muted)]">Card Fee</span>
+                                    <span>{formatCurrency(selectedOrder.card_fee_amount || 0)}</span>
+                                </div>
+                            )}
                             <div className="flex justify-between font-semibold pt-2 border-t border-[var(--color-border)]">
                                 <span>Total</span>
                                 <span>{formatCurrency(selectedOrder.total)}</span>
@@ -756,28 +1064,27 @@ export function Customers() {
                         </div>
 
                         <div className="rounded-lg border border-[var(--color-border)] p-4">
-                            <p className="text-xs text-[var(--color-muted)] mb-1">Payment</p>
-                            <p className="font-medium">
-                                {selectedOrder.payment_method === 'cash'
-                                    ? 'Cash'
-                                    : selectedOrder.payment_method === 'check'
-                                        ? 'Check'
-                                        : selectedOrder.payment_method === 'split'
-                                            ? 'Split'
-                                            : 'Card'}
-                            </p>
-                            {selectedOrder.payment_method === 'cash' && (
-                                <p className="text-sm text-[var(--color-muted)] mt-1">
-                                    Tendered: {formatCurrency(selectedOrder.cash_tendered || 0)}
-                                    {' • '}
-                                    Change: {formatCurrency(selectedOrder.change_given || 0)}
-                                </p>
-                            )}
-                            {selectedOrder.payment_method === 'check' && (
-                                <p className="text-sm text-[var(--color-muted)] mt-1">
-                                    Check #: {selectedOrder.check_number || 'N/A'}
-                                </p>
-                            )}
+                            <p className="text-xs text-[var(--color-muted)] mb-2">Payment</p>
+                            <div className="space-y-2">
+                                {sortTenders(getSaleTenders(selectedOrder)).map((entry, index) => (
+                                    <div key={`${entry.method}-${index}`}>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="font-medium">{describeTender(entry)}</span>
+                                            <span className="tabular-nums">{formatCurrency(entry.amount)}</span>
+                                        </div>
+                                        {entry.method === 'cash' && entry.tendered != null && (
+                                            <p className="text-xs text-[var(--color-muted)]">
+                                                Tendered: {formatCurrency(entry.tendered)}
+                                                {' • '}
+                                                Change: {formatCurrency(entry.change || 0)}
+                                            </p>
+                                        )}
+                                    </div>
+                                ))}
+                                {getSaleTenders(selectedOrder).length === 0 && (
+                                    <p className="text-sm text-[var(--color-muted)]">No payment collected</p>
+                                )}
+                            </div>
                         </div>
                     </div>
                 ) : (
@@ -824,7 +1131,10 @@ export function Customers() {
                                                 {new Date(order.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </p>
                                         </div>
-                                        <p className="font-semibold">{formatCurrency(order.total)}</p>
+                                        <div className="text-right">
+                                            <p className="font-semibold">{formatCurrency(order.total)}</p>
+                                            <p className="text-xs text-[var(--color-muted)]">{formatSalePaymentLabel(order)}</p>
+                                        </div>
                                     </div>
                                     <div className="space-y-1">
                                         {order.sale_items.map((item) => (

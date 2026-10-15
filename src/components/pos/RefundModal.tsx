@@ -5,10 +5,11 @@ import { Input } from '../ui/Input';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { useRefunds } from '../../hooks/useRefunds';
 import { calculateProRatedRefundAmount } from '../../lib/refundCalculations';
+import { allocateRefundToTenders, derivePaymentMethod, describeTender, formatSalePaymentLabel, getSaleTenders } from '../../lib/tenders';
 import { formatCurrency, formatDateTime } from '../../lib/utils';
 import { printRefundReceipt } from '../../lib/printReceipt';
 import { sendRefundReceiptEmail } from '../../lib/emailReceipt';
-import type { Sale, RefundItem, PaymentMethod } from '../../types';
+import type { Sale, Refund, RefundItem, PaymentMethod, PaymentBreakdownEntry } from '../../types';
 import type { RefundReceiptData } from '../../types/receipt';
 
 interface RefundModalProps {
@@ -39,6 +40,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
         refund_id: string;
         refund_amount: number;
         payment_method: PaymentMethod;
+        payment_breakdown: PaymentBreakdownEntry[];
         stripe_refund_id?: string;
         items: RefundItem[];
     } | null>(null);
@@ -48,6 +50,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
     const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
     const [emailError, setEmailError] = useState<string | null>(null);
     const [existingRefundAmount, setExistingRefundAmount] = useState(0);
+    const [existingRefunds, setExistingRefunds] = useState<Refund[]>([]);
 
     // Reset state when modal closes
     useEffect(() => {
@@ -62,6 +65,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
             setEmailSuccess(null);
             setEmailError(null);
             setExistingRefundAmount(0);
+            setExistingRefunds([]);
         }
     }, [isOpen]);
 
@@ -86,6 +90,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
         setExistingRefundAmount(
             data.existingRefunds.reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0)
         );
+        setExistingRefunds(data.existingRefunds);
 
         setSale(data.sale);
 
@@ -159,6 +164,30 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
         selectedRefundQuantityBySaleItemId,
     }) : 0;
 
+    // Preview of where the money goes back: same tenders the sale was paid with.
+    const refundAllocation = sale && refundAmount > 0
+        ? allocateRefundToTenders({
+            tenders: getSaleTenders(sale),
+            priorRefunds: existingRefunds,
+            refundAmount,
+        })
+        : [];
+
+    const describeRefundTender = (entry: PaymentBreakdownEntry): string => {
+        switch (entry.method) {
+            case 'card':
+                return 'Refunded to the card through Stripe (5-10 business days)';
+            case 'store_credit':
+                return `Returned to ${sale?.customer?.name || 'the customer'}'s store credit`;
+            case 'gift_card':
+                return 'Returned to the gift card balance';
+            case 'check':
+                return 'Issue the customer a check (or cash)';
+            default:
+                return 'Give the customer cash';
+        }
+    };
+
     const handleConfirm = () => {
         if (selectedItems.length === 0) return;
         setStep('confirm');
@@ -169,9 +198,6 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
 
         const { data, error: refundError } = await processRefund({
             sale_id: sale.id,
-            customer_id: sale.customer_id,
-            refund_amount: refundAmount,
-            payment_method: sale.payment_method,
             items: selectedItems,
         });
 
@@ -183,7 +209,8 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
         setCompletedRefund({
             refund_id: data.refund.id,
             refund_amount: Number(data.refund.refund_amount || refundAmount),
-            payment_method: sale.payment_method,
+            payment_method: derivePaymentMethod(data.allocation, sale.payment_method),
+            payment_breakdown: data.allocation,
             stripe_refund_id: data.stripe_refund_id,
             items: selectedItems,
         });
@@ -214,6 +241,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
             })),
             refundAmount: completedRefund.refund_amount,
             paymentMethod: completedRefund.payment_method,
+            paymentBreakdown: completedRefund.payment_breakdown,
             stripeRefundId: completedRefund.stripe_refund_id,
         };
     };
@@ -314,8 +342,8 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
                         </div>
                         <div className="text-right">
                             <p className="font-medium">{formatCurrency(Number(sale.total))}</p>
-                            <p className="text-xs text-[var(--color-muted)] capitalize">
-                                {sale.payment_method} payment
+                            <p className="text-xs text-[var(--color-muted)]">
+                                Paid with {formatSalePaymentLabel(sale)}
                             </p>
                         </div>
                     </div>
@@ -408,12 +436,19 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
             <div className="p-4 rounded-lg bg-[var(--color-warning-bg)] border border-[var(--color-warning)]/20">
                 <p className="font-medium text-[var(--color-warning)]">Confirm Refund</p>
                 <p className="text-sm mt-1">
-                    {sale?.payment_method === 'card'
-                        ? 'This will process a refund through Stripe. The customer will receive the refund in 5-10 business days.'
-                        : sale?.payment_method === 'check'
-                            ? 'Please issue the customer a check (or cash) for this refund.'
-                            : 'Please give the customer cash for this refund.'}
+                    The refund goes back to how the customer paid:
                 </p>
+                <ul className="mt-2 space-y-1 text-sm">
+                    {refundAllocation.map((entry, index) => (
+                        <li key={`${entry.method}-${index}`} className="flex justify-between gap-3">
+                            <span>
+                                <span className="font-medium">{describeTender(entry)}</span>
+                                <span className="text-[var(--color-muted)]"> · {describeRefundTender(entry)}</span>
+                            </span>
+                            <span className="tabular-nums shrink-0">{formatCurrency(entry.amount)}</span>
+                        </li>
+                    ))}
+                </ul>
             </div>
 
             <div className="space-y-2">
@@ -434,8 +469,8 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
                     <span>Total Refund</span>
                     <span className="text-[var(--color-primary)]">{formatCurrency(refundAmount)}</span>
                 </div>
-                <p className="text-xs text-[var(--color-muted)] mt-1 capitalize">
-                    via {sale?.payment_method}
+                <p className="text-xs text-[var(--color-muted)] mt-1">
+                    to {refundAllocation.map((entry) => describeTender(entry)).join(' + ')}
                 </p>
             </div>
 
@@ -468,7 +503,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
                 <div>
                     <h3 className="text-lg font-semibold">Refund Processed</h3>
                     <p className="text-[var(--color-muted)]">
-                        {formatCurrency(completedRefund?.refund_amount || 0)} refunded via {completedRefund?.payment_method}
+                        {formatCurrency(completedRefund?.refund_amount || 0)} refunded to {(completedRefund?.payment_breakdown || []).map((entry) => `${describeTender(entry)} ${formatCurrency(entry.amount)}`).join(' + ')}
                     </p>
                 </div>
 
@@ -505,7 +540,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
                     ))}
                 </div>
 
-                {completedRefund?.payment_method === 'card' && (
+                {completedRefund?.payment_breakdown.some((entry) => entry.method === 'card') && (
                     <p className="text-xs text-[var(--color-muted)]">
                         Customer will receive the refund within 5-10 business days.
                     </p>

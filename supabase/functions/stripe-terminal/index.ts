@@ -13,6 +13,9 @@ interface ConnectionTokenRequest {
 interface CreatePaymentIntentRequest {
     action: 'create_payment_intent'
     amount: number // Amount in cents
+    // 'manual' authorizes only; POS captures after the sale is saved.
+    // Defaults to 'automatic' so older POS builds keep charging immediately.
+    capture_method?: 'automatic' | 'manual'
 }
 
 interface CapturePaymentIntentRequest {
@@ -117,7 +120,7 @@ Deno.serve(async (req) => {
             )
 
         } else if (body.action === 'create_payment_intent') {
-            const { amount } = body as CreatePaymentIntentRequest
+            const { amount, capture_method } = body as CreatePaymentIntentRequest
 
             if (!amount || amount <= 0) {
                 return new Response(
@@ -135,7 +138,7 @@ Deno.serve(async (req) => {
                     amount,
                     currency: 'usd',
                     'payment_method_types[]': 'card_present',
-                    capture_method: 'automatic',
+                    capture_method: capture_method === 'manual' ? 'manual' : 'automatic',
                 }
             )
 

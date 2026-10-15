@@ -757,10 +757,10 @@ export function useStripeTerminal() {
     }, [connectedReader]);
 
     // Create payment intent
-    const createPaymentIntent = useCallback(async (amountInCents: number) => {
+    const createPaymentIntent = useCallback(async (amountInCents: number, captureMethod: 'automatic' | 'manual') => {
         try {
             const { data, error } = await supabase.functions.invoke('stripe-terminal', {
-                body: { action: 'create_payment_intent', amount: amountInCents },
+                body: { action: 'create_payment_intent', amount: amountInCents, capture_method: captureMethod },
             });
 
             if (error) {
@@ -776,8 +776,12 @@ export function useStripeTerminal() {
         }
     }, []);
 
-    // Collect card payment
-    const collectCardPayment = useCallback(async (amountInCents: number): Promise<{ paymentIntentId: string; cardLast4?: string; error: string | null }> => {
+    // Collect card payment. With captureLater the card is only authorized: call
+    // capturePayment once the sale is saved, or releaseCardPayment if it isn't.
+    const collectCardPayment = useCallback(async (
+        amountInCents: number,
+        options: { captureLater?: boolean } = {}
+    ): Promise<{ paymentIntentId: string; cardLast4?: string; error: string | null }> => {
         if (!terminalRef.current || !connectedReader) {
             return { paymentIntentId: '', error: 'No reader connected' };
         }
@@ -787,7 +791,7 @@ export function useStripeTerminal() {
 
         try {
             // Create payment intent on backend
-            const paymentIntent = await createPaymentIntent(amountInCents);
+            const paymentIntent = await createPaymentIntent(amountInCents, options.captureLater ? 'manual' : 'automatic');
 
             // Set simulator to use test card (for simulated reader)
             if (isSimulated) {
@@ -839,6 +843,67 @@ export function useStripeTerminal() {
             return { paymentIntentId: '', error: message };
         }
     }, [connectedReader, createPaymentIntent, isSimulated]);
+
+    const getPaymentIntentStatus = useCallback(async (paymentIntentId: string): Promise<string | null> => {
+        try {
+            const { data, error } = await supabase.functions.invoke('stripe-terminal', {
+                body: { action: 'get_payment_intent', paymentIntentId },
+            });
+            if (error) return null;
+            return typeof data?.status === 'string' ? data.status : null;
+        } catch {
+            return null;
+        }
+    }, []);
+
+    // Captures an authorized card payment. Retries a few times because the sale is
+    // already saved at this point; an already-captured payment counts as success.
+    const capturePayment = useCallback(async (paymentIntentId: string): Promise<{ error: string | null }> => {
+        let lastError = 'Unable to capture card payment';
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+                const { data, error } = await supabase.functions.invoke('stripe-terminal', {
+                    body: { action: 'capture_payment_intent', paymentIntentId },
+                });
+                if (!error && data?.status === 'succeeded') return { error: null };
+                lastError = error ? await extractFunctionError(error) : `Unexpected payment status: ${data?.status}`;
+            } catch (err) {
+                lastError = await extractFunctionError(err);
+            }
+
+            if (await getPaymentIntentStatus(paymentIntentId) === 'succeeded') return { error: null };
+            await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+        }
+        return { error: lastError };
+    }, [getPaymentIntentStatus]);
+
+    // Gives the money back when a sale was not saved: cancels an uncaptured
+    // authorization, or refunds the charge if it was already captured.
+    const releaseCardPayment = useCallback(async (paymentIntentId: string, amountInCents: number): Promise<{ error: string | null }> => {
+        const status = await getPaymentIntentStatus(paymentIntentId);
+        try {
+            if (status === 'succeeded') {
+                const { data, error } = await supabase.functions.invoke('process-stripe-refund', {
+                    body: { payment_intent_id: paymentIntentId, amount: amountInCents },
+                });
+                if (error) return { error: await extractFunctionError(error) };
+                if (data?.error) return { error: String(data.error) };
+                return { error: null };
+            }
+            if (status === 'canceled') return { error: null };
+
+            const { data, error } = await supabase.functions.invoke('stripe-terminal', {
+                body: { action: 'cancel_payment_intent', paymentIntentId },
+            });
+            if (error) return { error: await extractFunctionError(error) };
+            if (data?.status !== 'canceled') return { error: `Unexpected payment status: ${data?.status}` };
+            return { error: null };
+        } catch (err) {
+            return { error: await extractFunctionError(err) };
+        } finally {
+            setStatus('connected');
+        }
+    }, [getPaymentIntentStatus]);
 
     // Cancel current operation
     const cancelPayment = useCallback(async (paymentIntentId: string) => {
@@ -899,6 +964,8 @@ export function useStripeTerminal() {
         collectCustomerInputs,
         cancelCustomerInputs,
         collectCardPayment,
+        capturePayment,
+        releaseCardPayment,
         cancelPayment,
     };
 }

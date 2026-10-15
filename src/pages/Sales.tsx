@@ -32,14 +32,26 @@ import { calculateStripeTerminalProcessingFee } from '../lib/cardFees';
 import { getOfflineUnsyncedCashNetTotal } from '../lib/offlineCashSales';
 import {
     fromCurrencyCents,
+    getCashTenderCents,
     getCountedDrawerCents,
-    getPaymentBreakdownAmountCents,
+    getRefundTenderAmountCents,
+    getSaleTenderAmountCents,
     sumCashSalesNetCents,
     toCurrencyCents,
 } from '../lib/cashReconciliation';
 import { calculateTillAccountabilityMetrics } from '../lib/tillAccountability';
+import {
+    TENDER_ORDER,
+    describeTender,
+    formatSalePaymentLabel,
+    formatTenderLabel,
+    getSaleTenderAmount,
+    getSaleTenders,
+    sortTenders,
+    type SaleTenderSource,
+} from '../lib/tenders';
 import type { ReceiptData } from '../types/receipt';
-import type { Customer, CustomerInput, PaymentMethod } from '../types';
+import type { Customer, CustomerInput, PaymentBreakdownEntry, PaymentMethod, TenderMethod } from '../types';
 
 type DatePreset = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
 type SalesTab = 'sales' | 'refunds' | 'employeeAttribution' | 'salesAnalytics';
@@ -89,6 +101,7 @@ interface CustomerSalesHistoryItem {
     completed_at: string;
     total: number;
     payment_method: PaymentMethod;
+    payment_breakdown?: PaymentBreakdownEntry[] | null;
     sale_items: {
         id: string;
         name: string;
@@ -104,6 +117,13 @@ function escapeCsvValue(value: string | number | null | undefined): string {
         return `"${stringValue.replace(/"/g, '""')}"`;
     }
     return stringValue;
+}
+
+// Per-tender amounts for CSV exports; together they add up to Sale Total.
+const TENDER_CSV_HEADERS = TENDER_ORDER.map((method) => `${formatTenderLabel(method)} Amount`);
+
+function getTenderCsvValues(sale: SaleTenderSource): string[] {
+    return TENDER_ORDER.map((method) => getSaleTenderAmount(sale, method).toFixed(2));
 }
 
 function toLocalDateInput(date: Date): string {
@@ -124,11 +144,56 @@ function parseLocalDateInput(value: string, endOfDay = false): Date {
     return parsed;
 }
 
-function formatPaymentMethodLabel(method: string) {
-    if (method === 'cash') return 'Cash';
-    if (method === 'check') return 'Check';
-    if (method === 'split') return 'Split';
-    return 'Card';
+/**
+ * Tender lines for display. The check number and card last 4 can be edited or
+ * stored on the sale itself, so a single check/card tender falls back to them.
+ */
+function getDisplayTenders(sale: SaleTenderSource): PaymentBreakdownEntry[] {
+    const tenders = sortTenders(getSaleTenders(sale));
+    const checkCount = tenders.filter((entry) => entry.method === 'check').length;
+    const cardCount = tenders.filter((entry) => entry.method === 'card').length;
+
+    return tenders.map((entry) => {
+        if (entry.method === 'check' && checkCount === 1 && sale.check_number) {
+            return { ...entry, check_number: sale.check_number };
+        }
+        if (entry.method === 'card' && cardCount === 1 && !entry.card_last4 && sale.card_last4) {
+            return { ...entry, card_last4: sale.card_last4 };
+        }
+        return entry;
+    });
+}
+
+function getCashTenderEntry(tenders: PaymentBreakdownEntry[]): PaymentBreakdownEntry | null {
+    const cashEntries = tenders.filter((entry) => entry.method === 'cash');
+    if (cashEntries.length === 0) return null;
+    if (cashEntries.length === 1) return cashEntries[0];
+
+    return cashEntries.reduce<PaymentBreakdownEntry>(
+        (acc, entry) => ({
+            ...acc,
+            amount: acc.amount + entry.amount,
+            tendered: Number(acc.tendered ?? 0) + Number(entry.tendered ?? entry.amount),
+            change: Number(acc.change ?? 0) + Number(entry.change ?? 0),
+        }),
+        { method: 'cash', amount: 0, tendered: 0, change: 0 }
+    );
+}
+
+function refundTenderSource(refund: Pick<RefundWithDetails, 'payment_method' | 'payment_breakdown' | 'refund_amount'>): SaleTenderSource {
+    return {
+        payment_method: refund.payment_method,
+        payment_breakdown: refund.payment_breakdown,
+        total: refund.refund_amount,
+    };
+}
+
+function sumSaleTender(sales: SaleWithItems[], method: TenderMethod): number {
+    return fromCurrencyCents(sales.reduce((sum, sale) => sum + getSaleTenderAmountCents(sale, method), 0));
+}
+
+function sumRefundTender(refunds: RefundWithDetails[], method: TenderMethod): number {
+    return fromCurrencyCents(refunds.reduce((sum, refund) => sum + getRefundTenderAmountCents(refund, method), 0));
 }
 
 export function Sales() {
@@ -306,6 +371,7 @@ export function Sales() {
                 sale.id,
                 sale.id.slice(0, 8),
                 sale.payment_method,
+                formatSalePaymentLabel(sale),
                 sale.check_number || '',
                 sale.card_last4 || '',
                 sale.customer?.name || '',
@@ -462,35 +528,18 @@ export function Sales() {
     ), [allFilteredSales, filteredRefunds, giftCardSales, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal]);
 
     const cashReconciliation = useMemo(() => {
-        const cashSales = allFilteredSales.filter((sale) => (
-            sale.payment_method === 'cash'
-            || (sale.payment_method === 'split' && getPaymentBreakdownAmountCents(sale, 'cash') > 0)
-        ));
+        // Any sale with a cash tender, whether cash was the only tender or one of several.
+        const cashSales = allFilteredSales.filter((sale) => getSaleTenderAmountCents(sale, 'cash') > 0);
         const cashSalesCount = cashSales.length;
-        const cashReceivedGrossCents = cashSales.reduce(
-            (sum, sale) => {
-                if (sale.payment_method === 'split') {
-                    const cashEntry = sale.payment_breakdown?.find((entry) => entry.method === 'cash');
-                    return sum + toCurrencyCents(cashEntry?.tendered ?? cashEntry?.amount ?? 0);
-                }
-                return sum + toCurrencyCents(sale.cash_tendered ?? 0);
-            },
-            0
-        );
-        const changeGivenCents = cashSales.reduce(
-            (sum, sale) => {
-                if (sale.payment_method === 'split') {
-                    const cashEntry = sale.payment_breakdown?.find((entry) => entry.method === 'cash');
-                    return sum + toCurrencyCents(cashEntry?.change ?? 0);
-                }
-                return sum + toCurrencyCents(sale.change_given ?? 0);
-            },
-            0
-        );
+        const cashTenders = cashSales.map((sale) => getCashTenderCents(sale));
+        const cashReceivedGrossCents = cashTenders.reduce((sum, tender) => sum + tender.tenderedCents, 0);
+        const changeGivenCents = cashTenders.reduce((sum, tender) => sum + tender.changeCents, 0);
         const cashSalesNetCents = sumCashSalesNetCents(cashSales);
-        const cashRefundsCents = filteredRefunds
-            .filter((refund) => refund.payment_method === 'cash')
-            .reduce((sum, refund) => sum + toCurrencyCents(refund.refund_amount || 0), 0);
+        // Only the cash portion of a refund leaves the drawer.
+        const cashRefundsCents = filteredRefunds.reduce(
+            (sum, refund) => sum + getRefundTenderAmountCents(refund, 'cash'),
+            0
+        );
         const expectedCashFromSalesCents = toCurrencyCents(accountabilityMetrics.expectedCashFromSales);
         const openingFloat = Number.parseFloat(openingFloatInput) || 0;
         const manualAdjustment = Number.parseFloat(manualCashAdjustmentInput) || 0;
@@ -508,6 +557,7 @@ export function Sales() {
             changeGiven: fromCurrencyCents(changeGivenCents),
             cashSalesNet: fromCurrencyCents(cashSalesNetCents),
             cashRefunds: fromCurrencyCents(cashRefundsCents),
+            giftCardCashSales: accountabilityMetrics.giftCardSalesCash,
             cashDealerPurchasesTotal,
             offlineUnsyncedCashNetTotal,
             checkCount,
@@ -519,7 +569,7 @@ export function Sales() {
             countedTotal: fromCurrencyCents(countedTotalCents),
             variance: fromCurrencyCents(varianceCents),
         };
-    }, [allFilteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal, accountabilityMetrics.expectedCashFromSales]);
+    }, [allFilteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal, accountabilityMetrics.expectedCashFromSales, accountabilityMetrics.giftCardSalesCash]);
 
     useEffect(() => {
         if (isEmployeeView) {
@@ -609,35 +659,28 @@ export function Sales() {
     }, [activeTab, dateRange.start, dateRange.end, allFilteredSales, getSalesTrend, getSalesByCategory, getBusyTimeAnalytics, isEmployeeView]);
 
     const paymentTotals = useMemo(() => {
-        const cashSalesTotal = allFilteredSales.reduce((sum, sale) => {
-            if (sale.payment_method === 'split') return sum + (getPaymentBreakdownAmountCents(sale, 'cash') / 100);
-            return sale.payment_method === 'cash' ? sum + Number(sale.total || 0) : sum;
-        }, 0);
-        const cardSalesTotal = allFilteredSales.reduce((sum, sale) => {
-            if (sale.payment_method === 'split') return sum + (getPaymentBreakdownAmountCents(sale, 'card') / 100);
-            return sale.payment_method === 'card' ? sum + Number(sale.total || 0) : sum;
-        }, 0);
-        const checkSalesTotal = allFilteredSales.reduce((sum, sale) => {
-            if (sale.payment_method === 'split') return sum + (getPaymentBreakdownAmountCents(sale, 'check') / 100);
-            return sale.payment_method === 'check' ? sum + Number(sale.total || 0) : sum;
-        }, 0);
-
-        const cashRefundTotal = filteredRefunds
-            .filter((refund) => refund.payment_method === 'cash')
-            .reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0);
-        const cardRefundTotal = filteredRefunds
-            .filter((refund) => refund.payment_method === 'card')
-            .reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0);
-        const checkRefundTotal = filteredRefunds
-            .filter((refund) => refund.payment_method === 'check')
-            .reduce((sum, refund) => sum + Number(refund.refund_amount || 0), 0);
+        // Each bucket comes from the tender entries, never from sale.total, which
+        // also includes store credit and gift card redemptions.
+        const netByTender = TENDER_ORDER.reduce<Record<TenderMethod, number>>(
+            (acc, method) => {
+                acc[method] = sumSaleTender(allFilteredSales, method) - sumRefundTender(filteredRefunds, method);
+                return acc;
+            },
+            { store_credit: 0, gift_card: 0, cash: 0, check: 0, card: 0 }
+        );
 
         const cardFeeTotal = allFilteredSales.reduce((sum, sale) => sum + Number(sale.card_fee_amount || 0), 0);
+        const tenderNetTotal = fromCurrencyCents(
+            TENDER_ORDER.reduce((sum, method) => sum + toCurrencyCents(netByTender[method]), 0)
+        );
 
         return {
-            cashNetTotal: cashSalesTotal - cashRefundTotal,
-            cardNetTotal: cardSalesTotal - cardRefundTotal,
-            checkNetTotal: checkSalesTotal - checkRefundTotal,
+            cashNetTotal: netByTender.cash,
+            cardNetTotal: netByTender.card,
+            checkNetTotal: netByTender.check,
+            storeCreditNetTotal: netByTender.store_credit,
+            giftCardNetTotal: netByTender.gift_card,
+            tenderNetTotal,
             cardFeeTotal,
         };
     }, [allFilteredSales, filteredRefunds]);
@@ -679,10 +722,10 @@ export function Sales() {
             const orderDiscountRatio = subtotalAfterItemDiscounts > 0 ? orderDiscountTotal / subtotalAfterItemDiscounts : 0;
             const saleNetSubtotal = Math.max(0, subtotalAfterItemDiscounts - orderDiscountTotal);
             const saleTax = Number(sale.tax_amount || 0);
-            const cardTenderAmount = sale.payment_method === 'split'
-                ? getPaymentBreakdownAmountCents(sale, 'card') / 100
-                : Number(sale.total || saleNetSubtotal);
-            const totalSaleFee = (sale.payment_method === 'card' || cardTenderAmount > 0)
+            // Card-fee basis is the card tender only (matches the server payout
+            // ledger); cash, check, store credit and gift card carry no fee.
+            const cardTenderAmount = getSaleTenderAmount(sale, 'card');
+            const totalSaleFee = cardTenderAmount > 0
                 ? calculateStripeTerminalProcessingFee(cardTenderAmount)
                 : 0;
 
@@ -694,7 +737,7 @@ export function Sales() {
 
                 const itemTaxPortion = saleNetSubtotal > 0 ? (netLineTotal / saleNetSubtotal) * saleTax : 0;
                 const itemCreditCardFee =
-                    (sale.payment_method === 'card' || cardTenderAmount > 0) && item.consignor_pays_card_fee
+                    cardTenderAmount > 0 && item.consignor_pays_card_fee
                         ? (saleNetSubtotal > 0 ? totalSaleFee * (netLineTotal / saleNetSubtotal) : 0)
                         : 0;
 
@@ -789,19 +832,29 @@ export function Sales() {
         return { rows, attributedEmployees, attributedAdmins };
     }, [employeeDirectory, admins, allFilteredSales]);
 
-    // Calculate totals (subtracting refunds)
+    // Calculate totals (subtracting refunds). sale.total is the full order total
+    // (net subtotal + tax + card fee) whatever the tender, so
+    // Net Sales = Gross Sales + Taxes + Card Fees - Refunds = sum of every tender.
     const totals = useMemo(() => {
         const totalRefunded = filteredRefunds.reduce((sum, refund) => sum + Number(refund.refund_amount), 0);
+        const subtotal = fromCurrencyCents(allFilteredSales.reduce(
+            (sum, sale) => sum + toCurrencyCents(sale.subtotal) - toCurrencyCents(sale.discount_total || 0),
+            0
+        ));
+        const tax = fromCurrencyCents(allFilteredSales.reduce(
+            (sum, sale) => sum + toCurrencyCents(sale.tax_amount),
+            0
+        ));
 
         return {
-            subtotal: payoutBasisTotals.grossSales,
-            tax: payoutBasisTotals.taxCollected,
-            total: paymentTotals.cashNetTotal + paymentTotals.cardNetTotal + paymentTotals.checkNetTotal,
+            subtotal,
+            tax,
+            total: paymentTotals.tenderNetTotal,
             consignorShare: payoutBasisTotals.consignorShare,
             storeShare: payoutBasisTotals.storeShare,
             totalRefunded,
         };
-    }, [filteredRefunds, payoutBasisTotals, paymentTotals]);
+    }, [allFilteredSales, filteredRefunds, payoutBasisTotals, paymentTotals]);
 
     const analyticsOverview = useMemo(() => {
         const transactionCount = allFilteredSales.length;
@@ -845,10 +898,6 @@ export function Sales() {
 
     const toggleExpand = (saleId: string) => {
         setExpandedSaleId(expandedSaleId === saleId ? null : saleId);
-    };
-
-    const formatPaymentMethod = (method: string) => {
-        return formatPaymentMethodLabel(method);
     };
 
     const handleSaveCheckNumber = async () => {
@@ -905,14 +954,9 @@ export function Sales() {
             cardFeeAmount: sale.card_fee_amount ? Number(sale.card_fee_amount) : 0,
             cardLast4: sale.card_last4 || undefined,
             paymentMethod: sale.payment_method,
-            paymentBreakdown: sale.payment_breakdown?.map((entry) => ({
-                method: entry.method,
-                amount: Number(entry.amount || 0),
-                tendered: entry.tendered == null ? null : Number(entry.tendered || 0),
-                change: entry.change == null ? null : Number(entry.change || 0),
-                check_number: entry.check_number || null,
-                card_last4: entry.card_last4 || null,
-            })),
+            // Every tender, including store credit and gift card (older rows are
+            // rebuilt from payment_method/total by getSaleTenders).
+            paymentBreakdown: getDisplayTenders(sale),
             checkNumber: sale.check_number || undefined,
             cashTendered: sale.cash_tendered ? Number(sale.cash_tendered) : undefined,
             changeGiven: sale.change_given ? Number(sale.change_given) : undefined,
@@ -1136,6 +1180,8 @@ export function Sales() {
                         checksInHand: accountabilityMetrics.checksInHand,
                         creditCardsBatchTotal: accountabilityMetrics.creditCardsBatchTotal,
                         storeCreditRedeemed: accountabilityMetrics.storeCreditRedeemed,
+                        giftCardRedeemed: accountabilityMetrics.giftCardRedeemed,
+                        giftCardSalesCash: accountabilityMetrics.giftCardSalesCash,
                         totalReceived: accountabilityMetrics.totalReceived,
                         difference: accountabilityMetrics.difference,
                         dealerCashPurchases: accountabilityMetrics.dealerCashPurchases,
@@ -1239,6 +1285,7 @@ export function Sales() {
             'Sale Subtotal',
             'Sale Tax',
             'Sale Total',
+            ...TENDER_CSV_HEADERS,
             'Item SKU',
             'Item Name',
             'Item Quantity',
@@ -1258,7 +1305,8 @@ export function Sales() {
             const saleDateLabel = saleDate.toLocaleDateString();
             const saleTimeLabel = saleDate.toLocaleTimeString();
             const receiptNumber = sale.id.slice(0, 8);
-            const paymentMethod = formatPaymentMethod(sale.payment_method);
+            const paymentMethod = formatSalePaymentLabel(sale);
+            const tenderAmounts = getTenderCsvValues(sale);
             const refundStatus = sale.refund_status ?? 'none';
             const saleItems = sale.items.length > 0 ? sale.items : [null];
 
@@ -1284,6 +1332,7 @@ export function Sales() {
                     Number(sale.subtotal).toFixed(2),
                     Number(sale.tax_amount).toFixed(2),
                     Number(sale.total).toFixed(2),
+                    ...tenderAmounts,
                     item?.sku ?? '',
                     item?.name ?? '',
                     quantity,
@@ -1323,6 +1372,7 @@ export function Sales() {
             'Sale Subtotal',
             'Sale Tax',
             'Sale Total',
+            ...TENDER_CSV_HEADERS,
             'Consignor Share',
             'Store Share',
             'Consignors',
@@ -1335,7 +1385,8 @@ export function Sales() {
             const saleDateLabel = saleDate.toLocaleDateString();
             const saleTimeLabel = saleDate.toLocaleTimeString();
             const receiptNumber = sale.id.slice(0, 8);
-            const paymentMethod = formatPaymentMethod(sale.payment_method);
+            const paymentMethod = formatSalePaymentLabel(sale);
+            const tenderAmounts = getTenderCsvValues(sale);
             const refundStatus = sale.refund_status ?? 'none';
             const itemCount = sale.items.length;
             const totalQuantity = sale.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
@@ -1357,6 +1408,7 @@ export function Sales() {
                 Number(sale.subtotal).toFixed(2),
                 Number(sale.tax_amount).toFixed(2),
                 Number(sale.total).toFixed(2),
+                ...tenderAmounts,
                 Number(summary.consignorShare).toFixed(2),
                 Number(summary.storeShare).toFixed(2),
                 summary.consignorNames.join(' | '),
@@ -1499,17 +1551,17 @@ export function Sales() {
                             <SummaryCard
                                 label="Net Sales"
                                 value={formatCurrency(totals.total)}
-                                info="Total collected after refunds, for the current date and consignor filters."
+                                info="Sale totals after refunds, for the current date and consignor filters: every tender, including store credit and gift card redemptions. Equals Gross Sales + Taxes + card fees - Refunds."
                             />
                             <SummaryCard
                                 label="Gross Sales"
                                 value={formatCurrency(totals.subtotal)}
-                                info="Pre-tax subtotal from all matching sales before refunds."
+                                info="Pre-tax subtotal after discounts from all matching sales, before refunds."
                             />
                             <SummaryCard
                                 label="Taxes"
                                 value={formatCurrency(totals.tax)}
-                                info="Total tax recorded on matching sales."
+                                info="Total tax recorded on matching sales, before refunds."
                             />
                             <SummaryCard
                                 label="Refunds"
@@ -1518,7 +1570,7 @@ export function Sales() {
                                 info="Money returned to customers in the selected date range."
                             />
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                             <SummaryCard
                                 label="Cash"
                                 value={formatCurrency(paymentTotals.cashNetTotal)}
@@ -1534,12 +1586,26 @@ export function Sales() {
                                 value={formatCurrency(paymentTotals.checkNetTotal)}
                                 info="Net check sales after check refunds."
                             />
+                            <SummaryCard
+                                label="Store Credit"
+                                value={formatCurrency(paymentTotals.storeCreditNetTotal)}
+                                info="Store credit redeemed on sales, less credit returned on refunds. Not money received."
+                            />
+                            <SummaryCard
+                                label="Gift Card"
+                                value={formatCurrency(paymentTotals.giftCardNetTotal)}
+                                info="Gift card balances redeemed on sales, less balances returned on refunds. The money was received when the gift card was sold."
+                            />
                         </div>
                     </div>
                     <DetailCard
                         className="mb-6"
                         title="Cash Reconciliation"
                         subtitle={`${cashReconciliation.cashSalesCount} cash sale${cashReconciliation.cashSalesCount !== 1 ? 's' : ''} in current filter • dealer cash buys: -${formatCurrency(cashReconciliation.cashDealerPurchasesTotal)}${
+                            cashReconciliation.giftCardCashSales > 0.009
+                                ? ` • gift cards sold for cash: +${formatCurrency(cashReconciliation.giftCardCashSales)}`
+                                : ''
+                        }${
                             cashReconciliation.offlineUnsyncedCashNetTotal > 0.009
                                 ? ` • offline unsynced: +${formatCurrency(cashReconciliation.offlineUnsyncedCashNetTotal)}`
                                 : ''
@@ -1794,11 +1860,11 @@ export function Sales() {
                                 <div className="mt-2 space-y-1 text-[var(--color-muted)]">
                                     <p>Gross Product Sales: {formatCurrency(accountabilityMetrics.grossProductSales)}</p>
                                     <p>Discounts: -{formatCurrency(accountabilityMetrics.discounts)}</p>
-                                    <p>Returns: -{formatCurrency(accountabilityMetrics.returns)}</p>
+                                    <p>Returns (pre-tax): -{formatCurrency(accountabilityMetrics.returns)}</p>
                                     <p>Allowances: -{formatCurrency(accountabilityMetrics.allowances)}</p>
                                     <p className="text-[var(--color-foreground)] font-medium">Net Sales: {formatCurrency(accountabilityMetrics.netSales)}</p>
-                                    <p>Sales Tax: {formatCurrency(accountabilityMetrics.salesTax)}</p>
-                                    <p>Credit Card Fees: {formatCurrency(accountabilityMetrics.creditCardFeesCharged)}</p>
+                                    <p>Sales Tax (net of refunds): {formatCurrency(accountabilityMetrics.salesTax)}</p>
+                                    <p>Credit Card Fees (net of refunds): {formatCurrency(accountabilityMetrics.creditCardFeesCharged)}</p>
                                     <p>Gift Certificates Sold: {formatCurrency(accountabilityMetrics.giftCertificatesSold)}</p>
                                     <p className="text-[var(--color-foreground)] font-semibold">Total Collected: {formatCurrency(accountabilityMetrics.totalCollected)}</p>
                                 </div>
@@ -1809,7 +1875,8 @@ export function Sales() {
                                     <p>Cash in (drawer): {formatCurrency(accountabilityMetrics.cashInDrawer)}</p>
                                     <p>Checks (in hand): {formatCurrency(accountabilityMetrics.checksInHand)}</p>
                                     <p>Credit Cards (batch total): {formatCurrency(accountabilityMetrics.creditCardsBatchTotal)}</p>
-                                    <p>Store Credit (redeemed): {formatCurrency(accountabilityMetrics.storeCreditRedeemed)}</p>
+                                    <p>Store Credit (redeemed, not cash): {formatCurrency(accountabilityMetrics.storeCreditRedeemed)}</p>
+                                    <p>Gift Cards (redeemed, not cash): {formatCurrency(accountabilityMetrics.giftCardRedeemed)}</p>
                                     <p className="text-[var(--color-foreground)] font-semibold">Total Received: {formatCurrency(accountabilityMetrics.totalReceived)}</p>
                                     <p>Collected - Received: {accountabilityMetrics.difference >= 0 ? '+' : ''}{formatCurrency(accountabilityMetrics.difference)}</p>
                                     <p>Dealer Purchases (Cash Out): -{formatCurrency(accountabilityMetrics.dealerCashPurchases)}</p>
@@ -1822,17 +1889,17 @@ export function Sales() {
                         <SummaryCard
                             label="Net Sales"
                             value={formatCurrency(totals.total)}
-                            info="Total collected after refunds, for the selected filters."
+                            info="Sale totals after refunds, for the selected filters: every tender, including store credit and gift card redemptions."
                         />
                         <SummaryCard
                             label="Gross Sales"
                             value={formatCurrency(totals.subtotal)}
-                            info="Pre-tax subtotal from matching sales before refunds."
+                            info="Pre-tax subtotal after discounts from matching sales, before refunds."
                         />
                         <SummaryCard
                             label="Taxes"
                             value={formatCurrency(totals.tax)}
-                            info="Total tax recorded on matching sales."
+                            info="Total tax recorded on matching sales, before refunds."
                         />
                         <SummaryCard
                             label="Refunds"
@@ -1866,6 +1933,16 @@ export function Sales() {
                             label="Check"
                             value={formatCurrency(paymentTotals.checkNetTotal)}
                             info="Net check sales after check refunds."
+                        />
+                        <SummaryCard
+                            label="Store Credit"
+                            value={formatCurrency(paymentTotals.storeCreditNetTotal)}
+                            info="Store credit redeemed on sales, less credit returned on refunds. Not money received."
+                        />
+                        <SummaryCard
+                            label="Gift Card"
+                            value={formatCurrency(paymentTotals.giftCardNetTotal)}
+                            info="Gift card balances redeemed on sales, less balances returned on refunds. The money was received when the gift card was sold."
                         />
                         <SummaryCard
                             label="Card Fee Total"
@@ -1910,7 +1987,7 @@ export function Sales() {
                         <SummaryCard
                             label="Expected Cash"
                             value={formatCurrency(cashReconciliation.expectedCashFromSales)}
-                            info="Expected cash from cash sales minus cash refunds and dealer cash purchases."
+                            info="Expected cash from cash tenders and gift cards sold for cash, minus cash refunds and dealer cash purchases."
                         />
                     </div>
 
@@ -1958,6 +2035,10 @@ export function Sales() {
                     }
 
                     const hasRefunds = totalRefundedAmount > 0;
+                    const selectedTenders = getDisplayTenders(selectedSale);
+                    const selectedCashTender = getCashTenderEntry(selectedTenders);
+                    const selectedCheckTenderCount = selectedTenders.filter((entry) => entry.method === 'check').length;
+                    const selectedCardFee = Number(selectedSale.card_fee_amount || 0);
                     const summary = calculateSalesSummary(selectedSale);
                     const discountBreakdown = calculateSaleItemDiscountBreakdown(
                         selectedSale.items,
@@ -2200,6 +2281,12 @@ export function Sales() {
                                             <span className="text-[var(--color-muted)]">Tax</span>
                                             <span className={hasRefunds ? 'line-through' : ''}>{formatCurrency(selectedSale.tax_amount)}</span>
                                         </div>
+                                        {selectedCardFee > 0 && (
+                                            <div className="flex justify-between">
+                                                <span className="text-[var(--color-muted)]">Card Fee</span>
+                                                <span className={hasRefunds ? 'line-through' : ''}>{formatCurrency(selectedCardFee)}</span>
+                                            </div>
+                                        )}
                                         <div className="flex justify-between font-semibold pt-1 border-t border-[var(--color-border)]">
                                             <span>Total</span>
                                             <span className={hasRefunds ? 'line-through' : ''}>{formatCurrency(selectedSale.total)}</span>
@@ -2279,30 +2366,30 @@ export function Sales() {
 
                             <div className="text-sm text-[var(--color-muted)] space-y-2">
                                 <div>
-                                    Payment Method: <span className="font-medium text-[var(--color-foreground)]">{formatPaymentMethod(selectedSale.payment_method)}</span>
+                                    Payment Method: <span className="font-medium text-[var(--color-foreground)]">{formatSalePaymentLabel(selectedSale)}</span>
                                 </div>
-                                {(selectedSale.payment_method === 'card' || selectedSale.payment_method === 'split') && (
-                                    <div>
-                                        Card Fee: {formatCurrency(Number(selectedSale.card_fee_amount || 0))}
-                                    </div>
-                                )}
-                                {selectedSale.payment_method === 'split' && selectedSale.payment_breakdown && (
+                                {selectedTenders.length > 0 && (
                                     <div className="space-y-1">
-                                        {selectedSale.payment_breakdown.map((entry, index) => (
-                                            <div key={`${entry.method}-${index}`}>
-                                                {formatPaymentMethod(entry.method)}: {formatCurrency(Number(entry.amount || 0))}
-                                                {entry.method === 'check' && entry.check_number ? ` #${entry.check_number}` : ''}
+                                        {selectedTenders.map((entry, index) => (
+                                            <div key={`${entry.method}-${index}`} className="flex justify-between max-w-sm">
+                                                <span>{describeTender(entry)}</span>
+                                                <span className="text-[var(--color-foreground)]">{formatCurrency(entry.amount)}</span>
                                             </div>
                                         ))}
                                     </div>
                                 )}
-                                {selectedSale.cash_tendered !== null && (
-                                    <div className="flex gap-4">
-                                        <span>Cash Tendered: {formatCurrency(selectedSale.cash_tendered)}</span>
-                                        <span>Change Given: {formatCurrency(selectedSale.change_given || 0)}</span>
+                                {(selectedCardFee > 0 || getSaleTenderAmount(selectedSale, 'card') > 0) && (
+                                    <div>
+                                        Card Fee: {formatCurrency(selectedCardFee)}
                                     </div>
                                 )}
-                                {selectedSale.payment_method === 'check' && (
+                                {selectedCashTender && selectedCashTender.tendered != null && (
+                                    <div className="flex gap-4">
+                                        <span>Cash Tendered: {formatCurrency(Number(selectedCashTender.tendered))}</span>
+                                        <span>Change Given: {formatCurrency(Number(selectedCashTender.change || 0))}</span>
+                                    </div>
+                                )}
+                                {selectedCheckTenderCount === 1 && (
                                     <div className="flex items-end gap-2 max-w-sm">
                                         <Input
                                             label="Check Number"
@@ -2401,7 +2488,7 @@ export function Sales() {
                                                 </p>
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-xs text-[var(--color-muted)]">{formatPaymentMethod(sale.payment_method)}</p>
+                                                <p className="text-xs text-[var(--color-muted)]">{formatSalePaymentLabel(sale)}</p>
                                                 <p className="font-semibold">{formatCurrency(Number(sale.total || 0))}</p>
                                             </div>
                                         </div>
@@ -2496,11 +2583,11 @@ export function Sales() {
                             <div className="mt-2 space-y-1 text-[var(--color-muted)]">
                                 <p>Gross Product Sales: {formatCurrency(accountabilityMetrics.grossProductSales)}</p>
                                 <p>Discounts: -{formatCurrency(accountabilityMetrics.discounts)}</p>
-                                <p>Returns: -{formatCurrency(accountabilityMetrics.returns)}</p>
+                                <p>Returns (pre-tax): -{formatCurrency(accountabilityMetrics.returns)}</p>
                                 <p>Allowances: -{formatCurrency(accountabilityMetrics.allowances)}</p>
                                 <p>Net Sales: {formatCurrency(accountabilityMetrics.netSales)}</p>
-                                <p>Sales Tax: {formatCurrency(accountabilityMetrics.salesTax)}</p>
-                                <p>Credit Card Fees: {formatCurrency(accountabilityMetrics.creditCardFeesCharged)}</p>
+                                <p>Sales Tax (net of refunds): {formatCurrency(accountabilityMetrics.salesTax)}</p>
+                                <p>Credit Card Fees (net of refunds): {formatCurrency(accountabilityMetrics.creditCardFeesCharged)}</p>
                                 <p>Gift Certificates Sold: {formatCurrency(accountabilityMetrics.giftCertificatesSold)}</p>
                             </div>
                         </div>
@@ -2510,7 +2597,8 @@ export function Sales() {
                                 <p>Cash in (drawer): {formatCurrency(accountabilityMetrics.cashInDrawer)}</p>
                                 <p>Checks (in hand): {formatCurrency(accountabilityMetrics.checksInHand)}</p>
                                 <p>Credit Cards (batch total): {formatCurrency(accountabilityMetrics.creditCardsBatchTotal)}</p>
-                                <p>Store Credit (redeemed): {formatCurrency(accountabilityMetrics.storeCreditRedeemed)}</p>
+                                <p>Store Credit (redeemed, not cash): {formatCurrency(accountabilityMetrics.storeCreditRedeemed)}</p>
+                                <p>Gift Cards (redeemed, not cash): {formatCurrency(accountabilityMetrics.giftCardRedeemed)}</p>
                                 <p>Dealer Purchases (Cash Out): -{formatCurrency(accountabilityMetrics.dealerCashPurchases)}</p>
                             </div>
                         </div>
@@ -2525,6 +2613,10 @@ export function Sales() {
                             label="Cash Refunds"
                             value={`-${formatCurrency(cashReconciliation.cashRefunds)}`}
                             variant="danger"
+                        />
+                        <SummaryCard
+                            label="Gift Cards Sold (Cash)"
+                            value={`+${formatCurrency(cashReconciliation.giftCardCashSales)}`}
                         />
                         <SummaryCard
                             label="Dealer Cash Purchases"
@@ -2773,6 +2865,9 @@ function SaleRow({
     );
     const saleNetSubtotal = discountBreakdown.netSubtotal;
     const saleDiscountTotal = discountBreakdown.discountTotal;
+    const tenders = getDisplayTenders(sale);
+    const cashTender = getCashTenderEntry(tenders);
+    const cardFee = Number(sale.card_fee_amount || 0);
     const consignorDisplay = summary.consignorNames.length > 1
         ? 'Multiple'
         : summary.consignorNames[0] || '—';
@@ -2930,24 +3025,28 @@ function SaleRow({
                         {/* Payment Info */}
                         <div className="mt-3 pt-3 border-t border-[var(--color-border)] text-sm text-[var(--color-muted)] space-y-1">
                             <div>
-                                Payment: {formatPaymentMethodLabel(sale.payment_method)}
+                                Payment: {formatSalePaymentLabel(sale)}
                             </div>
-                            {(sale.payment_method === 'card' || sale.payment_method === 'split') && (
-                                <div>Card Fee: {formatCurrency(Number(sale.card_fee_amount || 0))}</div>
-                            )}
-                            {sale.payment_method === 'split' && sale.payment_breakdown && (
-                                <div>
-                                    {sale.payment_breakdown.map((entry) => `${formatPaymentMethodLabel(entry.method)} ${formatCurrency(Number(entry.amount || 0))}`).join(' / ')}
+                            {tenders.length > 0 && (
+                                <div className="space-y-0.5">
+                                    {tenders.map((entry, index) => (
+                                        <div key={`${entry.method}-${index}`}>
+                                            {describeTender(entry)}: {formatCurrency(entry.amount)}
+                                        </div>
+                                    ))}
                                 </div>
                             )}
-                            {sale.cash_tendered !== null && (
+                            {(cardFee > 0 || getSaleTenderAmount(sale, 'card') > 0) && (
+                                <div>Card Fee: {formatCurrency(cardFee)}</div>
+                            )}
+                            {cashTender && cashTender.tendered != null && (
                                 <div className="flex gap-4">
-                                    <span>Cash Tendered: {formatCurrency(sale.cash_tendered)}</span>
-                                    <span>Change Given: {formatCurrency(sale.change_given || 0)}</span>
+                                    <span>Cash Tendered: {formatCurrency(Number(cashTender.tendered))}</span>
+                                    <span>Change Given: {formatCurrency(Number(cashTender.change || 0))}</span>
                                 </div>
                             )}
-                            {sale.payment_method === 'check' && (
-                                <div>Check #: {sale.check_number || 'N/A'}</div>
+                            {tenders.some((entry) => entry.method === 'check') && !tenders.some((entry) => entry.check_number) && (
+                                <div>Check #: N/A</div>
                             )}
                         </div>
 
@@ -3046,6 +3145,8 @@ function ReceiptIcon() {
 // RefundRow Component for refunds tab
 function RefundRow({ refund }: { refund: RefundWithDetails }) {
     const items = refund.items as Array<{ name: string; quantity: number; restocked: boolean }>;
+    const tenderSource = refundTenderSource(refund);
+    const refundTenders = sortTenders(getSaleTenders(tenderSource));
 
     return (
         <div className="bg-[var(--color-card)] rounded-xl border border-[var(--color-border)] p-4">
@@ -3096,8 +3197,17 @@ function RefundRow({ refund }: { refund: RefundWithDetails }) {
                     <div className="text-right">
                         <p className="text-xs text-[var(--color-muted)]">Method</p>
                         <Badge variant={refund.payment_method === 'card' ? 'info' : 'default'}>
-                            {refund.payment_method.toUpperCase()}
+                            {formatSalePaymentLabel(tenderSource)}
                         </Badge>
+                        {refundTenders.length > 1 && (
+                            <div className="mt-1 space-y-0.5">
+                                {refundTenders.map((entry, index) => (
+                                    <p key={`${entry.method}-${index}`} className="text-xs text-[var(--color-muted)]">
+                                        {describeTender(entry)}: {formatCurrency(entry.amount)}
+                                    </p>
+                                ))}
+                            </div>
+                        )}
                     </div>
                     <div className="text-right min-w-[100px]">
                         <p className="text-xs text-[var(--color-muted)]">Refund Amount</p>

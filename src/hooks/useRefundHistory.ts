@@ -7,6 +7,9 @@ export interface RefundWithDetails extends Refund {
         id: string;
         completed_at: string;
         total: number;
+        // Used to split a refund into merchandise, tax and card fee.
+        tax_amount?: number;
+        card_fee_amount?: number;
         customer_id: string | null;
     };
     customer?: {
@@ -42,7 +45,7 @@ export function useRefundHistory() {
                 // Fetch sale
                 const { data: sale } = await supabase
                     .from('sales')
-                    .select('id, completed_at, total, customer_id')
+                    .select('id, completed_at, total, tax_amount, card_fee_amount, customer_id')
                     .eq('id', refund.sale_id)
                     .single();
 

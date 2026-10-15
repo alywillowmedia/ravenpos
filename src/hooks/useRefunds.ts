@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { calculateProRatedRefundAmount } from '../lib/refundCalculations';
-import type { Sale, SaleItem, RefundItem, Refund, PaymentMethod } from '../types';
+import { allocateRefundToTenders, getSaleTenders } from '../lib/tenders';
+import type { Sale, SaleItem, RefundItem, Refund, PaymentBreakdownEntry } from '../types';
 
 interface SaleWithItems {
     sale: Sale;
@@ -11,15 +12,14 @@ interface SaleWithItems {
 
 interface ProcessRefundParams {
     sale_id: string;
-    customer_id: string | null;
-    refund_amount: number;
-    payment_method: PaymentMethod;
     items: RefundItem[];
 }
 
 interface ProcessRefundResult {
     refund: Refund;
     stripe_refund_id?: string;
+    // How the refund was split back across the sale's tenders
+    allocation: PaymentBreakdownEntry[];
 }
 
 export function useRefunds() {
@@ -131,14 +131,11 @@ export function useRefunds() {
             setIsProcessing(true);
             setError(null);
 
-            const { sale_id, customer_id, refund_amount, payment_method, items } = params;
-            let effectiveRefundAmount = refund_amount;
-
-            let stripe_refund_id: string | undefined;
+            const { sale_id, items } = params;
 
             const { data: sale, error: saleError } = await supabase
                 .from('sales')
-                .select('stripe_payment_intent_id, total, discount_total')
+                .select('payment_method, payment_breakdown, stripe_payment_intent_id, total, discount_total, store_credit_used, gift_card_used, cash_tendered, change_given, check_number')
                 .eq('id', sale_id)
                 .single();
             if (saleError) throw saleError;
@@ -151,7 +148,7 @@ export function useRefunds() {
 
             const { data: existingRefunds, error: existingRefundsError } = await supabase
                 .from('refunds')
-                .select('refund_amount, items')
+                .select('refund_amount, items, payment_method, payment_breakdown')
                 .eq('sale_id', sale_id);
             if (existingRefundsError) throw existingRefundsError;
 
@@ -174,7 +171,7 @@ export function useRefunds() {
                 (sum, existingRefund) => sum + Number(existingRefund.refund_amount || 0),
                 0
             );
-            effectiveRefundAmount = calculateProRatedRefundAmount({
+            const effectiveRefundAmount = calculateProRatedRefundAmount({
                 saleItems: (saleItems || []).map((saleItem) => ({
                     id: saleItem.id,
                     price: Number(saleItem.price),
@@ -192,46 +189,56 @@ export function useRefunds() {
                 throw new Error('Refund amount is zero after accounting for prior refunds');
             }
 
-            // For card payments, call Stripe refund API
-            if (payment_method === 'card') {
-                if (!sale?.stripe_payment_intent_id) {
-                    throw new Error('No Stripe payment found for this sale');
+            // Send the refund back to the tenders the sale was paid with.
+            const allocation = allocateRefundToTenders({
+                tenders: getSaleTenders(sale),
+                priorRefunds: existingRefunds || [],
+                refundAmount: effectiveRefundAmount,
+            });
+            if (allocation.length === 0) {
+                throw new Error('Nothing left to refund on this sale');
+            }
+
+            // Card portions go back through Stripe before the refund is recorded.
+            let stripe_refund_id: string | undefined;
+            for (const entry of allocation) {
+                if (entry.method !== 'card') continue;
+                const paymentIntentId = entry.stripe_payment_intent_id || sale?.stripe_payment_intent_id;
+                if (!paymentIntentId) {
+                    throw new Error('No Stripe payment found for the card portion of this sale');
                 }
 
                 const { data: refundResult, error: stripeError } = await supabase.functions.invoke('process-stripe-refund', {
                     body: {
-                        payment_intent_id: sale.stripe_payment_intent_id,
-                        amount: Math.round(effectiveRefundAmount * 100), // Convert to cents
+                        payment_intent_id: paymentIntentId,
+                        amount: Math.round(entry.amount * 100), // Convert to cents
                     },
                 });
 
                 if (stripeError) throw stripeError;
                 if (refundResult?.error) throw new Error(refundResult.error);
 
-                stripe_refund_id = refundResult.stripe_refund_id;
+                entry.stripe_refund_id = refundResult.stripe_refund_id;
+                stripe_refund_id = stripe_refund_id || refundResult.stripe_refund_id;
             }
 
-            // Create refund record in database
-            const refundData = {
-                sale_id,
-                customer_id,
-                refund_amount: effectiveRefundAmount,
-                payment_method,
-                stripe_refund_id: stripe_refund_id || null,
-                items: items.map(item => ({
-                    item_id: item.item_id,
-                    sale_item_id: item.sale_item_id,
-                    name: item.name,
-                    quantity: item.quantity,
-                    restocked: item.restocked,
-                })),
-            };
-
-            const { data: refund, error: refundError } = await supabase
-                .from('refunds')
-                .insert(refundData)
-                .select()
-                .single();
+            // Records the refund and returns store credit / gift card portions to
+            // their balances in one transaction.
+            const { data: refund, error: refundError } = await supabase.rpc('record_pos_refund', {
+                p_refund: {
+                    sale_id,
+                    refund_amount: effectiveRefundAmount,
+                    stripe_refund_id: stripe_refund_id || null,
+                    payment_breakdown: allocation,
+                    items: items.map(item => ({
+                        item_id: item.item_id,
+                        sale_item_id: item.sale_item_id,
+                        name: item.name,
+                        quantity: item.quantity,
+                        restocked: item.restocked,
+                    })),
+                },
+            });
 
             if (refundError) throw refundError;
 
@@ -324,6 +331,7 @@ export function useRefunds() {
                 data: {
                     refund: { ...refund, items } as Refund,
                     stripe_refund_id,
+                    allocation,
                 },
                 error: null,
             };

@@ -22,6 +22,37 @@ interface UseSalesHistoryOptions {
     consignorId?: string;
 }
 
+type SaleItemWithConsignor = SaleItem & { consignor?: Consignor };
+
+// Long id lists overflow the URL length the API gateway accepts (414), so
+// sale items are fetched in batches.
+const SALE_ID_BATCH_SIZE = 150;
+
+async function fetchSaleItemsForSales(saleIds: string[]): Promise<SaleItemWithConsignor[]> {
+    const items: SaleItemWithConsignor[] = [];
+    for (let start = 0; start < saleIds.length; start += SALE_ID_BATCH_SIZE) {
+        const { data, error } = await supabase
+            .from('sale_items')
+            .select(`
+                *,
+                consignor:consignors(*)
+            `)
+            .in('sale_id', saleIds.slice(start, start + SALE_ID_BATCH_SIZE));
+
+        if (error) throw error;
+        items.push(...((data || []) as SaleItemWithConsignor[]));
+    }
+    return items;
+}
+
+function stripConsignorMatch(rows: unknown[] | null): (Sale & { customer?: Customer })[] {
+    return (rows || []).map((row) => {
+        const sale = { ...(row as Sale & { customer?: Customer; consignor_match?: unknown }) };
+        delete sale.consignor_match;
+        return sale;
+    });
+}
+
 export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
     const FULL_SALES_FETCH_BATCH_SIZE = 1000;
     const {
@@ -39,20 +70,11 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
     const [error, setError] = useState<string | null>(null);
     const [totalCount, setTotalCount] = useState(0);
 
-    const getSaleIdsForConsignor = useCallback(async () => {
-        if (!consignorId) return null;
-
-        const { data: saleIdRows, error: saleIdError } = await supabase
-            .from('sale_items')
-            .select('sale_id')
-            .eq('consignor_id', consignorId);
-
-        if (saleIdError) throw saleIdError;
-
-        return Array.from(
-            new Set((saleIdRows || []).map((row) => row.sale_id).filter(Boolean))
-        );
-    }, [consignorId]);
+    // Vendor filter as a join on the server: an id list of a busy vendor's sales
+    // is too long for the request URL.
+    const salesSelect = consignorId
+        ? '*,customer:customers(*),consignor_match:sale_items!inner(consignor_id)'
+        : '*,customer:customers(*)';
 
     const fetchSales = useCallback(async () => {
         try {
@@ -62,7 +84,7 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
             // Fetch one page of sales with customer data, ordered by date descending
             let salesQuery = supabase
                 .from('sales')
-                .select('*,customer:customers(*)', { count: 'exact' })
+                .select(salesSelect, { count: 'exact' })
                 .order('completed_at', { ascending: false })
                 .order('id', { ascending: false });
 
@@ -75,15 +97,7 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
             }
 
             if (consignorId) {
-                const saleIdsForConsignor = await getSaleIdsForConsignor();
-
-                if (!saleIdsForConsignor || saleIdsForConsignor.length === 0) {
-                    setSales([]);
-                    setTotalCount(0);
-                    return;
-                }
-
-                salesQuery = salesQuery.in('id', saleIdsForConsignor);
+                salesQuery = salesQuery.eq('consignor_match.consignor_id', consignorId);
             }
 
             const from = (page - 1) * pageSize;
@@ -94,7 +108,7 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
             if (salesError) throw salesError;
             setTotalCount(count || 0);
 
-            const salesRows = (salesData || []) as (Sale & { customer?: Customer })[];
+            const salesRows = stripConsignorMatch(salesData);
             const saleIds = salesRows.map((sale) => sale.id);
 
             if (saleIds.length === 0) {
@@ -103,19 +117,11 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
             }
 
             // Fetch sale items only for the current page sales
-            const { data: itemsData, error: itemsError } = await supabase
-                .from('sale_items')
-                .select(`
-                    *,
-                    consignor:consignors(*)
-                `)
-                .in('sale_id', saleIds);
-
-            if (itemsError) throw itemsError;
+            const itemsData = await fetchSaleItemsForSales(saleIds);
 
             // Group items by sale_id
             const itemsBySale: Record<string, (SaleItem & { consignor?: Consignor })[]> = {};
-            for (const item of itemsData || []) {
+            for (const item of itemsData) {
                 if (!itemsBySale[item.sale_id]) {
                     itemsBySale[item.sale_id] = [];
                 }
@@ -136,21 +142,11 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
         } finally {
             setIsLoading(false);
         }
-    }, [consignorId, dateEnd, dateStart, getSaleIdsForConsignor, page, pageSize]);
+    }, [consignorId, dateEnd, dateStart, page, pageSize, salesSelect]);
 
     const fetchAllFilteredSales = useCallback(async () => {
         try {
             setIsLoadingAllFiltered(true);
-
-            let saleIdsForConsignor: string[] | null = null;
-            if (consignorId) {
-                saleIdsForConsignor = await getSaleIdsForConsignor();
-
-                if (!saleIdsForConsignor || saleIdsForConsignor.length === 0) {
-                    setAllFilteredSales([]);
-                    return;
-                }
-            }
 
             const allSalesRows: (Sale & { customer?: Customer })[] = [];
             let from = 0;
@@ -158,7 +154,7 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
             while (true) {
                 let salesQuery = supabase
                     .from('sales')
-                    .select('*,customer:customers(*)')
+                    .select(salesSelect)
                     .order('completed_at', { ascending: false })
                     .order('id', { ascending: false });
 
@@ -170,15 +166,15 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
                     salesQuery = salesQuery.lte('completed_at', dateEnd);
                 }
 
-                if (saleIdsForConsignor) {
-                    salesQuery = salesQuery.in('id', saleIdsForConsignor);
+                if (consignorId) {
+                    salesQuery = salesQuery.eq('consignor_match.consignor_id', consignorId);
                 }
 
                 const to = from + FULL_SALES_FETCH_BATCH_SIZE - 1;
                 const { data: salesData, error: salesError } = await salesQuery.range(from, to);
                 if (salesError) throw salesError;
 
-                const batch = (salesData || []) as (Sale & { customer?: Customer })[];
+                const batch = stripConsignorMatch(salesData);
                 allSalesRows.push(...batch);
 
                 if (batch.length < FULL_SALES_FETCH_BATCH_SIZE) {
@@ -195,18 +191,10 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
                 return;
             }
 
-            const { data: itemsData, error: itemsError } = await supabase
-                .from('sale_items')
-                .select(`
-                    *,
-                    consignor:consignors(*)
-                `)
-                .in('sale_id', saleIds);
-
-            if (itemsError) throw itemsError;
+            const itemsData = await fetchSaleItemsForSales(saleIds);
 
             const itemsBySale: Record<string, (SaleItem & { consignor?: Consignor })[]> = {};
-            for (const item of itemsData || []) {
+            for (const item of itemsData) {
                 if (!itemsBySale[item.sale_id]) {
                     itemsBySale[item.sale_id] = [];
                 }
@@ -226,7 +214,7 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
         } finally {
             setIsLoadingAllFiltered(false);
         }
-    }, [consignorId, dateEnd, dateStart, getSaleIdsForConsignor]);
+    }, [consignorId, dateEnd, dateStart, salesSelect]);
 
     useEffect(() => {
         fetchSales();
