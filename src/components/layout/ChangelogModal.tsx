@@ -30,6 +30,17 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                             </h3>
                             <div className="space-y-4 pl-2">
                                 <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">v3.11 · Store Credit & Gift Card Payments</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                        <li>Store Credit and Gift Card are now payment types at checkout, next to Cash, Check, and Card. A customer's credit applies automatically and shows as its own payment line, and either can be combined with cash, check, or card.</li>
+                                        <li>Orders, receipts, the customer display, Sales history, CSV exports, and till counts now record credit and gift cards as their own payments instead of cash or card, so they're never double-counted as money received.</li>
+                                        <li>Each customer now has a store credit history: when credit was added or used, on which order, by whom, why, and the running balance.</li>
+                                        <li>Refunds go back to how the customer paid (store credit, gift card, cash, check, or card), and split-payment sales can now be refunded.</li>
+                                        <li>Duplicate customers can be merged, moving their orders and store credit to the account you keep. Card payments are only charged once a sale is saved, and only staff can adjust store credit.</li>
+                                    </ul>
+                                </div>
+
+                                <div className="space-y-1">
                                     <h4 className="font-medium text-sm text-[var(--color-foreground)]">A Unified, Responsive Experience</h4>
                                     <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
                                         <li>Introduced one calmer, higher-contrast design system across the admin, employee, and vendor portals, including consistent controls, tables, dialogs, status messages, and dark mode.</li>
