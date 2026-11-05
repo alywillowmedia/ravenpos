@@ -678,6 +678,9 @@ DECLARE
   v_payable NUMERIC;
   v_paying NUMERIC;
   v_status TEXT;
+  v_items INTEGER;
+  v_sales INTEGER;
+  v_cutoff TIMESTAMPTZ;
 BEGIN
   SELECT * INTO c FROM public.consignors WHERE id = p_consignor_id;
   IF NOT FOUND THEN
@@ -693,8 +696,16 @@ BEGIN
   LIMIT 1;
   v_has_draft := FOUND;
 
-  SELECT * INTO s
-  FROM public.get_payout_scope_summary(p_consignor_id, 'through_date', NULL, p_through, TRUE);
+  -- A draft reads its own scope, so the row does not change with the date on screen.
+  IF v_has_draft THEN
+    SELECT * INTO s
+    FROM public.get_payout_scope_summary(
+      p_consignor_id, d.range_mode, d.source_range_start, d.source_range_end, d.include_prior_balance
+    );
+  ELSE
+    SELECT * INTO s
+    FROM public.get_payout_scope_summary(p_consignor_id, 'through_date', NULL, p_through, TRUE);
+  END IF;
 
   SELECT MAX(p.paid_at) INTO v_last_paid
   FROM public.payouts p
@@ -716,6 +727,9 @@ BEGIN
     v_carried := COALESCE(d.carried_in_snapshot, 0);
     v_earned := COALESCE(d.earned_snapshot, v_before + v_booth + v_other);
     v_status := 'draft';
+    v_items := COALESCE(d.items_sold, 0);
+    v_sales := COALESCE(d.sales_count, 0);
+    v_cutoff := d.cutoff_at;
   ELSE
     v_booth := s.booth_rent;
     v_other := s.other_required;
@@ -725,6 +739,9 @@ BEGIN
     v_paying := s.payable;
     v_carried := s.carried_in;
     v_earned := s.earned;
+    v_items := s.items_count;
+    v_sales := s.sales_count;
+    v_cutoff := public.payout_day_end(p_through) - INTERVAL '1 microsecond';
     v_status := CASE
       WHEN v_before <= 0 THEN 'paid_up'
       WHEN v_before >= v_threshold THEN 'ready'
@@ -773,9 +790,9 @@ BEGIN
     'override_reason', CASE WHEN v_has_draft THEN d.below_threshold_override_reason END,
     'last_paid_at', v_last_paid,
     'legacy_item_count', s.legacy_item_count,
-    'items_count', s.items_count,
-    'sales_count', s.sales_count,
-    'cutoff_at', public.payout_day_end(p_through) - INTERVAL '1 microsecond'
+    'items_count', v_items,
+    'sales_count', v_sales,
+    'cutoff_at', v_cutoff
   );
 END;
 $$;
@@ -818,6 +835,7 @@ BEGIN
   FROM (
     SELECT public.build_payout_run_row(c.id, v_through) AS r
     FROM public.consignors c
+    OFFSET 0 -- keeps the planner from re-running the STABLE row builder at every filter and sort key
   ) b
   WHERE (b.r->>'is_active')::BOOLEAN
     OR (b.r->>'payable_before_invoices')::NUMERIC > 0
@@ -827,8 +845,9 @@ BEGIN
   INTO v_paid_count, v_paid_total
   FROM public.payouts p
   WHERE p.status = 'paid'
-    AND p.paid_at >= public.payout_day_start(v_month)
-    AND p.paid_at < public.payout_day_start((v_month + INTERVAL '1 month')::DATE);
+    AND COALESCE(p.payment_date, (p.paid_at AT TIME ZONE public.payout_store_time_zone())::DATE) >= v_month
+    AND COALESCE(p.payment_date, (p.paid_at AT TIME ZONE public.payout_store_time_zone())::DATE)
+      < (v_month + INTERVAL '1 month')::DATE;
 
   SELECT COUNT(*)::INTEGER INTO v_legacy_payouts
   FROM public.payouts p

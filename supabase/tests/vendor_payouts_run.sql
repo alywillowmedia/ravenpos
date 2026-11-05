@@ -115,6 +115,9 @@ SELECT is((SELECT earned FROM public.get_payout_scope_summary(:'v3'::uuid, 'thro
 \set v9 'a0000000-0000-0000-0000-000000000009'
 \set v10 'a0000000-0000-0000-0000-00000000000a'
 \set v11 'a0000000-0000-0000-0000-00000000000b'
+\set v12 'a0000000-0000-0000-0000-00000000000c'
+\set v13 'a0000000-0000-0000-0000-00000000000d'
+\set v14 'a0000000-0000-0000-0000-00000000000e'
 
 INSERT INTO public.consignors (
   id, consignor_number, name, business_name, commission_split,
@@ -126,7 +129,10 @@ INSERT INTO public.consignors (
   (:'v8', 'RUN-8', 'Run Eight', 'Run Eight Studio', 0.60, FALSE, 1, TRUE, 'run8@example.test'),
   (:'v9', 'RUN-9', 'Run Nine', 'Run Nine Studio', 0.60, FALSE, 1, TRUE, 'run9@example.test'),
   (:'v10', 'RUN-10', 'Run Ten', 'Run Ten Studio', 0.60, FALSE, 1, TRUE, 'run10@example.test'),
-  (:'v11', 'RUN-11', 'Run Eleven', 'Run Eleven Studio', 0.60, FALSE, 1, TRUE, 'run11@example.test');
+  (:'v11', 'RUN-11', 'Run Eleven', 'Run Eleven Studio', 0.60, FALSE, 1, TRUE, 'run11@example.test'),
+  (:'v12', 'RUN-12', 'Run Twelve', 'Run Twelve Studio', 0.60, FALSE, 100, TRUE, 'run12@example.test'),
+  (:'v13', 'RUN-13', 'Run Thirteen', 'Run Thirteen Studio', 0.60, FALSE, 100, TRUE, 'run13@example.test'),
+  (:'v14', 'RUN-14', 'Run Fourteen', 'Run Fourteen Studio', 0.60, FALSE, 1, TRUE, 'run14@example.test');
 
 CREATE FUNCTION pg_temp.run_row(p_id UUID, p_through DATE) RETURNS JSONB LANGUAGE sql AS $$
   SELECT r FROM JSONB_ARRAY_ELEMENTS(public.get_payout_run(p_through)->'rows') r
@@ -186,23 +192,62 @@ SELECT is((SELECT (r->>'carried_in')::NUMERIC FROM (SELECT pg_temp.run_row(:'v5'
 SELECT is((SELECT (r->>'other_deductions')::NUMERIC FROM (SELECT pg_temp.run_row(:'v5'::uuid, '2025-10-31') r) x), 4.00::NUMERIC, 'draft row sums non-rent, non-invoice deductions');
 SELECT is((SELECT r->>'draft_through' FROM (SELECT pg_temp.run_row(:'v5'::uuid, '2025-10-31') r) x), '2025-10-31', 'draft_through is the range end');
 SELECT is(
-  (SELECT (public.get_vendor_payout_preview(:'v5'::uuid, '2025-10-31')->>'payable')::NUMERIC),
-  58.00::NUMERIC, 'preview returns the same row'
+  public.get_vendor_payout_preview(:'v5'::uuid, '2025-10-31'),
+  pg_temp.run_row(:'v5'::uuid, '2025-10-31'),
+  'preview returns the same row'
 );
 SELECT cmp_ok((public.get_payout_run('2025-10-31')->'legacy'->>'payouts')::INT, '>', 0, 'legacy payouts reported');
 SELECT cmp_ok((public.get_payout_run('2025-10-31')->'legacy'->>'items')::INT, '>', 0, 'legacy items reported');
 
--- A new active vendor with a draft through an earlier date keeps the draft's figures.
+-- A vendor with a partial draft through an earlier date keeps the draft's stored figures
+-- whatever date is on screen. Live at 2025-10-31 the summary would say 90, not 60.
 SELECT pg_temp.add_sale('b0000000-0000-0000-0000-000000000021', 'c0000000-0000-0000-0000-000000000021', :'v8',
   '2025-09-10 12:00'::TIMESTAMP AT TIME ZONE 'America/New_York', 100);
 SELECT pg_temp.add_sale('b0000000-0000-0000-0000-000000000022', 'c0000000-0000-0000-0000-000000000022', :'v8',
   '2025-10-10 12:00'::TIMESTAMP AT TIME ZONE 'America/New_York', 50);
+-- A charge too big for the 09-30 balance is pending in the draft but would apply at 10-31.
+INSERT INTO public.vendor_ledger_entries (consignor_id, description, amount) VALUES (:'v8', 'Run fixture big charge', 70);
 INSERT INTO run_ids
-SELECT 'r8', public.save_payout_draft(:'v8'::uuid, NULL, 'through_date', NULL, '2025-09-30', TRUE, NULL, NULL, NULL, 'Run fixture reason');
-SELECT is((SELECT (r->>'paying_now')::NUMERIC FROM (SELECT pg_temp.run_row(:'v8'::uuid, '2025-10-31') r) x), 60.00::NUMERIC, 'draft vendor shows the draft paying now');
-SELECT is((SELECT r->>'draft_through' FROM (SELECT pg_temp.run_row(:'v8'::uuid, '2025-10-31') r) x), '2025-09-30', 'draft vendor shows the draft through date');
-SELECT is((SELECT r->>'status' FROM (SELECT pg_temp.run_row(:'v8'::uuid, '2025-10-31') r) x), 'draft', 'draft vendor status is draft');
-SELECT is((SELECT r->>'override_reason' FROM (SELECT pg_temp.run_row(:'v8'::uuid, '2025-10-31') r) x), 'Run fixture reason', 'override reason comes from the draft');
+SELECT 'r8', public.save_payout_draft(:'v8'::uuid, NULL, 'through_date', NULL, '2025-09-30', TRUE, 40, NULL, NULL, 'Run fixture reason');
+UPDATE public.consignors SET payout_threshold_override = 77 WHERE id = :'v8';
+CREATE TEMP TABLE run8 AS SELECT pg_temp.run_row(:'v8'::uuid, '2025-10-31') AS r;
+SELECT is((SELECT (r->>'paying_now')::NUMERIC FROM run8), 40.00::NUMERIC, 'draft row paying now is the draft amount');
+SELECT is((SELECT (r->>'payable')::NUMERIC FROM run8), 60.00::NUMERIC, 'draft row payable is the stored amount due, not live');
+SELECT is((SELECT (r->>'earned')::NUMERIC FROM run8), 60.00::NUMERIC, 'draft row earned is the stored snapshot, not live');
+SELECT is((SELECT (r->>'payable_before_invoices')::NUMERIC FROM run8), 60.00::NUMERIC, 'draft row payable before invoices is the stored snapshot');
+SELECT is((SELECT (r->>'threshold')::NUMERIC FROM run8), 1.00::NUMERIC, 'draft row threshold is the stored snapshot');
+SELECT is((SELECT r->>'draft_through' FROM run8), '2025-09-30', 'draft vendor shows the draft through date');
+SELECT is((SELECT r->>'status' FROM run8), 'draft', 'draft vendor status is draft');
+SELECT is((SELECT r->>'override_reason' FROM run8), 'Run fixture reason', 'override reason comes from the draft');
+SELECT is((SELECT (r->>'sales_count')::INT FROM run8), 1, 'draft row sales count is the draft''s');
+SELECT is((SELECT (r->>'items_count')::INT FROM run8), 1, 'draft row items count is the draft''s');
+SELECT is((SELECT (r->>'pending_total')::NUMERIC FROM run8), 70.00::NUMERIC, 'draft row pending charge follows the draft scope');
+SELECT is((SELECT (r->>'pending_count')::INT FROM run8), 1, 'draft row pending count follows the draft scope');
+SELECT is(
+  (SELECT (r->>'cutoff_at')::TIMESTAMPTZ FROM run8),
+  public.payout_day_end('2025-09-30') - INTERVAL '1 microsecond',
+  'draft row cutoff is the draft''s stored cutoff'
+);
+
+-- Status, minimum remaining and draft fallbacks.
+SELECT pg_temp.add_sale('b0000000-0000-0000-0000-000000000081', 'c0000000-0000-0000-0000-000000000081', :'v12',
+  '2025-10-10 12:00'::TIMESTAMP AT TIME ZONE 'America/New_York', 50);
+SELECT is((SELECT r->>'status' FROM (SELECT pg_temp.run_row(:'v12'::uuid, '2025-10-31') r) x), 'accruing', 'vendor under the minimum is accruing');
+SELECT is((SELECT (r->>'threshold_remaining')::NUMERIC FROM (SELECT pg_temp.run_row(:'v12'::uuid, '2025-10-31') r) x), 70.00::NUMERIC, 'threshold remaining is the minimum less payable');
+SELECT is((SELECT r->>'status' FROM (SELECT pg_temp.run_row(:'v13'::uuid, '2025-10-31') r) x), 'paid_up', 'active vendor with nothing owed is paid up');
+SELECT is((SELECT (r->>'threshold_remaining')::NUMERIC FROM (SELECT pg_temp.run_row(:'v13'::uuid, '2025-10-31') r) x), 100.00::NUMERIC, 'paid-up vendor is a full minimum short');
+
+-- All-outstanding draft with null snapshots (saved before this release).
+SELECT pg_temp.add_sale('b0000000-0000-0000-0000-000000000091', 'c0000000-0000-0000-0000-000000000091', :'v14',
+  '2025-09-10 12:00'::TIMESTAMP AT TIME ZONE 'America/New_York', 100);
+INSERT INTO public.vendor_ledger_entries (consignor_id, description, amount) VALUES (:'v14', 'Run fixture small charge', 6);
+INSERT INTO run_ids
+SELECT 'r14', public.save_payout_draft(:'v14'::uuid, NULL, 'all_outstanding', NULL, NULL, TRUE, NULL, NULL, NULL, NULL);
+UPDATE public.payouts SET carried_in_snapshot = NULL, earned_snapshot = NULL WHERE id = (SELECT id FROM run_ids WHERE name = 'r14');
+CREATE TEMP TABLE run14 AS SELECT pg_temp.run_row(:'v14'::uuid, '2025-10-31') AS r;
+SELECT is((SELECT r->>'draft_through' FROM run14), (NOW() AT TIME ZONE 'America/New_York')::DATE::TEXT, 'draft without a range end falls back to the store date of its cutoff');
+SELECT is((SELECT (r->>'carried_in')::NUMERIC FROM run14), 0.00::NUMERIC, 'null carried-in snapshot reads as zero');
+SELECT is((SELECT (r->>'earned')::NUMERIC FROM run14), 60.00::NUMERIC, 'null earned snapshot is rebuilt from payable plus deductions');
 
 -- RUN-7: inactive vendor is listed while owed and drops off once paid up.
 SELECT pg_temp.add_sale('b0000000-0000-0000-0000-000000000031', 'c0000000-0000-0000-0000-000000000031', :'v7',
@@ -211,35 +256,30 @@ SELECT isnt(pg_temp.run_row(:'v7'::uuid, '2025-10-31'), NULL::JSONB, 'inactive v
 SELECT is((SELECT r->>'status' FROM (SELECT pg_temp.run_row(:'v7'::uuid, '2025-10-31') r) x), 'ready', 'inactive vendor has no minimum');
 
 CREATE TEMP TABLE paid_before AS
-SELECT public.get_payout_run('2025-10-31')->'paid_in_month' AS pm, public.get_payout_run(NULL)->'paid_in_month' AS pm_now;
+SELECT public.get_payout_run('2025-10-31')->'paid_in_month' AS oct, public.get_payout_run('2025-09-30')->'paid_in_month' AS sep;
 INSERT INTO run_ids
 SELECT 'r7', public.save_payout_draft(:'v7'::uuid, NULL, 'through_date', NULL, '2025-10-31', TRUE, NULL, NULL, NULL, NULL);
 SELECT lives_ok(
-  $$SELECT public.finalize_payout((SELECT id FROM run_ids WHERE name = 'r7'), 'cash', '2025-11-05', NULL, NULL, NULL)$$,
+  $$SELECT public.finalize_payout((SELECT id FROM run_ids WHERE name = 'r7'), 'cash', '2025-10-20', NULL, NULL, NULL)$$,
   'inactive vendor payout finalizes'
 );
 SELECT is(pg_temp.run_row(:'v7'::uuid, '2025-10-31'), NULL::JSONB, 'inactive vendor is not listed once paid up');
 
--- paid_in_month counts the month of the date on screen and excludes voids.
+-- paid_in_month counts by payment date (paid_at is always the recording time) and excludes voids.
 INSERT INTO public.payouts (
-  id, consignor_id, amount, period_start, period_end, paid_at, status, historical_confidence
+  id, consignor_id, amount, period_start, period_end, paid_at, payment_date, status, historical_confidence
 ) VALUES (
-  '30000000-0000-0000-0000-0000000000b1', :'v7', 999, NOW(), NOW(), NOW(), 'voided', 'verified'
-);
-SELECT is(
-  (public.get_payout_run(NULL)->'paid_in_month'->>'count')::INT,
-  (SELECT (pm_now->>'count')::INT FROM paid_before) + 1,
-  'payout paid this month is counted and the voided one is not'
-);
-SELECT is(
-  (public.get_payout_run(NULL)->'paid_in_month'->>'total')::NUMERIC,
-  (SELECT (pm_now->>'total')::NUMERIC FROM paid_before) + 12.00,
-  'paid total grows by the payout amount only'
+  '30000000-0000-0000-0000-0000000000b1', :'v7', 999, NOW(), NOW(), NOW(), '2025-10-15', 'voided', 'verified'
 );
 SELECT is(
   (public.get_payout_run('2025-10-31')->'paid_in_month'->>'count')::INT,
-  (SELECT (pm->>'count')::INT FROM paid_before),
-  'a payout paid in another month is not counted'
+  (SELECT (oct->>'count')::INT FROM paid_before) + 1,
+  'payout dated in the month is counted and the voided one is not'
+);
+SELECT is(
+  (public.get_payout_run('2025-10-31')->'paid_in_month'->>'total')::NUMERIC,
+  (SELECT (oct->>'total')::NUMERIC FROM paid_before) + 12.00,
+  'paid total grows by the payout amount only'
 );
 
 -- prepare_payout_run: skipped, created, failed.
@@ -266,7 +306,11 @@ SELECT cmp_ok((SELECT COUNT(*)::INT FROM public.payout_sale_allocations WHERE pa
 SELECT is(public.discard_payout_draft((SELECT id FROM run_discard)), (SELECT id FROM run_discard), 'discard returns the payout id');
 SELECT is((SELECT COUNT(*)::INT FROM public.payouts WHERE id = (SELECT id FROM run_discard)), 0, 'discard removes the payout');
 SELECT is((SELECT COUNT(*)::INT FROM public.payout_sale_allocations WHERE payout_id = (SELECT id FROM run_discard)), 0, 'discard removes the allocations');
-SELECT is((SELECT COUNT(*)::INT FROM public.payout_adjustments WHERE payout_id = (SELECT id FROM run_discard)), 0, 'discard removes the adjustments');
+CREATE TEMP TABLE run_discard5 AS SELECT id FROM public.payouts WHERE consignor_id = :'v5' AND status = 'draft';
+SELECT cmp_ok((SELECT COUNT(*)::INT FROM public.payout_adjustments WHERE payout_id = (SELECT id FROM run_discard5)), '>', 0, 'draft has adjustments before discard');
+SELECT lives_ok($$SELECT public.discard_payout_draft((SELECT id FROM run_discard5))$$, 'draft with adjustments is discarded');
+SELECT is((SELECT COUNT(*)::INT FROM public.payout_adjustments WHERE payout_id = (SELECT id FROM run_discard5)), 0, 'discard removes the adjustments');
+SELECT is((SELECT COUNT(*)::INT FROM public.payout_sale_allocations WHERE payout_id = (SELECT id FROM run_discard5)), 0, 'discard removes the allocations of that draft too');
 SELECT is(
   (SELECT public.prepare_payout_run('2025-10-31', ARRAY[:'v9'::uuid])->0->>'status'),
   'created', 'prepare creates a new draft after a discard'
@@ -284,8 +328,18 @@ INSERT INTO run_ids
 SELECT 'r6', public.save_payout_draft(:'v6'::uuid, NULL, 'through_date', NULL, '2025-10-31', TRUE, NULL, NULL, NULL, NULL);
 SELECT is((SELECT amount FROM public.payouts WHERE id = (SELECT id FROM run_ids WHERE name = 'r6')), 0.00::NUMERIC, 'invoice-covered draft pays nothing');
 SELECT lives_ok(
-  $$SELECT public.finalize_payout((SELECT id FROM run_ids WHERE name = 'r6'), 'check', '2025-11-05', NULL, NULL, NULL)$$,
+  $$SELECT public.finalize_payout((SELECT id FROM run_ids WHERE name = 'r6'), 'check', '2025-09-30', NULL, NULL, NULL)$$,
   'zero-amount payout finalizes by check without a reference'
+);
+SELECT is(
+  (public.get_payout_run('2025-09-30')->'paid_in_month'->>'count')::INT,
+  (SELECT (sep->>'count')::INT FROM paid_before) + 1,
+  'a payout dated in the previous month counts there'
+);
+SELECT is(
+  (public.get_payout_run('2025-10-31')->'paid_in_month'->>'count')::INT,
+  (SELECT (oct->>'count')::INT FROM paid_before) + 1,
+  'a payout dated in the previous month is not counted in October'
 );
 
 -- Through-date mode forces a null start and prior balance on.
@@ -315,6 +369,9 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f1', TRUE);
 SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
 SELECT throws_like($$SELECT public.get_payout_run('2025-10-31')$$, '%Admin access%', 'vendor cannot read the payout run');
+SELECT throws_like($$SELECT public.get_vendor_payout_preview('a0000000-0000-0000-0000-000000000005'::uuid, '2025-10-31')$$, '%Admin access%', 'vendor cannot read a payout preview');
+SELECT throws_like($$SELECT public.prepare_payout_run('2025-10-31', ARRAY['a0000000-0000-0000-0000-000000000005'::uuid])$$, '%Admin access%', 'vendor cannot prepare payouts');
+SELECT throws_like($$SELECT public.discard_payout_draft('99999999-9999-9999-9999-999999999998'::uuid)$$, '%Admin access%', 'vendor cannot discard drafts');
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
 
