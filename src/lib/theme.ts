@@ -23,9 +23,14 @@ export function getActiveTheme(): ThemeMode {
     return isThemeMode(attr) ? attr : getStoredTheme() || getSystemTheme();
 }
 
+export function themeColorFor(theme: ThemeMode): string {
+    return theme === 'dark' ? '#0f1211' : '#edf0ed';
+}
+
 export function setTheme(theme: ThemeMode, persist = true) {
     if (typeof document !== 'undefined') {
         document.documentElement.setAttribute('data-theme', theme);
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColorFor(theme));
     }
     if (persist && typeof window !== 'undefined') {
         window.localStorage.setItem(THEME_STORAGE_KEY, theme);
