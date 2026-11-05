@@ -28,6 +28,18 @@ function reportDate(value: string | null | undefined): string {
     return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString();
 }
 
+function payoutStatusLabel(payout: Payout): string {
+    if (payout.status === 'voided') return 'Voided';
+    if (payout.status === 'draft') return 'Draft';
+    return payout.is_partial ? 'Partial Payout' : 'Paid';
+}
+
+function payoutReportTitle(payout: Payout): string {
+    if (payout.status === 'voided') return 'Voided Vendor Payout Report';
+    if (payout.status === 'draft') return 'Draft Vendor Payout Report';
+    return 'Completed Vendor Payout Report';
+}
+
 export function buildCompletedPayoutReportHtml(
     payout: Payout,
     details: CompletedPayoutDetails,
@@ -99,7 +111,7 @@ export function buildCompletedPayoutReportHtml(
             </style>
         </head>
         <body>
-            <h1>Completed Vendor Payout Report</h1>
+            <h1>${payoutReportTitle(payout)}</h1>
             <p><strong>${escapeHtml(consignorName)}</strong> (${escapeHtml(consignor?.consignor_number || '')})</p>
             <p>Pay To: ${escapeHtml(payToName)}</p>
             <div class="meta">
@@ -110,7 +122,7 @@ export function buildCompletedPayoutReportHtml(
                 <div><span class="label">Payout ID</span>${escapeHtml(payout.id)}</div>
                 <div><span class="label">Transactions</span>${payout.sales_count}</div>
                 <div><span class="label">Items Sold</span>${payout.items_sold}</div>
-                <div><span class="label">Status</span>${payout.is_partial ? 'Partial Payout' : 'Paid'}</div>
+                <div><span class="label">Status</span>${payoutStatusLabel(payout)}</div>
             </div>
 
             <h2>Sales Included</h2>
@@ -142,7 +154,8 @@ export function buildCompletedPayoutReportHtml(
 
             <div class="summary">
                 <div class="summary-row"><span>Gross Sales</span><span>$${money(payout.gross_sales)}</span></div>
-                <div class="summary-row"><span>Tax Collected</span><span>$${money(payout.tax_collected)}</span></div>
+                ${Number(details.discountTotal || 0) > 0 ? `<div class="summary-row"><span>Discounts</span><span>-$${money(details.discountTotal)}</span></div>` : ''}
+                ${Number(payout.tax_collected || 0) > 0 ? `<div class="summary-row"><span>Tax Collected</span><span>$${money(payout.tax_collected)}</span></div>` : ''}
                 <div class="summary-row"><span>Store Share</span><span>-$${money(payout.store_share)}</span></div>
                 ${Number(payout.credit_card_fees || 0) > 0 ? `<div class="summary-row"><span>Card Fees</span><span>-$${money(payout.credit_card_fees)}</span></div>` : ''}
                 ${Number(payout.booth_rent_deduction || 0) > 0 ? `<div class="summary-row"><span>Booth Rent</span><span>-$${money(payout.booth_rent_deduction)}</span></div>` : ''}
@@ -186,6 +199,10 @@ export function printCompletedPayoutReport(
 
 function buildPayoutStatementDetails(statement: PayoutStatementData): CompletedPayoutDetails {
     return {
+        discountTotal: statement.allocations.reduce(
+            (sum, row) => sum + Number(row.item_discount || 0) + Number(row.allocated_order_discount || 0),
+            0
+        ),
         saleLines: statement.allocations.map((row) => ({
             saleItemId: row.sale_item_id,
             saleDate: row.sale_timestamp,

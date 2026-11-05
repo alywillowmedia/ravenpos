@@ -53,3 +53,8 @@ export function selectInvoicesOldestFirst(availableCents: number, invoices: Arra
 export function reportEquation(input: { openingCents: number; activityCents: number; adjustmentCents: number; paymentCents: number }) {
     return input.openingCents + input.activityCents + input.adjustmentCents - input.paymentCents;
 }
+
+export function normalizeEquationTerm<T extends { amount: number; operator?: '+' | '−' | '=' }>(term: T): T {
+    if (term.amount >= 0 || (term.operator !== '+' && term.operator !== '−')) return term;
+    return { ...term, amount: Math.abs(term.amount), operator: term.operator === '+' ? '−' : '+' };
+}

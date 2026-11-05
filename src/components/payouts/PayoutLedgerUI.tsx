@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, LockKeyhole, TriangleAlert } from 'lucide-react';
 import { Fragment, memo, useMemo, useState, type ReactNode } from 'react';
+import { normalizeEquationTerm } from '../../lib/payoutLedger';
 import { formatCurrency } from '../../lib/utils';
 import type {
     HistoricalConfidence,
@@ -114,7 +115,7 @@ export function FinancialEquation({ terms, note }: { terms: EquationTerm[]; note
     return (
         <section className="border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 sm:px-5">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(120px,1fr))]">
-                {terms.map((term, index) => (
+                {terms.map(normalizeEquationTerm).map((term, index) => (
                     <div key={`${term.label}-${index}`} className="flex min-w-0 items-start gap-3">
                         {term.operator ? <span className="pt-2 text-lg text-[var(--color-muted)]">{term.operator}</span> : null}
                         <div>

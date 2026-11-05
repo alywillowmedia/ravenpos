@@ -20,6 +20,7 @@ import { useEmployeeRoles } from '../hooks/useEmployeeRoles';
 import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../lib/utils';
 import { formatDecimalHours } from '../lib/timeCalculations';
+import { toEmployeeUpdate } from '../lib/employeeInput';
 import { supabase } from '../lib/supabase';
 import { Lock, Mail, UserRound, UserRoundPlus } from 'lucide-react';
 import type { Employee, EmployeeWithStats, TimeEntry, EmployeeInput } from '../types/employee';
@@ -108,17 +109,7 @@ export function Employees() {
     const handleEditEmployee = async (input: EmployeeInput, newPin?: string): Promise<{ error: string | null }> => {
         if (!editingEmployee) return { error: 'No employee selected' };
 
-        const { error } = await updateEmployee(
-            editingEmployee.id,
-            {
-                name: input.name,
-                hourly_rate: input.hourly_rate,
-                is_active: input.is_active,
-                employer: input.employer,
-                employment_type: input.employment_type,
-            },
-            newPin
-        );
+        const { error } = await updateEmployee(editingEmployee.id, toEmployeeUpdate(input), newPin);
         return { error };
     };
 

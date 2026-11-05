@@ -102,4 +102,32 @@ describe('buildPayoutStatementReportHtml', () => {
         expect(html).not.toContain('Go to…');
         expect(html).not.toContain('Void');
     });
+
+    it('labels a voided payout as voided', () => {
+        const html = buildPayoutStatementReportHtml({
+            ...statement,
+            payout: { ...statement.payout, status: 'voided' },
+        });
+
+        expect(html).toContain('Voided Vendor Payout Report');
+        expect(html).toContain('<span class="label">Status</span>Voided');
+        expect(html).not.toContain('Completed Vendor Payout Report');
+    });
+
+    it('shows discounts so the summary adds up to the payout', () => {
+        const [allocation] = statement.allocations;
+        const html = buildPayoutStatementReportHtml({
+            ...statement,
+            allocations: [{ ...allocation, item_discount: 1.5, allocated_order_discount: 0.5 }],
+        });
+
+        expect(html).toContain('<span>Discounts</span><span>-$2.00</span>');
+    });
+
+    it('leaves out the discount and tax rows when there are none', () => {
+        const html = buildPayoutStatementReportHtml(statement);
+
+        expect(html).not.toContain('<span>Discounts</span>');
+        expect(html).not.toContain('Tax Collected');
+    });
 });
