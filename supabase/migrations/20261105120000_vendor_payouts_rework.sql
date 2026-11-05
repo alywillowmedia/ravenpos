@@ -646,3 +646,349 @@ GRANT EXECUTE ON FUNCTION public.payout_day_end(DATE) TO service_role;
 GRANT EXECUTE ON FUNCTION public.payout_sale_in_scope(TIMESTAMPTZ, TEXT, DATE, DATE, BOOLEAN) TO service_role;
 GRANT EXECUTE ON FUNCTION public.get_vendor_payout_threshold(UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.get_payout_scope_summary(UUID, TEXT, DATE, DATE, BOOLEAN, TIMESTAMPTZ) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Payout run: one lean row per vendor, batch prepare and draft discard
+-- ---------------------------------------------------------------------------
+
+-- Row logic shared by the run list and the single-vendor preview.
+CREATE OR REPLACE FUNCTION public.build_payout_run_row(
+  p_consignor_id UUID,
+  p_through DATE
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  c public.consignors%ROWTYPE;
+  d public.payouts%ROWTYPE;
+  s RECORD;
+  v_has_draft BOOLEAN := FALSE;
+  v_threshold NUMERIC;
+  v_last_paid TIMESTAMPTZ;
+  v_carried NUMERIC;
+  v_earned NUMERIC;
+  v_booth NUMERIC;
+  v_other NUMERIC := 0;
+  v_invoices NUMERIC;
+  v_before NUMERIC;
+  v_payable NUMERIC;
+  v_paying NUMERIC;
+  v_status TEXT;
+BEGIN
+  SELECT * INTO c FROM public.consignors WHERE id = p_consignor_id;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  v_threshold := public.get_vendor_payout_threshold(p_consignor_id);
+
+  SELECT * INTO d
+  FROM public.payouts p
+  WHERE p.consignor_id = p_consignor_id AND p.status = 'draft'
+  ORDER BY p.updated_at DESC, p.id DESC
+  LIMIT 1;
+  v_has_draft := FOUND;
+
+  SELECT * INTO s
+  FROM public.get_payout_scope_summary(p_consignor_id, 'through_date', NULL, p_through, TRUE);
+
+  SELECT MAX(p.paid_at) INTO v_last_paid
+  FROM public.payouts p
+  WHERE p.consignor_id = p_consignor_id AND p.status = 'paid';
+
+  IF v_has_draft THEN
+    SELECT ROUND(COALESCE(SUM(-pa.amount), 0), 2) INTO v_other
+    FROM public.payout_adjustments pa
+    WHERE pa.payout_id = d.id
+      AND pa.amount < 0
+      AND pa.adjustment_type NOT IN ('booth_rent', 'invoice_deduction');
+
+    v_threshold := COALESCE(d.threshold_snapshot, v_threshold);
+    v_booth := COALESCE(d.booth_rent_deduction, 0);
+    v_invoices := COALESCE(d.invoice_deduction, 0);
+    v_payable := COALESCE(d.original_amount_due, d.amount);
+    v_paying := d.amount;
+    v_before := COALESCE(d.payable_before_invoices_snapshot, v_payable + v_invoices);
+    v_carried := COALESCE(d.carried_in_snapshot, 0);
+    v_earned := COALESCE(d.earned_snapshot, v_before + v_booth + v_other);
+    v_status := 'draft';
+  ELSE
+    v_booth := s.booth_rent;
+    v_other := s.other_required;
+    v_invoices := s.invoices_applied;
+    v_before := s.payable_before_invoices;
+    v_payable := s.payable;
+    v_paying := s.payable;
+    v_carried := s.carried_in;
+    v_earned := s.earned;
+    v_status := CASE
+      WHEN v_before <= 0 THEN 'paid_up'
+      WHEN v_before >= v_threshold THEN 'ready'
+      ELSE 'accruing'
+    END;
+  END IF;
+
+  RETURN JSONB_BUILD_OBJECT(
+    'consignor_id', c.id,
+    'consignor_number', c.consignor_number,
+    'name', c.name,
+    'business_name', c.business_name,
+    'pay_to_name', CASE
+      WHEN c.pay_to_type = 'individual' THEN COALESCE(
+        NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+        NULLIF(c.business_name, ''),
+        c.name
+      )
+      ELSE COALESCE(
+        NULLIF(c.business_name, ''),
+        NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+        c.name
+      )
+    END,
+    'email', c.email,
+    'is_active', COALESCE(c.is_active, FALSE),
+    'threshold', ROUND(v_threshold, 2),
+    'carried_in', ROUND(v_carried, 2),
+    'earned', ROUND(v_earned, 2),
+    'booth_rent', ROUND(v_booth, 2),
+    'other_deductions', ROUND(v_other, 2),
+    'invoices_applied', ROUND(v_invoices, 2),
+    'payable_before_invoices', ROUND(v_before, 2),
+    'payable', ROUND(v_payable, 2),
+    'paying_now', ROUND(v_paying, 2),
+    'status', v_status,
+    'threshold_remaining', ROUND(GREATEST(v_threshold - v_before, 0), 2),
+    'pending_total', s.pending_total,
+    'pending_count', s.pending_count,
+    'pending_type', s.pending_type,
+    'draft_id', CASE WHEN v_has_draft THEN d.id END,
+    'draft_through', CASE WHEN v_has_draft THEN COALESCE(
+      d.source_range_end,
+      (d.cutoff_at AT TIME ZONE public.payout_store_time_zone())::DATE
+    ) END,
+    'override_reason', CASE WHEN v_has_draft THEN d.below_threshold_override_reason END,
+    'last_paid_at', v_last_paid,
+    'legacy_item_count', s.legacy_item_count,
+    'items_count', s.items_count,
+    'sales_count', s.sales_count,
+    'cutoff_at', public.payout_day_end(p_through) - INTERVAL '1 microsecond'
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_payout_run(p_through DATE DEFAULT NULL)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_through DATE := COALESCE(
+    p_through,
+    (NOW() AT TIME ZONE public.payout_store_time_zone())::DATE
+  );
+  v_month DATE := DATE_TRUNC('month', COALESCE(
+    p_through,
+    (NOW() AT TIME ZONE public.payout_store_time_zone())::DATE
+  ))::DATE;
+  v_rows JSONB;
+  v_paid_count INTEGER;
+  v_paid_total NUMERIC;
+  v_legacy_payouts INTEGER;
+  v_legacy_items BIGINT;
+BEGIN
+  IF NOT (public.is_admin() OR COALESCE(auth.role(), '') = 'service_role') THEN
+    RAISE EXCEPTION 'Admin access is required for the payout run.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT COALESCE(JSONB_AGG(b.r ORDER BY
+    CASE b.r->>'status'
+      WHEN 'draft' THEN 0 WHEN 'ready' THEN 1 WHEN 'accruing' THEN 2 ELSE 3
+    END,
+    (b.r->>'payable')::NUMERIC DESC,
+    b.r->>'consignor_number'
+  ), '[]'::JSONB)
+  INTO v_rows
+  FROM (
+    SELECT public.build_payout_run_row(c.id, v_through) AS r
+    FROM public.consignors c
+  ) b
+  WHERE (b.r->>'is_active')::BOOLEAN
+    OR (b.r->>'payable_before_invoices')::NUMERIC > 0
+    OR b.r->>'draft_id' IS NOT NULL;
+
+  SELECT COUNT(*)::INTEGER, ROUND(COALESCE(SUM(p.amount), 0), 2)
+  INTO v_paid_count, v_paid_total
+  FROM public.payouts p
+  WHERE p.status = 'paid'
+    AND p.paid_at >= public.payout_day_start(v_month)
+    AND p.paid_at < public.payout_day_start((v_month + INTERVAL '1 month')::DATE);
+
+  SELECT COUNT(*)::INTEGER INTO v_legacy_payouts
+  FROM public.payouts p
+  WHERE p.status = 'paid' AND p.historical_confidence = 'legacy_unverified';
+
+  SELECT COALESCE(SUM(x.n), 0) INTO v_legacy_items
+  FROM public.consignors c
+  CROSS JOIN LATERAL (
+    SELECT COUNT(*) AS n
+    FROM public.get_payout_sale_financials(c.id, NOW()) f
+    WHERE f.allocation_status = 'legacy_uncertain'
+  ) x
+  WHERE EXISTS (
+    SELECT 1 FROM public.payouts p
+    WHERE p.consignor_id = c.id
+      AND p.status = 'paid'
+      AND p.historical_confidence = 'legacy_unverified'
+  );
+
+  RETURN JSONB_BUILD_OBJECT(
+    'rows', v_rows,
+    'paid_in_month', JSONB_BUILD_OBJECT('count', v_paid_count, 'total', v_paid_total),
+    'legacy', JSONB_BUILD_OBJECT('payouts', v_legacy_payouts, 'items', v_legacy_items)
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_vendor_payout_preview(
+  p_consignor_id UUID,
+  p_through DATE DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_row JSONB;
+BEGIN
+  IF NOT (public.is_admin() OR COALESCE(auth.role(), '') = 'service_role') THEN
+    RAISE EXCEPTION 'Admin access is required for payout previews.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_row := public.build_payout_run_row(
+    p_consignor_id,
+    COALESCE(p_through, (NOW() AT TIME ZONE public.payout_store_time_zone())::DATE)
+  );
+
+  IF v_row IS NULL THEN
+    RAISE EXCEPTION 'Vendor not found.' USING ERRCODE = 'P0002';
+  END IF;
+
+  RETURN v_row;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.prepare_payout_run(
+  p_through DATE,
+  p_consignor_ids UUID[]
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_id UUID;
+  v_draft_id UUID;
+  v_payout_id UUID;
+  v_results JSONB := '[]'::JSONB;
+BEGIN
+  IF NOT (public.is_admin() OR COALESCE(auth.role(), '') = 'service_role') THEN
+    RAISE EXCEPTION 'Admin access is required to prepare payouts.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_through IS NULL THEN
+    RAISE EXCEPTION 'Earnings through date is required.' USING ERRCODE = '22023';
+  END IF;
+
+  FOR v_id IN
+    SELECT u.id
+    FROM UNNEST(COALESCE(p_consignor_ids, ARRAY[]::UUID[])) WITH ORDINALITY AS u(id, ord)
+    GROUP BY u.id
+    ORDER BY MIN(u.ord)
+  LOOP
+    SELECT p.id INTO v_draft_id
+    FROM public.payouts p
+    WHERE p.consignor_id = v_id AND p.status = 'draft'
+    ORDER BY p.updated_at DESC, p.id DESC
+    LIMIT 1;
+
+    IF v_draft_id IS NOT NULL THEN
+      v_results := v_results || JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT(
+        'consignor_id', v_id, 'payout_id', v_draft_id,
+        'status', 'skipped', 'message', 'Already has a draft.'
+      ));
+      CONTINUE;
+    END IF;
+
+    BEGIN
+      v_payout_id := public.save_payout_draft(
+        v_id, NULL, 'through_date', NULL, p_through, TRUE, NULL, NULL, NULL, NULL
+      );
+      v_results := v_results || JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT(
+        'consignor_id', v_id, 'payout_id', v_payout_id,
+        'status', 'created', 'message', NULL
+      ));
+    EXCEPTION WHEN OTHERS THEN
+      v_results := v_results || JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT(
+        'consignor_id', v_id, 'payout_id', NULL,
+        'status', 'failed', 'message', SQLERRM
+      ));
+    END;
+  END LOOP;
+
+  RETURN v_results;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.discard_payout_draft(p_payout_id UUID)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_status TEXT;
+BEGIN
+  IF NOT (public.is_admin() OR COALESCE(auth.role(), '') = 'service_role') THEN
+    RAISE EXCEPTION 'Admin access is required to discard payout drafts.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT p.status INTO v_status
+  FROM public.payouts p
+  WHERE p.id = p_payout_id
+  FOR UPDATE;
+
+  IF NOT FOUND OR v_status <> 'draft' THEN
+    RAISE EXCEPTION 'Only drafts can be discarded.' USING ERRCODE = 'P0002';
+  END IF;
+
+  DELETE FROM public.payout_adjustments WHERE payout_id = p_payout_id;
+  DELETE FROM public.payout_sale_allocations WHERE payout_id = p_payout_id;
+  DELETE FROM public.payouts WHERE id = p_payout_id;
+
+  RETURN p_payout_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.build_payout_run_row(UUID, DATE) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.get_payout_run(DATE) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.get_vendor_payout_preview(UUID, DATE) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.prepare_payout_run(DATE, UUID[]) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.discard_payout_draft(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.build_payout_run_row(UUID, DATE) TO service_role;
+GRANT EXECUTE ON FUNCTION public.get_payout_run(DATE) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_vendor_payout_preview(UUID, DATE) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.prepare_payout_run(DATE, UUID[]) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.discard_payout_draft(UUID) TO authenticated, service_role;
