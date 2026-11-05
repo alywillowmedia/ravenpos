@@ -375,5 +375,179 @@ SELECT throws_like($$SELECT public.discard_payout_draft('99999999-9999-9999-9999
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
 
+-- ---------------------------------------------------------------------------
+-- Statement, workspace and vendor earnings
+-- ---------------------------------------------------------------------------
+\set v15 'a0000000-0000-0000-0000-00000000000f'
+\set v16 'a0000000-0000-0000-0000-000000000010'
+
+INSERT INTO public.consignors (
+  id, consignor_number, name, business_name, commission_split,
+  consignor_pays_card_fee, payout_threshold_override, is_active, email
+) VALUES
+  (:'v15', 'RUN-15', 'Run Fifteen', 'Run Fifteen Studio', 0.60, TRUE, 1, TRUE, 'run15@example.test'),
+  (:'v16', 'RUN-16', 'Run Sixteen', 'Run Sixteen Studio', 0.60, FALSE, 1, TRUE, 'run16@example.test');
+
+ALTER TABLE public.employees DISABLE TRIGGER USER;
+INSERT INTO public.employees (id, name, pin_hash, pin_salt)
+VALUES ('50000000-0000-0000-0000-0000000000f9', 'Run Admin Person', 'test-hash', 'test-salt');
+ALTER TABLE public.employees ENABLE TRIGGER USER;
+INSERT INTO auth.users (id) VALUES
+  ('20000000-0000-0000-0000-0000000000f2'),
+  ('20000000-0000-0000-0000-0000000000f3'),
+  ('20000000-0000-0000-0000-0000000000f4'),
+  ('20000000-0000-0000-0000-0000000000f5');
+ALTER TABLE public.users DISABLE TRIGGER USER;
+INSERT INTO public.users (id, email, role, consignor_id, employee_id) VALUES
+  ('20000000-0000-0000-0000-0000000000f2', 'run-vendor1@example.test', 'vendor', :'v1', NULL),
+  ('20000000-0000-0000-0000-0000000000f3', 'run-vendor3@example.test', 'vendor', :'v3', NULL),
+  ('20000000-0000-0000-0000-0000000000f4', 'run-admin@example.test', 'admin', NULL, NULL),
+  ('20000000-0000-0000-0000-0000000000f5', 'run-staff@example.test', 'employee', NULL, '50000000-0000-0000-0000-0000000000f9');
+ALTER TABLE public.users ENABLE TRIGGER USER;
+
+-- Card sale where the vendor carries the card fee.
+INSERT INTO public.sales (
+  id, completed_at, subtotal, tax_amount, total, payment_method, discount_total, payment_breakdown
+) VALUES (
+  'b0000000-0000-0000-0000-0000000000a1', '2025-10-10 12:00'::TIMESTAMP AT TIME ZONE 'America/New_York',
+  200, 0, 200, 'card', 0,
+  JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT('method', 'card', 'amount', 200))
+);
+INSERT INTO public.sale_items (
+  id, sale_id, consignor_id, sku, name, price, quantity,
+  commission_split, discount_amount, consignor_pays_card_fee
+) VALUES (
+  'c0000000-0000-0000-0000-0000000000a1', 'b0000000-0000-0000-0000-0000000000a1', :'v15', 'RUN-CARD', 'Card item',
+  200, 1, 0.60, 0, TRUE
+);
+
+-- 9pm Eastern on the last day of the range (pins the range preview boundary).
+SELECT pg_temp.add_sale('b0000000-0000-0000-0000-0000000000a2', 'c0000000-0000-0000-0000-0000000000a2', :'v16',
+  '2025-10-20 21:00'::TIMESTAMP AT TIME ZONE 'America/New_York', 100);
+
+GRANT SELECT ON run_ids TO authenticated;
+
+-- The RUN-1 vendor cannot open a draft statement.
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f2', TRUE);
+SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
+SELECT throws_like(
+  $$SELECT public.get_payout_statement((SELECT id FROM run_ids WHERE name = 'r1'))$$,
+  '%not found%', 'vendor cannot read their own draft statement'
+);
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
+
+-- Emails: newest row wins.
+INSERT INTO public.payout_statement_emails (payout_id, recipient, status, error, created_at)
+VALUES ((SELECT id FROM run_ids WHERE name = 'r1'), 'run1@example.test', 'failed', 'bounced', NOW() - INTERVAL '2 days');
+INSERT INTO public.payout_statement_emails (payout_id, recipient, status, provider_id, created_at)
+VALUES ((SELECT id FROM run_ids WHERE name = 'r1'), 'run1@example.test', 'sent', 'prov-1', NOW() - INTERVAL '1 day');
+
+-- Finalize RUN-1 as the named admin so paid_by is set.
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f4', TRUE);
+SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
+SELECT lives_ok(
+  $$SELECT public.finalize_payout((SELECT id FROM run_ids WHERE name = 'r1'), 'cash', '2025-11-05', NULL, NULL, 'Fixture override')$$,
+  'admin finalizes the RUN-1 payout'
+);
+SELECT is(
+  (public.get_payout_statement((SELECT id FROM run_ids WHERE name = 'r1'))->'actors'->>'paid_by_name'),
+  'run-admin@example.test', 'admin sees who paid, by sign-in email when there is no employee record'
+);
+SELECT is(
+  (public.get_payout_statement((SELECT id FROM run_ids WHERE name = 'r1'))->'actors'->>'prepared_by_name'),
+  NULL::TEXT, 'actors keeps a null name when nobody prepared it'
+);
+SELECT is(
+  (public.get_payout_statement((SELECT id FROM run_ids WHERE name = 'r1'))->'latest_email'->>'status'),
+  'sent', 'admin sees the newest statement email'
+);
+SELECT is(
+  (public.get_payout_statement((SELECT id FROM run_ids WHERE name = 'r1'))->'latest_email'->>'provider_id'),
+  'prov-1', 'latest email carries its provider id'
+);
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
+
+SELECT is(public.payout_actor_name('20000000-0000-0000-0000-0000000000f5'::uuid), 'Run Admin Person', 'actor name prefers the employee name');
+SELECT is(public.payout_actor_name('20000000-0000-0000-0000-0000000000f4'::uuid), 'run-admin@example.test', 'actor name falls back to the sign-in email');
+SELECT is(public.payout_actor_name(NULL), NULL::TEXT, 'no user gives no name');
+
+-- The RUN-1 vendor can read the paid statement but not the audit details.
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f2', TRUE);
+SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
+SELECT lives_ok(
+  $$SELECT public.get_payout_statement((SELECT id FROM run_ids WHERE name = 'r1'))$$,
+  'vendor reads their paid statement'
+);
+SELECT is(public.get_payout_statement((SELECT id FROM run_ids WHERE name = 'r1'))->'actors', 'null'::JSONB, 'vendor gets no actors');
+SELECT is(public.get_payout_statement((SELECT id FROM run_ids WHERE name = 'r1'))->'latest_email', 'null'::JSONB, 'vendor gets no email record');
+
+-- Server-side vendor earnings.
+SELECT is(
+  (SELECT (e->>'vendor_earnings')::NUMERIC
+   FROM JSONB_ARRAY_ELEMENTS(public.get_vendor_sale_earnings('a0000000-0000-0000-0000-000000000001'::uuid)) e
+   WHERE e->>'sale_item_id' = 'c0000000-0000-0000-0000-000000000001'),
+  60.00::NUMERIC, 'vendor sees their own September item earnings'
+);
+SELECT throws_ok(
+  $$SELECT public.get_vendor_sale_earnings('a0000000-0000-0000-0000-000000000003'::uuid)$$,
+  '42501', NULL, 'vendor cannot read another vendor earnings'
+);
+SELECT is((SELECT COUNT(*)::INT FROM public.payout_statement_emails), 0, 'vendor reads no statement email rows');
+SELECT throws_like(
+  $$INSERT INTO public.payout_statement_emails (payout_id, recipient, status)
+    VALUES ((SELECT id FROM run_ids WHERE name = 'r1'), 'x@example.test', 'sent')$$,
+  '%permission denied%', 'authenticated cannot insert statement emails'
+);
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
+
+-- Admin earnings for a card-fee-on-vendor item match the ledger cut, not net x split.
+CREATE TEMP TABLE card_item AS
+SELECT f.final_vendor_cut, ROUND(f.net_line_amount * f.commission_percentage, 2) AS net_times_split
+FROM public.get_payout_sale_financials('a0000000-0000-0000-0000-00000000000f'::uuid, NOW()) f
+WHERE f.sale_item_id = 'c0000000-0000-0000-0000-0000000000a1';
+GRANT SELECT ON card_item TO authenticated;
+SELECT ok((SELECT final_vendor_cut < net_times_split FROM card_item), 'fixture: the card fee lands on the vendor');
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f4', TRUE);
+SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
+SELECT is(
+  (SELECT (e->>'vendor_earnings')::NUMERIC
+   FROM JSONB_ARRAY_ELEMENTS(public.get_vendor_sale_earnings('a0000000-0000-0000-0000-00000000000f'::uuid)) e
+   WHERE e->>'sale_item_id' = 'c0000000-0000-0000-0000-0000000000a1'),
+  (SELECT final_vendor_cut FROM card_item),
+  'card fee on the vendor: earnings equal the final vendor cut'
+);
+SELECT ok(
+  (SELECT (e->>'vendor_earnings')::NUMERIC
+   FROM JSONB_ARRAY_ELEMENTS(public.get_vendor_sale_earnings('a0000000-0000-0000-0000-00000000000f'::uuid)) e
+   WHERE e->>'sale_item_id' = 'c0000000-0000-0000-0000-0000000000a1') < (SELECT net_times_split FROM card_item),
+  'card fee on the vendor: earnings are below net x split'
+);
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
+
+-- Workspace: inactive vendor has no minimum and no email; active vendor shows email.
+SELECT is((public.get_vendor_payout_workspace(:'v2'::uuid)->'summary'->>'threshold')::NUMERIC, 0::NUMERIC, 'inactive vendor workspace reports a zero minimum');
+SELECT is(public.get_vendor_payout_workspace(:'v2'::uuid)->'vendor'->>'email', NULL::TEXT, 'vendor without email reports null');
+SELECT is(public.get_vendor_payout_workspace(:'v1'::uuid)->'vendor'->>'email', 'run1@example.test', 'workspace carries the vendor email');
+SELECT is(
+  JSONB_ARRAY_LENGTH(public.get_vendor_payout_workspace(:'v16'::uuid, '2025-10-20', '2025-10-20')->'sale_items'),
+  1, 'workspace range end covers 9pm Eastern on the last day'
+);
+
+-- Older desktop builds: range preview counts a 9pm Eastern sale on the range end.
+SELECT is(
+  (SELECT (r->>'items_count')::INT
+   FROM JSONB_ARRAY_ELEMENTS(public.get_payout_range_preview('2025-10-20', '2025-10-20')) r
+   WHERE r->>'consignor_id' = 'a0000000-0000-0000-0000-000000000010'),
+  1, 'range preview counts a sale at 9pm Eastern on the range end'
+);
+
 SELECT * FROM finish();
 ROLLBACK;

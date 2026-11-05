@@ -1011,3 +1011,453 @@ GRANT EXECUTE ON FUNCTION public.get_payout_run(DATE) TO authenticated, service_
 GRANT EXECUTE ON FUNCTION public.get_vendor_payout_preview(UUID, DATE) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.prepare_payout_run(DATE, UUID[]) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.discard_payout_draft(UUID) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Statement actors, workspace store time and server-side vendor earnings
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.payout_actor_name(p_user_id UUID)
+RETURNS TEXT
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT COALESCE(e.name, u.email)
+  FROM public.users u
+  LEFT JOIN public.employees e ON e.id = u.employee_id
+  WHERE u.id = p_user_id;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_payout_statement(p_payout_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_payout public.payouts%ROWTYPE;
+  v_vendor JSONB;
+  v_allocations JSONB;
+  v_adjustments JSONB;
+  v_invoice_payments JSONB;
+  v_reversal JSONB;
+  v_is_admin BOOLEAN;
+  v_actors JSONB;
+  v_latest_email JSONB;
+BEGIN
+  SELECT * INTO v_payout FROM public.payouts p WHERE p.id = p_payout_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Payout not found.' USING ERRCODE = 'P0002';
+  END IF;
+
+  v_is_admin := public.is_admin() OR COALESCE(auth.role(), '') = 'service_role';
+
+  IF NOT v_is_admin AND NOT (
+    COALESCE(public.get_user_role(), '') = 'vendor'
+    AND COALESCE(public.get_user_consignor_id() = v_payout.consignor_id, FALSE)
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to view this payout statement.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Drafts are internal until they are paid.
+  IF NOT v_is_admin AND v_payout.status = 'draft' THEN
+    RAISE EXCEPTION 'Payout not found.' USING ERRCODE = 'P0002';
+  END IF;
+
+  SELECT JSONB_BUILD_OBJECT(
+    'id', c.id,
+    'consignor_number', c.consignor_number,
+    'name', c.name,
+    'business_name', c.business_name,
+    'pay_to_name', CASE
+      WHEN c.pay_to_type = 'individual' THEN COALESCE(
+        NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+        NULLIF(c.business_name, ''), c.name
+      )
+      ELSE COALESCE(
+        NULLIF(c.business_name, ''),
+        NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.name
+      )
+    END
+  ) INTO v_vendor
+  FROM public.consignors c
+  WHERE c.id = v_payout.consignor_id;
+
+  SELECT COALESCE(JSONB_AGG(TO_JSONB(psa) ORDER BY psa.sale_timestamp, psa.sale_id, psa.sale_item_id), '[]'::JSONB)
+  INTO v_allocations
+  FROM public.payout_sale_allocations psa
+  WHERE psa.payout_id = p_payout_id;
+
+  SELECT COALESCE(JSONB_AGG(TO_JSONB(pa) ORDER BY pa.created_at, pa.id), '[]'::JSONB)
+  INTO v_adjustments
+  FROM public.payout_adjustments pa
+  WHERE pa.payout_id = p_payout_id;
+
+  SELECT COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT(
+    'id', ip.id,
+    'invoice_id', ip.invoice_id,
+    'invoice_number', UPPER(LEFT(ip.invoice_id::TEXT, 8)),
+    'payment_type', ip.payment_type,
+    'amount', ip.amount,
+    'paid_date', ip.paid_date,
+    'reference', ip.reference,
+    'notes', ip.notes,
+    'created_at', ip.created_at,
+    'invoice_total', i.total,
+    'invoice_status', i.status
+  ) ORDER BY ip.paid_date, ip.created_at, ip.id), '[]'::JSONB)
+  INTO v_invoice_payments
+  FROM public.invoice_payments ip
+  JOIN public.invoices i ON i.id = ip.invoice_id
+  WHERE ip.payout_id = p_payout_id;
+
+  SELECT TO_JSONB(pr) INTO v_reversal
+  FROM public.payout_reversals pr
+  WHERE pr.payout_id = p_payout_id;
+
+  IF v_is_admin THEN
+    v_actors := JSONB_BUILD_OBJECT(
+      'prepared_by_name', public.payout_actor_name(v_payout.prepared_by),
+      'paid_by_name', public.payout_actor_name(v_payout.paid_by),
+      'voided_by_name', public.payout_actor_name(v_payout.voided_by),
+      'reversed_by_name', public.payout_actor_name((v_reversal->>'reversed_by')::UUID)
+    );
+
+    SELECT TO_JSONB(e) INTO v_latest_email
+    FROM public.payout_statement_emails e
+    WHERE e.payout_id = p_payout_id
+    ORDER BY e.created_at DESC, e.id DESC
+    LIMIT 1;
+  END IF;
+
+  RETURN JSONB_BUILD_OBJECT(
+    'payout', TO_JSONB(v_payout),
+    'vendor', v_vendor,
+    'allocations', v_allocations,
+    'adjustments', v_adjustments,
+    'invoice_payments', v_invoice_payments,
+    'reversal', v_reversal,
+    'is_exact', v_payout.historical_confidence IN ('verified', 'reconciled')
+      AND JSONB_ARRAY_LENGTH(v_allocations) > 0,
+    'actors', v_actors,
+    'latest_email', v_latest_email
+  );
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION public.get_vendor_payout_workspace(
+  p_consignor_id UUID,
+  p_range_start DATE DEFAULT NULL,
+  p_range_end DATE DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_role TEXT := public.get_user_role();
+  v_is_admin BOOLEAN := public.is_admin() OR COALESCE(auth.role(), '') = 'service_role';
+  v_as_of TIMESTAMPTZ := CASE
+    WHEN p_range_end IS NULL THEN NOW()
+    ELSE public.payout_day_end(p_range_end) - INTERVAL '1 microsecond'
+  END;
+  v_opening_as_of TIMESTAMPTZ := CASE
+    WHEN p_range_start IS NULL THEN NULL
+    ELSE public.payout_day_start(p_range_start) - INTERVAL '1 microsecond'
+  END;
+  v_vendor JSONB;
+  v_sale_items JSONB;
+  v_adjustments JSONB;
+  v_invoices JSONB;
+  v_history JSONB;
+  v_sources NUMERIC := 0;
+  v_required NUMERIC := 0;
+  v_current NUMERIC := 0;
+  v_opening NUMERIC := 0;
+  v_closing NUMERIC := 0;
+  v_payments NUMERIC := 0;
+  v_applied_adjustments NUMERIC := 0;
+  v_range_activity NUMERIC := 0;
+  v_threshold NUMERIC := 100;
+  v_draft_id UUID;
+  v_legacy_exceptions INTEGER := 0;
+BEGIN
+  IF NOT v_is_admin AND NOT (
+    COALESCE(v_role, '') = 'vendor'
+    AND COALESCE(public.get_user_consignor_id() = p_consignor_id, FALSE)
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to view this vendor payout workspace.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT JSONB_BUILD_OBJECT(
+    'id', c.id,
+    'consignor_number', c.consignor_number,
+    'name', c.name,
+    'business_name', c.business_name,
+    'pay_to_name', CASE
+      WHEN c.pay_to_type = 'individual' THEN COALESCE(
+        NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+        NULLIF(c.business_name, ''),
+        c.name
+      )
+      ELSE COALESCE(
+        NULLIF(c.business_name, ''),
+        NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+        c.name
+      )
+    END,
+    'email', c.email,
+    'booth_location', c.booth_location,
+    'has_w9_filled_out', COALESCE(c.has_w9_filled_out, FALSE),
+    'commission_split', c.commission_split,
+    'payout_threshold_override', c.payout_threshold_override
+  )
+  INTO v_vendor
+  FROM public.consignors c
+  WHERE c.id = p_consignor_id;
+
+  IF v_vendor IS NULL THEN
+    RAISE EXCEPTION 'Vendor not found.' USING ERRCODE = 'P0002';
+  END IF;
+
+  v_threshold := COALESCE(public.get_vendor_payout_threshold(p_consignor_id), 100);
+
+  SELECT
+    COALESCE(JSONB_AGG(TO_JSONB(f) ORDER BY f.sale_timestamp DESC, f.sale_id, f.sale_item_id), '[]'::JSONB),
+    ROUND(COALESCE(SUM(f.remaining_amount), 0), 2),
+    COUNT(*) FILTER (WHERE f.allocation_status = 'legacy_uncertain')
+  INTO v_sale_items, v_sources, v_legacy_exceptions
+  FROM public.get_payout_sale_financials(p_consignor_id, v_as_of) f;
+
+  v_sources := ROUND(v_sources + public.get_legacy_balance_remaining(p_consignor_id, v_as_of), 2);
+
+  SELECT
+    COALESCE(JSONB_AGG(TO_JSONB(a) ORDER BY a.will_apply DESC, a.adjustment_type, a.source_reference), '[]'::JSONB),
+    ROUND(COALESCE(SUM(a.amount) FILTER (WHERE a.will_apply), 0), 2)
+  INTO v_adjustments, v_required
+  FROM public.get_vendor_required_adjustments(p_consignor_id, v_sources, v_as_of) a;
+
+  v_closing := ROUND(GREATEST(v_sources - v_required, 0), 2);
+  v_current := public.get_vendor_payable_at(p_consignor_id, NOW());
+  v_opening := CASE WHEN v_opening_as_of IS NULL THEN 0
+    ELSE public.get_vendor_payable_at(p_consignor_id, v_opening_as_of)
+  END;
+
+  SELECT ROUND(COALESCE(SUM(p.amount), 0), 2)
+  INTO v_payments
+  FROM public.payouts p
+  WHERE p.consignor_id = p_consignor_id
+    AND p.status = 'paid'
+    AND (p_range_start IS NULL OR p.paid_at >= public.payout_day_start(p_range_start))
+    AND p.paid_at <= v_as_of;
+
+  SELECT ROUND(COALESCE(SUM(pa.amount), 0), 2)
+  INTO v_applied_adjustments
+  FROM public.payout_adjustments pa
+  JOIN public.payouts p ON p.id = pa.payout_id
+  WHERE pa.consignor_id = p_consignor_id
+    AND p.status = 'paid'
+    AND (p_range_start IS NULL OR p.paid_at >= public.payout_day_start(p_range_start))
+    AND p.paid_at <= v_as_of;
+
+  v_range_activity := ROUND(v_closing - v_opening - v_applied_adjustments + v_payments, 2);
+
+  SELECT COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT(
+    'id', i.id,
+    'invoice_number', UPPER(LEFT(i.id::TEXT, 8)),
+    'created_at', i.created_at,
+    'total', ROUND(i.total, 2),
+    'amount_paid', ROUND(i.amount_paid, 2),
+    'balance_due', ROUND(GREATEST(i.total - i.amount_paid, 0), 2),
+    'status', i.status,
+    'notes', i.notes
+  ) ORDER BY i.created_at, i.id), '[]'::JSONB)
+  INTO v_invoices
+  FROM public.invoices i
+  WHERE i.recipient_type = 'vendor'
+    AND i.consignor_id = p_consignor_id
+    AND i.status IN ('unpaid', 'partially_paid');
+
+  SELECT COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT(
+    'id', p.id,
+    'status', p.status,
+    'amount', p.amount,
+    'paid_at', p.paid_at,
+    'payment_method', p.payment_method,
+    'payment_reference', p.payment_reference,
+    'historical_confidence', p.historical_confidence,
+    'reconciliation_explanation', p.reconciliation_explanation,
+    'items_sold', p.items_sold
+  ) ORDER BY COALESCE(p.paid_at, p.prepared_at) DESC, p.id DESC), '[]'::JSONB)
+  INTO v_history
+  FROM public.payouts p
+  WHERE p.consignor_id = p_consignor_id
+    AND p.status IN ('paid', 'voided');
+
+  SELECT p.id INTO v_draft_id
+  FROM public.payouts p
+  WHERE p.consignor_id = p_consignor_id AND p.status = 'draft'
+  ORDER BY p.updated_at DESC, p.id DESC
+  LIMIT 1;
+
+  RETURN JSONB_BUILD_OBJECT(
+    'vendor', v_vendor,
+    'summary', JSONB_BUILD_OBJECT(
+      'opening_balance', v_opening,
+      'range_activity', v_range_activity,
+      'applied_adjustments', v_applied_adjustments,
+      'payments_in_range', v_payments,
+      'closing_balance', v_closing,
+      'current_payable', v_current,
+      'threshold', ROUND(v_threshold, 2),
+      'threshold_remaining', ROUND(GREATEST(v_threshold - v_current, 0), 2),
+      'threshold_progress', CASE WHEN v_threshold <= 0 THEN 100
+        ELSE ROUND(LEAST(v_current / v_threshold * 100, 100), 1)
+      END,
+      'readiness', CASE
+        WHEN v_draft_id IS NOT NULL THEN 'draft'
+        WHEN v_current <= 0 THEN 'paid_up'
+        WHEN v_current >= v_threshold THEN 'ready'
+        ELSE 'accruing'
+      END,
+      'draft_id', v_draft_id,
+      'legacy_exception_count', v_legacy_exceptions,
+      'range_start', p_range_start,
+      'range_end', p_range_end
+    ),
+    'sale_items', v_sale_items,
+    'required_adjustments', v_adjustments,
+    'invoices', v_invoices,
+    'payout_history', v_history
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_vendor_payout_workspace(UUID, DATE, DATE) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_vendor_payout_workspace(UUID, DATE, DATE)
+  TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.get_vendor_sale_earnings(p_consignor_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF NOT (public.is_admin() OR COALESCE(auth.role(), '') = 'service_role') AND NOT (
+    COALESCE(public.get_user_role(), '') = 'vendor'
+    AND COALESCE(public.get_user_consignor_id() = p_consignor_id, FALSE)
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to view this vendor.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN COALESCE((
+    SELECT JSONB_AGG(JSONB_BUILD_OBJECT(
+      'sale_item_id', f.sale_item_id,
+      'vendor_earnings', f.final_vendor_cut
+    ) ORDER BY f.sale_timestamp DESC, f.sale_id, f.sale_item_id)
+    FROM public.get_payout_sale_financials(p_consignor_id, NOW()) f
+  ), '[]'::JSONB);
+END;
+$$;
+
+-- Older desktop builds still call the range preview; it now uses store time.
+CREATE OR REPLACE FUNCTION public.get_payout_range_preview(
+  p_range_start DATE,
+  p_range_end DATE
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_now TIMESTAMPTZ := NOW();
+  v_rows JSONB;
+BEGIN
+  IF NOT (public.is_admin() OR COALESCE(auth.role(), '') = 'service_role') THEN
+    RAISE EXCEPTION 'Admin access is required for the payout range preview.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_range_start IS NULL OR p_range_end IS NULL OR p_range_start > p_range_end THEN
+    RAISE EXCEPTION 'Range previews require a valid start and end date.'
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT(
+    'consignor_id', r.consignor_id,
+    'sales_count', r.sales_count,
+    'items_count', r.items_count,
+    'range_earnings', r.range_earnings,
+    'already_paid', r.already_paid,
+    'deductions', r.deductions,
+    'invoice_balance', r.invoice_balance,
+    'invoices_applied', ROUND(LEAST(r.invoice_balance, GREATEST(r.range_earnings - r.deductions, 0)), 2),
+    'estimated_payout', ROUND(GREATEST(r.range_earnings - r.deductions - r.invoice_balance, 0), 2)
+  ) ORDER BY r.consignor_number), '[]'::JSONB)
+  INTO v_rows
+  FROM (
+    SELECT
+      c.id AS consignor_id,
+      c.consignor_number,
+      s.sales_count,
+      s.items_count,
+      s.range_earnings,
+      s.already_paid,
+      COALESCE((
+        SELECT ROUND(SUM(a.amount), 2)
+        FROM public.get_vendor_required_adjustments(c.id, s.range_earnings, v_now) a
+        WHERE a.will_apply
+      ), 0) AS deductions,
+      COALESCE((
+        SELECT ROUND(SUM(ROUND(GREATEST(i.total - i.amount_paid, 0), 2)), 2)
+        FROM public.invoices i
+        WHERE i.recipient_type = 'vendor'
+          AND i.consignor_id = c.id
+          AND i.status IN ('unpaid', 'partially_paid')
+      ), 0) AS invoice_balance
+    FROM public.consignors c
+    CROSS JOIN LATERAL (
+      SELECT
+        COUNT(DISTINCT f.sale_id) FILTER (WHERE f.eligible)::INTEGER AS sales_count,
+        COALESCE(SUM(f.quantity - f.refunded_quantity) FILTER (WHERE f.eligible), 0)::INTEGER AS items_count,
+        ROUND(COALESCE(SUM(f.remaining_amount) FILTER (WHERE f.eligible), 0), 2) AS range_earnings,
+        ROUND(COALESCE(SUM(f.paid_amount), 0), 2) AS already_paid
+      FROM (
+        SELECT
+          sf.*,
+          sf.remaining_amount > 0 AND sf.allocation_status <> 'legacy_uncertain' AS eligible
+        FROM public.get_payout_sale_financials(c.id, v_now) sf
+        WHERE sf.sale_timestamp >= public.payout_day_start(p_range_start)
+          AND sf.sale_timestamp < public.payout_day_end(p_range_end)
+      ) f
+    ) s
+    WHERE c.is_active = TRUE
+  ) r;
+
+  RETURN v_rows;
+END;
+$$;
+
+
+REVOKE ALL ON FUNCTION public.payout_actor_name(UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.get_vendor_sale_earnings(UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.get_payout_statement(UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.get_vendor_payout_workspace(UUID, DATE, DATE) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.get_payout_range_preview(DATE, DATE) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.payout_actor_name(UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION public.get_vendor_sale_earnings(UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_payout_statement(UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_vendor_payout_workspace(UUID, DATE, DATE) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_payout_range_preview(DATE, DATE) TO authenticated, service_role;
