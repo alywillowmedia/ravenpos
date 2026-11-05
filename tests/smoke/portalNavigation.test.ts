@@ -9,6 +9,7 @@ import {
     isRegisterRoute,
     pathIsActive,
     resolveSidebarState,
+    shouldCloseFlyoutOnClick,
     vendorNavigation,
 } from '../../src/components/layout/portalNavigation';
 
@@ -100,6 +101,12 @@ describe('portal navigation registry', () => {
         expect(sections.map((section) => section.name)).toEqual(['Overview', 'Inventory', 'People', 'Money', 'Team', 'Store', 'Settings']);
         expect(sections[0].items.map((item) => item.name)).toEqual(['Dashboard', 'Point of Sale', 'Sales history']);
         expect(sections[6].items.map((item) => item.name)).toEqual(['Profile & settings']);
+    });
+
+    it('keeps a flyout open on the tap that opened it', () => {
+        expect(shouldCloseFlyoutOnClick(true, true)).toBe(false);
+        expect(shouldCloseFlyoutOnClick(true, false)).toBe(true);
+        expect(shouldCloseFlyoutOnClick(false, false)).toBe(false);
     });
 
     it('marks only the deepest matching item active', () => {

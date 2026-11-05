@@ -177,6 +177,10 @@ export function getAdminMobileSections(entries: PortalNavEntry[]): Array<{ name:
     ];
 }
 
+export function shouldCloseFlyoutOnClick(isOpen: boolean, openedByThisPress: boolean): boolean {
+    return isOpen && !openedByThisPress;
+}
+
 export function isRegisterRoute(pathname: string): boolean {
     return pathIsActive(pathname, '/admin/pos') || pathIsActive(pathname, '/employee/pos');
 }

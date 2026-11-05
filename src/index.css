@@ -216,6 +216,7 @@ textarea {
   --color-info-bg: #e8eef4;
   --color-success-foreground: var(--dw-bg);
   --color-danger-foreground: var(--dw-bg);
+  --font-mono: 'SF Mono', 'Fira Code', ui-monospace, monospace;
   --radius-md: var(--dw-radius);
   --radius-lg: var(--dw-radius);
   --radius-xl: var(--dw-panel-radius);

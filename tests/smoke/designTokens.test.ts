@@ -122,6 +122,7 @@ describe('design tokens', () => {
         expect(token(storefront, '--color-primary')).toBe('var(--dw-ink)');
         expect(token(storefront, '--radius-lg')).toBe('var(--dw-radius)');
         expect(token(storefront, '--color-success')).toBe('#4a6b3a');
+        expect(token(storefront, '--font-mono')).toBe("'SF Mono', 'Fira Code', ui-monospace, monospace");
 
         const storefrontDark = block(":root[data-theme='dark'] .ravenlia-storefront");
         expect(token(storefrontDark, '--color-success')).toBe('#82a86a');

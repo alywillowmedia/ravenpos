@@ -1,4 +1,7 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { Money } from '../../src/components/ui/Money';
 import { splitMoney } from '../../src/lib/money';
 
 describe('splitMoney', () => {
@@ -16,5 +19,11 @@ describe('splitMoney', () => {
 
     it('never shows NaN while data loads', () => {
         expect(splitMoney(Number.NaN)).toEqual({ whole: '$0', cents: '.00' });
+    });
+});
+
+describe('Money', () => {
+    it('uses tabular figures', () => {
+        expect(renderToStaticMarkup(createElement(Money, { amount: 12.5 }))).toContain('tabular-nums');
     });
 });
