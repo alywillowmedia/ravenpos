@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { localDateString } from '../lib/payoutRun';
 import { formatSupabaseError } from '../lib/supabaseError';
 import type {
     FinalizePayoutInput,
@@ -228,6 +229,39 @@ export async function sendPayoutStatement(payoutId: string): Promise<'sent' | 'f
     } catch {
         return 'failed';
     }
+}
+
+export type MarkPaidEmailOutcome = 'sent' | 'failed' | 'skipped' | 'no_email';
+
+/** Finalizes the payout, then optionally emails the statement. Only a finalize error throws. */
+export async function markPayoutPaid(
+    input: FinalizePayoutInput & { sendEmail: boolean },
+): Promise<{ email: MarkPaidEmailOutcome }> {
+    const { sendEmail, ...finalize } = input;
+    await finalizePayout(finalize);
+    if (!sendEmail) return { email: 'skipped' };
+    return { email: await sendPayoutStatement(finalize.payoutId) };
+}
+
+export async function downloadReconciliationCsv(): Promise<void> {
+    const report = await getPayoutReconciliationReport();
+    const lines = [
+        ['Payout ID', 'Vendor', 'Paid at', 'Amount', 'Explanation'],
+        ...report.unresolved.map((row) => [
+            String(row.payout_id || ''),
+            String(row.vendor_name || ''),
+            String(row.paid_at || ''),
+            String(row.amount || ''),
+            String(row.explanation || ''),
+        ]),
+    ];
+    const csv = lines.map((line) => line.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `payout-reconciliation-${localDateString(new Date())}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
 }
 
 export async function getDefaultThreshold(): Promise<number> {

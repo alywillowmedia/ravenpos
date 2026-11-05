@@ -1,7 +1,10 @@
 import { ChevronDown, ChevronRight, LockKeyhole, TriangleAlert } from 'lucide-react';
 import { Fragment, memo, useMemo, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { normalizeEquationTerm } from '../../lib/payoutLedger';
-import { formatCurrency } from '../../lib/utils';
+import { cn, formatCurrency } from '../../lib/utils';
+import { Badge } from '../ui/Badge';
+import { Money } from '../ui/Money';
 import type {
     HistoricalConfidence,
     PayoutReadiness,
@@ -132,6 +135,51 @@ export function FinancialEquation({ terms, note }: { terms: EquationTerm[]; note
     );
 }
 
+export interface EquationLine {
+    label: string;
+    amount: number;
+    sign?: '+' | '−' | '=';
+    strong?: boolean;
+}
+
+export function PayoutEquation({ lines, className }: { lines: EquationLine[]; className?: string }) {
+    const firstStrong = lines.findIndex((line) => line.strong);
+    return (
+        <dl className={cn('text-sm', className)}>
+            {lines.map((line, index) => (
+                <div
+                    key={`${line.label}-${index}`}
+                    className={cn(
+                        'flex items-baseline justify-between gap-4 py-1.5',
+                        index === firstStrong && 'mt-1.5 border-t border-[var(--color-border)] pt-3',
+                        line.strong ? 'font-semibold text-[var(--color-foreground)]' : 'text-[var(--color-muted)]',
+                    )}
+                >
+                    <dt>
+                        {line.sign ? <span className="mr-2 inline-block w-3 text-center" aria-hidden="true">{line.sign}</span> : null}
+                        {line.label}
+                    </dt>
+                    <dd className={cn(line.strong && 'text-base')}>
+                        <Money amount={line.amount} />
+                    </dd>
+                </div>
+            ))}
+        </dl>
+    );
+}
+
+const READINESS_BADGES: Record<PayoutReadiness, { label: string; variant: 'success' | 'warning' | 'info' | 'default' }> = {
+    ready: { label: 'Ready to pay', variant: 'success' },
+    accruing: { label: 'Accruing', variant: 'warning' },
+    draft: { label: 'Draft', variant: 'info' },
+    paid_up: { label: 'Paid up', variant: 'default' },
+};
+
+export function ReadinessBadge({ status }: { status: PayoutReadiness }) {
+    const { label, variant } = READINESS_BADGES[status];
+    return <Badge variant={variant} dot>{label}</Badge>;
+}
+
 function allocationLabel(status: PayoutSaleFinancial['allocation_status']): string {
     switch (status) {
         case 'partially_paid': return 'Partially paid';
@@ -175,11 +223,11 @@ export const TransactionLedger = memo(function TransactionLedger({
     const [expanded, setExpanded] = useState<Set<string>>(() => new Set(grouped[0] ? [grouped[0][0]] : []));
 
     if (grouped.length === 0) {
-        return <div className="border-y border-[var(--color-border)] py-10 text-center text-sm text-[var(--color-muted)]">{emptyMessage}</div>;
+        return <div className="rounded-xl bg-[var(--color-surface)] py-10 text-center text-sm text-[var(--color-muted)]">{emptyMessage}</div>;
     }
 
     return (
-        <div className="overflow-hidden border border-[var(--color-border)] bg-[var(--color-card)]">
+        <div className="overflow-hidden rounded-2xl bg-[var(--color-card)] shadow-[var(--shadow-surface)]">
             {grouped.map(([saleId, saleItems]) => {
                 const isExpanded = expanded.has(saleId);
                 const earnings = saleItems.reduce((sum, item) => sum + item.final_vendor_cut, 0);
@@ -199,7 +247,7 @@ export const TransactionLedger = memo(function TransactionLedger({
                             <span className="font-medium">{new Date(saleItems[0].sale_timestamp).toLocaleDateString()}</span>
                             <span className="font-mono text-xs text-[var(--color-muted)]">Sale #{saleId.slice(0, 8).toUpperCase()}</span>
                             <span className="hidden text-xs text-[var(--color-muted)] sm:inline">{saleItems.length} item{saleItems.length === 1 ? '' : 's'}</span>
-                            <span className="ml-auto font-display text-lg">{formatCurrency(earnings)}</span>
+                            <Money amount={earnings} className="ml-auto text-lg font-semibold" />
                         </button>
                         {isExpanded ? (
                             <div className="border-b border-[var(--color-border)] sm:hidden">
@@ -227,7 +275,7 @@ export const TransactionLedger = memo(function TransactionLedger({
                                             </dl>
                                             <div className="mt-3 flex items-center border-t border-[var(--color-border)] pt-2 text-[11px] text-[var(--color-muted)]">
                                                 <span>{item.commission_percentage.toFixed(0)}% share · {formatCurrency(item.vendor_earnings_before_fees)} before fees · −{formatCurrency(item.allocated_card_fee)} fee</span>
-                                                {linked ? <a className="ml-auto shrink-0 text-[var(--color-primary)] hover:underline" href={statementHref(linked.payout_id)}>#{linked.payout_id.slice(0, 8).toUpperCase()}</a> : null}
+                                                {linked ? <Link className="ml-auto shrink-0 text-[var(--color-primary)] hover:underline" to={statementHref(linked.payout_id)}>#{linked.payout_id.slice(0, 8).toUpperCase()}</Link> : null}
                                             </div>
                                         </article>
                                     );
@@ -279,9 +327,9 @@ export const TransactionLedger = memo(function TransactionLedger({
                                                     </td>
                                                     <td className="px-3 py-2.5">
                                                         {linked ? (
-                                                            <a className="whitespace-nowrap text-[var(--color-primary)] underline-offset-2 hover:underline" href={statementHref(linked.payout_id)}>
+                                                            <Link className="whitespace-nowrap text-[var(--color-primary)] underline-offset-2 hover:underline" to={statementHref(linked.payout_id)}>
                                                                 #{linked.payout_id.slice(0, 8).toUpperCase()}
-                                                            </a>
+                                                            </Link>
                                                         ) : '—'}
                                                     </td>
                                                 </tr>

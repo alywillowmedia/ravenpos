@@ -8,7 +8,15 @@ export interface Column<T> {
     width?: string;
     minWidth?: string;
     sortable?: boolean;
+    /** Hides the column (header and cells) below this breakpoint. */
+    hideBelow?: 'md' | 'lg';
     render?: (item: T, meta?: { visibleIndex: number; visibleKeys: string[] }) => ReactNode;
+}
+
+function hideBelowClass(hideBelow: Column<unknown>['hideBelow']): string | undefined {
+    if (hideBelow === 'md') return 'hidden md:table-cell';
+    if (hideBelow === 'lg') return 'hidden lg:table-cell';
+    return undefined;
 }
 
 export interface TableProps<T> {
@@ -85,7 +93,7 @@ const TableBodyRow = memo(function TableBodyRow({
                 <td
                     key={col.key}
                     style={{ width: col.width, minWidth: col.minWidth }}
-                    className="px-4 py-3 text-sm text-[var(--color-foreground)]"
+                    className={cn('px-4 py-3 text-sm text-[var(--color-foreground)]', hideBelowClass(col.hideBelow))}
                 >
                     {col.render
                         ? col.render(item, rowMeta)
@@ -273,7 +281,8 @@ export function Table<T extends Record<string, any>>({
                                         ? (sortDirection === 'asc' ? 'ascending' : 'descending')
                                         : undefined}
                                     className={cn(
-                                        'px-4 py-3 text-left text-xs font-semibold text-[var(--color-muted)] bg-[var(--color-surface)]'
+                                        'px-4 py-3 text-left text-xs font-semibold text-[var(--color-muted)] bg-[var(--color-surface)]',
+                                        hideBelowClass(col.hideBelow)
                                     )}
                                 >
                                     {col.sortable ? (
