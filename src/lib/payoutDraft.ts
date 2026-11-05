@@ -73,9 +73,8 @@ export function scopeToSaveInput(
 
 export function validatePayingNow(value: string, payable: number): string | null {
     const trimmed = value.trim();
-    const parsed = trimmed === '' ? NaN : Number(trimmed);
-    if (!Number.isFinite(parsed)) return 'Enter an amount.';
-    const cents = toCents(parsed);
+    if (!/^-?(\d+(\.\d{1,2})?|\.\d{1,2})$/.test(trimmed)) return 'Enter an amount.';
+    const cents = toCents(Number(trimmed));
     if (cents < 0 || cents > toCents(payable)) return `Must be between $0.00 and $${payable.toFixed(2)}.`;
     return null;
 }
@@ -101,7 +100,12 @@ export function validatePayment(input: {
 
 export function describeFinalizeError(message: string): string {
     if (message.includes('Finalizable payout draft not found')) return 'This payout was already paid or removed.';
-    if (message.includes('A sale allocation is no longer available') || message.includes('changed after the draft was prepared')) {
+    if (
+        message.includes('A sale allocation is no longer available')
+        || message.includes('changed after the draft was prepared')
+        || message.includes('Sale allocation conflict detected')
+        || message.includes('Draft no longer reconciles')
+    ) {
         return CHANGED_MESSAGE;
     }
     return message;

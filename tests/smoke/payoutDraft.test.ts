@@ -68,6 +68,10 @@ describe('validatePayingNow', () => {
         expect(validatePayingNow('35.01', 35)).toBe('Must be between $0.00 and $35.00.');
         expect(validatePayingNow('0', 35)).toBeNull();
         expect(validatePayingNow('35', 35)).toBeNull();
+        expect(validatePayingNow('.50', 35)).toBeNull();
+        for (const bad of ['1e3', '0x10', ' ', '12.345', '35.004', 'Infinity']) {
+            expect(validatePayingNow(bad, 35)).toBe('Enter an amount.');
+        }
     });
 });
 
@@ -93,6 +97,8 @@ describe('describeFinalizeError', () => {
         expect(describeFinalizeError('Finalizable payout draft not found.')).toBe('This payout was already paid or removed.');
         expect(describeFinalizeError('A sale allocation is no longer available.')).toBe('This draft changed after it was prepared. Open it and recalculate.');
         expect(describeFinalizeError('Sales changed after the draft was prepared.')).toBe('This draft changed after it was prepared. Open it and recalculate.');
+        expect(describeFinalizeError('Sale allocation conflict detected for item 3f2b8c1e-0000-4000-8000-000000000000.')).toBe('This draft changed after it was prepared. Open it and recalculate.');
+        expect(describeFinalizeError('Draft no longer reconciles: allocations plus adjustments equal 10.00, expected 12.00.')).toBe('This draft changed after it was prepared. Open it and recalculate.');
         expect(describeFinalizeError('Something else')).toBe('Something else');
     });
 });
