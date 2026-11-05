@@ -4,6 +4,7 @@ import {
     buildConsignorTaxReportFromData,
     buildConsignorTaxSummaryCsvRows,
     getDefaultConsignorTaxReviewThreshold,
+    groupPaidPayouts,
     type CompletedPayoutSaleLine,
     type ConsignorReportData,
 } from '../../src/lib/consignorReports';
@@ -215,5 +216,24 @@ describe('consignor tax reports', () => {
     it('uses the configured year defaults for review thresholds', () => {
         expect(getDefaultConsignorTaxReviewThreshold(2025)).toBe(600);
         expect(getDefaultConsignorTaxReviewThreshold(2026)).toBe(2000);
+    });
+});
+
+describe('groupPaidPayouts', () => {
+    const payout = (id: string, consignorId: string, status?: Payout['status']) => ({ id, consignor_id: consignorId, status }) as Payout;
+
+    it('keeps draft and voided payouts out of reports', () => {
+        const grouped = groupPaidPayouts([
+            payout('paid', 'vendor-1', 'paid'),
+            payout('draft', 'vendor-1', 'draft'),
+            payout('voided', 'vendor-2', 'voided'),
+        ]);
+
+        expect(grouped.get('vendor-1')?.map((row) => row.id)).toEqual(['paid']);
+        expect(grouped.has('vendor-2')).toBe(false);
+    });
+
+    it('treats older payouts with no status as paid', () => {
+        expect(groupPaidPayouts([payout('legacy', 'vendor-1')]).get('vendor-1')?.map((row) => row.id)).toEqual(['legacy']);
     });
 });

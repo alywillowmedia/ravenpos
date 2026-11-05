@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocateCents, allocationStatus, hasUnpaidBalance, reportEquation, selectInvoicesOldestFirst, toCents } from '../../src/lib/payoutLedger';
+import { allocateCents, allocationStatus, hasUnpaidBalance, normalizeEquationTerm, reportEquation, selectInvoicesOldestFirst, toCents } from '../../src/lib/payoutLedger';
 
 describe('payout ledger invariants', () => {
     it('distributes discount remainders deterministically across a multi-vendor sale', () => {
@@ -45,5 +45,22 @@ describe('payout ledger invariants', () => {
 
     it('keeps opening unpaid money in report-mode closing balance', () => {
         expect(reportEquation({ openingCents: 8000, activityCents: 5000, adjustmentCents: -1000, paymentCents: 4000 })).toBe(8000);
+    });
+
+    it('shows a negative equation term as a subtraction', () => {
+        expect(normalizeEquationTerm({ label: 'Adjustments', amount: -86, operator: '+' }))
+            .toEqual({ label: 'Adjustments', amount: 86, operator: '−' });
+        expect(normalizeEquationTerm({ label: 'Payments', amount: -10, operator: '−' }))
+            .toEqual({ label: 'Payments', amount: 10, operator: '+' });
+    });
+
+    it('leaves positive, opening and total equation terms alone', () => {
+        const terms = [
+            { label: 'Earnings', amount: 20, operator: '+' as const },
+            { label: 'Opening', amount: -5 },
+            { label: 'Closing', amount: -5, operator: '=' as const },
+        ];
+
+        expect(terms.map(normalizeEquationTerm)).toEqual(terms);
     });
 });

@@ -81,6 +81,7 @@ export interface CompletedPayoutDeductionLine {
 }
 
 export interface CompletedPayoutDetails {
+    discountTotal?: number;
     saleLines: CompletedPayoutSaleLine[];
     deductions: CompletedPayoutDeductionLine[];
 }
@@ -697,6 +698,15 @@ function getThresholdBasis(
     return '';
 }
 
+export function groupPaidPayouts(payouts: Payout[]): Map<string, Payout[]> {
+    const payoutsByConsignor = new Map<string, Payout[]>();
+    for (const payout of payouts) {
+        if (payout.status === 'draft' || payout.status === 'voided') continue;
+        addToMapArray(payoutsByConsignor, payout.consignor_id, payout);
+    }
+    return payoutsByConsignor;
+}
+
 export function getDefaultConsignorTaxReviewThreshold(year: number): number {
     return year >= 2026 ? 2000 : 600;
 }
@@ -848,16 +858,12 @@ async function fetchConsignorReportData(
     const totalsByConsignor = new Map<string, ConsignorReportTotals>();
     const linesByConsignor = new Map<string, CompletedPayoutSaleLine[]>();
     const inventoryByConsignor = new Map<string, Item[]>();
-    const payoutsByConsignor = new Map<string, Payout[]>();
+    const payoutsByConsignor = groupPaidPayouts(payouts);
     const boothRentPaymentsByConsignor = new Map<string, BoothRentPayment[]>();
     const saleIdsByConsignor = new Map<string, Set<string>>();
 
     for (const item of inventoryItems) {
         addToMapArray(inventoryByConsignor, item.consignor_id, item);
-    }
-
-    for (const payout of payouts) {
-        addToMapArray(payoutsByConsignor, payout.consignor_id, payout);
     }
 
     for (const payment of boothRentPayments) {
