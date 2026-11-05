@@ -693,21 +693,21 @@ export function EmployeePortalDashboard() {
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <Card variant="outlined">
                                 <CardContent className="p-4">
-                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Hours Worked {selectedWeekLabel}</p>
+                                    <p className="text-xs text-[var(--color-muted)]">Hours Worked {selectedWeekLabel}</p>
                                     <p className="text-2xl font-semibold mt-1">{selectedWeekHoursWorked.toFixed(2)}</p>
                                     <p className="mt-1 text-xs text-[var(--color-muted)]">{weekRangeLabel}</p>
                                 </CardContent>
                             </Card>
                             <Card variant="outlined">
                                 <CardContent className="p-4">
-                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Estimated Pay {selectedWeekLabel}</p>
+                                    <p className="text-xs text-[var(--color-muted)]">Estimated Pay {selectedWeekLabel}</p>
                                     <p className="text-2xl font-semibold mt-1">${estimatedPay.toFixed(2)}</p>
                                     <p className="mt-1 text-xs text-[var(--color-muted)]">{weekRangeLabel}</p>
                                 </CardContent>
                             </Card>
                             <Card variant="outlined">
                                 <CardContent className="p-4">
-                                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Scheduled {selectedWeekLabel}</p>
+                                    <p className="text-xs text-[var(--color-muted)]">Scheduled {selectedWeekLabel}</p>
                                     <p className="text-2xl font-semibold mt-1">{scheduledHoursSelectedWeek.toFixed(2)}h</p>
                                     <p className="mt-1 text-xs text-[var(--color-muted)]">{weekRangeLabel}</p>
                                 </CardContent>
@@ -760,7 +760,7 @@ export function EmployeePortalDashboard() {
                                         <div className="hidden md:block">
                                             <div className="mb-2 grid grid-cols-7 gap-2">
                                                 {weekdayHeaders.map((label) => (
-                                                    <div key={label} className="px-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                                                    <div key={label} className="px-1 text-xs font-semibold text-[var(--color-muted)]">
                                                         {label}
                                                     </div>
                                                 ))}
@@ -939,7 +939,7 @@ export function EmployeePortalDashboard() {
                                                     <p className="text-sm font-medium text-[var(--color-foreground)]">
                                                         {formatRequestDateTimeRange(request)}
                                                     </p>
-                                                    <span className={`rounded-full px-2 py-1 text-[11px] font-medium uppercase tracking-wide ${getStatusBadgeClass(request.status)}`}>
+                                                    <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${getStatusBadgeClass(request.status)}`}>
                                                         {request.status}
                                                     </span>
                                                 </div>

@@ -847,7 +847,7 @@ export function EmailCampaigns() {
 
             {activeTab === 'history' ? (
                 <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Previously Sent Emails</p>
+                    <p className="text-xs font-semibold text-[var(--color-muted)]">Previously Sent Emails</p>
                     <div className="mt-3 space-y-2">
                         {campaigns.map((campaign) => (
                             <div key={campaign.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
@@ -872,7 +872,7 @@ export function EmailCampaigns() {
                 )}>
                     <div className="space-y-4">
                         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Templates</p>
+                            <p className="text-xs font-semibold text-[var(--color-muted)]">Templates</p>
                             <div className="mt-3 space-y-2">
                                 <Select
                                     label="Load template"
@@ -897,7 +897,7 @@ export function EmailCampaigns() {
 
                         {composeStep === 'editor' ? (
                             <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Step 1: Build Email</p>
+                                <p className="text-xs font-semibold text-[var(--color-muted)]">Step 1: Build Email</p>
                                 <p className="mt-2 text-sm text-[var(--color-foreground)]">
                                     Finish the content, then use <span className="font-semibold">Send...</span> in the header to choose recipients.
                                 </p>
@@ -906,7 +906,7 @@ export function EmailCampaigns() {
                             </div>
                         ) : (
                             <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Step 2: Choose Recipients</p>
+                                <p className="text-xs font-semibold text-[var(--color-muted)]">Step 2: Choose Recipients</p>
                                 <div className="mt-3 space-y-3">
                                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                         <Button variant="secondary" size="sm" onClick={() => addRecipientGroup('customers')}>
@@ -955,7 +955,7 @@ export function EmailCampaigns() {
 
                                     <div className="rounded-lg border border-[var(--color-border)] p-2">
                                         <div className="mb-2 flex items-center justify-between gap-2">
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Selected</p>
+                                            <p className="text-xs font-semibold text-[var(--color-muted)]">Selected</p>
                                             <button
                                                 type="button"
                                                 className="text-xs text-[var(--color-muted)] underline"
@@ -1001,7 +1001,7 @@ export function EmailCampaigns() {
                         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Envelope & Inbox</p>
+                                    <p className="text-xs font-semibold text-[var(--color-muted)]">Envelope & Inbox</p>
                                     <p className="text-xs text-[var(--color-muted)]">
                                         {blocks.length} blocks • {wordCount} words • ~{estimatedReadMinutes} min read
                                     </p>
@@ -1046,7 +1046,7 @@ export function EmailCampaigns() {
                             </div>
 
                             <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Inbox Preview</p>
+                                <p className="text-xs font-semibold text-[var(--color-muted)]">Inbox Preview</p>
                                 <p className="mt-2 text-sm text-[var(--color-foreground)]">{fromName.trim() || DEFAULT_TEMPLATE.fromName} &lt;{fromEmail.trim() || DEFAULT_TEMPLATE.fromEmail}&gt;</p>
                                 <p className="truncate text-sm font-semibold text-[var(--color-foreground)]">{subject.trim() || 'Your subject line appears here'}</p>
                                 <p className="truncate text-sm text-[var(--color-foreground)]">{previewText.trim() || 'Preview text appears next to the subject in most inboxes.'}</p>
@@ -1057,7 +1057,7 @@ export function EmailCampaigns() {
                             <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                     <div>
-                                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Visual Composer</p>
+                                        <p className="text-xs font-semibold text-[var(--color-muted)]">Visual Composer</p>
                                         <p className="text-xs text-[var(--color-muted)]">Edit directly inside each content block like a normal email editor.</p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
@@ -1075,7 +1075,7 @@ export function EmailCampaigns() {
                                             <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
                                                 <div className="mx-auto max-w-[640px] rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-elevated)] shadow-sm">
                                                     <div className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-4">
-                                                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Email Canvas</p>
+                                                        <p className="text-xs font-semibold text-[var(--color-muted)]">Email Canvas</p>
                                                         <p className="text-sm text-[var(--color-foreground)]">
                                                             Click a block to tune style, duplicate, reorder, or delete.
                                                         </p>
@@ -1105,7 +1105,7 @@ export function EmailCampaigns() {
                                                                         }}
                                                                     >
                                                                         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                                                                            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-foreground)]">
+                                                                            <p className="text-xs font-semibold text-[var(--color-foreground)]">
                                                                                 {index + 1}. {blockLabel(block.type)}
                                                                             </p>
                                                                             <div className="flex flex-wrap gap-1.5">
@@ -1455,7 +1455,7 @@ export function EmailCampaigns() {
                                             </div>
 
                                             <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-                                                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Selected Block</p>
+                                                <p className="text-xs font-semibold text-[var(--color-muted)]">Selected Block</p>
                                                 {activeBlock ? (
                                                     <div className="mt-2 space-y-2 text-sm text-[var(--color-foreground)]">
                                                         <p>
@@ -1493,7 +1493,7 @@ export function EmailCampaigns() {
 
                                     {(composerView === 'preview' || composerView === 'split') && (
                                         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Rendered Preview</p>
+                                            <p className="text-xs font-semibold text-[var(--color-muted)]">Rendered Preview</p>
                                             <iframe
                                                 title="email-preview"
                                                 srcDoc={previewHtml}
@@ -1505,7 +1505,7 @@ export function EmailCampaigns() {
                             </div>
                         ) : (
                             <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Final Review</p>
+                                <p className="text-xs font-semibold text-[var(--color-muted)]">Final Review</p>
                                 <p className="mt-2 text-sm text-[var(--color-foreground)]">
                                     Confirm recipients and content preview, then click <span className="font-semibold">Send Campaign</span> in the header.
                                 </p>

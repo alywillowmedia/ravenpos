@@ -88,7 +88,7 @@ The accent is Sage. It lives in the four `--color-primary*` values per theme, so
 
 ### Keeping the storefront unchanged
 
-The tokens are global, and the public site reads them too. Scoping the new values to a portal wrapper would miss modals, which portal to `<body>`. So the new values stay global, and the storefront keeps its look by pinning the old mapping on `.ravenlia-storefront`: today's `--color-*: var(--dw-*)` lines and today's semantic colors, shadows and radii move into that block, with their dark values under `:root[data-theme='dark'] .ravenlia-storefront`. `New-Rav-design-sys.css` stays as the storefront's source. The public pages don't use modals, so nothing there escapes the pin. The pin also keeps the old `.eyebrow` rules, which 32 public elements use. `BrowsePage` is the only public page using shared `Button` and `Select`; its two pagination buttons keep their fill through explicit classes.
+The tokens are global, and the public site reads them too. Scoping the new values to a portal wrapper would miss modals, which portal to `<body>`. So the new values stay global, and the storefront keeps its look by pinning the old mapping on `.ravenlia-storefront`: today's `--color-*: var(--dw-*)` lines and today's semantic colors, shadows and radii move into that block, with their dark values under `:root[data-theme='dark'] .ravenlia-storefront`. `New-Rav-design-sys.css` stays as the storefront's source. The public pages don't use modals, so nothing there escapes the pin. `BrowsePage` is the only public page using shared `Button` and `Select`; its two pagination buttons keep their fill through explicit classes.
 
 The customer display (`/display`) and the login screens read the global tokens and take the new look.
 

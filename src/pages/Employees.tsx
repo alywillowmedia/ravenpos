@@ -778,7 +778,7 @@ export function Employees() {
                     />
 
                     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-                        <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">Preview</p>
+                        <p className="text-xs font-medium text-[var(--color-muted)]">Preview</p>
                         {isLoadingSchedulePreview ? (
                             <div className="flex items-center justify-center py-10">
                                 <LoadingSpinner size={24} />

@@ -13,7 +13,6 @@ interface AuthShellProps {
 export function AuthShell({ eyebrow, title, description, children, footer, maxWidth = 'sm' }: AuthShellProps) {
     return (
         <main className="relative min-h-dvh overflow-hidden bg-[var(--color-background)] px-4 py-8 text-[var(--color-foreground)] sm:px-6">
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_top,rgba(138,43,34,0.12),transparent_68%)]" aria-hidden="true" />
             <div className={`relative mx-auto flex min-h-[calc(100dvh-4rem)] w-full ${maxWidth === 'md' ? 'max-w-2xl' : 'max-w-md'} flex-col justify-center`}>
                 <div className="mb-6 text-center">
                     <div className="mx-auto mb-5 w-full max-w-[15rem] rounded-2xl border border-[var(--color-border)] bg-white px-6 py-4 shadow-sm">

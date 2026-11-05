@@ -70,7 +70,7 @@ export function SalesByCategoryChart({ data }: SalesByCategoryChartProps) {
         <div className="flex h-full min-h-[300px] flex-col" aria-label="Sales by category ranking">
             <div className="mb-5 flex items-end justify-between gap-4 border-b border-[var(--color-border)] pb-4">
                 <div>
-                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                    <p className="text-xs font-medium text-[var(--color-muted)]">
                         Category revenue
                     </p>
                     <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-[var(--color-foreground)]">

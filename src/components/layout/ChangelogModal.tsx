@@ -423,10 +423,10 @@ function ChangelogSection({ version, date, children, defaultOpen = false }: Chan
     const [isOpen, setIsOpen] = useState(defaultOpen);
 
     return (
-        <div className="border border-[var(--color-border)] rounded-lg overflow-hidden bg-[var(--color-bg-subtle)]/30">
+        <div className="border border-[var(--color-border)] rounded-lg overflow-hidden bg-[var(--color-surface)]/30">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex items-center justify-between p-4 bg-[var(--color-bg-subtle)] hover:bg-[var(--color-bg-hover)] transition-colors text-left"
+                className="w-full flex items-center justify-between p-4 bg-[var(--color-surface)] hover:bg-[var(--color-bg-hover)] transition-colors text-left"
             >
                 <div className="flex items-center gap-3">
                     {isOpen ? <ChevronDownIcon className="w-5 h-5 text-[var(--color-muted-foreground)]" /> : <ChevronRightIcon className="w-5 h-5 text-[var(--color-muted-foreground)]" />}

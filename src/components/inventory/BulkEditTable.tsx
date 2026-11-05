@@ -112,28 +112,28 @@ export function BulkEditTable({
                 <table className="w-full min-w-[1240px] table-fixed">
                     <thead className="sticky top-0 z-10">
                         <tr className="bg-[var(--color-surface)] border-b border-[var(--color-border)]">
-                            <th className="sticky left-0 z-20 bg-[var(--color-surface)] px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[220px]">
+                            <th className="sticky left-0 z-20 bg-[var(--color-surface)] px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] w-[220px]">
                                 Item
                             </th>
-                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[110px]">
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] w-[110px]">
                                 SKU
                             </th>
-                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[260px]">
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] w-[260px]">
                                 Shelf Description
                             </th>
-                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[108px]">
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] w-[108px]">
                                 Price
                             </th>
-                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[120px]">
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] w-[120px]">
                                 Compare-at
                             </th>
-                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[86px]">
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] w-[86px]">
                                 Qty
                             </th>
-                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[160px]">
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] w-[160px]">
                                 Category
                             </th>
-                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] uppercase tracking-wider w-[112px]">
+                            <th className="px-3 py-2 text-left text-[11px] font-medium text-[var(--color-muted)] w-[112px]">
                                 Status
                             </th>
                         </tr>

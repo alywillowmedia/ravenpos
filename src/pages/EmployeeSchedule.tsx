@@ -1518,7 +1518,7 @@ export function EmployeeSchedule() {
                         </p>
 
                         <div className="space-y-2">
-                            <div className="hidden min-w-[980px] grid-cols-7 gap-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)] lg:grid">
+                            <div className="hidden min-w-[980px] grid-cols-7 gap-2 px-1 text-[10px] font-semibold text-[var(--color-muted)] lg:grid">
                                 {Array.from({ length: 7 }, (_, index) => {
                                     const day = templateDays[index];
                                     if (!day) return <span key={index}>Day {index + 1}</span>;
@@ -1552,7 +1552,7 @@ export function EmployeeSchedule() {
                                                         className="mt-0.5"
                                                     />
                                                     <span className="leading-tight">
-                                                        <span className="block text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
+                                                        <span className="block text-[10px] text-[var(--color-muted)]">
                                                             Week {Math.floor(day.offset / 7) + 1}
                                                         </span>
                                                         <span>
@@ -1562,7 +1562,7 @@ export function EmployeeSchedule() {
                                                 </label>
 
                                                 <div className="space-y-1.5">
-                                                    <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                                                    <label className="block text-[10px] font-semibold text-[var(--color-muted)]">
                                                         Start
                                                         <input
                                                             type="time"
@@ -1578,7 +1578,7 @@ export function EmployeeSchedule() {
                                                         />
                                                     </label>
 
-                                                    <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                                                    <label className="block text-[10px] font-semibold text-[var(--color-muted)]">
                                                         End
                                                         <input
                                                             type="time"
@@ -1594,7 +1594,7 @@ export function EmployeeSchedule() {
                                                         />
                                                     </label>
 
-                                                    <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                                                    <label className="block text-[10px] font-semibold text-[var(--color-muted)]">
                                                         Notes
                                                         <input
                                                             value={day.notes}

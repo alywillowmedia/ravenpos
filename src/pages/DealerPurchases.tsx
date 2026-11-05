@@ -799,7 +799,7 @@ export function DealerPurchases() {
                     <div className="space-y-4">
                         <div className="grid grid-cols-1 gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:grid-cols-3">
                             <div>
-                                <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Payment</p>
+                                <p className="text-xs text-[var(--color-muted)]">Payment</p>
                                 <p className="mt-1 font-medium text-[var(--color-foreground)]">
                                     {selectedHistoryPurchase.payment_method.toUpperCase()}
                                     {selectedHistoryPurchase.payment_method === 'check' && selectedHistoryPurchase.check_number
@@ -808,13 +808,13 @@ export function DealerPurchases() {
                                 </p>
                             </div>
                             <div>
-                                <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Subtotal</p>
+                                <p className="text-xs text-[var(--color-muted)]">Subtotal</p>
                                 <p className="mt-1 font-medium text-[var(--color-foreground)]">
                                     {formatCurrency(Number(selectedHistoryPurchase.subtotal || 0))}
                                 </p>
                             </div>
                             <div>
-                                <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Total</p>
+                                <p className="text-xs text-[var(--color-muted)]">Total</p>
                                 <p className="mt-1 font-semibold text-[var(--color-foreground)]">
                                     {formatCurrency(Number(selectedHistoryPurchase.total || 0))}
                                 </p>
@@ -823,7 +823,7 @@ export function DealerPurchases() {
 
                         <div className="rounded-lg border border-[var(--color-border)] p-4">
                             <div className="flex items-center justify-between gap-3">
-                                <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Purchase Comments</p>
+                                <p className="text-xs text-[var(--color-muted)]">Purchase Comments</p>
                                 {!isEmployee && (
                                     <Button
                                         variant="ghost"
@@ -843,11 +843,11 @@ export function DealerPurchases() {
                             <table className="min-w-full divide-y divide-[var(--color-border)]">
                                 <thead className="bg-[var(--color-surface)]">
                                     <tr>
-                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Item</th>
-                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Description</th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Qty</th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Price Bought For</th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">Line Total</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--color-muted)]">Item</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--color-muted)]">Description</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold text-[var(--color-muted)]">Qty</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold text-[var(--color-muted)]">Price Bought For</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold text-[var(--color-muted)]">Line Total</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-[var(--color-border)] bg-[var(--color-card)]">

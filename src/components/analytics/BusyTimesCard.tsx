@@ -37,14 +37,14 @@ export function BusyTimesCard({ data }: BusyTimesCardProps) {
         <div className="h-full flex flex-col gap-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3">
-                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Busiest Hour</p>
+                    <p className="text-xs text-[var(--color-muted)]">Busiest Hour</p>
                     <p className="mt-1 text-lg font-semibold text-[var(--color-foreground)]">{data.busiestHour?.label ?? 'N/A'}</p>
                     <p className="text-xs text-[var(--color-muted)]">
                         {data.busiestHour ? `${data.busiestHour.count} sales · ${formatCurrency(data.busiestHour.amount)}` : 'No sales in range'}
                     </p>
                 </div>
                 <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3">
-                    <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Busiest Day</p>
+                    <p className="text-xs text-[var(--color-muted)]">Busiest Day</p>
                     <p className="mt-1 text-lg font-semibold text-[var(--color-foreground)]">{data.busiestWeekday?.label ?? 'N/A'}</p>
                     <p className="text-xs text-[var(--color-muted)]">
                         {data.busiestWeekday ? `${data.busiestWeekday.count} sales · ${formatCurrency(data.busiestWeekday.amount)}` : 'No sales in range'}
@@ -131,7 +131,7 @@ export function BusyTimesCard({ data }: BusyTimesCardProps) {
                                         return Number(value).toFixed(2);
                                     }}
                                 />
-                                <Bar dataKey="averageCount" name="Avg Sales" fill="#10b981" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="averageCount" name="Avg Sales" fill="var(--color-chart-1)" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>

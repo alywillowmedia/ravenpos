@@ -672,7 +672,7 @@ export function EmployeeTillCount() {
                         <div className="overflow-x-auto">
                             <table className="w-full min-w-[680px] text-left text-sm">
                                 <thead>
-                                    <tr className="border-b border-[var(--color-border)] text-xs uppercase tracking-wide text-[var(--color-muted)]">
+                                    <tr className="border-b border-[var(--color-border)] text-xs text-[var(--color-muted)]">
                                         <th className="px-3 py-3 font-medium">Business date</th>
                                         <th className="px-3 py-3 font-medium">Opening float</th>
                                         <th className="px-3 py-3 font-medium">Recorded by</th>

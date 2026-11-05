@@ -50,7 +50,7 @@ export function CategoriesPage() {
             </div>
 
             {error ? (
-                <div className="text-center py-16 text-[var(--color-error)]">{error}</div>
+                <div className="text-center py-16 text-[var(--color-danger)]">{error}</div>
             ) : categories.length === 0 ? (
                 <div className="text-center py-16 text-[var(--color-muted)]">No categories available.</div>
             ) : (

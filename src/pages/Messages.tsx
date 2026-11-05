@@ -112,7 +112,7 @@ export function Messages() {
                     <div className="p-2">
                         {isStartOpen && (
                             <div className="mb-2 space-y-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5">
-                                <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-muted)]">New direct chat</p>
+                                <p className="text-xs font-medium text-[var(--color-muted)]">New direct chat</p>
                                 <div className="space-y-2">
                                     <Select
                                         options={directOptions}

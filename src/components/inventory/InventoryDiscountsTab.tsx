@@ -339,19 +339,19 @@ export function InventoryDiscountsTab({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Card variant="outlined">
                     <CardContent className="p-4">
-                        <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">Live Discounts</p>
+                        <p className="text-xs text-[var(--color-muted)]">Live Discounts</p>
                         <p className="text-2xl font-bold text-[var(--color-foreground)]">{liveCount}</p>
                     </CardContent>
                 </Card>
                 <Card variant="outlined">
                     <CardContent className="p-4">
-                        <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">Category Rules</p>
+                        <p className="text-xs text-[var(--color-muted)]">Category Rules</p>
                         <p className="text-2xl font-bold text-[var(--color-foreground)]">{categoryScopeCount}</p>
                     </CardContent>
                 </Card>
                 <Card variant="outlined">
                     <CardContent className="p-4">
-                        <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">Item Rules</p>
+                        <p className="text-xs text-[var(--color-muted)]">Item Rules</p>
                         <p className="text-2xl font-bold text-[var(--color-foreground)]">{itemScopeCount}</p>
                     </CardContent>
                 </Card>

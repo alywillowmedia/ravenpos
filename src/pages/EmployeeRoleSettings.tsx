@@ -219,16 +219,16 @@ export function EmployeeRoleSettings() {
                             <table className="w-full">
                                 <thead>
                                     <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-                                        <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                                        <th className="px-5 py-3 text-left text-xs font-medium text-[var(--color-muted)]">
                                             Role Name
                                         </th>
-                                        <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                                        <th className="px-5 py-3 text-left text-xs font-medium text-[var(--color-muted)]">
                                             Sort Order
                                         </th>
-                                        <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                                        <th className="px-5 py-3 text-left text-xs font-medium text-[var(--color-muted)]">
                                             Active
                                         </th>
-                                        <th className="px-5 py-3 text-right text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                                        <th className="px-5 py-3 text-right text-xs font-medium text-[var(--color-muted)]">
                                             Action
                                         </th>
                                     </tr>

@@ -313,7 +313,7 @@ export function Display() {
 
                         {orderDiscounts.length > 0 && (
                             <div className="pt-3 border-t border-[var(--color-border)] space-y-1.5">
-                                <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-[0.12em]">Applied Discounts</p>
+                                <p className="text-xs font-semibold text-[var(--color-muted)]">Applied Discounts</p>
                                 {orderDiscounts.map((d, i) => (
                                     <div key={i} className="flex justify-between text-xs md:text-sm text-[var(--color-success)]">
                                         <span>{d.reason || 'Order Discount'}</span>
@@ -341,7 +341,7 @@ export function Display() {
                     </div>
 
                     <div className="px-5 py-5 md:px-7 md:py-7 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-primary-hover)] text-[var(--color-primary-foreground)] mt-auto" aria-live="polite">
-                        <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.16em] opacity-70 mb-1.5">
+                        <p className="text-[0.6875rem] font-semibold opacity-70 mb-1.5">
                             {hasCreditPayments ? 'Balance Due' : paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Total Due'}
                         </p>
                         <p className="font-display tabular-nums text-4xl sm:text-5xl xl:text-6xl leading-none break-words">{formatCurrency(amountDue)}</p>
@@ -367,7 +367,7 @@ function CustomerIntakeBanner({ intake, customer }: { intake?: CustomerIntakeDis
                     ? 'border-[var(--color-success)]/30 bg-[var(--color-success)]/10'
                     : 'border-[var(--color-primary)]/30 bg-[var(--color-primary)]/10'
         }`}>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">
+            <p className="text-xs font-semibold text-[var(--color-muted)]">
                 Customer Profile
             </p>
             <p className="mt-1 text-base font-semibold text-[var(--color-foreground)]">

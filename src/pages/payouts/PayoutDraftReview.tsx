@@ -259,7 +259,7 @@ export function PayoutDraftReview() {
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <main className="min-w-0 space-y-6">
                     <section>
-                        <div className="mb-3 flex items-end justify-between"><div><p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">Included source activity</p><h2 className="font-display text-2xl">Exact FIFO allocations</h2></div><p className="font-display text-2xl">{formatCurrency(sourceTotal + carriedTotal)}</p></div>
+                        <div className="mb-3 flex items-end justify-between"><div><p className="text-xs font-medium text-[var(--color-muted)]">Included source activity</p><h2 className="font-display text-2xl">Exact FIFO allocations</h2></div><p className="font-display text-2xl">{formatCurrency(sourceTotal + carriedTotal)}</p></div>
                         <div className="overflow-x-auto border border-[var(--color-border)] bg-[var(--color-card)]">
                             <table className="w-full min-w-[920px] text-sm">
                                 <thead className="bg-[var(--color-surface)] text-xs text-[var(--color-muted)]"><tr><th className="px-3 py-2 text-left">Sale / item</th><th className="px-3 py-2 text-right">Net sale</th><th className="px-3 py-2 text-right">Vendor cut</th><th className="px-3 py-2 text-right">Settle now</th><th className="px-3 py-2 text-right">Remainder</th></tr></thead>
@@ -276,7 +276,7 @@ export function PayoutDraftReview() {
                 </main>
 
                 <aside className="h-fit border border-[var(--color-border)] bg-[var(--color-card)] xl:sticky xl:top-4">
-                    <div className="border-b border-[var(--color-border)] p-5"><p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Reconciliation summary</p><p className="mt-1 font-display text-3xl">{formatCurrency(Number(paymentAmount || 0))}</p><PayToName name={statement.vendor.pay_to_name} className="block text-xs text-[var(--color-muted)]" /></div>
+                    <div className="border-b border-[var(--color-border)] p-5"><p className="text-xs text-[var(--color-muted)]">Reconciliation summary</p><p className="mt-1 font-display text-3xl">{formatCurrency(Number(paymentAmount || 0))}</p><PayToName name={statement.vendor.pay_to_name} className="block text-xs text-[var(--color-muted)]" /></div>
                     <dl className="space-y-2 border-b border-[var(--color-border)] p-5 text-sm">
                         <div className="flex justify-between"><dt>Sale allocations</dt><dd>{formatCurrency(sourceTotal)}</dd></div>
                         <div className="flex justify-between"><dt>Carried balance</dt><dd>{formatCurrency(carriedTotal)}</dd></div>

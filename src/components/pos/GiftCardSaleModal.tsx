@@ -195,7 +195,7 @@ export function GiftCardSaleModal({
                         </p>
                     </div>
                     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-                        <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Gift Card Code</p>
+                        <p className="text-xs text-[var(--color-muted)]">Gift Card Code</p>
                         <p className="mt-1 font-mono text-xl font-semibold">{issued.code}</p>
                     </div>
                     <div className="flex justify-end gap-3">

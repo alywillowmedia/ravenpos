@@ -113,7 +113,7 @@ export function CategoryPage() {
             {/* Items Grid */}
             {error ? (
                 <div className="text-center py-16">
-                    <p className="text-[var(--color-error)]">{error}</p>
+                    <p className="text-[var(--color-danger)]">{error}</p>
                 </div>
             ) : items.length === 0 ? (
                 <div className="text-center py-16">

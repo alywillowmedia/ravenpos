@@ -217,21 +217,21 @@ export function VendorInventory() {
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                             <Card variant="outlined">
                                 <CardContent className="p-4">
-                                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Total Products</p>
+                                    <p className="text-xs text-[var(--color-muted)]">Total Products</p>
                                     <p className="text-2xl font-bold text-[var(--color-foreground)]">{totalItems}</p>
                                 </CardContent>
                             </Card>
 
                             <Card variant="outlined">
                                 <CardContent className="p-4">
-                                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Total Units</p>
+                                    <p className="text-xs text-[var(--color-muted)]">Total Units</p>
                                     <p className="text-2xl font-bold text-[var(--color-foreground)]">{totalQuantity}</p>
                                 </CardContent>
                             </Card>
 
                             <Card variant="elevated" className="bg-gradient-to-br from-[var(--color-primary)]/10 to-transparent">
                                 <CardContent className="p-4">
-                                    <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Total Value</p>
+                                    <p className="text-xs text-[var(--color-muted)]">Total Value</p>
                                     <p className="text-2xl font-bold text-[var(--color-primary)]">{formatCurrency(totalValue)}</p>
                                 </CardContent>
                             </Card>

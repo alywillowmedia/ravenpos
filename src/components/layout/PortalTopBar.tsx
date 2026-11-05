@@ -195,7 +195,7 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
                             'transition-colors hover:bg-[var(--color-surface)]'
                         )}
                     >
-                        <p className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">New message</p>
+                        <p className="text-xs font-medium text-[var(--color-muted)]">New message</p>
                         <p className="truncate text-sm font-semibold text-[var(--color-foreground)]">{toast.title}</p>
                         <p className="mt-1 truncate text-sm text-[var(--color-foreground)]">{toast.message}</p>
                     </button>

@@ -591,7 +591,7 @@ export function EmployeeSchedule() {
                                                                         <span className="ml-1 text-[var(--color-muted)]">({getShiftDurationHours(shift.start_time, shift.end_time).toFixed(2)}h)</span>
                                                                     </p>
                                                                     {shift.source === 'recurring' && (
-                                                                        <p className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
+                                                                        <p className="text-[10px] text-[var(--color-muted)]">
                                                                             {getCycleLabel(shift.recurring_cycle_length_days)}
                                                                         </p>
                                                                     )}

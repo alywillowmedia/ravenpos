@@ -2351,7 +2351,7 @@ export function POS() {
                         <CardContent className="space-y-3">
                             {/* Sale toolbar — eyebrow + grouped Options menu */}
                             <div className="flex items-center justify-between">
-                                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                                <span className="text-[11px] font-semibold text-[var(--color-muted)]">
                                     Current Sale
                                 </span>
                                 <div className="relative" ref={optionsMenuRef}>

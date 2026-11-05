@@ -56,7 +56,7 @@ export function CustomerGrowthChart({ data }: CustomerGrowthChartProps) {
                     type="monotone"
                     dataKey="count"
                     name="New Customers"
-                    stroke="#10b981"
+                    stroke="var(--color-chart-1)"
                     strokeWidth={2}
                     dot={false}
                 />

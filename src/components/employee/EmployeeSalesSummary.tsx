@@ -107,26 +107,26 @@ export function EmployeeSalesSummary({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Card variant="outlined">
                     <CardContent className="p-4">
-                        <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Sales</p>
+                        <p className="text-xs text-[var(--color-muted)]">Sales</p>
                         <p className="text-2xl font-semibold mt-1">{sales.length}</p>
                         <p className="mt-1 text-xs text-[var(--color-muted)]">{periodLabel}</p>
                     </CardContent>
                 </Card>
                 <Card variant="outlined">
                     <CardContent className="p-4">
-                        <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Total Attributed</p>
+                        <p className="text-xs text-[var(--color-muted)]">Total Attributed</p>
                         <p className="text-2xl font-semibold mt-1">{formatCurrency(totals.total)}</p>
                     </CardContent>
                 </Card>
                 <Card variant="outlined">
                     <CardContent className="p-4">
-                        <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Average Ticket</p>
+                        <p className="text-xs text-[var(--color-muted)]">Average Ticket</p>
                         <p className="text-2xl font-semibold mt-1">{formatCurrency(averageTicket)}</p>
                     </CardContent>
                 </Card>
                 <Card variant="outlined">
                     <CardContent className="p-4">
-                        <p className="text-xs uppercase tracking-wide text-[var(--color-muted)]">Card / Cash / Check</p>
+                        <p className="text-xs text-[var(--color-muted)]">Card / Cash / Check</p>
                         <p className="text-sm font-semibold mt-2">
                             {formatCurrency(totals.card)} / {formatCurrency(totals.cash)} / {formatCurrency(totals.check)}
                         </p>

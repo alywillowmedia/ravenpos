@@ -273,7 +273,7 @@ export function Table<T extends Record<string, any>>({
                                         ? (sortDirection === 'asc' ? 'ascending' : 'descending')
                                         : undefined}
                                     className={cn(
-                                        'px-4 py-3 text-left text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wider bg-[var(--color-surface)]'
+                                        'px-4 py-3 text-left text-xs font-semibold text-[var(--color-muted)] bg-[var(--color-surface)]'
                                     )}
                                 >
                                     {col.sortable ? (

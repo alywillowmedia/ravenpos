@@ -450,7 +450,7 @@ export function VendorDashboard() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 <Card variant="outlined">
                     <CardContent className="p-4">
-                        <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Items Listed</p>
+                        <p className="text-xs text-[var(--color-muted)]">Items Listed</p>
                         <p className="text-2xl font-bold text-[var(--color-foreground)]">{stats?.totalItems}</p>
                         <p className="text-xs text-[var(--color-muted)]">{stats?.totalQuantity} total qty</p>
                     </CardContent>
@@ -458,7 +458,7 @@ export function VendorDashboard() {
 
                 <Card variant="outlined">
                     <CardContent className="p-4">
-                        <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Items Sold</p>
+                        <p className="text-xs text-[var(--color-muted)]">Items Sold</p>
                         <p className="text-2xl font-bold text-[var(--color-foreground)]">{stats?.soldAllTime}</p>
                         <p className="text-xs text-[var(--color-muted)]">all time</p>
                     </CardContent>
@@ -466,7 +466,7 @@ export function VendorDashboard() {
 
                 <Card variant="outlined">
                     <CardContent className="p-4">
-                        <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Sold This Month</p>
+                        <p className="text-xs text-[var(--color-muted)]">Sold This Month</p>
                         <p className="text-2xl font-bold text-[var(--color-foreground)]">{stats?.soldThisMonth}</p>
                         <p className="text-xs text-[var(--color-muted)]">items</p>
                     </CardContent>
@@ -474,7 +474,7 @@ export function VendorDashboard() {
 
                 <Card variant="elevated" className="bg-gradient-to-br from-[var(--color-primary)]/10 to-transparent">
                     <CardContent className="p-4">
-                        <p className="text-xs text-[var(--color-muted)] uppercase tracking-wider">Earnings This Month</p>
+                        <p className="text-xs text-[var(--color-muted)]">Earnings This Month</p>
                         <p className="text-2xl font-bold text-[var(--color-primary)]">
                             {formatCurrency(stats?.earningsThisMonth || 0)}
                         </p>

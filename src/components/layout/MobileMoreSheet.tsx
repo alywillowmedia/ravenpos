@@ -131,7 +131,7 @@ export function MobileMoreSheet({ isOpen, onClose, variant }: MobileMoreSheetPro
                 <div className="space-y-6 p-4">
                     {sections.map((section, sectionIndex) => (
                         <section key={`${section.name}-${sectionIndex}`}>
-                            <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">{section.name}</h3>
+                            <h3 className="mb-2 text-xs font-semibold text-[var(--color-muted)]">{section.name}</h3>
                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                                 {section.items.map((item) => {
                                     const Icon = item.icon;
