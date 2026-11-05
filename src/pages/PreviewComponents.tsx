@@ -77,28 +77,21 @@ export function PreviewComponents() {
                         label="Today's Revenue"
                         value="$2,847.32"
                         subtext="36 transactions"
-                        icon={<ChartBarIcon />}
-                        highlight
-                        trend={<Badge variant="success">+12.4%</Badge>}
                     />
                     <StatCard
                         label="Pending Payouts"
                         value="$1,325.10"
                         subtext="11 consignors"
-                        icon={<WalletIcon />}
-                        trend={<Badge variant="warning">Due this week</Badge>}
                     />
                     <StatCard
                         label="Items Sold"
                         value="94"
                         subtext="Last 24 hours"
-                        icon={<PackageIcon />}
                     />
                     <StatCard
                         label="Avg Ticket"
                         value="$79.09"
                         subtext="Rolling 30 days"
-                        icon={<ReceiptIcon />}
                     />
                 </div>
 
@@ -186,45 +179,6 @@ export function PreviewComponents() {
                 </Card>
             </div>
         </div>
-    );
-}
-
-function ChartBarIcon() {
-    return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 3v18h18" />
-            <path d="M19 9l-5 5-4-4-3 3" />
-        </svg>
-    );
-}
-
-function WalletIcon() {
-    return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 7a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2Z" />
-            <path d="M17 13h5v-2h-5a2 2 0 0 0 0 4h5v-2h-5a1 1 0 1 1 0-2Z" />
-        </svg>
-    );
-}
-
-function PackageIcon() {
-    return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M16.5 9.4 7.55 4.24" />
-            <path d="M21 16a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 16V8a2 2 0 0 1 1-1.73l7-4a2 2 0 0 1 2 0l7 4A2 2 0 0 1 21 8Z" />
-            <path d="m3.3 7 8.7 5 8.7-5" />
-            <path d="M12 22V12" />
-        </svg>
-    );
-}
-
-function ReceiptIcon() {
-    return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" />
-            <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
-            <path d="M12 17.5v-11" />
-        </svg>
     );
 }
 

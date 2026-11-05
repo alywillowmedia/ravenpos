@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Card, CardContent } from '../components/ui/Card';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
+import { Money } from '../components/ui/Money';
 import { StatCard } from '../components/ui/StatCard';
 import { AnalyticsCard } from '../components/analytics/AnalyticsCard';
 import { SalesTrendChart } from '../components/analytics/SalesTrendChart';
@@ -145,26 +146,21 @@ export function Dashboard() {
                     label="Active Consignors"
                     value={stats?.activeConsignors ?? 0}
                     subtext={`${stats?.totalConsignors ?? 0} total`}
-                    icon={<UsersIcon />}
                 />
                 <StatCard
                     label="Inventory Items"
                     value={stats?.totalItems ?? 0}
                     subtext={`${stats?.totalQuantity ?? 0} total qty • ${formatCurrency(stats?.totalInventoryValue ?? 0)} value`}
-                    icon={<PackageIcon />}
                 />
                 <StatCard
                     label="Today's Sales"
                     value={stats?.todaySalesCount ?? 0}
                     subtext="transactions"
-                    icon={<ReceiptIcon />}
                 />
                 <StatCard
                     label="Today's Revenue"
-                    value={formatCurrency(stats?.todaySalesTotal ?? 0)}
+                    value={<Money amount={stats?.todaySalesTotal ?? 0} />}
                     subtext="total sales"
-                    icon={<DollarIcon />}
-                    highlight
                 />
             </div>
 
@@ -387,35 +383,6 @@ function TagIcon() {
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
             <path d="M7 7h.01" />
-        </svg>
-    );
-}
-
-function PackageIcon() {
-    return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m7.5 4.27 9 5.15" />
-            <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-            <path d="m3.3 7 8.7 5 8.7-5" />
-            <path d="M12 22V12" />
-        </svg>
-    );
-}
-
-function ReceiptIcon() {
-    return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" />
-            <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
-            <path d="M12 17.5v-11" />
-        </svg>
-    );
-}
-
-function DollarIcon() {
-    return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
         </svg>
     );
 }
