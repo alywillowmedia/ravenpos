@@ -508,7 +508,7 @@ SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
 
 -- Admin earnings for a card-fee-on-vendor item match the ledger cut, not net x split.
 CREATE TEMP TABLE card_item AS
-SELECT f.final_vendor_cut, ROUND(f.net_line_amount * f.commission_percentage, 2) AS net_times_split
+SELECT f.final_vendor_cut, ROUND(f.net_line_amount * f.commission_percentage / 100, 2) AS net_times_split
 FROM public.get_payout_sale_financials('a0000000-0000-0000-0000-00000000000f'::uuid, NOW()) f
 WHERE f.sale_item_id = 'c0000000-0000-0000-0000-0000000000a1';
 GRANT SELECT ON card_item TO authenticated;
@@ -548,6 +548,85 @@ SELECT is(
    WHERE r->>'consignor_id' = 'a0000000-0000-0000-0000-000000000010'),
   1, 'range preview counts a sale at 9pm Eastern on the range end'
 );
+
+-- ---------------------------------------------------------------------------
+-- Draft lock on the tables, store-time workspace boundaries, actor names
+-- ---------------------------------------------------------------------------
+\set v17 'a0000000-0000-0000-0000-000000000011'
+\set v18 'a0000000-0000-0000-0000-000000000012'
+INSERT INTO public.consignors (
+  id, consignor_number, name, business_name, commission_split,
+  consignor_pays_card_fee, payout_threshold_override, is_active, email
+) VALUES
+  (:'v17', 'RUN-17', 'Run Seventeen', 'Run Seventeen Studio', 0.60, FALSE, 1, TRUE, 'run17@example.test'),
+  (:'v18', 'RUN-18', 'Run Eighteen', 'Run Eighteen Studio', 0.60, FALSE, 1, TRUE, 'run18@example.test');
+INSERT INTO auth.users (id) VALUES ('20000000-0000-0000-0000-0000000000f6');
+ALTER TABLE public.users DISABLE TRIGGER USER;
+INSERT INTO public.users (id, email, role, consignor_id, employee_id)
+VALUES ('20000000-0000-0000-0000-0000000000f6', 'run-vendor17@example.test', 'vendor', :'v17', NULL);
+ALTER TABLE public.users ENABLE TRIGGER USER;
+
+SELECT pg_temp.add_sale('b0000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b1', :'v17',
+  '2025-10-10 12:00'::TIMESTAMP AT TIME ZONE 'America/New_York', 100);
+INSERT INTO public.vendor_ledger_entries (consignor_id, description, amount) VALUES (:'v17', 'Run fixture draft charge', 6);
+INSERT INTO run_ids
+SELECT 'r17', public.save_payout_draft(:'v17'::uuid, NULL, 'through_date', NULL, '2025-10-31', TRUE, NULL, NULL, NULL, NULL);
+SELECT ok(EXISTS (SELECT 1 FROM public.payout_adjustments WHERE payout_id = (SELECT id FROM run_ids WHERE name = 'r17')), 'fixture: the draft carries an adjustment');
+
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f6', TRUE);
+SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
+SELECT is((SELECT COUNT(*)::INT FROM public.payouts WHERE consignor_id = 'a0000000-0000-0000-0000-000000000011'), 0, 'vendor reads no draft payout row');
+SELECT is((SELECT COUNT(*)::INT FROM public.payout_sale_allocations WHERE consignor_id = 'a0000000-0000-0000-0000-000000000011'), 0, 'vendor reads no draft allocation rows');
+SELECT is((SELECT COUNT(*)::INT FROM public.payout_adjustments WHERE consignor_id = 'a0000000-0000-0000-0000-000000000011'), 0, 'vendor reads no draft adjustment rows');
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
+
+-- Finalize as the admin, then the vendor sees the paid rows.
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f4', TRUE);
+SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
+SELECT lives_ok($$SELECT public.finalize_payout((SELECT id FROM run_ids WHERE name = 'r17'), 'cash', '2025-11-05', NULL, NULL, NULL)$$, 'admin finalizes RUN-17');
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f6', TRUE);
+SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
+SELECT is((SELECT COUNT(*)::INT FROM public.payouts WHERE consignor_id = 'a0000000-0000-0000-0000-000000000011'), 1, 'vendor reads their paid payout row');
+SELECT is((SELECT COUNT(*)::INT FROM public.payout_sale_allocations WHERE consignor_id = 'a0000000-0000-0000-0000-000000000011'), 1, 'vendor reads their paid allocation rows');
+SELECT is((SELECT COUNT(*)::INT FROM public.payout_adjustments WHERE consignor_id = 'a0000000-0000-0000-0000-000000000011'), 1, 'vendor reads their paid adjustment rows');
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
+
+-- Payment at 9pm Eastern the evening before the range start stays outside the range.
+SELECT pg_temp.add_sale('b0000000-0000-0000-0000-0000000000b2', 'c0000000-0000-0000-0000-0000000000b2', :'v18',
+  '2025-09-15 12:00'::TIMESTAMP AT TIME ZONE 'America/New_York', 100);
+INSERT INTO run_ids
+SELECT 'r18', public.save_payout_draft(:'v18'::uuid, NULL, 'through_date', NULL, '2025-09-30', TRUE, NULL, NULL, NULL, NULL);
+SELECT public.finalize_payout((SELECT id FROM run_ids WHERE name = 'r18'), 'cash', '2025-10-09', NULL, NULL, NULL);
+ALTER TABLE public.payouts DISABLE TRIGGER USER;
+UPDATE public.payouts SET paid_at = '2025-10-09 21:00'::TIMESTAMP AT TIME ZONE 'America/New_York'
+WHERE id = (SELECT id FROM run_ids WHERE name = 'r18');
+ALTER TABLE public.payouts ENABLE TRIGGER USER;
+SELECT is((SELECT paid_at FROM public.payouts WHERE id = (SELECT id FROM run_ids WHERE name = 'r18')),
+  '2025-10-10 01:00:00+00'::timestamptz, 'fixture: payment is 9pm Eastern the evening before');
+SELECT pg_temp.add_sale('b0000000-0000-0000-0000-0000000000b3', 'c0000000-0000-0000-0000-0000000000b3', :'v18',
+  '2025-10-10 12:00'::TIMESTAMP AT TIME ZONE 'America/New_York', 50);
+SELECT is((public.get_vendor_payout_workspace(:'v18'::uuid, '2025-10-10', '2025-10-10')->'summary'->>'payments_in_range')::NUMERIC, 0::NUMERIC, 'evening-before payment is not in the range');
+SELECT is((public.get_vendor_payout_workspace(:'v18'::uuid, '2025-10-10', '2025-10-10')->'summary'->>'range_activity')::NUMERIC, 30.00::NUMERIC, 'range activity counts only the in-range sale');
+
+-- Actor-name function is service-role only.
+SELECT ok(NOT has_function_privilege('authenticated', 'public.payout_actor_name(uuid)', 'EXECUTE'), 'authenticated cannot execute payout_actor_name');
+SELECT ok(NOT has_function_privilege('anon', 'public.payout_actor_name(uuid)', 'EXECUTE'), 'anonymous cannot execute payout_actor_name');
+
+-- A voided payout names who voided it and who reversed it.
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f4', TRUE);
+SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
+SELECT lives_ok($$SELECT public.void_payout((SELECT id FROM run_ids WHERE name = 'r17'), 'Fixture void')$$, 'admin voids RUN-17 payout');
+SELECT is(public.get_payout_statement((SELECT id FROM run_ids WHERE name = 'r17'))->'actors'->>'voided_by_name', 'run-admin@example.test', 'voided_by_name resolves');
+SELECT is(public.get_payout_statement((SELECT id FROM run_ids WHERE name = 'r17'))->'actors'->>'reversed_by_name', 'run-admin@example.test', 'reversed_by_name resolves');
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
 
 SELECT * FROM finish();
 ROLLBACK;

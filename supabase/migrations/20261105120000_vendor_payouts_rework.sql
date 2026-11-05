@@ -1340,10 +1340,6 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.get_vendor_payout_workspace(UUID, DATE, DATE) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.get_vendor_payout_workspace(UUID, DATE, DATE)
-  TO authenticated, service_role;
-
 CREATE OR REPLACE FUNCTION public.get_vendor_sale_earnings(p_consignor_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -1461,3 +1457,43 @@ GRANT EXECUTE ON FUNCTION public.get_vendor_sale_earnings(UUID) TO authenticated
 GRANT EXECUTE ON FUNCTION public.get_payout_statement(UUID) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_vendor_payout_workspace(UUID, DATE, DATE) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_payout_range_preview(DATE, DATE) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Vendors cannot read draft payouts through the tables either
+-- ---------------------------------------------------------------------------
+
+DROP POLICY IF EXISTS "Admins and vendors read scoped payouts" ON public.payouts;
+CREATE POLICY "Admins and vendors read scoped payouts"
+ON public.payouts FOR SELECT TO authenticated
+USING (
+  (SELECT public.is_admin())
+  OR (
+    (SELECT public.get_user_role()) = 'vendor'
+    AND consignor_id = (SELECT public.get_user_consignor_id())
+    AND status <> 'draft'
+  )
+);
+
+DROP POLICY IF EXISTS "Admins and vendors read scoped payout allocations" ON public.payout_sale_allocations;
+CREATE POLICY "Admins and vendors read scoped payout allocations"
+ON public.payout_sale_allocations FOR SELECT TO authenticated
+USING (
+  (SELECT public.is_admin())
+  OR (
+    (SELECT public.get_user_role()) = 'vendor'
+    AND consignor_id = (SELECT public.get_user_consignor_id())
+    AND EXISTS (SELECT 1 FROM public.payouts p WHERE p.id = payout_id AND p.status <> 'draft')
+  )
+);
+
+DROP POLICY IF EXISTS "Admins and vendors read scoped payout adjustments" ON public.payout_adjustments;
+CREATE POLICY "Admins and vendors read scoped payout adjustments"
+ON public.payout_adjustments FOR SELECT TO authenticated
+USING (
+  (SELECT public.is_admin())
+  OR (
+    (SELECT public.get_user_role()) = 'vendor'
+    AND consignor_id = (SELECT public.get_user_consignor_id())
+    AND EXISTS (SELECT 1 FROM public.payouts p WHERE p.id = payout_id AND p.status <> 'draft')
+  )
+);
