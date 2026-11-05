@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, type LucideIcon } from 'lucide-react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import {
     getActiveHref,
@@ -127,18 +127,18 @@ export function PortalSidebar({
                 )}
             >
                 <div className={cn('flex h-16 shrink-0 items-center', isCollapsed ? 'justify-center px-2' : 'px-4')}>
-                    <NavLink to={homeHref} aria-label="Raven POS home" className="flex min-w-0 items-center">
+                    <Link to={homeHref} aria-label="Raven POS home" className="flex min-w-0 items-center">
                         {isCollapsed ? (
                             <span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-[var(--color-foreground)] font-bold text-[var(--color-card)]">R</span>
                         ) : (
                             <img src="/ravenpos_logo.svg" alt="Raven POS" className="sidebar-logo-image h-auto max-h-10 w-32" />
                         )}
-                    </NavLink>
+                    </Link>
                 </div>
 
                 {primaryItem && (
                     <div className="shrink-0 px-3 pb-3">
-                        <NavLink
+                        <Link
                             to={primaryItem.href}
                             aria-label="Open register"
                             title={isCollapsed ? 'Open register' : undefined}
@@ -151,7 +151,7 @@ export function PortalSidebar({
                         >
                             <primaryItem.icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
                             {!isCollapsed && 'Open register'}
-                        </NavLink>
+                        </Link>
                     </div>
                 )}
 
@@ -219,7 +219,7 @@ export function PortalSidebar({
                                         {entry.children.map((child) => {
                                             const childActive = child.href === activeHref;
                                             return (
-                                                <NavLink
+                                                <Link
                                                     key={child.href}
                                                     to={child.href}
                                                     aria-current={childActive ? 'page' : undefined}
@@ -232,7 +232,7 @@ export function PortalSidebar({
                                                 >
                                                     {childActive && <span className="absolute left-[21px] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-[var(--color-primary)]" aria-hidden="true" />}
                                                     {child.name}
-                                                </NavLink>
+                                                </Link>
                                             );
                                         })}
                                     </div>
@@ -299,7 +299,7 @@ export function PortalSidebar({
                                 )}
                             >
                                 {footerItems.map((item) => (
-                                    <NavLink
+                                    <Link
                                         key={item.href}
                                         role="menuitem"
                                         to={item.href}
@@ -308,7 +308,7 @@ export function PortalSidebar({
                                     >
                                         <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                                         {item.name}
-                                    </NavLink>
+                                    </Link>
                                 ))}
                                 {menuActions.map((action) => (
                                     <button
@@ -347,7 +347,7 @@ export function PortalSidebar({
                 >
                     <p className="px-2.5 py-1.5 text-[13px] font-medium text-[var(--color-muted)]">{flyout.name}</p>
                     {flyout.children.map((child) => (
-                        <NavLink
+                        <Link
                             key={child.href}
                             role="menuitem"
                             to={child.href}
@@ -361,7 +361,7 @@ export function PortalSidebar({
                         >
                             <child.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                             {child.name}
-                        </NavLink>
+                        </Link>
                     ))}
                 </div>
             )}
@@ -373,7 +373,7 @@ function SidebarLink({ item, active, isCollapsed }: { item: PortalNavItem; activ
     const Icon = item.icon;
 
     return (
-        <NavLink
+        <Link
             to={item.href}
             aria-current={active ? 'page' : undefined}
             title={isCollapsed ? item.name : undefined}
@@ -387,7 +387,7 @@ function SidebarLink({ item, active, isCollapsed }: { item: PortalNavItem; activ
         >
             <Icon className={cn('h-[18px] w-[18px] shrink-0', active && 'text-[var(--color-primary)]')} aria-hidden="true" />
             {!isCollapsed && item.name}
-        </NavLink>
+        </Link>
     );
 }
 

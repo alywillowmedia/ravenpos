@@ -9,14 +9,16 @@ import { Modal } from '../ui/Modal';
 import {
     adminNavigation,
     employeeNavigation,
+    getBreadcrumb,
     isNavGroup,
-    pathIsActive,
     vendorNavigation,
     type PortalNavEntry,
     type PortalNavItem,
 } from './portalNavigation';
 
 type MessagingController = ReturnType<typeof useMessaging>;
+
+const roundButtonStyles = 'flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-card)] text-[var(--color-muted)] shadow-[var(--shadow-surface)] transition-colors hover:text-[var(--color-foreground)]';
 
 interface PortalTopBarProps {
     messaging: MessagingController;
@@ -36,13 +38,14 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
     const [theme, setThemeState] = useState<ThemeMode>(() => getActiveTheme());
     const notificationPanelRef = useRef<HTMLDivElement | null>(null);
 
-    const navigation = useMemo(() => {
-        if (portalBasePath === '/admin') return flattenNavigation(adminNavigation);
+    const navigationEntries = useMemo<PortalNavEntry[]>(() => {
+        if (portalBasePath === '/admin') return adminNavigation;
         if (portalBasePath === '/vendor') return vendorNavigation;
-        return flattenNavigation(employeeNavigation);
+        return employeeNavigation;
     }, [portalBasePath]);
+    const navigation = useMemo(() => flattenNavigation(navigationEntries), [navigationEntries]);
 
-    const currentPage = navigation.find((item) => pathIsActive(location.pathname, item.href));
+    const breadcrumb = getBreadcrumb(location.pathname, navigationEntries);
     const filteredDestinations = navigation.filter((item) => {
         const query = commandQuery.trim().toLowerCase();
         if (!query) return true;
@@ -87,22 +90,22 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
 
     return (
         <>
-            <header className="sticky top-0 z-30 h-16 border-b border-[var(--color-border)] bg-[var(--color-surface-elevated)]/96 shadow-[var(--shadow-shell)] backdrop-blur">
+            <header className="sticky top-0 z-30 h-16 bg-[color-mix(in_srgb,var(--color-canvas)_85%,transparent)] backdrop-blur">
                 <div className="flex h-full items-center justify-between gap-3 px-4 sm:px-6 lg:px-7">
-                    <div className="min-w-0">
-                        <p className="truncate text-xs font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
-                            {messaging.actorRoleLabel}
-                        </p>
-                        <p className="truncate text-sm font-semibold text-[var(--color-foreground)]">
-                            {currentPage?.name || 'Raven POS'}
-                        </p>
-                    </div>
+                    <nav aria-label="Breadcrumb" className="min-w-0 truncate text-[13px] text-[var(--color-muted)]">
+                        {breadcrumb.length === 0 ? 'Raven POS' : breadcrumb.map((part, index) => (
+                            <span key={part}>
+                                {index > 0 && <span aria-hidden="true"> / </span>}
+                                <span className={index === breadcrumb.length - 1 ? 'font-medium text-[var(--color-foreground)]' : undefined}>{part}</span>
+                            </span>
+                        ))}
+                    </nav>
 
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
                             onClick={() => setCommandOpen(true)}
-                            className="hidden h-10 min-w-56 items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-left text-sm text-[var(--color-muted)] transition-colors hover:border-[var(--color-border-strong)] hover:text-[var(--color-foreground)] md:flex"
+                            className="hidden h-10 min-w-56 items-center gap-2 rounded-full bg-[var(--color-card)] px-4 text-left text-sm text-[var(--color-muted)] shadow-[var(--shadow-surface)] transition-colors hover:text-[var(--color-foreground)] md:flex"
                             aria-label="Go to a page"
                         >
                             <Search className="h-4 w-4" aria-hidden="true" />
@@ -112,7 +115,7 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
                         <button
                             type="button"
                             onClick={() => setCommandOpen(true)}
-                            className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-[var(--color-foreground)] hover:bg-[var(--color-surface)] md:hidden"
+                            className={cn(roundButtonStyles, 'md:hidden')}
                             aria-label="Go to a page"
                         >
                             <Search className="h-[18px] w-[18px]" aria-hidden="true" />
@@ -120,7 +123,7 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
                         <button
                             type="button"
                             onClick={toggleTheme}
-                            className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface)]"
+                            className={roundButtonStyles}
                             aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
                             title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
                         >
@@ -131,7 +134,7 @@ export function PortalTopBar({ messaging, portalBasePath }: PortalTopBarProps) {
                             <button
                                 type="button"
                                 onClick={() => setNotificationsOpen((open) => !open)}
-                                className="relative flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface)]"
+                                className={cn(roundButtonStyles, 'relative')}
                                 aria-label="Message notifications"
                                 aria-expanded={notificationsOpen}
                             >
