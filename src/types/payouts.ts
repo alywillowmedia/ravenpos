@@ -1,7 +1,7 @@
 export type PayoutReadiness = 'ready' | 'accruing' | 'draft' | 'paid_up';
 export type PayoutLifecycleStatus = 'draft' | 'paid' | 'voided';
 export type HistoricalConfidence = 'verified' | 'reconciled' | 'legacy_unverified';
-export type PayoutRangeMode = 'all_outstanding' | 'selected_range';
+export type PayoutRangeMode = 'all_outstanding' | 'selected_range' | 'through_date';
 
 export interface PayoutVendorIdentity {
     id: string;
@@ -13,6 +13,7 @@ export interface PayoutVendorIdentity {
     has_w9_filled_out: boolean;
     commission_split: number;
     payout_threshold_override: number | null;
+    email: string | null;
 }
 
 export interface PayoutWorkspaceSummary {
@@ -203,6 +204,11 @@ export interface PayoutStatementData {
         notes: string | null;
         prepared_at: string | null;
         voided_at: string | null;
+        carried_in_snapshot: number | null;
+        earned_snapshot: number | null;
+        original_amount_due: number | null;
+        is_partial: boolean;
+        paid_by: string | null;
     };
     vendor: Pick<PayoutVendorIdentity, 'id' | 'consignor_number' | 'name' | 'business_name' | 'pay_to_name'>;
     allocations: PayoutAllocationSnapshot[];
@@ -222,6 +228,24 @@ export interface PayoutStatementData {
     }>;
     reversal: Record<string, unknown> | null;
     is_exact: boolean;
+    actors: {
+        prepared_by_name: string | null;
+        paid_by_name: string | null;
+        voided_by_name: string | null;
+        reversed_by_name: string | null;
+    } | null;
+    latest_email: PayoutStatementEmail | null;
+}
+
+export interface PayoutStatementEmail {
+    id: string;
+    payout_id: string;
+    recipient: string;
+    status: 'sent' | 'failed';
+    provider_id: string | null;
+    error: string | null;
+    sent_by: string | null;
+    created_at: string;
 }
 
 export interface InvoiceWorkspaceData {
@@ -270,4 +294,34 @@ export interface InvoiceWorkspaceData {
         business_name: string | null;
         current_payable: number;
     };
+}
+
+export interface PayoutRunRow {
+    consignor_id: string; consignor_number: string; name: string; business_name: string | null;
+    pay_to_name: string; email: string | null; is_active: boolean; threshold: number;
+    carried_in: number; earned: number; booth_rent: number; other_deductions: number;
+    invoices_applied: number; payable_before_invoices: number; payable: number; paying_now: number;
+    status: PayoutReadiness; threshold_remaining: number;
+    pending_total: number; pending_count: number; pending_type: string | null;
+    draft_id: string | null; draft_through: string | null; override_reason: string | null;
+    last_paid_at: string | null; legacy_item_count: number;
+    items_count: number; sales_count: number; cutoff_at: string;
+}
+
+export interface PayoutRunData {
+    rows: PayoutRunRow[];
+    paid_in_month: { count: number; total: number };
+    legacy: { payouts: number; items: number };
+}
+
+export interface PrepareRunResult {
+    consignor_id: string; payout_id: string | null;
+    status: 'created' | 'skipped' | 'failed'; message: string | null;
+}
+
+export interface PayoutHistoryRow {
+    id: string; status: PayoutLifecycleStatus; amount: number; paid_at: string | null;
+    payment_method: string | null; payment_reference: string | null;
+    historical_confidence: HistoricalConfidence;
+    consignor: { name: string; business_name: string | null; consignor_number: string };
 }
