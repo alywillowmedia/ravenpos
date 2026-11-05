@@ -1,591 +1,354 @@
-import {
-    CalendarDays,
-    Download,
-    FileWarning,
-    Plus,
-    RefreshCw,
-    Search,
-} from 'lucide-react';
-import { useDeferredValue, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { LedgerPageHeader, PayToName, ReadinessStatus, ThresholdProgress } from '../components/payouts/PayoutLedgerUI';
+import { useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Header } from '../components/layout/Header';
+import { MarkPaidDialog, type MarkPaidTarget } from '../components/payouts/MarkPaidDialog';
+import { PayoutSettingsModal } from '../components/payouts/PayoutSettingsModal';
+import { ThroughDateButton } from '../components/payouts/ThroughDateButton';
 import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
+import { Card } from '../components/ui/Card';
+import { EmptyState } from '../components/ui/EmptyState';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
+import { Modal, ModalFooter } from '../components/ui/Modal';
+import { Money } from '../components/ui/Money';
+import { StatCard } from '../components/ui/StatCard';
+import { Tabs } from '../components/ui/Tabs';
 import { useToast } from '../contexts/ToastContext';
 import {
-    getPayoutRangePreview,
-    getPayoutReconciliationReport,
-    savePayoutDraft,
-    usePayouts,
-    type PayoutQueueRange,
+    discardPayoutDraft,
+    downloadReconciliationCsv,
+    getDefaultThreshold,
+    preparePayoutRun,
+    usePayoutRun,
 } from '../hooks/usePayouts';
-import { formatCurrency } from '../lib/utils';
-import type { PayoutRangePreview, PayoutReadiness, VendorPayoutWorkspaceData } from '../types/payouts';
+import { rollsForward } from '../lib/payoutDraft';
+import {
+    defaultThroughDate,
+    formatDay,
+    localDateString,
+    monthName,
+    parseThrough,
+    readyToPrepare,
+    runTotals,
+} from '../lib/payoutRun';
+import type { PayoutRunRow } from '../types/payouts';
+import { QueueTab } from './payouts/QueueTab';
 
-type QueueMode = 'report' | 'selected_range';
-type StatusFilter = 'all' | PayoutReadiness | 'exceptions';
+type PayoutsTab = 'queue' | 'drafts' | 'history';
 
-interface QueueRow {
-    workspace: VendorPayoutWorkspaceData;
-    preview: PayoutRangePreview | null;
-    readiness: PayoutReadiness;
+const TABS: Array<{ id: PayoutsTab; label: string }> = [
+    { id: 'queue', label: 'Queue' },
+    { id: 'drafts', label: 'Drafts' },
+    { id: 'history', label: 'History' },
+];
+
+interface PrepareOutcome {
+    created: number;
+    failures: Array<{ vendor: string; message: string }>;
 }
 
-const RANGE_STATUS_LABELS: Partial<Record<PayoutReadiness, string>> = {
-    accruing: 'Below threshold',
-    paid_up: 'Nothing to pay',
-};
-
-function localDate(date: Date): string {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+function parseTab(value: string | null): PayoutsTab {
+    return value === 'drafts' || value === 'history' ? value : 'queue';
 }
 
-function initialRange() {
-    const now = new Date();
+function payoutWord(count: number): string {
+    return count === 1 ? 'payout' : 'payouts';
+}
+
+function vendorName(row: PayoutRunRow): string {
+    return row.business_name || row.name;
+}
+
+function markPaidTarget(row: PayoutRunRow): MarkPaidTarget {
     return {
-        start: localDate(new Date(now.getFullYear(), now.getMonth(), 1)),
-        end: localDate(now),
+        payoutId: row.draft_id ?? '',
+        vendorName: vendorName(row),
+        payToName: row.pay_to_name,
+        amount: row.paying_now,
+        rollsForward: rollsForward(row.payable, row.paying_now),
+        email: row.email,
+        reasonRequired: row.paying_now > 0 && row.payable_before_invoices < row.threshold,
+        reason: row.override_reason ?? '',
     };
-}
-
-function rangeKey(range: PayoutQueueRange): string {
-    return `${range.start ?? ''}|${range.end ?? ''}`;
-}
-
-function formatRangeDate(value: string | null): string {
-    if (!value) return '—';
-    const [year, month, day] = value.split('-').map(Number);
-    return new Date(year, month - 1, day).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-function sumPayable(rows: VendorPayoutWorkspaceData[], readiness: PayoutReadiness): number {
-    return rows.reduce((sum, row) => (
-        row.summary.readiness === readiness ? sum + Number(row.summary.current_payable) : sum
-    ), 0);
-}
-
-function rangeReadiness(workspace: VendorPayoutWorkspaceData, preview: PayoutRangePreview | null): PayoutReadiness {
-    if (workspace.summary.draft_id) return 'draft';
-    const payout = Number(preview?.estimated_payout || 0);
-    if (payout <= 0) return 'paid_up';
-    return payout >= Number(workspace.summary.threshold) ? 'ready' : 'accruing';
-}
-
-function rangeDeductions(preview: PayoutRangePreview | null): number {
-    return preview ? Number(preview.deductions) + Number(preview.invoices_applied) : 0;
-}
-
-function QueueMetric({ label, value, tone }: { label: string; value: string; tone?: 'success' | 'warning' | 'info' | 'danger' }) {
-    const color = tone ? `var(--color-${tone})` : 'var(--color-foreground)';
-    return (
-        <div className="min-w-0 border-r border-[var(--color-border)] px-4 py-3 last:border-r-0">
-            <p className="text-xs text-[var(--color-muted)]">{label}</p>
-            <p className="font-display text-2xl" style={{ color }}>{value}</p>
-        </div>
-    );
 }
 
 export function Payouts() {
     const navigate = useNavigate();
     const toast = useToast();
-    const [mode, setMode] = useState<QueueMode>('report');
-    const [dates, setDates] = useState(initialRange);
-    const { queue, range, isLoading, error, refetch } = usePayouts(dates);
-    const [search, setSearch] = useState('');
-    const deferredSearch = useDeferredValue(search.trim().toLowerCase());
-    const [status, setStatus] = useState<StatusFilter>('all');
-    const [isExporting, setIsExporting] = useState(false);
-    const [preview, setPreview] = useState<Map<string, PayoutRangePreview> | null>(null);
-    const [isPreviewLoading, setIsPreviewLoading] = useState(false);
-    const [previewError, setPreviewError] = useState<string | null>(null);
-    const [buildingVendorId, setBuildingVendorId] = useState<string | null>(null);
-    const previewRequest = useRef(0);
-    const requestedPreviewKey = useRef<string | null>(null);
-    const isRangeMode = mode === 'selected_range';
+    const [searchParams, setSearchParams] = useSearchParams();
+    const today = useMemo(() => new Date(), []);
+    const todayString = localDateString(today);
 
-    const loadPreview = async (nextRange: PayoutQueueRange) => {
-        const requestId = ++previewRequest.current;
-        requestedPreviewKey.current = rangeKey(nextRange);
-        setPreviewError(null);
-        if (!nextRange.start || !nextRange.end || nextRange.start > nextRange.end) {
-            setPreview(null);
-            setPreviewError('Choose a start date on or before the end date.');
-            setIsPreviewLoading(false);
-            return;
-        }
-        setIsPreviewLoading(true);
+    const through = parseThrough(searchParams.get('through'), today);
+    const tab = parseTab(searchParams.get('tab'));
+    const { data, error, refetch } = usePayoutRun(through);
+
+    const [prepareOpen, setPrepareOpen] = useState(false);
+    const [isPreparing, setIsPreparing] = useState(false);
+    const [prepareOutcome, setPrepareOutcome] = useState<PrepareOutcome | null>(null);
+    const [discardRow, setDiscardRow] = useState<PayoutRunRow | null>(null);
+    const [isDiscarding, setIsDiscarding] = useState(false);
+    const [markPaid, setMarkPaid] = useState<MarkPaidTarget | null>(null);
+    const [threshold, setThreshold] = useState<number | null>(null);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const preparingVendor = useRef(false);
+
+    const rows = useMemo(() => data?.rows ?? [], [data]);
+    const totals = useMemo(() => runTotals(rows), [rows]);
+    const ready = useMemo(() => readyToPrepare(rows), [rows]);
+
+    const updateParams = (changes: { tab?: PayoutsTab; through?: string }) => {
+        const nextTab = changes.tab ?? tab;
+        const nextThrough = changes.through ?? through;
+        const params = new URLSearchParams();
+        if (nextThrough !== defaultThroughDate(today)) params.set('through', nextThrough);
+        if (nextTab !== 'queue') params.set('tab', nextTab);
+        setSearchParams(params, { replace: true });
+    };
+
+    const prepareVendor = async (id: string) => {
+        if (preparingVendor.current) return;
+        preparingVendor.current = true;
         try {
-            const rows = await getPayoutRangePreview({ start: nextRange.start, end: nextRange.end });
-            if (requestId === previewRequest.current) {
-                setPreview(new Map(rows.map((row) => [row.consignor_id, row])));
+            const [result] = await preparePayoutRun(through, [id]);
+            if (result?.status === 'created' && result.payout_id) {
+                navigate(`/admin/payouts/drafts/${result.payout_id}`);
+            } else if (result?.status === 'failed') {
+                toast.error('Could not prepare this payout', result.message ?? undefined);
+            } else {
+                toast.info('Nothing to prepare', result?.message ?? undefined);
             }
         } catch (err) {
-            if (requestId === previewRequest.current) {
-                setPreview(null);
-                setPreviewError(err instanceof Error ? err.message : 'Failed to load the range payout preview');
+            toast.error('Could not prepare this payout', err instanceof Error ? err.message : undefined);
+        } finally {
+            preparingVendor.current = false;
+        }
+    };
+
+    const closePrepare = () => {
+        if (isPreparing) return;
+        setPrepareOpen(false);
+        setPrepareOutcome(null);
+    };
+
+    const prepareAll = async () => {
+        setIsPreparing(true);
+        try {
+            const results = await preparePayoutRun(through, ready.map((row) => row.consignor_id));
+            const names = new Map(rows.map((row) => [row.consignor_id, vendorName(row)]));
+            const failures = results
+                .filter((result) => result.status === 'failed')
+                .map((result) => ({
+                    vendor: names.get(result.consignor_id) ?? 'Unknown vendor',
+                    message: result.message ?? 'Could not prepare this payout.',
+                }));
+            const created = results.filter((result) => result.status === 'created').length;
+            await refetch();
+            if (created > 0) updateParams({ tab: 'drafts' });
+            if (failures.length > 0) {
+                setPrepareOutcome({ created, failures });
+            } else {
+                setPrepareOpen(false);
+                if (created > 0) toast.success(`${created} ${created === 1 ? 'draft' : 'drafts'} prepared`);
             }
+        } catch (err) {
+            toast.error('Could not prepare the payouts', err instanceof Error ? err.message : undefined);
         } finally {
-            if (requestId === previewRequest.current) setIsPreviewLoading(false);
+            setIsPreparing(false);
         }
     };
 
-    const reload = () => {
-        void refetch(dates);
-        if (isRangeMode) void loadPreview(dates);
-    };
-
-    const selectMode = (nextMode: QueueMode) => {
-        setMode(nextMode);
-        setStatus('all');
-        // Switching modes uses the dates on screen, even if Apply was not pressed.
-        const datesChanged = rangeKey(dates) !== rangeKey(range);
-        if (datesChanged) void refetch(dates);
-        if (nextMode === 'selected_range' && (datesChanged || requestedPreviewKey.current !== rangeKey(range))) {
-            void loadPreview(dates);
-        }
-    };
-
-    const rows = useMemo<QueueRow[]>(() => {
-        const mapped = queue.map((workspace) => {
-            const vendorPreview = isRangeMode ? preview?.get(workspace.vendor.id) ?? null : null;
-            return {
-                workspace,
-                preview: vendorPreview,
-                readiness: isRangeMode ? rangeReadiness(workspace, vendorPreview) : workspace.summary.readiness,
-            };
-        });
-        if (!isRangeMode) return mapped;
-        return mapped.sort((a, b) => Number(b.preview?.estimated_payout || 0) - Number(a.preview?.estimated_payout || 0));
-    }, [isRangeMode, preview, queue]);
-
-    const filtered = useMemo(() => rows.filter(({ workspace, readiness }) => {
-        const vendor = workspace.vendor;
-        const matchesSearch = !deferredSearch || [vendor.name, vendor.business_name, vendor.pay_to_name, vendor.consignor_number]
-            .filter(Boolean)
-            .some((value) => String(value).toLowerCase().includes(deferredSearch));
-        const matchesStatus = status === 'all'
-            || (status === 'exceptions' && workspace.summary.legacy_exception_count > 0)
-            || readiness === status;
-        return matchesSearch && matchesStatus;
-    }), [deferredSearch, rows, status]);
-
-    const readyCount = queue.filter((row) => row.summary.readiness === 'ready').length;
-    const accruingCount = queue.filter((row) => row.summary.readiness === 'accruing').length;
-    const draftCount = queue.filter((row) => row.summary.readiness === 'draft').length;
-    const exceptionCount = queue.reduce((sum, row) => sum + Number(row.summary.legacy_exception_count || 0), 0);
-
-    const rangeTotals = useMemo(() => {
-        const totals = { payout: 0, payoutVendors: 0, earnings: 0, items: 0, deductions: 0, alreadyPaid: 0 };
-        for (const row of rows) {
-            if (!row.preview) continue;
-            const payout = Number(row.preview.estimated_payout);
-            totals.payout += payout;
-            if (payout > 0) totals.payoutVendors += 1;
-            totals.earnings += Number(row.preview.range_earnings);
-            totals.items += Number(row.preview.items_count);
-            totals.deductions += rangeDeductions(row.preview);
-            totals.alreadyPaid += Number(row.preview.already_paid);
-        }
-        return totals;
-    }, [rows]);
-
-    const openVendor = (workspace: VendorPayoutWorkspaceData) => {
-        if (workspace.summary.draft_id) {
-            navigate(`/admin/payouts/drafts/${workspace.summary.draft_id}`);
-            return;
-        }
-        const params = new URLSearchParams();
-        if (isRangeMode) params.set('mode', 'selected_range');
-        params.set('start', range.start ?? dates.start);
-        params.set('end', range.end ?? dates.end);
-        navigate(`/admin/payouts/vendor/${workspace.vendor.id}?${params.toString()}`);
-    };
-
-    const buildRangePayout = async (workspace: VendorPayoutWorkspaceData) => {
-        if (!range.start || !range.end) return;
-        setBuildingVendorId(workspace.vendor.id);
+    const confirmDiscard = async () => {
+        if (!discardRow?.draft_id) return;
+        setIsDiscarding(true);
         try {
-            const payoutId = await savePayoutDraft({
-                consignorId: workspace.vendor.id,
-                rangeMode: 'selected_range',
-                sourceRangeStart: range.start,
-                sourceRangeEnd: range.end,
-                includePriorBalance: false,
-                invoiceApplications: null,
-            });
-            navigate(`/admin/payouts/drafts/${payoutId}`);
-        } catch (reason) {
-            toast.error('Unable to build payout', reason instanceof Error ? reason.message : 'Please try again.');
-            setBuildingVendorId(null);
-        }
-    };
-
-    const rangeAction = (row: QueueRow) => {
-        if (row.workspace.summary.draft_id || Number(row.preview?.estimated_payout || 0) <= 0) {
-            openVendor(row.workspace);
-            return;
-        }
-        void buildRangePayout(row.workspace);
-    };
-
-    const rangeActionLabel = (row: QueueRow) => {
-        if (row.workspace.summary.draft_id) return 'Continue draft';
-        return Number(row.preview?.estimated_payout || 0) > 0 ? 'Build payout' : 'View activity';
-    };
-
-    const exportReconciliation = async () => {
-        setIsExporting(true);
-        try {
-            const report = await getPayoutReconciliationReport();
-            const lines = [
-                ['Payout ID', 'Vendor', 'Paid at', 'Amount', 'Explanation'],
-                ...report.unresolved.map((row) => [
-                    String(row.payout_id || ''),
-                    String(row.vendor_name || ''),
-                    String(row.paid_at || ''),
-                    String(row.amount || ''),
-                    String(row.explanation || ''),
-                ]),
-            ];
-            const csv = lines.map((line) => line.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
-            const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.download = `payout-reconciliation-${localDate(new Date())}.csv`;
-            anchor.click();
-            URL.revokeObjectURL(url);
+            await discardPayoutDraft(discardRow.draft_id);
+            toast.success('Draft discarded');
+            setDiscardRow(null);
+            await refetch();
+        } catch (err) {
+            toast.error('Could not discard this draft', err instanceof Error ? err.message : undefined);
         } finally {
-            setIsExporting(false);
+            setIsDiscarding(false);
         }
     };
 
-    const tableLoading = isLoading || (isRangeMode && isPreviewLoading);
-    const listError = error || (isRangeMode ? previewError : null);
+    const downloadCsv = async () => {
+        try {
+            await downloadReconciliationCsv();
+        } catch (err) {
+            toast.error('Could not download the reconciliation CSV', err instanceof Error ? err.message : undefined);
+        }
+    };
+
+    const openSettings = async () => {
+        try {
+            setThreshold(await getDefaultThreshold());
+            setSettingsOpen(true);
+        } catch (err) {
+            toast.error('Could not load payout settings', err instanceof Error ? err.message : undefined);
+        }
+    };
 
     return (
-        <div className="animate-fadeIn">
-            <LedgerPageHeader
-                title="Payouts"
-                description="Review balances, prepare drafts, and record verified payments."
+        <div>
+            <Header
+                title="Vendor payouts"
+                description="Older unpaid balances are always included. The date only sets the cutoff for new earnings."
                 actions={(
                     <>
-                        <Button variant="secondary" size="sm" onClick={() => void exportReconciliation()} isLoading={isExporting}>
-                            <Download className="h-4 w-4" /> Reconciliation report
+                        <ThroughDateButton
+                            value={through}
+                            max={todayString}
+                            onChange={(date) => updateParams({ through: date })}
+                        />
+                        <Button type="button" variant="secondary" onClick={() => void openSettings()}>
+                            Payout settings
                         </Button>
-                        <Button size="sm" onClick={() => document.getElementById('payout-search')?.focus()}>
-                            <Plus className="h-4 w-4" /> Create payout
+                        <Button type="button" variant="secondary" onClick={() => void downloadCsv()}>
+                            Reconciliation CSV
+                        </Button>
+                        <Button type="button" disabled={ready.length === 0} onClick={() => setPrepareOpen(true)}>
+                            Prepare {ready.length} ready {payoutWord(ready.length)}
                         </Button>
                     </>
                 )}
             />
 
-            {isRangeMode ? (
-                <section className="mb-5 grid overflow-hidden border border-[var(--color-border)] bg-[var(--color-card)] sm:grid-cols-2 xl:grid-cols-4">
-                    <QueueMetric label="Range payouts" value={`${rangeTotals.payoutVendors} · ${formatCurrency(rangeTotals.payout)}`} tone="success" />
-                    <QueueMetric label={`Unpaid earnings · ${rangeTotals.items} items`} value={formatCurrency(rangeTotals.earnings)} />
-                    <QueueMetric label="Deductions & invoices" value={formatCurrency(rangeTotals.deductions)} tone="warning" />
-                    <QueueMetric label="Already paid from range" value={formatCurrency(rangeTotals.alreadyPaid)} tone="info" />
-                </section>
+            {error ? (
+                <Card className="flex flex-col items-center gap-3 py-10 text-center">
+                    <p role="alert" className="font-medium text-[var(--color-foreground)]">The payout queue could not be loaded.</p>
+                    <p className="text-sm text-[var(--color-muted)]">{error}</p>
+                    <Button type="button" variant="secondary" onClick={() => void refetch()}>Retry</Button>
+                </Card>
+            ) : !data ? (
+                <div className="flex justify-center py-16">
+                    <LoadingSpinner />
+                </div>
             ) : (
-                <section className="mb-5 grid overflow-hidden border border-[var(--color-border)] bg-[var(--color-card)] sm:grid-cols-2 xl:grid-cols-4">
-                    <QueueMetric label="Ready to pay" value={`${readyCount} · ${formatCurrency(sumPayable(queue, 'ready'))}`} tone="success" />
-                    <QueueMetric label="Accruing" value={`${accruingCount} · ${formatCurrency(sumPayable(queue, 'accruing'))}`} tone="warning" />
-                    <QueueMetric label="Drafts" value={`${draftCount} · ${formatCurrency(sumPayable(queue, 'draft'))}`} tone="info" />
-                    <QueueMetric label="Integrity exceptions" value={String(exceptionCount)} tone="danger" />
-                </section>
+                <div className="space-y-6">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                        <StatCard
+                            label="Ready to pay"
+                            value={<Money amount={totals.ready.total} />}
+                            subtext={`${totals.ready.count} ${totals.ready.count === 1 ? 'vendor' : 'vendors'}`}
+                        />
+                        <StatCard
+                            label="Accruing"
+                            value={<Money amount={totals.accruing.total} />}
+                            subtext={`${totals.accruing.count} ${totals.accruing.count === 1 ? 'vendor' : 'vendors'}`}
+                        />
+                        <StatCard
+                            label="In drafts"
+                            value={<Money amount={totals.drafts.total} />}
+                            subtext={`${totals.drafts.count} ${totals.drafts.count === 1 ? 'vendor' : 'vendors'}`}
+                        />
+                        <StatCard
+                            label={`Paid in ${monthName(through)}`}
+                            value={<Money amount={data.paid_in_month.total} />}
+                            subtext={`${data.paid_in_month.count} ${payoutWord(data.paid_in_month.count)}`}
+                        />
+                    </div>
+
+                    <Tabs
+                        tabs={TABS}
+                        activeTab={tab}
+                        onChange={(id) => updateParams({ tab: id as PayoutsTab })}
+                        ariaLabel="Vendor payout views"
+                    />
+
+                    {tab === 'queue' ? (
+                        <QueueTab
+                            data={data}
+                            through={through}
+                            onPrepareVendor={(id) => void prepareVendor(id)}
+                            onDiscard={setDiscardRow}
+                            onMarkPaid={(row) => setMarkPaid(markPaidTarget(row))}
+                            onDownloadCsv={() => void downloadCsv()}
+                        />
+                    ) : tab === 'drafts' ? (
+                        <EmptyState title="Drafts" description="Drafts will appear here." />
+                    ) : (
+                        <EmptyState title="History" description="Paid and voided payouts will appear here." />
+                    )}
+                </div>
             )}
 
-            <section className="mb-5 border-y border-[var(--color-border)] py-4">
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="flex flex-wrap items-center gap-3">
-                        <span className="text-sm font-medium">View mode</span>
-                        <div className="inline-flex overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
-                            <button
-                                type="button"
-                                onClick={() => selectMode('report')}
-                                aria-pressed={!isRangeMode}
-                                className={`min-h-10 px-4 text-sm font-medium ${!isRangeMode ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'hover:bg-[var(--color-surface-hover)]'}`}
-                            >
-                                Report
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => selectMode('selected_range')}
-                                aria-pressed={isRangeMode}
-                                className={`min-h-10 border-l border-[var(--color-border)] px-4 text-sm font-medium ${isRangeMode ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'hover:bg-[var(--color-surface-hover)]'}`}
-                            >
-                                Build payout from range
-                            </button>
-                        </div>
-                    </div>
-                    <div className="flex flex-wrap items-end gap-2">
-                        <label className="text-xs text-[var(--color-muted)]">
-                            From
-                            <input
-                                type="date"
-                                value={dates.start}
-                                onChange={(event) => setDates((current) => ({ ...current, start: event.target.value }))}
-                                className="mt-1 block h-10 rounded-lg border border-[var(--color-input)] bg-[var(--color-surface-elevated)] px-3 text-sm text-[var(--color-foreground)]"
-                            />
-                        </label>
-                        <label className="text-xs text-[var(--color-muted)]">
-                            To
-                            <input
-                                type="date"
-                                value={dates.end}
-                                min={dates.start}
-                                onChange={(event) => setDates((current) => ({ ...current, end: event.target.value }))}
-                                className="mt-1 block h-10 rounded-lg border border-[var(--color-input)] bg-[var(--color-surface-elevated)] px-3 text-sm text-[var(--color-foreground)]"
-                            />
-                        </label>
-                        <Button variant="secondary" size="sm" onClick={() => reload()}>
-                            <CalendarDays className="h-4 w-4" /> Apply
-                        </Button>
-                    </div>
-                </div>
-                <p className="mt-3 text-xs text-[var(--color-info)]">
-                    {isRangeMode
-                        ? `Showing only unpaid items sold ${formatRangeDate(range.start)} – ${formatRangeDate(range.end)}. Older unpaid balances are left out; required deductions and open invoices still apply.`
-                        : 'Dates change the activity lens. Older unpaid balances remain included.'}
-                </p>
-            </section>
-
-            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center">
-                <div className="max-w-md flex-1">
-                    <Input
-                        id="payout-search"
-                        inputSize="sm"
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        placeholder="Search vendor or ID"
-                        leftIcon={<Search className="h-4 w-4" />}
-                    />
-                </div>
-                <select
-                    value={status}
-                    onChange={(event) => setStatus(event.target.value as StatusFilter)}
-                    className="h-9 rounded-lg border border-[var(--color-input)] bg-[var(--color-surface-elevated)] px-3 text-sm text-[var(--color-foreground)]"
-                    aria-label="Filter payout status"
-                >
-                    <option value="all">All statuses</option>
-                    <option value="ready">Ready to pay</option>
-                    <option value="accruing">{isRangeMode ? RANGE_STATUS_LABELS.accruing : 'Accruing'}</option>
-                    <option value="draft">Draft</option>
-                    <option value="paid_up">{isRangeMode ? RANGE_STATUS_LABELS.paid_up : 'Paid up'}</option>
-                    <option value="exceptions">Integrity exceptions</option>
-                </select>
-                <Button variant="ghost" size="sm" onClick={() => reload()}>
-                    <RefreshCw className="h-4 w-4" /> Refresh
-                </Button>
-            </div>
-
-            {listError ? (
-                <div className="mb-4 border border-[var(--color-danger)] bg-[var(--color-danger-bg)] p-4 text-sm text-[var(--color-danger)]">
-                    {listError}
-                </div>
-            ) : null}
-
-            <section aria-labelledby="vendor-balances-heading">
-                <h2 id="vendor-balances-heading" className="mb-2 text-lg font-semibold">
-                    {isRangeMode ? 'Range payouts' : 'Vendor balances'}
-                </h2>
-                {tableLoading ? (
-                    <div className="flex min-h-72 items-center justify-center border-y border-[var(--color-border)]">
-                        <LoadingSpinner size={28} />
-                    </div>
-                ) : isRangeMode ? (
-                    <>
-                        <div className="hidden overflow-x-auto border-y border-[var(--color-border)] bg-[var(--color-card)] lg:block">
-                            <table className="w-full min-w-[1180px] text-sm">
-                                <thead className="bg-[var(--color-surface)] text-xs text-[var(--color-muted)]">
-                                    <tr>
-                                        <th className="px-3 py-3 text-left font-medium">Vendor</th>
-                                        <th className="px-3 py-3 text-right font-medium">Items sold</th>
-                                        <th className="px-3 py-3 text-right font-medium">Unpaid earnings</th>
-                                        <th className="px-3 py-3 text-right font-medium">Deductions & invoices</th>
-                                        <th className="px-3 py-3 text-right font-medium">Range payout</th>
-                                        <th className="px-3 py-3 text-left font-medium">Threshold</th>
-                                        <th className="px-3 py-3 text-left font-medium">Status</th>
-                                        <th className="px-3 py-3 text-right font-medium">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filtered.map((row) => {
-                                        const { workspace, preview: vendorPreview } = row;
-                                        const deductions = rangeDeductions(vendorPreview);
-                                        const payout = Number(vendorPreview?.estimated_payout || 0);
-                                        return (
-                                            <tr key={workspace.vendor.id} className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]">
-                                                <td className="px-3 py-3">
-                                                    <p className="font-medium">{workspace.vendor.business_name || workspace.vendor.name}</p>
-                                                    <p className="text-xs text-[var(--color-muted)]">{workspace.vendor.consignor_number}</p>
-                                                    <PayToName name={workspace.vendor.pay_to_name} className="text-xs text-[var(--color-muted)]" />
-                                                </td>
-                                                <td className="px-3 py-3 text-right">
-                                                    <p>{vendorPreview?.items_count ?? 0}</p>
-                                                    <p className="text-xs text-[var(--color-muted)]">{vendorPreview?.sales_count ?? 0} {vendorPreview?.sales_count === 1 ? 'sale' : 'sales'}</p>
-                                                </td>
-                                                <td className="px-3 py-3 text-right">
-                                                    <p>{formatCurrency(vendorPreview?.range_earnings ?? 0)}</p>
-                                                    {Number(vendorPreview?.already_paid || 0) > 0 ? (
-                                                        <p className="text-xs text-[var(--color-muted)]">{formatCurrency(vendorPreview?.already_paid ?? 0)} already paid</p>
-                                                    ) : null}
-                                                </td>
-                                                <td
-                                                    className="px-3 py-3 text-right"
-                                                    title={vendorPreview ? `Deductions ${formatCurrency(vendorPreview.deductions)} · Invoices ${formatCurrency(vendorPreview.invoices_applied)}` : undefined}
-                                                >
-                                                    {deductions > 0 ? `−${formatCurrency(deductions)}` : '—'}
-                                                </td>
-                                                <td className="px-3 py-3 text-right font-display text-xl">{formatCurrency(payout)}</td>
-                                                <td className="px-3 py-3"><ThresholdProgress current={payout} threshold={workspace.summary.threshold} /></td>
-                                                <td className="px-3 py-3"><ReadinessStatus readiness={row.readiness} label={RANGE_STATUS_LABELS[row.readiness]} compact /></td>
-                                                <td className="px-3 py-3 text-right">
-                                                    <Button
-                                                        size="sm"
-                                                        variant={row.readiness === 'ready' ? 'primary' : 'secondary'}
-                                                        onClick={() => rangeAction(row)}
-                                                        isLoading={buildingVendorId === workspace.vendor.id}
-                                                        disabled={buildingVendorId !== null && buildingVendorId !== workspace.vendor.id}
-                                                    >
-                                                        {rangeActionLabel(row)}
-                                                    </Button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div className="border-y border-[var(--color-border)] bg-[var(--color-card)] lg:hidden">
-                            {filtered.map((row) => {
-                                const { workspace, preview: vendorPreview } = row;
-                                const payout = Number(vendorPreview?.estimated_payout || 0);
-                                return (
-                                    <button
-                                        key={workspace.vendor.id}
-                                        type="button"
-                                        onClick={() => rangeAction(row)}
-                                        disabled={buildingVendorId !== null}
-                                        className="block w-full border-b border-[var(--color-border)] px-3 py-4 text-left last:border-b-0 hover:bg-[var(--color-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-ring)] disabled:opacity-60"
-                                    >
-                                        <div className="flex items-start justify-between gap-4">
-                                            <div>
-                                                <p className="font-medium">{workspace.vendor.business_name || workspace.vendor.name}</p>
-                                                <p className="text-xs text-[var(--color-muted)]">{workspace.vendor.consignor_number}</p>
-                                                <PayToName name={workspace.vendor.pay_to_name} className="text-xs text-[var(--color-muted)]" />
-                                            </div>
-                                            <p className="font-display text-2xl">{formatCurrency(payout)}</p>
-                                        </div>
-                                        <div className="mt-3 flex items-end justify-between gap-4">
-                                            <ThresholdProgress current={payout} threshold={workspace.summary.threshold} />
-                                            <ReadinessStatus readiness={row.readiness} label={RANGE_STATUS_LABELS[row.readiness]} compact />
-                                        </div>
-                                        <p className="mt-3 text-xs text-[var(--color-muted)]">
-                                            {vendorPreview?.items_count ?? 0} items · Earnings {formatCurrency(vendorPreview?.range_earnings ?? 0)} · Deductions & invoices {formatCurrency(rangeDeductions(vendorPreview))}
-                                        </p>
-                                        <p className="mt-2 text-right text-sm font-medium text-[var(--color-primary)]">
-                                            {buildingVendorId === workspace.vendor.id ? 'Building…' : rangeActionLabel(row)}
-                                        </p>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </>
-                ) : (
-                    <>
-                        <div className="hidden overflow-x-auto border-y border-[var(--color-border)] bg-[var(--color-card)] lg:block">
-                            <table className="w-full min-w-[1180px] text-sm">
-                                <thead className="bg-[var(--color-surface)] text-xs text-[var(--color-muted)]">
-                                    <tr>
-                                        <th className="px-3 py-3 text-left font-medium">Vendor</th>
-                                        <th className="px-3 py-3 text-right font-medium">Opening balance</th>
-                                        <th className="px-3 py-3 text-right font-medium">Range earnings</th>
-                                        <th className="px-3 py-3 text-right font-medium">Adjustments</th>
-                                        <th className="px-3 py-3 text-right font-medium">Current payable</th>
-                                        <th className="px-3 py-3 text-left font-medium">Threshold</th>
-                                        <th className="px-3 py-3 text-left font-medium">Status</th>
-                                        <th className="px-3 py-3 text-right font-medium">Last payment</th>
-                                        <th className="px-3 py-3 text-right font-medium">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filtered.map(({ workspace }) => {
-                                        const last = workspace.payout_history.find((payout) => payout.status === 'paid');
-                                        return (
-                                            <tr key={workspace.vendor.id} className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]">
-                                                <td className="px-3 py-3">
-                                                    <p className="font-medium">{workspace.vendor.business_name || workspace.vendor.name}</p>
-                                                    <p className="text-xs text-[var(--color-muted)]">{workspace.vendor.consignor_number}</p>
-                                                    <PayToName name={workspace.vendor.pay_to_name} className="text-xs text-[var(--color-muted)]" />
-                                                </td>
-                                                <td className="px-3 py-3 text-right">{formatCurrency(workspace.summary.opening_balance)}</td>
-                                                <td className="px-3 py-3 text-right">{formatCurrency(workspace.summary.range_activity)}</td>
-                                                <td className="px-3 py-3 text-right">{formatCurrency(workspace.summary.applied_adjustments)}</td>
-                                                <td className="px-3 py-3 text-right font-display text-xl">{formatCurrency(workspace.summary.current_payable)}</td>
-                                                <td className="px-3 py-3"><ThresholdProgress current={workspace.summary.current_payable} threshold={workspace.summary.threshold} /></td>
-                                                <td className="px-3 py-3"><ReadinessStatus readiness={workspace.summary.readiness} confidence={workspace.summary.legacy_exception_count > 0 ? 'legacy_unverified' : undefined} compact /></td>
-                                                <td className="px-3 py-3 text-right text-xs text-[var(--color-muted)]">
-                                                    {last?.paid_at ? new Date(last.paid_at).toLocaleDateString() : '—'}
-                                                </td>
-                                                <td className="px-3 py-3 text-right">
-                                                    <Button size="sm" variant={workspace.summary.readiness === 'ready' ? 'primary' : 'secondary'} onClick={() => openVendor(workspace)}>
-                                                        {workspace.summary.readiness === 'draft' ? 'Continue draft' : workspace.summary.readiness === 'ready' ? 'Review payout' : 'View activity'}
-                                                    </Button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div className="border-y border-[var(--color-border)] bg-[var(--color-card)] lg:hidden">
-                            {filtered.map(({ workspace }) => (
-                                <button
-                                    key={workspace.vendor.id}
-                                    type="button"
-                                    onClick={() => openVendor(workspace)}
-                                    className="block w-full border-b border-[var(--color-border)] px-3 py-4 text-left last:border-b-0 hover:bg-[var(--color-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-ring)]"
-                                >
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div>
-                                            <p className="font-medium">{workspace.vendor.business_name || workspace.vendor.name}</p>
-                                            <p className="text-xs text-[var(--color-muted)]">{workspace.vendor.consignor_number}</p>
-                                            <PayToName name={workspace.vendor.pay_to_name} className="text-xs text-[var(--color-muted)]" />
-                                        </div>
-                                        <p className="font-display text-2xl">{formatCurrency(workspace.summary.current_payable)}</p>
-                                    </div>
-                                    <div className="mt-3 flex items-end justify-between gap-4">
-                                        <ThresholdProgress current={workspace.summary.current_payable} threshold={workspace.summary.threshold} />
-                                        <ReadinessStatus readiness={workspace.summary.readiness} compact />
-                                    </div>
-                                    <p className="mt-3 text-xs text-[var(--color-muted)]">
-                                        Opening {formatCurrency(workspace.summary.opening_balance)} · Range {formatCurrency(workspace.summary.range_activity)} · Adjustments {formatCurrency(workspace.summary.applied_adjustments)}
-                                    </p>
-                                </button>
+            <Modal
+                isOpen={prepareOpen}
+                onClose={closePrepare}
+                title={prepareOutcome
+                    ? `${prepareOutcome.created} ${prepareOutcome.created === 1 ? 'draft' : 'drafts'} prepared`
+                    : `Prepare ${ready.length} ${payoutWord(ready.length)} through ${formatDay(through)}?`}
+                size="md"
+            >
+                {prepareOutcome ? (
+                    <div className="space-y-3">
+                        <p className="text-sm text-[var(--color-muted)]">
+                            {prepareOutcome.failures.length} could not be prepared. The drafts that were created are kept.
+                        </p>
+                        <ul className="space-y-2 text-sm">
+                            {prepareOutcome.failures.map((failure) => (
+                                <li key={`${failure.vendor}-${failure.message}`}>
+                                    <span className="font-medium text-[var(--color-foreground)]">{failure.vendor}</span>
+                                    <span className="text-[var(--color-muted)]"> · {failure.message}</span>
+                                </li>
                             ))}
-                        </div>
-                    </>
+                        </ul>
+                    </div>
+                ) : (
+                    <p className="text-sm text-[var(--color-muted)]">
+                        This creates a draft for each vendor, <Money amount={totals.ready.total} /> in total. Nothing is paid yet.
+                    </p>
                 )}
-            </section>
+                <ModalFooter>
+                    {prepareOutcome ? (
+                        <Button type="button" onClick={closePrepare}>Close</Button>
+                    ) : (
+                        <>
+                            <Button type="button" variant="ghost" onClick={closePrepare} disabled={isPreparing}>Cancel</Button>
+                            <Button type="button" onClick={() => void prepareAll()} isLoading={isPreparing}>
+                                Prepare {ready.length} {payoutWord(ready.length)}
+                            </Button>
+                        </>
+                    )}
+                </ModalFooter>
+            </Modal>
 
-            {exceptionCount > 0 ? (
-                <button
-                    type="button"
-                    onClick={() => setStatus('exceptions')}
-                    className="mt-5 flex min-h-12 w-full items-center gap-3 border border-[var(--color-warning)] bg-[var(--color-warning-bg)] px-4 text-left text-sm text-[var(--color-warning)]"
-                >
-                    <FileWarning className="h-5 w-5" />
-                    <span className="font-medium">{exceptionCount} records need reconciliation review</span>
-                    <span className="ml-auto underline underline-offset-2">Review exceptions</span>
-                </button>
-            ) : null}
+            <Modal
+                isOpen={discardRow !== null}
+                onClose={isDiscarding ? () => {} : () => setDiscardRow(null)}
+                title={`Discard this draft for ${discardRow ? vendorName(discardRow) : ''}?`}
+                size="sm"
+            >
+                <p className="text-sm text-[var(--color-muted)]">
+                    Nothing has been paid. Sales and deductions go back to the queue.
+                </p>
+                <ModalFooter>
+                    <Button type="button" variant="ghost" onClick={() => setDiscardRow(null)} disabled={isDiscarding}>Cancel</Button>
+                    <Button type="button" variant="danger" onClick={() => void confirmDiscard()} isLoading={isDiscarding}>
+                        Discard draft
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
+            <MarkPaidDialog
+                target={markPaid}
+                onClose={() => setMarkPaid(null)}
+                onPaid={() => {
+                    setMarkPaid(null);
+                    void refetch();
+                }}
+            />
+
+            <PayoutSettingsModal
+                isOpen={settingsOpen}
+                current={threshold ?? 0}
+                onClose={() => setSettingsOpen(false)}
+                onSaved={() => {
+                    setThreshold(null);
+                    void refetch();
+                }}
+            />
         </div>
     );
 }

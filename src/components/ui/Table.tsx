@@ -9,13 +9,14 @@ export interface Column<T> {
     minWidth?: string;
     sortable?: boolean;
     /** Hides the column (header and cells) below this breakpoint. */
-    hideBelow?: 'md' | 'lg';
+    hideBelow?: 'md' | 'lg' | 'xl';
     render?: (item: T, meta?: { visibleIndex: number; visibleKeys: string[] }) => ReactNode;
 }
 
 function hideBelowClass(hideBelow: Column<unknown>['hideBelow']): string | undefined {
     if (hideBelow === 'md') return 'hidden md:table-cell';
     if (hideBelow === 'lg') return 'hidden lg:table-cell';
+    if (hideBelow === 'xl') return 'hidden xl:table-cell';
     return undefined;
 }
 

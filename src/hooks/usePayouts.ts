@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { localDateString } from '../lib/payoutRun';
 import { formatSupabaseError } from '../lib/supabaseError';
@@ -6,7 +6,6 @@ import type {
     FinalizePayoutInput,
     InvoiceWorkspaceData,
     PayoutHistoryRow,
-    PayoutRangePreview,
     PayoutRunData,
     PayoutRunRow,
     PayoutStatementData,
@@ -22,24 +21,6 @@ export interface PayoutQueueRange {
 
 function rpcError(error: unknown, fallback: string): string {
     return formatSupabaseError(error, fallback);
-}
-
-export async function getPayoutQueue(range: PayoutQueueRange): Promise<VendorPayoutWorkspaceData[]> {
-    const { data, error } = await supabase.rpc('get_payout_queue', {
-        p_range_start: range.start,
-        p_range_end: range.end,
-    });
-    if (error) throw new Error(rpcError(error, 'Failed to load the payout queue'));
-    return (data || []) as unknown as VendorPayoutWorkspaceData[];
-}
-
-export async function getPayoutRangePreview(range: { start: string; end: string }): Promise<PayoutRangePreview[]> {
-    const { data, error } = await supabase.rpc('get_payout_range_preview', {
-        p_range_start: range.start,
-        p_range_end: range.end,
-    });
-    if (error) throw new Error(rpcError(error, 'Failed to load the range payout preview'));
-    return (data || []) as unknown as PayoutRangePreview[];
 }
 
 export async function getVendorPayoutWorkspace(
@@ -296,19 +277,25 @@ export async function updateVendorThreshold(consignorId: string, amount: number 
 }
 
 export function usePayoutRun(through: string) {
-    const [data, setData] = useState<PayoutRunData | null>(null);
+    const [loaded, setLoaded] = useState<{ through: string; data: PayoutRunData } | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const latestRequest = useRef(0);
 
     const refetch = useCallback(async () => {
+        // A slow reply for an older date must never overwrite a newer one.
+        const request = ++latestRequest.current;
         setIsLoading(true);
         setError(null);
         try {
-            setData(await getPayoutRun(through));
+            const next = await getPayoutRun(through);
+            if (request === latestRequest.current) setLoaded({ through, data: next });
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load the payout run');
+            if (request === latestRequest.current) {
+                setError(err instanceof Error ? err.message : 'Failed to load the payout run');
+            }
         } finally {
-            setIsLoading(false);
+            if (request === latestRequest.current) setIsLoading(false);
         }
     }, [through]);
 
@@ -316,34 +303,7 @@ export function usePayoutRun(through: string) {
         void refetch();
     }, [refetch]);
 
+    // Figures for a different date are never shown under this one.
+    const data = loaded?.through === through ? loaded.data : null;
     return { data, isLoading, error, refetch };
-}
-
-export function usePayouts(initialRange: PayoutQueueRange = { start: null, end: null }) {
-    const [queue, setQueue] = useState<VendorPayoutWorkspaceData[]>([]);
-    const [range, setRange] = useState<PayoutQueueRange>(initialRange);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    const refetch = useCallback(async (nextRange: PayoutQueueRange = range) => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const nextQueue = await getPayoutQueue(nextRange);
-            setQueue(nextQueue);
-            setRange(nextRange);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load payouts');
-        } finally {
-            setIsLoading(false);
-        }
-    }, [range]);
-
-    useEffect(() => {
-        void refetch(initialRange);
-        // Initial range is intentionally captured once; subsequent changes go through refetch.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    return { queue, range, isLoading, error, refetch };
 }
