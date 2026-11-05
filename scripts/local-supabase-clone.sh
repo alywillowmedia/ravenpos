@@ -7,6 +7,7 @@ LOCAL_WORKDIR="${ROOT_DIR}/local-supabase"
 BACKUP_ROOT="${SUPABASE_CLONE_BACKUP_ROOT:-${ROOT_DIR}/backups/supabase-clone}"
 PAYOUT_MIGRATION="${ROOT_DIR}/supabase/migrations/20260715120000_vendor_payout_ledger_rework.sql"
 PAYOUT_STALE_DRAFT_FIX="${ROOT_DIR}/supabase/migrations/20260827210000_fix_stale_payout_draft_allocations.sql"
+EMPLOYEE_ACCESS_MIGRATION="${ROOT_DIR}/supabase/migrations/20261105120000_close_public_employee_access.sql"
 LOCAL_DB_PORT="55322"
 
 LOCAL_ADMIN_EMAIL="${LOCAL_ADMIN_EMAIL:-local-admin@ravenpos.test}"
@@ -261,17 +262,28 @@ apply_payout_migration() {
   printf 'Verified: existing payout and invoice financial aggregates are unchanged.\n'
 }
 
+apply_employee_access_migration() {
+  require_command psql
+  [[ -f "$EMPLOYEE_ACCESS_MIGRATION" ]] || die "Missing employee access migration: $EMPLOYEE_ACCESS_MIGRATION"
+  load_local_status
+
+  printf 'Applying employee access migration to the LOCAL clone only.\n'
+  psql "$LOCAL_DB_URL" --quiet --set ON_ERROR_STOP=1 --file "$EMPLOYEE_ACCESS_MIGRATION"
+}
+
 test_payouts() {
   require_command psql
   start_local
   load_local_status
   apply_payout_migration
+  apply_employee_access_migration
 
   local test_file test_output
   for test_file in \
     "${ROOT_DIR}/supabase/tests/vendor_payouts_rework.sql" \
     "${ROOT_DIR}/supabase/tests/vendor_payouts_behavior.sql" \
-    "${ROOT_DIR}/supabase/tests/vendor_payouts_rls.sql"; do
+    "${ROOT_DIR}/supabase/tests/vendor_payouts_rls.sql" \
+    "${ROOT_DIR}/supabase/tests/employee_access_rls.sql"; do
     printf 'Running %s\n' "${test_file#${ROOT_DIR}/}"
     test_output="$(psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --file "$test_file")"
     printf '%s\n' "$test_output"
