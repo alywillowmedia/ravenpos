@@ -436,6 +436,7 @@ export function BrowsePage() {
                                     <Button
                                         variant="secondary"
                                         size="sm"
+                                        className="!border-transparent !bg-[var(--color-surface)] !text-[var(--color-foreground)]"
                                         onClick={() => setPage(pagination.page - 1)}
                                         disabled={pagination.page === 1}
                                     >
@@ -473,6 +474,7 @@ export function BrowsePage() {
                                     <Button
                                         variant="secondary"
                                         size="sm"
+                                        className="!border-transparent !bg-[var(--color-surface)] !text-[var(--color-foreground)]"
                                         onClick={() => setPage(pagination.page + 1)}
                                         disabled={pagination.page === pagination.totalPages}
                                     >

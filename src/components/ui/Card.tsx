@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils';
 export interface CardProps {
     children: ReactNode;
     className?: string;
-    variant?: 'default' | 'elevated' | 'outlined';
+    variant?: 'default' | 'elevated' | 'outlined' | 'inset';
     padding?: 'none' | 'sm' | 'md' | 'lg';
 }
 
@@ -15,9 +15,10 @@ export function Card({
     padding = 'md',
 }: CardProps) {
     const variants = {
-        default: 'bg-[var(--color-card)] border border-[var(--color-border)] shadow-[var(--shadow-surface)]',
-        elevated: 'bg-[var(--color-card)] shadow-md',
-        outlined: 'bg-transparent border border-[var(--color-border)]',
+        default: 'bg-[var(--color-card)] shadow-[var(--shadow-surface)]',
+        elevated: 'bg-[var(--color-card)] shadow-[var(--shadow-surface)]',
+        outlined: 'bg-[var(--color-card)] border border-[var(--color-border)]',
+        inset: 'bg-[var(--color-surface)]',
     };
 
     const paddings = {
@@ -61,7 +62,7 @@ export interface CardTitleProps {
 
 export function CardTitle({ children, className }: CardTitleProps) {
     return (
-        <h3 className={cn('text-lg font-semibold text-[var(--color-foreground)]', className)}>
+        <h3 className={cn('text-base font-semibold tracking-[-0.01em] text-[var(--color-foreground)]', className)}>
             {children}
         </h3>
     );

@@ -3,7 +3,7 @@ import { cn } from '../../lib/utils';
 import { LoadingSpinner } from './LoadingSpinner';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-    variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
+    variant?: 'primary' | 'secondary' | 'soft' | 'ghost' | 'danger' | 'dangerQuiet' | 'success';
     size?: 'sm' | 'md' | 'lg' | 'xl';
     isLoading?: boolean;
     fullWidth?: boolean;
@@ -45,15 +45,26 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 
       `,
             secondary: `
-        bg-[var(--color-surface)] text-[var(--color-foreground)]
-        border border-transparent
-        hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-border-strong)]
+        bg-[var(--color-card)] text-[var(--color-foreground)]
+        border border-[var(--color-border-strong)]
+        hover:bg-[var(--color-surface-hover)]
+        focus-visible:ring-[var(--color-ring)]
+      `,
+            soft: `
+        bg-[var(--color-primary-soft)] text-[var(--color-primary)]
+        hover:brightness-95
         focus-visible:ring-[var(--color-ring)]
       `,
             ghost: `
-        text-[var(--color-foreground)]
-        hover:bg-[var(--color-surface-hover)]
+        text-[var(--color-muted)]
+        hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]
         focus-visible:ring-[var(--color-ring)]
+      `,
+            dangerQuiet: `
+        text-[var(--color-danger)]
+        border border-[var(--color-border-strong)]
+        hover:bg-[var(--color-danger-bg)]
+        focus-visible:ring-[var(--color-danger)]
       `,
             danger: `
         bg-[var(--color-danger)] text-[var(--color-danger-foreground)]

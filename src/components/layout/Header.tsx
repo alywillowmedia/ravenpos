@@ -13,12 +13,12 @@ export function Header({ title, description, actions, className }: HeaderProps) 
         <div
             className={cn(
                 'flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between',
-                'pb-5 mb-5 border-b border-[var(--color-border)]',
+                'mb-5',
                 className
             )}
         >
             <div className="min-w-0">
-                <h1 className="text-2xl font-semibold tracking-[-0.02em] text-[var(--color-foreground)]">
+                <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.025em] text-[var(--color-foreground)]">
                     {title}
                 </h1>
                 {description && (
