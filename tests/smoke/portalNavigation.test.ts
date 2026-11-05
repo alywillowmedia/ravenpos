@@ -3,6 +3,7 @@ import {
     adminNavigation,
     employeeNavigation,
     getActiveHref,
+    getAdminMobileSections,
     getBreadcrumb,
     isNavGroup,
     isRegisterRoute,
@@ -91,6 +92,14 @@ describe('portal navigation registry', () => {
             'Store',
             'Profile & settings',
         ]);
+    });
+
+    it('sections the mobile menu by the same groups', () => {
+        const sections = getAdminMobileSections(adminNavigation);
+
+        expect(sections.map((section) => section.name)).toEqual(['Overview', 'Inventory', 'People', 'Money', 'Team', 'Store', 'Settings']);
+        expect(sections[0].items.map((item) => item.name)).toEqual(['Dashboard', 'Point of Sale', 'Sales history']);
+        expect(sections[6].items.map((item) => item.name)).toEqual(['Profile & settings']);
     });
 
     it('marks only the deepest matching item active', () => {

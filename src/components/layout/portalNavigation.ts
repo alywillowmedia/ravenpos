@@ -168,6 +168,15 @@ export function getBreadcrumb(pathname: string, entries: PortalNavEntry[]): stri
     return [];
 }
 
+export function getAdminMobileSections(entries: PortalNavEntry[]): Array<{ name: string; items: PortalNavItem[] }> {
+    const topLevel = entries.filter((entry): entry is PortalNavItem => !isNavGroup(entry));
+    return [
+        { name: 'Overview', items: topLevel.filter((item) => item.placement !== 'footer') },
+        ...entries.filter(isNavGroup).map((group) => ({ name: group.name, items: group.children })),
+        { name: 'Settings', items: topLevel.filter((item) => item.placement === 'footer') },
+    ];
+}
+
 export function isRegisterRoute(pathname: string): boolean {
     return pathIsActive(pathname, '/admin/pos') || pathIsActive(pathname, '/employee/pos');
 }

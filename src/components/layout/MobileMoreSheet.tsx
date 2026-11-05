@@ -4,7 +4,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { cn } from '../../lib/utils';
-import { adminNavigation, employeeNavigation, isNavGroup, vendorNavigation, type PortalNavItem } from './portalNavigation';
+import { adminNavigation, employeeNavigation, getAdminMobileSections, isNavGroup, vendorNavigation, type PortalNavItem } from './portalNavigation';
 
 interface MobileMoreSheetProps {
     isOpen: boolean;
@@ -40,12 +40,7 @@ export function MobileMoreSheet({ isOpen, onClose, variant }: MobileMoreSheetPro
             return sections;
         }
         if (variant === 'vendor') return [{ name: 'Vendor tools', items: vendorNavigation }];
-        return adminNavigation.map((entry) => isNavGroup(entry)
-            ? { name: entry.name, items: entry.children }
-            : {
-                name: entry.name === 'Point of Sale' ? 'Sell' : entry.name === 'Dashboard' ? 'Overview' : 'Settings',
-                items: [entry],
-            });
+        return getAdminMobileSections(adminNavigation);
     }, [variant]);
 
     useEffect(() => {
