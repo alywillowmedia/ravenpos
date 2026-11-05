@@ -135,7 +135,7 @@ export function Modal({
                 aria-label={!title ? 'Dialog' : undefined}
                 tabIndex={-1}
                 className={cn(
-                    'w-full rounded-xl',
+                    'w-full rounded-2xl',
                     'bg-[var(--color-card)] shadow-xl',
                     'animate-fadeInUp',
                     'flex flex-col max-h-[85vh]',

@@ -131,11 +131,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       text-[var(--color-foreground)]
       placeholder:text-[var(--color-muted-foreground)]
       transition-all duration-150
-      focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent
+      focus:outline-none focus:border-[var(--color-primary)] focus:ring-4 focus:ring-[var(--color-primary-soft)]
       disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[var(--color-surface)]
       touch-manipulation tap-highlight-none
       text-[16px] md:text-sm
-      ${error || flashMaxLengthWarning ? 'border-[var(--color-danger)] focus:ring-[var(--color-danger)]' : ''}
+      ${error || flashMaxLengthWarning ? '!border-[var(--color-danger)] focus:ring-[var(--color-danger-bg)]' : ''}
     `;
 
         return (
@@ -294,11 +294,11 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
       text-[var(--color-foreground)]
       placeholder:text-[var(--color-muted-foreground)]
       transition-all duration-150
-      focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent
+      focus:outline-none focus:border-[var(--color-primary)] focus:ring-4 focus:ring-[var(--color-primary-soft)]
       disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[var(--color-surface)]
       px-3 py-2 text-sm
       min-h-[80px] resize-y
-      ${error || flashMaxLengthWarning ? 'border-[var(--color-danger)] focus:ring-[var(--color-danger)]' : ''}
+      ${error || flashMaxLengthWarning ? '!border-[var(--color-danger)] focus:ring-[var(--color-danger-bg)]' : ''}
     `;
 
         return (

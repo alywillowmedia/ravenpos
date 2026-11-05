@@ -35,6 +35,7 @@ export interface TableProps<T> {
     virtualViewportHeight?: number;
     ariaLabel?: string;
     stickyHeader?: boolean;
+    flat?: boolean;
 }
 
 interface TableRowMeta {
@@ -116,7 +117,9 @@ export function Table<T extends Record<string, any>>({
     virtualViewportHeight = 680,
     ariaLabel = 'Data table',
     stickyHeader = true,
+    flat = false,
 }: TableProps<T>) {
+    const shellStyles = flat ? 'overflow-hidden' : 'overflow-hidden rounded-xl bg-[var(--color-card)] shadow-[var(--shadow-surface)]';
     const [search, setSearch] = useState('');
     const [sortKey, setSortKey] = useState<string | null>(null);
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -224,7 +227,7 @@ export function Table<T extends Record<string, any>>({
 
     if (isLoading) {
         return (
-            <div className={cn('rounded-xl border border-[var(--color-border)] overflow-hidden', className)}>
+            <div className={cn(shellStyles, className)}>
                 {searchable && (
                     <div className="p-4 border-b border-[var(--color-border)]">
                         <div className="h-10 bg-[var(--color-surface)] rounded-lg animate-pulse" />
@@ -238,9 +241,9 @@ export function Table<T extends Record<string, any>>({
     }
 
     return (
-        <div className={cn('rounded-xl border border-[var(--color-border)] overflow-hidden', className)}>
+        <div className={cn(shellStyles, className)}>
             {searchable && (
-                <div className="p-4 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+                <div className="p-4 border-b border-[var(--color-border)]">
                     <Input
                         type="search"
                         aria-label={searchPlaceholder}

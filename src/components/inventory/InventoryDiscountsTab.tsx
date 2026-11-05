@@ -475,6 +475,7 @@ export function InventoryDiscountsTab({
                     </div>
 
                     <Table
+                        flat
                         ariaLabel="Inventory discounts"
                         data={visibleDiscounts}
                         columns={columns}

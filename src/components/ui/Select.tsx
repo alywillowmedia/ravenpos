@@ -52,12 +52,12 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
 
       text-[var(--color-foreground)]
       transition-all duration-150
-      focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent
+      focus:outline-none focus:border-[var(--color-primary)] focus:ring-4 focus:ring-[var(--color-primary-soft)]
       disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[var(--color-surface)]
       appearance-none
       cursor-pointer
       pr-10
-      ${error ? 'border-[var(--color-danger)] focus:ring-[var(--color-danger)]' : ''}
+      ${error ? '!border-[var(--color-danger)] focus:ring-[var(--color-danger-bg)]' : ''}
     `;
 
         return (

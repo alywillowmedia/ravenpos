@@ -555,6 +555,7 @@ export function VendorImportCSV() {
                     </CardHeader>
                     <CardContent>
                         <Table
+                            flat
                             ariaLabel="Vendor inventory import preview"
                             data={mappedItems.slice(0, 10)}
                             columns={previewColumns}

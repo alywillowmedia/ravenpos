@@ -40,7 +40,7 @@ export function Tabs({ tabs, activeTab, onChange, className, size = 'md', ariaLa
         <div
             role="tablist"
             aria-label={ariaLabel}
-            className={cn("flex gap-1 overflow-x-auto rounded-lg bg-[var(--color-surface)] p-1 border border-[var(--color-border)]", className)}
+            className={cn("flex gap-1 overflow-x-auto rounded-[14px] bg-[var(--color-track)] p-1", className)}
         >
             {tabs.map((tab, index) => {
                 const isActive = activeTab === tab.id;
@@ -57,7 +57,7 @@ export function Tabs({ tabs, activeTab, onChange, className, size = 'md', ariaLa
                             "min-w-max flex-1 font-medium leading-5 transition-colors duration-150 focus-visible:z-10",
                             buttonSize,
                             isActive
-                                ? "bg-[var(--color-card)] text-[var(--color-primary)] shadow-[var(--shadow-control)]"
+                                ? "bg-[var(--color-card)] font-semibold text-[var(--color-foreground)] shadow-[var(--shadow-surface)]"
                                 : "text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]"
                         )}
                         type="button"
