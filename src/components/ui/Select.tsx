@@ -46,7 +46,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
         };
 
         const selectStyles = `
-      w-full rounded-lg
+      field-control w-full rounded-lg
       bg-[var(--color-surface)]
       border border-[var(--color-input)]
 

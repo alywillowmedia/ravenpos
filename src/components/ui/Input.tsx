@@ -124,7 +124,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         };
 
         const inputStyles = `
-      w-full rounded-lg
+      field-control w-full rounded-lg
       bg-[var(--color-surface)]
       border border-[var(--color-input)]
 
@@ -287,7 +287,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         };
 
         const textareaStyles = `
-      w-full rounded-lg
+      field-control w-full rounded-lg
       bg-[var(--color-surface)]
       border border-[var(--color-input)]
 

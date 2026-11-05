@@ -354,6 +354,11 @@ textarea {
   outline-offset: 2px;
 }
 
+/* Fields show focus with their border and soft ring instead. */
+.field-control:focus-visible {
+  outline: none;
+}
+
 .focus-ring {
   outline: none;
 }
