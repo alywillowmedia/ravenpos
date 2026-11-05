@@ -7,6 +7,8 @@ LOCAL_WORKDIR="${ROOT_DIR}/local-supabase"
 BACKUP_ROOT="${SUPABASE_CLONE_BACKUP_ROOT:-${ROOT_DIR}/backups/supabase-clone}"
 PAYOUT_MIGRATION="${ROOT_DIR}/supabase/migrations/20260715120000_vendor_payout_ledger_rework.sql"
 PAYOUT_STALE_DRAFT_FIX="${ROOT_DIR}/supabase/migrations/20260827210000_fix_stale_payout_draft_allocations.sql"
+PAYOUT_RANGE_PREVIEW="${ROOT_DIR}/supabase/migrations/20261012120000_payout_range_preview.sql"
+PAYOUT_RUN_MIGRATION="${ROOT_DIR}/supabase/migrations/20261105120000_vendor_payouts_rework.sql"
 LOCAL_DB_PORT="55322"
 
 LOCAL_ADMIN_EMAIL="${LOCAL_ADMIN_EMAIL:-local-admin@ravenpos.test}"
@@ -225,6 +227,15 @@ restore_backup() {
   printf 'Restore complete. Production Auth credentials and Storage objects were not copied.\n'
 }
 
+apply_payout_rework() {
+  [[ -f "$PAYOUT_RANGE_PREVIEW" ]] || die "Missing payout range preview migration: $PAYOUT_RANGE_PREVIEW"
+  [[ -f "$PAYOUT_RUN_MIGRATION" ]] || die "Missing payout rework migration: $PAYOUT_RUN_MIGRATION"
+  printf 'Applying payout range preview and rework migrations to the LOCAL clone only.\n'
+  psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --file "$PAYOUT_RANGE_PREVIEW"
+  psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --file "$PAYOUT_RUN_MIGRATION"
+  psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --command "NOTIFY pgrst, 'reload schema';"
+}
+
 apply_payout_migration() {
   require_command psql
   [[ -f "$PAYOUT_MIGRATION" ]] || die "Missing payout migration: $PAYOUT_MIGRATION"
@@ -235,6 +246,7 @@ apply_payout_migration() {
     --command "SELECT to_regclass('public.payout_sale_allocations') IS NOT NULL AND to_regprocedure('public.finalize_payout(uuid,text,date,text,text,text)') IS NOT NULL")"
   if [[ "$already_present" == "t" ]]; then
     printf 'Payout ledger migration is already present in the local clone; skipping apply.\n'
+    apply_payout_rework
     return
   fi
 
@@ -257,7 +269,7 @@ apply_payout_migration() {
   [[ "$invoices_before" == "$invoices_after" ]] \
     || die "Invoice row count, total, or saved amount-paid aggregate changed during migration."
 
-  psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --command "NOTIFY pgrst, 'reload schema';"
+  apply_payout_rework
   printf 'Verified: existing payout and invoice financial aggregates are unchanged.\n'
 }
 
@@ -271,7 +283,8 @@ test_payouts() {
   for test_file in \
     "${ROOT_DIR}/supabase/tests/vendor_payouts_rework.sql" \
     "${ROOT_DIR}/supabase/tests/vendor_payouts_behavior.sql" \
-    "${ROOT_DIR}/supabase/tests/vendor_payouts_rls.sql"; do
+    "${ROOT_DIR}/supabase/tests/vendor_payouts_rls.sql" \
+    "${ROOT_DIR}/supabase/tests/vendor_payouts_run.sql"; do
     printf 'Running %s\n' "${test_file#${ROOT_DIR}/}"
     test_output="$(psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --file "$test_file")"
     printf '%s\n' "$test_output"
