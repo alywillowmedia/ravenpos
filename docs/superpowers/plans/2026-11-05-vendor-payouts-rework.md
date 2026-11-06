@@ -1,5 +1,7 @@
 # Vendor Payouts Rework Implementation Plan
 
+> Note: the migration was renamed to `20261105130000_vendor_payouts_rework.sql` (another branch used `20261105120000`). Older mentions below use the first name.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the vendor payout flow with one date-driven queue, batch prepare, a pay run and statement emails, on the shared design system, with vendor earnings that agree with payouts.
