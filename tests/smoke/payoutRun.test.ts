@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     defaultThroughDate,
+    countAfterCutoff,
     filterRows,
     formatDay,
     formatPayoutDate,
@@ -8,6 +9,7 @@ import {
     localDateString,
     monthName,
     parseThrough,
+    payoutsBackPath,
     payRunTotal,
     prepareSummary,
     readyToPrepare,
@@ -15,6 +17,7 @@ import {
     shortId,
     splitBarParts,
     statusLine,
+    validateMinimum,
 } from '../../src/lib/payoutRun';
 import type { PayoutRunRow } from '../../src/types/payouts';
 
@@ -170,5 +173,38 @@ describe('queue logic', () => {
         expect(formatPayoutDate({ payment_date: '2026-03-05', paid_at: '2026-04-12T15:00:00Z' })).toBe('Mar 5, 2026');
         expect(formatPayoutDate({ payment_date: null, paid_at: '2026-04-12T15:00:00Z' })).toBe('Apr 12, 2026');
         expect(formatPayoutDate({ payment_date: null, paid_at: null })).toBe('—');
+    });
+});
+
+describe('vendor page helpers', () => {
+    it('counts items after the cutoff instant, which is itself in scope', () => {
+        const cutoff = '2026-10-31T23:59:59.999Z';
+        const items = [
+            { sale_timestamp: '2026-10-31T23:59:59.999Z' },
+            { sale_timestamp: '2026-11-01T00:00:00Z' },
+            { sale_timestamp: '2026-11-03T12:00:00Z' },
+            { sale_timestamp: '2026-10-15T12:00:00Z' },
+        ];
+        expect(countAfterCutoff(items, cutoff)).toBe(2);
+        expect(countAfterCutoff([], cutoff)).toBe(0);
+        expect(countAfterCutoff(items, 'not a date')).toBe(0);
+    });
+
+    it('builds the back link, keeping through and tab and omitting defaults', () => {
+        expect(payoutsBackPath('2026-10-31', 'queue', today)).toBe('/admin/payouts');
+        expect(payoutsBackPath('2026-09-30', 'queue', today)).toBe('/admin/payouts?through=2026-09-30');
+        expect(payoutsBackPath('2026-10-31', 'drafts', today)).toBe('/admin/payouts?tab=drafts');
+        expect(payoutsBackPath('2026-09-30', 'history', today)).toBe('/admin/payouts?through=2026-09-30&tab=history');
+    });
+
+    it('validates a payout minimum', () => {
+        expect(validateMinimum('100')).toBeNull();
+        expect(validateMinimum(' 25.50 ')).toBeNull();
+        expect(validateMinimum('0')).toBeNull();
+        expect(validateMinimum('.5')).toBeNull();
+        expect(validateMinimum('')).not.toBeNull();
+        expect(validateMinimum('-5')).not.toBeNull();
+        expect(validateMinimum('abc')).not.toBeNull();
+        expect(validateMinimum('1.234')).not.toBeNull();
     });
 });

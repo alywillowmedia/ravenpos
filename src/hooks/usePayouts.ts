@@ -133,6 +133,7 @@ export async function getVendorPayoutPreview(consignorId: string, through: strin
         p_through: through,
     });
     if (error) throw new Error(rpcError(error, 'Failed to load the payout preview'));
+    if (!data) throw new Error('Vendor not found.');
     return data as unknown as PayoutRunRow;
 }
 

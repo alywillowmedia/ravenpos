@@ -1,198 +1,442 @@
-import { AlertTriangle, ArrowLeft, FileText, ReceiptText, ShieldCheck } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, FileText, ReceiptText } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import {
-    FinancialEquation,
-    LedgerPageHeader,
-    ReadinessStatus,
-    ThresholdProgress,
-    TransactionLedger,
-} from '../../components/payouts/PayoutLedgerUI';
+import { Header } from '../../components/layout/Header';
+import { PayoutEquation, ReadinessBadge, TransactionLedger } from '../../components/payouts/PayoutLedgerUI';
+import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { Card } from '../../components/ui/Card';
+import { Input } from '../../components/ui/Input';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import { Modal, ModalFooter } from '../../components/ui/Modal';
+import { Money } from '../../components/ui/Money';
+import { Tabs } from '../../components/ui/Tabs';
 import { useToast } from '../../contexts/ToastContext';
-import { getVendorPayoutWorkspace, savePayoutDraft } from '../../hooks/usePayouts';
+import {
+    getVendorPayoutPreview,
+    getVendorPayoutWorkspace,
+    preparePayoutRun,
+    updateVendorThreshold,
+} from '../../hooks/usePayouts';
 import { hasUnpaidBalance } from '../../lib/payoutLedger';
+import {
+    countAfterCutoff,
+    formatDay,
+    formatPayoutDate,
+    parseThrough,
+    payoutsBackPath,
+    statusLine,
+    validateMinimum,
+} from '../../lib/payoutRun';
 import { formatCurrency } from '../../lib/utils';
-import type { VendorPayoutWorkspaceData } from '../../types/payouts';
+import type { PayoutRunRow, VendorPayoutWorkspaceData } from '../../types/payouts';
 
-type WorkspaceTab = 'activity' | 'deductions' | 'invoices' | 'history';
+type VendorTab = 'items' | 'deductions' | 'invoices' | 'history';
+
+interface Loaded {
+    key: string;
+    workspace: VendorPayoutWorkspaceData;
+    preview: PayoutRunRow;
+}
+
+function backTab(value: string | null): string {
+    return value === 'drafts' || value === 'history' ? value : 'queue';
+}
+
+function useVendorPage(consignorId: string, through: string) {
+    const [stored, setStored] = useState<Loaded | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const latestRequest = useRef(0);
+    const key = `${consignorId}|${through}`;
+
+    const refetch = useCallback(async (): Promise<Loaded | null> => {
+        // A slow reply for an older request must never overwrite a newer one.
+        const request = ++latestRequest.current;
+        setError(null);
+        try {
+            const [workspace, preview] = await Promise.all([
+                getVendorPayoutWorkspace(consignorId),
+                getVendorPayoutPreview(consignorId, through),
+            ]);
+            if (request !== latestRequest.current) return null;
+            setStored({ key, workspace, preview });
+            return { key, workspace, preview };
+        } catch (err) {
+            if (request === latestRequest.current) {
+                setError(err instanceof Error ? err.message : 'Failed to load the vendor payout page.');
+            }
+            return null;
+        }
+    }, [consignorId, key, through]);
+
+    useEffect(() => {
+        void refetch();
+    }, [refetch]);
+
+    // Figures for another vendor or date are never shown under this one.
+    const loaded = stored?.key === key ? stored : null;
+    return { loaded, error, refetch };
+}
 
 export function VendorPayoutWorkspace() {
     const { consignorId = '' } = useParams();
     const [params] = useSearchParams();
     const navigate = useNavigate();
     const toast = useToast();
-    const [workspace, setWorkspace] = useState<VendorPayoutWorkspaceData | null>(null);
-    const [tab, setTab] = useState<WorkspaceTab>('activity');
-    const [isLoading, setIsLoading] = useState(true);
-    const [isSaving, setIsSaving] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const today = useMemo(() => new Date(), []);
+    const through = parseThrough(params.get('through'), today);
+    const fromTab = backTab(params.get('tab'));
+    const backPath = payoutsBackPath(through, fromTab, today);
 
-    const range = useMemo(() => ({
-        start: params.get('start'),
-        end: params.get('end'),
-    }), [params]);
-    const selectedRange = params.get('mode') === 'selected_range';
+    const { loaded, error, refetch } = useVendorPage(consignorId, through);
+    const [view, setView] = useState<VendorTab>('items');
+    const [isPreparing, setIsPreparing] = useState(false);
+    const [minimumOpen, setMinimumOpen] = useState(false);
+    const preparing = useRef(false);
 
-    useEffect(() => {
-        let cancelled = false;
-        setIsLoading(true);
-        getVendorPayoutWorkspace(consignorId, range)
-            .then((data) => { if (!cancelled) setWorkspace(data); })
-            .catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Failed to load payout workspace'); })
-            .finally(() => { if (!cancelled) setIsLoading(false); });
-        return () => { cancelled = true; };
-    }, [consignorId, range]);
+    const unpaidItems = useMemo(
+        () => (loaded ? loaded.workspace.sale_items.filter(hasUnpaidBalance) : []),
+        [loaded],
+    );
 
-    const createDraft = async () => {
-        if (!workspace) return;
-        setIsSaving(true);
+    const prepare = async () => {
+        if (preparing.current) return;
+        preparing.current = true;
+        setIsPreparing(true);
         try {
-            const payoutId = await savePayoutDraft({
-                consignorId,
-                rangeMode: selectedRange ? 'selected_range' : 'all_outstanding',
-                sourceRangeStart: selectedRange ? range.start : null,
-                sourceRangeEnd: selectedRange ? range.end : null,
-                // A range payout covers only sales inside the range; older balances wait.
-                includePriorBalance: !selectedRange,
-                invoiceApplications: null,
-            });
-            navigate(`/admin/payouts/drafts/${payoutId}`);
-        } catch (reason) {
-            toast.error('Unable to prepare payout', reason instanceof Error ? reason.message : 'Please try again.');
+            const [result] = await preparePayoutRun(through, [consignorId]);
+            if (result?.status === 'created' && result.payout_id) {
+                navigate(`/admin/payouts/drafts/${result.payout_id}`);
+            } else if (result?.status === 'failed') {
+                toast.error('Could not prepare this payout', result.message ?? undefined);
+            } else if (result?.status === 'skipped') {
+                const next = await refetch();
+                if (next?.preview.draft_id) navigate(`/admin/payouts/drafts/${next.preview.draft_id}`);
+                else toast.info('Nothing to prepare', result.message ?? undefined);
+            } else {
+                toast.info('Nothing to prepare', result?.message ?? undefined);
+            }
+        } catch (err) {
+            toast.error('Could not prepare this payout', err instanceof Error ? err.message : undefined);
         } finally {
-            setIsSaving(false);
+            preparing.current = false;
+            setIsPreparing(false);
         }
     };
 
-    if (isLoading) return <div className="flex min-h-72 items-center justify-center"><LoadingSpinner size={30} /></div>;
-    if (!workspace || error) return (
-        <div className="border border-[var(--color-danger)] bg-[var(--color-danger-bg)] p-6 text-sm text-[var(--color-danger)]">
-            {error || 'Vendor payout workspace was not found.'}
-        </div>
+    const backLink = (
+        <Link to={backPath} className="mb-3 inline-flex items-center gap-1 text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)]">
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> Vendor payouts
+        </Link>
     );
 
-    const { vendor, summary } = workspace;
-    const unpaidSaleItems = workspace.sale_items.filter(hasUnpaidBalance);
+    if (error) {
+        return (
+            <div>
+                {backLink}
+                <Card className="flex flex-col items-center gap-3 py-10 text-center">
+                    <p role="alert" className="font-medium text-[var(--color-foreground)]">This vendor&apos;s payout page could not be loaded.</p>
+                    <p className="text-sm text-[var(--color-muted)]">{error}</p>
+                    <Button type="button" variant="secondary" onClick={() => void refetch()}>Retry</Button>
+                </Card>
+            </div>
+        );
+    }
+
+    if (!loaded) {
+        return (
+            <div>
+                {backLink}
+                <div className="flex min-h-72 items-center justify-center"><LoadingSpinner size={30} /></div>
+            </div>
+        );
+    }
+
+    const { workspace, preview } = loaded;
+    const { vendor } = workspace;
+    const hasDraft = preview.status === 'draft' && Boolean(preview.draft_id);
+    const deductions = preview.booth_rent + preview.other_deductions + preview.invoices_applied;
+    // The Inactive badge already says it.
+    const rawLine = statusLine(preview);
+    const line = rawLine === 'Inactive' ? null : rawLine;
+    const dimDay = formatDay(preview.draft_through ?? through);
+    const afterCount = countAfterCutoff(unpaidItems, preview.cutoff_at);
     const requiredApplied = workspace.required_adjustments.filter((row) => row.will_apply);
     const pending = workspace.required_adjustments.filter((row) => !row.will_apply);
+    const hasOverride = vendor.payout_threshold_override !== null;
+
+    const tabs = [
+        { id: 'items', label: `Unpaid items (${unpaidItems.length})` },
+        { id: 'deductions', label: `Deductions (${workspace.required_adjustments.length})` },
+        { id: 'invoices', label: `Invoices (${workspace.invoices.length})` },
+        { id: 'history', label: `History (${workspace.payout_history.length})` },
+    ];
 
     return (
-        <div className="mx-auto w-full max-w-[1500px] pb-24">
-            <LedgerPageHeader
-                breadcrumb={<Link className="inline-flex items-center gap-1 hover:text-[var(--color-foreground)]" to="/admin/payouts"><ArrowLeft className="h-3.5 w-3.5" /> Payout queue</Link>}
-                title={vendor.business_name || vendor.name}
-                description={`${vendor.consignor_number} · Pay to ${vendor.pay_to_name}${vendor.booth_location ? ` · Booth ${vendor.booth_location}` : ''}`}
-                actions={(
-                    <>
-                        {summary.draft_id ? (
-                            <Button onClick={() => navigate(`/admin/payouts/drafts/${summary.draft_id}`)}>Continue draft</Button>
-                        ) : (
-                            <Button onClick={createDraft} isLoading={isSaving} disabled={summary.current_payable <= 0}>{selectedRange ? 'Prepare range payout' : 'Prepare payout'}</Button>
-                        )}
-                    </>
-                )}
-            />
-
-            <section className="grid border border-[var(--color-border)] bg-[var(--color-card)] md:grid-cols-[1.3fr_1fr_1fr]">
-                <div className="p-5 md:border-r md:border-[var(--color-border)]">
-                    <p className="text-xs text-[var(--color-muted)]">Current payable</p>
-                    <p className="mt-1 font-display text-4xl">{formatCurrency(summary.current_payable)}</p>
-                    <div className="mt-3"><ReadinessStatus readiness={summary.readiness} /></div>
-                </div>
-                <div className="border-t border-[var(--color-border)] p-5 md:border-r md:border-t-0">
-                    <p className="mb-3 text-xs text-[var(--color-muted)]">Payout threshold</p>
-                    <ThresholdProgress current={summary.current_payable} threshold={summary.threshold} />
-                    <p className="mt-3 text-xs text-[var(--color-muted)]">{summary.threshold_remaining > 0 ? `${formatCurrency(summary.threshold_remaining)} until ready` : 'Threshold reached'}</p>
-                </div>
-                <div className="border-t border-[var(--color-border)] p-5 md:border-t-0">
-                    <p className="mb-3 text-xs text-[var(--color-muted)]">Compliance</p>
-                    <p className={`inline-flex items-center gap-2 text-sm font-medium ${vendor.has_w9_filled_out ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'}`}>
-                        {vendor.has_w9_filled_out ? <ShieldCheck className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-                        W-9 {vendor.has_w9_filled_out ? 'on file' : 'missing'}
-                    </p>
-                    <p className="mt-2 text-xs text-[var(--color-muted)]">Default vendor share {Number(vendor.commission_split).toFixed(0)}%</p>
-                </div>
-            </section>
-
-            <div className="mt-5">
-                <FinancialEquation
-                    terms={[
-                        { label: 'Opening unpaid balance', amount: summary.opening_balance },
-                        { label: 'Range earnings & refunds', amount: summary.range_activity, operator: '+' },
-                        { label: 'Applied adjustments', amount: summary.applied_adjustments, operator: '+' },
-                        { label: 'Payments in range', amount: summary.payments_in_range, operator: '−' },
-                        { label: 'Closing balance', amount: summary.closing_balance, operator: '=', emphasize: true },
-                    ]}
-                    note={<>Date filters are a reporting lens. Current balance today is <strong>{formatCurrency(summary.current_payable)}</strong>; older unpaid money remains included.</>}
+        <div className="space-y-6">
+            <div>
+                {backLink}
+                <Header
+                    className="!mb-0"
+                    title={vendor.business_name || vendor.name}
+                    description={`#${vendor.consignor_number} · Pay to ${vendor.pay_to_name}${vendor.booth_location ? ` · Booth ${vendor.booth_location}` : ''}`}
+                    actions={hasDraft ? (
+                        <Button type="button" onClick={() => navigate(`/admin/payouts/drafts/${preview.draft_id}`)}>Open draft</Button>
+                    ) : (
+                        <Button type="button" onClick={() => void prepare()} isLoading={isPreparing} disabled={preview.payable <= 0}>
+                            Prepare payout
+                        </Button>
+                    )}
                 />
             </div>
 
-            {summary.legacy_exception_count > 0 ? (
-                <div className="mt-5 flex gap-3 border border-[var(--color-warning)] bg-[var(--color-warning-bg)] p-4 text-sm text-[var(--color-warning)]">
-                    <AlertTriangle className="h-5 w-5 shrink-0" />
-                    <div><p className="font-medium">Historical allocation warning</p><p className="mt-1 text-xs">{summary.legacy_exception_count} sale records cannot be proven from exact historical evidence and are labeled honestly below.</p></div>
+            <Card className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                    <ReadinessBadge status={preview.status} />
+                    {line ? <span className="text-sm text-[var(--color-muted)]">{line}</span> : null}
+                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                        <Badge variant={vendor.has_w9_filled_out ? 'success' : 'warning'} size="sm">
+                            {vendor.has_w9_filled_out ? 'W-9 on file' : 'W-9 missing'}
+                        </Badge>
+                        {!preview.is_active ? <Badge size="sm">Inactive</Badge> : null}
+                    </div>
                 </div>
+
+                <PayoutEquation
+                    lines={[
+                        { label: 'Carried in', amount: preview.carried_in },
+                        { label: 'Earned', amount: preview.earned, sign: '+' },
+                        { label: 'Deductions', amount: deductions, sign: '−' },
+                        { label: 'Payable', amount: preview.payable, sign: '=', strong: true },
+                    ]}
+                />
+                <p className="text-xs text-[var(--color-muted)]">
+                    {hasDraft
+                        ? `These are the figures saved in the draft, through ${dimDay}.`
+                        : `Earnings through ${formatDay(through)}.`}
+                </p>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 text-sm">
+                    <p className="text-[var(--color-muted)]">
+                        {preview.is_active
+                            ? <>Minimum payout <span className="font-medium text-[var(--color-foreground)]">{formatCurrency(preview.threshold)}</span> ({hasOverride ? 'set for this vendor' : 'shop default'})</>
+                            : 'No minimum payout applies to an inactive vendor.'}
+                    </p>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setMinimumOpen(true)}>Change</Button>
+                </div>
+            </Card>
+
+            {preview.legacy_item_count > 0 ? (
+                <p className="text-xs text-[var(--color-muted)]">
+                    {preview.legacy_item_count} sold {preview.legacy_item_count === 1 ? 'item sits' : 'items sit'} under older payouts that can&apos;t be matched to exact sales. They count as paid, so nothing is owed on them.
+                </p>
             ) : null}
 
-            <nav className="mt-7 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]" aria-label="Vendor payout workspace">
-                {([
-                    ['activity', `Unpaid items (${unpaidSaleItems.length})`],
-                    ['deductions', `Deductions (${workspace.required_adjustments.length})`],
-                    ['invoices', `Invoices (${workspace.invoices.length})`],
-                    ['history', `Payout history (${workspace.payout_history.length})`],
-                ] as Array<[WorkspaceTab, string]>).map(([value, label]) => (
-                    <button key={value} type="button" onClick={() => setTab(value)} className={`min-h-11 whitespace-nowrap border-b-2 px-4 text-sm font-medium ${tab === value ? 'border-[var(--color-primary)] text-[var(--color-foreground)]' : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-foreground)]'}`}>{label}</button>
-                ))}
-            </nav>
+            <div className="space-y-4">
+                <Tabs tabs={tabs} activeTab={view} onChange={(id) => setView(id as VendorTab)} ariaLabel="Vendor payout details" />
 
-            <section className="mt-4">
-                {tab === 'activity' ? <TransactionLedger items={unpaidSaleItems} statementHref={(id) => `/admin/payouts/history/${id}`} emptyMessage="No unpaid sale items." /> : null}
-                {tab === 'deductions' ? (
+                {view === 'items' ? (
+                    <div className="space-y-3">
+                        {afterCount > 0 ? (
+                            <p className="text-sm text-[var(--color-muted)]">
+                                {afterCount} {afterCount === 1 ? 'item' : 'items'} after {dimDay} {afterCount === 1 ? 'is' : 'are'} not in this payout.
+                            </p>
+                        ) : null}
+                        <TransactionLedger
+                            items={unpaidItems}
+                            statementHref={(id) => `/admin/payouts/history/${id}`}
+                            emptyMessage="No unpaid sale items."
+                            dimmedAfter={preview.cutoff_at}
+                        />
+                    </div>
+                ) : null}
+
+                {view === 'deductions' ? (
                     <div className="grid gap-4 lg:grid-cols-2">
-                        <LedgerList title="Will apply when affordable" rows={requiredApplied.map((row) => ({ id: `${row.source_table}-${row.source_reference}`, label: row.description, amount: row.signed_amount, meta: row.adjustment_type.replace(/_/g, ' ') }))} empty="No required deductions are currently applicable." />
-                        <LedgerList title="Pending obligations" rows={pending.map((row) => ({ id: `${row.source_table}-${row.source_reference}`, label: row.description, amount: row.signed_amount, meta: row.pending_reason || 'Pending' }))} empty="No pending obligations." warning />
+                        <RowList
+                            title="Will apply when affordable"
+                            empty="No required deductions are currently applicable."
+                            rows={requiredApplied.map((row) => ({
+                                id: `${row.source_table}-${row.source_reference}`,
+                                label: row.description,
+                                amount: row.signed_amount,
+                                meta: row.adjustment_type.replace(/_/g, ' '),
+                            }))}
+                        />
+                        <RowList
+                            title="Pending"
+                            empty="No pending deductions."
+                            rows={pending.map((row) => ({
+                                id: `${row.source_table}-${row.source_reference}`,
+                                label: row.description,
+                                amount: row.signed_amount,
+                                meta: row.pending_reason || 'Pending',
+                            }))}
+                        />
                     </div>
                 ) : null}
-                {tab === 'invoices' ? (
-                    <div className="overflow-hidden border border-[var(--color-border)] bg-[var(--color-card)]">
-                        {workspace.invoices.length === 0 ? <p className="p-10 text-center text-sm text-[var(--color-muted)]">No unpaid vendor invoices.</p> : workspace.invoices.map((invoice) => (
-                            <Link key={invoice.id} to={`/admin/finances/invoices/${invoice.id}`} className="flex min-h-16 items-center gap-4 border-b border-[var(--color-border)] px-4 last:border-b-0 hover:bg-[var(--color-surface-hover)]">
-                                <ReceiptText className="h-5 w-5 text-[var(--color-muted)]" />
-                                <div><p className="font-mono text-sm">#{invoice.invoice_number}</p><p className="text-xs text-[var(--color-muted)]">{new Date(invoice.created_at).toLocaleDateString()} · {invoice.status.replace('_', ' ')}</p></div>
-                                <div className="ml-auto text-right"><p className="font-display text-xl">{formatCurrency(invoice.balance_due)}</p><p className="text-xs text-[var(--color-muted)]">of {formatCurrency(invoice.total)}</p></div>
+
+                {view === 'invoices' ? (
+                    <LinkList empty="No unpaid vendor invoices.">
+                        {workspace.invoices.map((invoice) => (
+                            <Link
+                                key={invoice.id}
+                                to={`/admin/finances/invoices/${invoice.id}`}
+                                className="flex min-h-16 items-center gap-4 px-4 hover:bg-[var(--color-surface-hover)]"
+                            >
+                                <ReceiptText className="h-5 w-5 text-[var(--color-muted)]" aria-hidden="true" />
+                                <div>
+                                    <p className="font-mono text-sm">#{invoice.invoice_number}</p>
+                                    <p className="text-xs text-[var(--color-muted)]">
+                                        {new Date(invoice.created_at).toLocaleDateString()} · {invoice.status.replace('_', ' ')}
+                                    </p>
+                                </div>
+                                <div className="ml-auto text-right">
+                                    <Money amount={invoice.balance_due} className="text-lg font-semibold" />
+                                    <p className="text-xs text-[var(--color-muted)]">of {formatCurrency(invoice.total)}</p>
+                                </div>
                             </Link>
                         ))}
-                    </div>
+                    </LinkList>
                 ) : null}
-                {tab === 'history' ? (
-                    <div className="overflow-hidden border border-[var(--color-border)] bg-[var(--color-card)]">
-                        {workspace.payout_history.length === 0 ? <p className="p-10 text-center text-sm text-[var(--color-muted)]">No completed payouts yet.</p> : workspace.payout_history.map((payout) => (
-                            <Link key={payout.id} to={`/admin/payouts/history/${payout.id}`} className="flex min-h-16 items-center gap-4 border-b border-[var(--color-border)] px-4 last:border-b-0 hover:bg-[var(--color-surface-hover)]">
-                                <FileText className="h-5 w-5 text-[var(--color-muted)]" />
-                                <div><p className="font-mono text-sm">Payout #{payout.id.slice(0, 8).toUpperCase()}</p><p className="text-xs text-[var(--color-muted)]">{payout.paid_at ? new Date(payout.paid_at).toLocaleDateString() : payout.status} · {payout.items_sold} items</p></div>
-                                {payout.historical_confidence === 'legacy_unverified' ? <span className="hidden text-xs text-[var(--color-warning)] sm:inline">Legacy record</span> : null}
-                                <p className="ml-auto font-display text-xl">{formatCurrency(payout.amount)}</p>
+
+                {view === 'history' ? (
+                    <LinkList empty="No completed payouts yet.">
+                        {workspace.payout_history.map((payout) => (
+                            <Link
+                                key={payout.id}
+                                to={`/admin/payouts/history/${payout.id}`}
+                                className="flex min-h-16 items-center gap-4 px-4 hover:bg-[var(--color-surface-hover)]"
+                            >
+                                <FileText className="h-5 w-5 text-[var(--color-muted)]" aria-hidden="true" />
+                                <div>
+                                    <p className="font-mono text-sm">Payout #{payout.id.slice(0, 8).toUpperCase()}</p>
+                                    <p className="text-xs text-[var(--color-muted)]">
+                                        {formatPayoutDate({ payment_date: null, paid_at: payout.paid_at })} · {payout.items_sold} items
+                                    </p>
+                                </div>
+                                {payout.status === 'voided' ? <Badge variant="danger" size="sm">Voided</Badge> : null}
+                                {payout.historical_confidence === 'legacy_unverified' ? <Badge variant="secondary" size="sm">Legacy</Badge> : null}
+                                <Money amount={payout.amount} className="ml-auto text-lg font-semibold" />
                             </Link>
                         ))}
-                    </div>
+                    </LinkList>
                 ) : null}
-            </section>
+            </div>
+
+            <MinimumModal
+                isOpen={minimumOpen}
+                consignorId={consignorId}
+                override={vendor.payout_threshold_override}
+                current={preview.threshold}
+                onClose={() => setMinimumOpen(false)}
+                onSaved={() => void refetch()}
+            />
         </div>
     );
 }
 
-function LedgerList({ title, rows, empty, warning = false }: { title: string; rows: Array<{ id: string; label: string; amount: number; meta: string }>; empty: string; warning?: boolean }) {
+function LinkList({ children, empty }: { children: ReactNode[]; empty: string }) {
+    if (children.length === 0) {
+        return <div className="rounded-xl bg-[var(--color-surface)] py-10 text-center text-sm text-[var(--color-muted)]">{empty}</div>;
+    }
     return (
-        <div className="border border-[var(--color-border)] bg-[var(--color-card)]">
-            <h2 className="border-b border-[var(--color-border)] px-4 py-3 text-sm font-semibold">{title}</h2>
-            {rows.length === 0 ? <p className="p-6 text-sm text-[var(--color-muted)]">{empty}</p> : rows.map((row) => (
-                <div key={row.id} className="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-3 last:border-b-0">
-                    <div><p className="text-sm font-medium">{row.label}</p><p className={`text-xs ${warning ? 'text-[var(--color-warning)]' : 'text-[var(--color-muted)]'}`}>{row.meta}</p></div>
-                    <p className="ml-auto font-medium">{formatCurrency(row.amount)}</p>
-                </div>
-            ))}
+        <div className="divide-y divide-[var(--color-border)] overflow-hidden rounded-2xl bg-[var(--color-card)] shadow-[var(--shadow-surface)]">
+            {children}
         </div>
+    );
+}
+
+function RowList({ title, rows, empty }: {
+    title: string;
+    rows: Array<{ id: string; label: string; amount: number; meta: string }>;
+    empty: string;
+}) {
+    return (
+        <Card padding="none" className="overflow-hidden">
+            <h2 className="px-4 py-3 text-sm font-semibold">{title}</h2>
+            {rows.length === 0 ? (
+                <p className="px-4 pb-4 text-sm text-[var(--color-muted)]">{empty}</p>
+            ) : (
+                <ul className="divide-y divide-[var(--color-border)] border-t border-[var(--color-border)]">
+                    {rows.map((row) => (
+                        <li key={row.id} className="flex items-center gap-3 px-4 py-3">
+                            <div className="min-w-0">
+                                <p className="text-sm font-medium">{row.label}</p>
+                                <p className="text-xs text-[var(--color-muted)]">{row.meta}</p>
+                            </div>
+                            <Money amount={row.amount} className="ml-auto font-medium" />
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </Card>
+    );
+}
+
+function MinimumModal({ isOpen, consignorId, override, current, onClose, onSaved }: {
+    isOpen: boolean;
+    consignorId: string;
+    override: number | null;
+    current: number;
+    onClose: () => void;
+    onSaved: () => void;
+}) {
+    const toast = useToast();
+    const [value, setValue] = useState('');
+    const [error, setError] = useState<string | null>(null);
+    const [saving, setSaving] = useState<'amount' | 'default' | null>(null);
+
+    useEffect(() => {
+        if (isOpen) {
+            setValue((override ?? current).toFixed(2));
+            setError(null);
+        }
+    }, [isOpen, override, current]);
+
+    const save = async (amount: number | null) => {
+        if (amount !== null) {
+            const problem = validateMinimum(value);
+            if (problem) {
+                setError(problem);
+                return;
+            }
+        }
+        setSaving(amount === null ? 'default' : 'amount');
+        setError(null);
+        try {
+            await updateVendorThreshold(consignorId, amount);
+            toast.success(amount === null ? 'Using the shop default minimum' : 'Minimum payout saved');
+            onSaved();
+            onClose();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Could not save the minimum payout.');
+        } finally {
+            setSaving(null);
+        }
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={saving ? () => {} : onClose} title="Minimum payout" size="sm">
+            <Input
+                label="Minimum for this vendor"
+                inputMode="decimal"
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                error={error ?? undefined}
+                hint="Existing drafts keep the minimum they were saved with."
+            />
+            <ModalFooter>
+                <Button type="button" variant="ghost" onClick={onClose} disabled={saving !== null}>Cancel</Button>
+                {override !== null ? (
+                    <Button type="button" variant="secondary" onClick={() => void save(null)} isLoading={saving === 'default'} disabled={saving === 'amount'}>
+                        Use shop default
+                    </Button>
+                ) : null}
+                <Button type="button" onClick={() => void save(Number(value))} isLoading={saving === 'amount'} disabled={saving === 'default'}>
+                    Save
+                </Button>
+            </ModalFooter>
+        </Modal>
     );
 }

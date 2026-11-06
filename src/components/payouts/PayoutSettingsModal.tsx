@@ -1,15 +1,10 @@
 import { useEffect, useState } from 'react';
 import { updateDefaultThreshold } from '../../hooks/usePayouts';
 import { useToast } from '../../contexts/ToastContext';
+import { validateMinimum } from '../../lib/payoutRun';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Modal, ModalFooter } from '../ui/Modal';
-
-function validateMinimum(value: string): string | null {
-    const trimmed = value.trim();
-    if (!/^(\d+(\.\d{1,2})?|\.\d{1,2})$/.test(trimmed)) return 'Enter an amount of $0.00 or more.';
-    return null;
-}
 
 export function PayoutSettingsModal({
     isOpen,

@@ -166,3 +166,26 @@ export function formatPayoutDate(row: { payment_date: string | null; paid_at: st
     }
     return row.paid_at ? formatDate(row.paid_at) : '—';
 }
+
+/** Items sold after the payout cutoff instant (the cutoff itself is in scope). */
+export function countAfterCutoff(items: Array<{ sale_timestamp: string }>, cutoffAt: string): number {
+    const cutoff = Date.parse(cutoffAt);
+    if (Number.isNaN(cutoff)) return 0;
+    return items.filter((item) => Date.parse(item.sale_timestamp) > cutoff).length;
+}
+
+/** Link back to the payouts page, keeping the date and tab and leaving out the defaults. */
+export function payoutsBackPath(through: string, tab: string, today: Date): string {
+    const params = new URLSearchParams();
+    if (through !== defaultThroughDate(today)) params.set('through', through);
+    if (tab !== 'queue') params.set('tab', tab);
+    const query = params.toString();
+    return query ? `/admin/payouts?${query}` : '/admin/payouts';
+}
+
+/** Problem with a typed payout minimum, or null when it is a valid amount of $0.00 or more. */
+export function validateMinimum(value: string): string | null {
+    const trimmed = value.trim();
+    if (!/^(\d+(\.\d{1,2})?|\.\d{1,2})$/.test(trimmed)) return 'Enter an amount of $0.00 or more.';
+    return null;
+}
