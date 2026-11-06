@@ -93,15 +93,22 @@ const READINESS_BADGES: Record<PayoutReadiness, { label: string; variant: 'succe
     paid_up: { label: 'Paid up', variant: 'default' },
 };
 
-export function ReadinessBadge({ status }: { status: PayoutReadiness }) {
+const VENDOR_READINESS_LABELS: Record<PayoutReadiness, string> = {
+    ready: 'Ready',
+    accruing: 'Building up',
+    draft: 'Being prepared',
+    paid_up: 'Paid up',
+};
+
+export function ReadinessBadge({ status, audience = 'admin' }: { status: PayoutReadiness; audience?: 'admin' | 'vendor' }) {
     const { label, variant } = READINESS_BADGES[status];
-    return <Badge variant={variant} dot>{label}</Badge>;
+    return <Badge variant={variant} dot>{audience === 'vendor' ? VENDOR_READINESS_LABELS[status] : label}</Badge>;
 }
 
 function allocationLabel(status: PayoutSaleFinancial['allocation_status']): string {
     switch (status) {
         case 'partially_paid': return 'Partially paid';
-        case 'legacy_uncertain': return 'Legacy uncertain';
+        case 'legacy_uncertain': return 'Older record';
         case 'refunded': return 'Refunded';
         case 'paid': return 'Paid';
         default: return 'Unpaid';

@@ -41,6 +41,24 @@ describe('ReadinessBadge', () => {
     });
 });
 
+describe('ReadinessBadge vendor wording', () => {
+    const label = (status: 'draft' | 'accruing' | 'ready' | 'paid_up', audience?: 'admin' | 'vendor') =>
+        renderToStaticMarkup(createElement(ReadinessBadge, { status, audience }));
+
+    it('uses plain words for vendors', () => {
+        expect(label('draft', 'vendor')).toContain('Being prepared');
+        expect(label('accruing', 'vendor')).toContain('Building up');
+        expect(label('ready', 'vendor')).toContain('>Ready<');
+        expect(label('paid_up', 'vendor')).toContain('Paid up');
+    });
+
+    it('keeps staff wording by default', () => {
+        expect(label('draft')).toContain('Draft');
+        expect(label('accruing')).toContain('Accruing');
+        expect(label('ready', 'admin')).toContain('Ready to pay');
+    });
+});
+
 describe('LegacyNote', () => {
     const noop = () => {};
     it('renders nothing at zero items', () => {

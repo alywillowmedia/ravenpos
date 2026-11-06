@@ -94,7 +94,7 @@ export function VendorPayouts() {
 
             <Card className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
-                    <ReadinessBadge status={summary.readiness} />
+                    <ReadinessBadge status={summary.readiness} audience="vendor" />
                     {summary.readiness === 'draft' ? null : <Money amount={summary.current_payable} className="text-3xl font-semibold" />}
                 </div>
                 <p className="text-sm text-[var(--color-muted)]">{explain(summary)}</p>
