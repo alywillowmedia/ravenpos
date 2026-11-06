@@ -81,6 +81,15 @@ function toFriendlyDatabaseMessage({ code, message, details, hint }: FriendlyMes
         return 'One of the values is in the wrong format. Please check and try again.';
     }
 
+    if (
+        combined.includes('failed to fetch') ||
+        combined.includes('networkerror when attempting to fetch') ||
+        combined.includes('load failed') ||
+        combined.includes('network request failed')
+    ) {
+        return 'Could not reach the server. Check the connection and try again.';
+    }
+
     if (code === '42501' || combined.includes('permission denied')) {
         return 'You do not have permission to do that.';
     }
