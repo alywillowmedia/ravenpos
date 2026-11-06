@@ -337,3 +337,9 @@ export function validateMinimum(value: string): string | null {
     if (!/^(\d+(\.\d{1,2})?|\.\d{1,2})$/.test(trimmed)) return 'Enter an amount of $0.00 or more.';
     return null;
 }
+
+/** Vendor earnings for the given sale items, summed in cents. An id with no entry counts as $0. */
+export function sumEarnings(itemIds: string[], earnings: Map<string, number>): number {
+    const cents = itemIds.reduce((total, id) => total + Math.round((earnings.get(id) ?? 0) * 100), 0);
+    return cents / 100;
+}

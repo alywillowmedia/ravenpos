@@ -1,12 +1,10 @@
-import { ChevronDown, ChevronRight, LockKeyhole, TriangleAlert } from 'lucide-react';
+import { ChevronDown, ChevronRight, LockKeyhole } from 'lucide-react';
 import { memo, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { normalizeEquationTerm } from '../../lib/payoutLedger';
-import { cn, formatCurrency } from '../../lib/utils';
+import { cn } from '../../lib/utils';
 import { Badge } from '../ui/Badge';
 import { Money } from '../ui/Money';
 import type {
-    HistoricalConfidence,
     PayoutReadiness,
     PayoutSaleFinancial,
 } from '../../types/payouts';
@@ -52,86 +50,6 @@ export function PayToName({ name, className }: { name: string; className?: strin
         <span className={className}>
             Pay to <strong className="font-medium text-[var(--color-foreground)]">{name}</strong>
         </span>
-    );
-}
-
-export function ReadinessStatus({
-    readiness,
-    confidence,
-    compact = false,
-    label,
-}: {
-    readiness: PayoutReadiness;
-    confidence?: HistoricalConfidence;
-    compact?: boolean;
-    label?: string;
-}) {
-    const config: Record<PayoutReadiness, { label: string; color: string }> = {
-        ready: { label: 'Ready to pay', color: 'var(--color-success)' },
-        accruing: { label: 'Accruing', color: 'var(--color-warning)' },
-        draft: { label: 'Draft', color: 'var(--color-info)' },
-        paid_up: { label: 'Paid up', color: 'var(--color-muted)' },
-    };
-    const current = config[readiness];
-
-    return (
-        <div className={compact ? 'space-y-0.5' : 'space-y-1'}>
-            <span className="inline-flex items-center gap-2 text-sm font-medium">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: current.color }} aria-hidden="true" />
-                {label ?? current.label}
-            </span>
-            {confidence === 'legacy_unverified' ? (
-                <span className="flex items-center gap-1 text-xs text-[var(--color-warning)]">
-                    <TriangleAlert className="h-3.5 w-3.5" /> Legacy balance
-                </span>
-            ) : null}
-        </div>
-    );
-}
-
-export function ThresholdProgress({ current, threshold }: { current: number; threshold: number }) {
-    const progress = threshold <= 0 ? 100 : Math.min(100, Math.max(0, (current / threshold) * 100));
-    return (
-        <div className="min-w-24">
-            <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-                <span>{formatCurrency(threshold)}</span>
-                <span className="text-[var(--color-muted)]">{Math.round(progress)}%</span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-surface)]">
-                <div
-                    className="h-full rounded-full bg-[var(--color-success)] transition-[width]"
-                    style={{ width: `${progress}%` }}
-                />
-            </div>
-        </div>
-    );
-}
-
-export interface EquationTerm {
-    label: string;
-    amount: number;
-    operator?: '+' | '−' | '=';
-    emphasize?: boolean;
-}
-
-export function FinancialEquation({ terms, note }: { terms: EquationTerm[]; note?: ReactNode }) {
-    return (
-        <section className="border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 sm:px-5">
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(120px,1fr))]">
-                {terms.map(normalizeEquationTerm).map((term, index) => (
-                    <div key={`${term.label}-${index}`} className="flex min-w-0 items-start gap-3">
-                        {term.operator ? <span className="pt-2 text-lg text-[var(--color-muted)]">{term.operator}</span> : null}
-                        <div>
-                            <p className={term.emphasize ? 'font-display text-3xl' : 'font-display text-2xl'}>
-                                {formatCurrency(term.amount)}
-                            </p>
-                            <p className="mt-1 text-xs text-[var(--color-muted)]">{term.label}</p>
-                        </div>
-                    </div>
-                ))}
-            </div>
-            {note ? <div className="mt-4 border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-muted)]">{note}</div> : null}
-        </section>
     );
 }
 

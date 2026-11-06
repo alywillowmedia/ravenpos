@@ -12,6 +12,8 @@ import {
     getJoinedSaleDiscountData,
     type SaleItemDiscountAllocationInput,
 } from '../../lib/saleDiscounts';
+import { getVendorSaleEarnings } from '../../hooks/usePayouts';
+import { sumEarnings } from '../../lib/payoutRun';
 import { formatCurrency, formatDate } from '../../lib/utils';
 
 const DISCOUNT_CONTEXT_FETCH_BATCH_SIZE = 1000;
@@ -23,7 +25,6 @@ interface SaleItemWithDate {
     sku: string;
     price: number;
     quantity: number;
-    commission_split: number;
     discount_amount: number;
     discount_reason?: string | null;
     original_line_total: number;
@@ -63,6 +64,8 @@ async function fetchSaleItemDiscountContextRows(
 export function VendorSales() {
     const { userRecord } = useAuth();
     const [sales, setSales] = useState<SaleItemWithDate[]>([]);
+    // Null when the server earnings could not be loaded.
+    const [earnings, setEarnings] = useState<Map<string, number> | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
@@ -72,9 +75,16 @@ export function VendorSales() {
             if (!userRecord?.consignor_id) return;
 
             try {
+                // Earnings come from the server so they match payouts. Sales still show if they fail.
+                const earningsResult = await getVendorSaleEarnings(userRecord.consignor_id).catch((earningsError: unknown) => {
+                    console.error('Failed to load vendor earnings:', earningsError);
+                    return null;
+                });
+                setEarnings(earningsResult);
+
                 const query = supabase
                     .from('sale_items')
-                    .select('id, sale_id, name, sku, price, quantity, commission_split, discount_amount, discount_reason, sales!inner(completed_at, discount_total)')
+                    .select('id, sale_id, name, sku, price, quantity, discount_amount, discount_reason, sales!inner(completed_at, discount_total)')
                     .eq('consignor_id', userRecord.consignor_id)
                     .order('sales(completed_at)', { ascending: false });
 
@@ -113,7 +123,6 @@ export function VendorSales() {
                             sku: item.sku,
                             price,
                             quantity,
-                            commission_split: Number(item.commission_split),
                             discount_amount: Number(item.discount_amount || 0),
                             discount_reason: item.discount_reason,
                             original_line_total: allocation?.originalLineTotal ?? originalLineTotal,
@@ -151,10 +160,7 @@ export function VendorSales() {
     // Calculate totals
     const totalSales = filteredSales.reduce((sum, s) => sum + s.net_line_total, 0);
     const totalDiscounts = filteredSales.reduce((sum, s) => sum + s.total_discount_amount, 0);
-    const totalEarnings = filteredSales.reduce(
-        (sum, s) => sum + s.net_line_total * s.commission_split,
-        0
-    );
+    const totalEarnings = earnings ? sumEarnings(filteredSales.map((s) => s.id), earnings) : null;
     const totalItemsSold = filteredSales.reduce((sum, s) => sum + s.quantity, 0);
 
     const columns: Column<SaleItemWithDate>[] = [
@@ -214,14 +220,17 @@ export function VendorSales() {
             ),
         },
         {
-            key: 'commission_split',
+            key: 'vendor_earnings',
             header: 'Your Cut',
             width: '100px',
-            render: (item) => (
-                <span className="text-[var(--color-primary)] font-medium">
-                    {formatCurrency(item.net_line_total * item.commission_split)}
-                </span>
-            ),
+            render: (item) => {
+                const earned = earnings?.get(item.id);
+                return earned === undefined ? (
+                    <span className="text-[var(--color-muted)]">—</span>
+                ) : (
+                    <span className="text-[var(--color-primary)] font-medium">{formatCurrency(earned)}</span>
+                );
+            },
         },
         {
             key: 'completed_at',
@@ -272,7 +281,10 @@ export function VendorSales() {
                     <CardContent className="p-4 text-center">
                         <p className="text-xs text-[var(--color-muted)] uppercase">Your Earnings</p>
                         <p className="text-2xl font-bold text-[var(--color-primary)]">
-                            {formatCurrency(totalEarnings)}
+                            {totalEarnings === null ? '—' : formatCurrency(totalEarnings)}
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--color-muted)]">
+                            {totalEarnings === null ? 'Earnings are unavailable right now.' : 'After card fees and refunds'}
                         </p>
                     </CardContent>
                 </Card>
@@ -281,7 +293,7 @@ export function VendorSales() {
             {/* Date Filter */}
             <Card variant="outlined" className="mb-6">
                 <CardContent className="p-4">
-                    <div className="flex gap-4 items-end">
+                    <div className="flex flex-wrap gap-4 items-end">
                         <Input
                             label="From"
                             type="date"

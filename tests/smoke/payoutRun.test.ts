@@ -26,6 +26,7 @@ import {
     shortId,
     splitBarParts,
     statusLine,
+    sumEarnings,
     validateMinimum,
 } from '../../src/lib/payoutRun';
 import type { PayoutRunRow } from '../../src/types/payouts';
@@ -425,5 +426,16 @@ describe('runPayRun', () => {
             const final = await runPayRun([job('a', { sendEmail: true })], deps);
             expect(final.a).toEqual({ phase: 'paid', email: outcome });
         }
+    });
+});
+
+describe('sumEarnings', () => {
+    it('sums in cents and counts a missing id as $0', () => {
+        const earnings = new Map([['a', 0.1], ['b', 0.2]]);
+        expect(sumEarnings(['a', 'b', 'x'], earnings)).toBe(0.3);
+    });
+
+    it('is 0 for no ids', () => {
+        expect(sumEarnings([], new Map([['a', 5]]))).toBe(0);
     });
 });

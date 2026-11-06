@@ -11,6 +11,8 @@ import {
     getJoinedSaleDiscountData,
     type SaleItemDiscountAllocationInput,
 } from '../../lib/saleDiscounts';
+import { getVendorSaleEarnings } from '../../hooks/usePayouts';
+import { sumEarnings } from '../../lib/payoutRun';
 import { formatCurrency, formatDate } from '../../lib/utils';
 import type { Consignor } from '../../types';
 
@@ -21,7 +23,8 @@ interface VendorStats {
     totalQuantity: number;
     soldAllTime: number;
     soldThisMonth: number;
-    earningsThisMonth: number;
+    /** Null when the server earnings could not be loaded. */
+    earningsThisMonth: number | null;
 }
 
 interface RecentSale {
@@ -29,7 +32,8 @@ interface RecentSale {
     name: string;
     price: number;
     quantity: number;
-    commission_split: number;
+    /** Server earnings for this sale item, or null when not available yet. */
+    earned: number | null;
     original_line_total: number;
     net_line_total: number;
     total_discount_amount: number;
@@ -51,7 +55,6 @@ interface SaleItemInsertRow {
     name: string;
     price: number | string;
     quantity: number;
-    commission_split: number | string;
     discount_amount?: number | string | null;
     created_at: string;
 }
@@ -62,7 +65,6 @@ interface SaleItemWithSaleRow {
     name: string;
     price: number | string;
     quantity: number;
-    commission_split: number | string;
     discount_amount?: number | string | null;
     sales: unknown;
 }
@@ -108,7 +110,12 @@ async function loadSaleItemDiscountAllocations(
     );
 }
 
-function buildRecentSale(row: SaleItemWithSaleRow, completedAt: string, fallbackDiscountAmount = 0): RecentSale {
+function buildRecentSale(
+    row: SaleItemWithSaleRow,
+    completedAt: string,
+    earned: number | null,
+    fallbackDiscountAmount = 0
+): RecentSale {
     const price = Number(row.price || 0);
     const quantity = Number(row.quantity || 0);
     const originalLineTotal = price * quantity;
@@ -119,7 +126,7 @@ function buildRecentSale(row: SaleItemWithSaleRow, completedAt: string, fallback
         name: row.name,
         price,
         quantity,
-        commission_split: Number(row.commission_split || 0),
+        earned,
         original_line_total: originalLineTotal,
         net_line_total: netLineTotal,
         total_discount_amount: Math.max(0, originalLineTotal - netLineTotal),
@@ -218,7 +225,6 @@ export function VendorDashboard() {
                 name: string;
                 quantity: number;
                 price: number | string;
-                commission_split: number | string;
                 discount_amount?: number | string | null;
                 sales: unknown;
             }> = [];
@@ -228,7 +234,7 @@ export function VendorDashboard() {
             while (hasMoreSales) {
                 const { data: salesBatch, error: salesError } = await supabase
                     .from('sale_items')
-                    .select('id, sale_id, name, quantity, price, commission_split, discount_amount, sales!inner(completed_at, discount_total)')
+                    .select('id, sale_id, name, quantity, price, discount_amount, sales!inner(completed_at, discount_total)')
                     .eq('consignor_id', consignorId)
                     .order('id', { ascending: true })
                     .range(salesOffset, salesOffset + DASHBOARD_FETCH_BATCH_SIZE - 1);
@@ -241,7 +247,6 @@ export function VendorDashboard() {
                     name: string;
                     quantity: number;
                     price: number | string;
-                    commission_split: number | string;
                     discount_amount?: number | string | null;
                     sales: unknown;
                 }>;
@@ -254,7 +259,13 @@ export function VendorDashboard() {
                 }
             }
 
-            const discountAllocations = await loadSaleItemDiscountAllocations(allSaleItems);
+            // Earnings come from the server so they match payouts. If they fail, show none.
+            let earnings: Map<string, number> | null = null;
+            try {
+                earnings = await getVendorSaleEarnings(consignorId);
+            } catch (earningsError) {
+                console.error('Failed to load vendor earnings:', earningsError);
+            }
             const soldAllTime = allSaleItems?.reduce((sum, si) => sum + si.quantity, 0) || 0;
 
             // This month's sales
@@ -270,16 +281,9 @@ export function VendorDashboard() {
             }) || [];
 
             const soldThisMonth = thisMonthSales.reduce((sum, si) => sum + si.quantity, 0);
-            const earningsThisMonth = thisMonthSales.reduce(
-                (sum, si) => {
-                    const allocation = discountAllocations.get(si.id);
-                    const rawLineTotal = Number(si.price || 0) * Number(si.quantity || 0);
-                    const netLineTotal = allocation?.netLineTotal
-                        ?? Math.max(0, rawLineTotal - Number(si.discount_amount || 0));
-                    return sum + (netLineTotal * Number(si.commission_split));
-                },
-                0
-            );
+            const earningsThisMonth = earnings
+                ? sumEarnings(thisMonthSales.map((si) => si.id), earnings)
+                : null;
 
             setStats({
                 totalItems,
@@ -292,7 +296,7 @@ export function VendorDashboard() {
             // Recent sales (last 10)
             const { data: recent, error: recentError } = await supabase
                 .from('sale_items')
-                .select('id, sale_id, name, price, quantity, commission_split, discount_amount, sales!inner(completed_at, discount_total)')
+                .select('id, sale_id, name, price, quantity, discount_amount, sales!inner(completed_at, discount_total)')
                 .eq('consignor_id', consignorId)
                 .order('sales(completed_at)', { ascending: false })
                 .limit(10);
@@ -307,6 +311,7 @@ export function VendorDashboard() {
                     const fallback = buildRecentSale(
                         row,
                         sale.completed_at,
+                        earnings?.get(row.id) ?? null,
                         Number(row.discount_amount || 0)
                     );
                     return {
@@ -347,7 +352,6 @@ export function VendorDashboard() {
 
                         const quantity = Number(row.quantity) || 0;
                         const price = Number(row.price) || 0;
-                        const commissionSplit = Number(row.commission_split) || 0;
 
                         const { data: saleData, error: saleError } = await supabase
                             .from('sales')
@@ -364,15 +368,20 @@ export function VendorDashboard() {
                             name: row.name,
                             price,
                             quantity,
-                            commission_split: commissionSplit,
                             discount_amount: row.discount_amount,
                             sales: saleData ? { completed_at: completedAt, discount_total: saleData.discount_total } : null,
                         }];
                         const allocations = await loadSaleItemDiscountAllocations(saleRows);
                         const allocation = allocations.get(row.id);
-                        const fallback = buildRecentSale(saleRows[0], completedAt, Number(row.discount_amount || 0));
+                        // A brand-new sale may not be in the server's earnings yet.
+                        let earned: number | null = null;
+                        try {
+                            earned = (await getVendorSaleEarnings(consignorId)).get(row.id) ?? null;
+                        } catch (earningsError) {
+                            console.error('Failed to load vendor earnings:', earningsError);
+                        }
+                        const fallback = buildRecentSale(saleRows[0], completedAt, earned, Number(row.discount_amount || 0));
                         const netLineTotal = allocation?.netLineTotal ?? fallback.net_line_total;
-                        const earned = netLineTotal * commissionSplit;
                         const saleDate = new Date(completedAt);
                         const startOfMonth = new Date();
                         startOfMonth.setDate(1);
@@ -394,7 +403,9 @@ export function VendorDashboard() {
                                 ...prev,
                                 soldAllTime: prev.soldAllTime + quantity,
                                 soldThisMonth: saleDate >= startOfMonth ? prev.soldThisMonth + quantity : prev.soldThisMonth,
-                                earningsThisMonth: saleDate >= startOfMonth ? prev.earningsThisMonth + earned : prev.earningsThisMonth,
+                                earningsThisMonth: saleDate >= startOfMonth && earned !== null && prev.earningsThisMonth !== null
+                                    ? Math.round((prev.earningsThisMonth + earned) * 100) / 100
+                                    : prev.earningsThisMonth,
                             };
                         });
 
@@ -402,7 +413,7 @@ export function VendorDashboard() {
                             id: `sale-note-${row.id}`,
                             saleItemId: row.id,
                             title: `New sale: ${row.name}`,
-                            message: `${quantity} sold • ${formatCurrency(earned)} earned`,
+                            message: earned === null ? `${quantity} sold` : `${quantity} sold • ${formatCurrency(earned)} earned`,
                             createdAt: completedAt,
                             read: false,
                         };
@@ -476,9 +487,11 @@ export function VendorDashboard() {
                     <CardContent className="p-4">
                         <p className="text-xs text-[var(--color-muted)]">Earnings This Month</p>
                         <p className="text-2xl font-bold text-[var(--color-primary)]">
-                            {formatCurrency(stats?.earningsThisMonth || 0)}
+                            {stats?.earningsThisMonth == null ? '—' : formatCurrency(stats.earningsThisMonth)}
                         </p>
-                        <p className="text-xs text-[var(--color-muted)]">your cut</p>
+                        <p className="text-xs text-[var(--color-muted)]">
+                            {stats?.earningsThisMonth == null ? 'Earnings are unavailable right now.' : 'After card fees and refunds'}
+                        </p>
                     </CardContent>
                 </Card>
             </div>
@@ -555,9 +568,11 @@ export function VendorDashboard() {
                                                 {' '}- {formatCurrency(sale.total_discount_amount)}
                                             </p>
                                         ) : null}
-                                        <p className="text-xs text-[var(--color-primary)]">
-                                            +{formatCurrency(sale.net_line_total * sale.commission_split)} earned
-                                        </p>
+                                        {sale.earned !== null ? (
+                                            <p className="text-xs text-[var(--color-primary)]">
+                                                +{formatCurrency(sale.earned)} earned
+                                            </p>
+                                        ) : null}
                                     </div>
                                 </div>
                             ))}
