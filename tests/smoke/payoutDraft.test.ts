@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
     PAYMENT_METHODS,
+    classifyDraftError,
     describeFinalizeError,
+    draftInputsChanged,
+    invoiceAmountsFromAdjustments,
+    invoiceApplicationsFrom,
+    invoiceRoom,
+    isScopeValid,
+    pendingReasonText,
+    sameScope,
+    validateInvoiceAmount,
     draftPayable,
     nextPayingNow,
     notInThisPayout,
@@ -145,5 +154,116 @@ describe('statementFigures', () => {
         expect(figures.required).toBe(3);
         expect(figures.earned).toBe(43);
         expect(figures.carriedIn).toBe(0);
+    });
+});
+
+
+describe('invoiceRoom', () => {
+    it('is what is left of carried in + earned - required after the other invoices', () => {
+        const figures = { carriedIn: 10, earned: 40, required: 5 };
+        expect(invoiceRoom(figures, 0)).toBe(45);
+        expect(invoiceRoom(figures, 30)).toBe(15);
+        expect(invoiceRoom(figures, 60)).toBe(0);
+        expect(invoiceRoom({ carriedIn: 0, earned: 2, required: 5 }, 0)).toBe(0);
+    });
+});
+
+describe('validateInvoiceAmount', () => {
+    it('accepts blank and amounts within the balance and room', () => {
+        expect(validateInvoiceAmount('', 50, 40)).toBeNull();
+        expect(validateInvoiceAmount('0', 50, 40)).toBeNull();
+        expect(validateInvoiceAmount('40.00', 50, 40)).toBeNull();
+    });
+
+    it('rejects text, negatives and more than two decimals', () => {
+        expect(validateInvoiceAmount('abc', 50, 40)).toBe('Enter an amount.');
+        expect(validateInvoiceAmount('-1', 50, 40)).toBe('Enter an amount.');
+        expect(validateInvoiceAmount('1.234', 50, 40)).toBe('Enter an amount.');
+    });
+
+    it('caps at the lower of the invoice balance and the room', () => {
+        expect(validateInvoiceAmount('45', 50, 40)).toBe('Can\'t be more than $40.00 here.');
+        expect(validateInvoiceAmount('55', 50, 500)).toBe('Can\'t be more than the $50.00 due.');
+    });
+});
+
+describe('invoice amounts', () => {
+    it('reads amounts from invoice deductions only', () => {
+        const rows = [
+            { adjustment_type: 'invoice_deduction', source_reference: 'a', amount: -12.5 },
+            { adjustment_type: 'booth_rent', source_reference: 'b', amount: -5 },
+            { adjustment_type: 'invoice_deduction', source_reference: null, amount: -3 },
+        ] as unknown as PayoutAdjustmentSnapshot[];
+        expect(invoiceAmountsFromAdjustments(rows)).toEqual({ a: '12.50' });
+    });
+
+    it('builds applications from positive amounts only', () => {
+        expect(invoiceApplicationsFrom({ a: '12.5', b: '', c: '0', d: '0.00', e: '3' })).toEqual([
+            { invoice_id: 'a', amount: 12.5 },
+            { invoice_id: 'e', amount: 3 },
+        ]);
+    });
+});
+
+describe('draftInputsChanged', () => {
+    const loaded = { payingNow: '30.00', invoiceAmounts: { a: '10.00' } };
+
+    it('is false when nothing differs, ignoring formatting and blanks', () => {
+        expect(draftInputsChanged({ payingNow: '30', invoiceAmounts: { a: '10', b: '' } }, loaded)).toBe(false);
+    });
+
+    it('is true when paying now or an invoice differs', () => {
+        expect(draftInputsChanged({ payingNow: '20.00', invoiceAmounts: { a: '10.00' } }, loaded)).toBe(true);
+        expect(draftInputsChanged({ payingNow: '30.00', invoiceAmounts: { a: '11.00' } }, loaded)).toBe(true);
+        expect(draftInputsChanged({ payingNow: '30.00', invoiceAmounts: { a: '10.00', b: '1' } }, loaded)).toBe(true);
+        expect(draftInputsChanged({ payingNow: '30.00', invoiceAmounts: {} }, loaded)).toBe(true);
+    });
+});
+
+describe('scope helpers', () => {
+    it('compares scopes', () => {
+        expect(sameScope({ kind: 'through', date: '2026-10-31' }, { kind: 'through', date: '2026-10-31' })).toBe(true);
+        expect(sameScope({ kind: 'through', date: '2026-10-31' }, { kind: 'through', date: '2026-10-30' })).toBe(false);
+        expect(sameScope({ kind: 'through', date: '2026-10-31' }, { kind: 'between', from: '2026-10-01', to: '2026-10-31' })).toBe(false);
+        expect(sameScope(
+            { kind: 'between', from: '2026-10-01', to: '2026-10-31' },
+            { kind: 'between', from: '2026-10-01', to: '2026-10-31' },
+        )).toBe(true);
+    });
+
+    it('needs dates, with from on or before to', () => {
+        expect(isScopeValid({ kind: 'through', date: '2026-10-31' })).toBe(true);
+        expect(isScopeValid({ kind: 'through', date: '' })).toBe(false);
+        expect(isScopeValid({ kind: 'between', from: '2026-10-01', to: '2026-10-01' })).toBe(true);
+        expect(isScopeValid({ kind: 'between', from: '2026-11-01', to: '2026-10-01' })).toBe(false);
+        expect(isScopeValid({ kind: 'between', from: '', to: '2026-10-01' })).toBe(false);
+    });
+});
+
+describe('classifyDraftError', () => {
+    it('spots a payout that is no longer a draft', () => {
+        expect(classifyDraftError('Editable payout draft not found.')).toBe('not_a_draft');
+        expect(classifyDraftError('Only drafts can be discarded.')).toBe('not_a_draft');
+    });
+
+    it('spots a draft that went stale', () => {
+        expect(classifyDraftError('One or more invoice applications are invalid or stale.')).toBe('stale');
+        expect(classifyDraftError('Invoice applications exceed available payout funds.')).toBe('stale');
+        expect(classifyDraftError('Payment amount must be between zero and the current payable amount.')).toBe('stale');
+    });
+
+    it('leaves other errors alone', () => {
+        expect(classifyDraftError('Network down')).toBeNull();
+    });
+});
+
+describe('pendingReasonText', () => {
+    it('reads the known reason in plain words', () => {
+        expect(pendingReasonText('insufficient_available_funds')).toBe('Not enough earnings to cover this yet.');
+    });
+
+    it('falls back to a plain sentence', () => {
+        expect(pendingReasonText('some_other_reason')).toBe('Some other reason.');
+        expect(pendingReasonText(null)).toBe('Pending.');
     });
 });

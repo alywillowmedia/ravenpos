@@ -135,3 +135,90 @@ export function statementFigures(
         hasSnapshots,
     };
 }
+
+const AMOUNT_PATTERN = /^(\d+(\.\d{1,2})?|\.\d{1,2})$/;
+
+/** What one invoice can still take: carried in + earned - required, less the other invoices. */
+export function invoiceRoom(figures: Pick<DraftFigures, 'carriedIn' | 'earned' | 'required'>, otherInvoices: number): number {
+    const cents = toCents(figures.carriedIn) + toCents(figures.earned) - toCents(figures.required) - toCents(otherInvoices);
+    return fromCents(Math.max(0, cents));
+}
+
+/** Problem with a typed invoice amount, or null. Blank counts as nothing applied. */
+export function validateInvoiceAmount(value: string, balanceDue: number, room: number): string | null {
+    const trimmed = value.trim();
+    if (trimmed === '') return null;
+    if (!AMOUNT_PATTERN.test(trimmed)) return 'Enter an amount.';
+    const cents = toCents(Number(trimmed));
+    if (cents > toCents(balanceDue)) return `Can't be more than the $${balanceDue.toFixed(2)} due.`;
+    if (cents > toCents(room)) return `Can't be more than $${room.toFixed(2)} here.`;
+    return null;
+}
+
+function amountCents(value: string | undefined): number {
+    const parsed = Number((value ?? '').trim());
+    return Number.isFinite(parsed) ? toCents(parsed) : 0;
+}
+
+export function invoiceAmountsFromAdjustments(adjustments: PayoutAdjustmentSnapshot[]): Record<string, string> {
+    const amounts: Record<string, string> = {};
+    for (const adjustment of adjustments) {
+        if (adjustment.adjustment_type !== 'invoice_deduction' || !adjustment.source_reference) continue;
+        amounts[adjustment.source_reference] = Math.abs(Number(adjustment.amount)).toFixed(2);
+    }
+    return amounts;
+}
+
+export function invoiceApplicationsFrom(amounts: Record<string, string>): Array<{ invoice_id: string; amount: number }> {
+    return Object.entries(amounts)
+        .map(([invoice_id, value]) => ({ invoice_id, amount: fromCents(amountCents(value)) }))
+        .filter((entry) => entry.amount > 0);
+}
+
+export interface DraftInputs {
+    payingNow: string;
+    invoiceAmounts: Record<string, string>;
+}
+
+/** True when Paying now or any invoice amount differs from what was loaded. */
+export function draftInputsChanged(current: DraftInputs, loaded: DraftInputs): boolean {
+    if (amountCents(current.payingNow) !== amountCents(loaded.payingNow)) return true;
+    const ids = new Set([...Object.keys(current.invoiceAmounts), ...Object.keys(loaded.invoiceAmounts)]);
+    for (const id of ids) {
+        if (amountCents(current.invoiceAmounts[id]) !== amountCents(loaded.invoiceAmounts[id])) return true;
+    }
+    return false;
+}
+
+export function sameScope(a: DraftScope, b: DraftScope): boolean {
+    if (a.kind === 'through' && b.kind === 'through') return a.date === b.date;
+    if (a.kind === 'between' && b.kind === 'between') return a.from === b.from && a.to === b.to;
+    return false;
+}
+
+export function isScopeValid(scope: DraftScope): boolean {
+    if (scope.kind === 'through') return scope.date !== '';
+    return scope.from !== '' && scope.to !== '' && scope.from <= scope.to;
+}
+
+/** `not_a_draft`: already paid or removed. `stale`: figures moved since the draft was saved. */
+export function classifyDraftError(message: string): 'not_a_draft' | 'stale' | null {
+    if (message.includes('Editable payout draft not found') || message.includes('Only drafts can be discarded')) {
+        return 'not_a_draft';
+    }
+    if (
+        message.includes('invalid or stale')
+        || message.includes('exceed')
+        || message.includes('Payment amount must be between')
+    ) {
+        return 'stale';
+    }
+    return null;
+}
+
+export function pendingReasonText(reason: string | null): string {
+    if (reason === 'insufficient_available_funds') return 'Not enough earnings to cover this yet.';
+    if (!reason) return 'Pending.';
+    const words = reason.replace(/_/g, ' ').trim();
+    return `${words.charAt(0).toUpperCase()}${words.slice(1)}.`;
+}
