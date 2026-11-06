@@ -11,6 +11,10 @@ import {
     monthName,
     parseThrough,
     payoutsBackPath,
+    payRunBlocked,
+    payRunReasonRequired,
+    payRunSummary,
+    payoutCount,
     payRunTotal,
     prepareSummary,
     readyToPrepare,
@@ -211,5 +215,65 @@ describe('vendor page helpers', () => {
         expect(validateMinimum('-5')).not.toBeNull();
         expect(validateMinimum('abc')).not.toBeNull();
         expect(validateMinimum('1.234')).not.toBeNull();
+    });
+});
+
+describe('payRunBlocked', () => {
+    const entry = (overrides: Partial<PayoutRunRow> = {}, extra: { selected?: boolean; reference?: string; reason?: string } = {}) => ({
+        row: row({ paying_now: 50, payable_before_invoices: 150, ...overrides }),
+        selected: extra.selected ?? true,
+        reference: extra.reference ?? '',
+        reason: extra.reason ?? '',
+    });
+
+    it('is blocked by a selected check row above $0 with no reference', () => {
+        expect(payRunBlocked([entry()], 'check', '2026-11-05')).toBe(true);
+        expect(payRunBlocked([entry({}, { reference: '1042' })], 'check', '2026-11-05')).toBe(false);
+    });
+
+    it('does not need a reference for other methods', () => {
+        expect(payRunBlocked([entry()], 'cash', '2026-11-05')).toBe(false);
+    });
+
+    it('lets a $0 row through without a reference', () => {
+        expect(payRunBlocked([entry({ paying_now: 0 })], 'check', '2026-11-05')).toBe(false);
+    });
+
+    it('is blocked by a selected below-minimum row with no reason', () => {
+        const below = { payable_before_invoices: 40, threshold: 100 };
+        expect(payRunBlocked([entry(below, { reference: '1' })], 'check', '2026-11-05')).toBe(true);
+        expect(payRunBlocked([entry(below, { reference: '1', reason: 'Closing account' })], 'check', '2026-11-05')).toBe(false);
+    });
+
+    it('ignores an unticked bad row', () => {
+        expect(payRunBlocked([entry({}, { selected: false }), entry({}, { reference: '7' })], 'check', '2026-11-05')).toBe(false);
+    });
+
+    it('is blocked when nothing is selected, or the date is missing', () => {
+        expect(payRunBlocked([], 'check', '2026-11-05')).toBe(true);
+        expect(payRunBlocked([entry({}, { selected: false })], 'check', '2026-11-05')).toBe(true);
+        expect(payRunBlocked([entry({}, { reference: '1' })], 'check', '')).toBe(true);
+    });
+});
+
+describe('payRunReasonRequired', () => {
+    it('needs a reason only when paying something below the minimum', () => {
+        expect(payRunReasonRequired(row({ paying_now: 40, payable_before_invoices: 40, threshold: 100 }))).toBe(true);
+        expect(payRunReasonRequired(row({ paying_now: 0, payable_before_invoices: 40, threshold: 100 }))).toBe(false);
+        expect(payRunReasonRequired(row({ paying_now: 100, payable_before_invoices: 100, threshold: 100 }))).toBe(false);
+    });
+});
+
+describe('pay run wording', () => {
+    it('summarises the run', () => {
+        expect(payRunSummary(5, 1)).toBe('5 paid, 1 failed');
+        expect(payRunSummary(3, 0)).toBe('3 paid');
+        expect(payRunSummary(0, 2)).toBe('0 paid, 2 failed');
+    });
+
+    it('uses the singular for one payout', () => {
+        expect(payoutCount(1)).toBe('1 payout');
+        expect(payoutCount(5)).toBe('5 payouts');
+        expect(payoutCount(0)).toBe('0 payouts');
     });
 });

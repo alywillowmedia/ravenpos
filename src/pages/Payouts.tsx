@@ -27,6 +27,7 @@ import {
     localDateString,
     monthName,
     parseThrough,
+    payRunReasonRequired,
     prepareSummary,
     readyToPrepare,
     runTotals,
@@ -70,7 +71,7 @@ function markPaidTarget(row: PayoutRunRow): MarkPaidTarget {
         amount: row.paying_now,
         rollsForward: rollsForward(row.payable, row.paying_now),
         email: row.email,
-        reasonRequired: row.paying_now > 0 && row.payable_before_invoices < row.threshold,
+        reasonRequired: payRunReasonRequired(row),
         reason: row.override_reason ?? '',
     };
 }

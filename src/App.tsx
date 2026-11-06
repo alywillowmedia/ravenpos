@@ -24,6 +24,7 @@ import { Sales } from './pages/Sales';
 import { Payouts } from './pages/Payouts';
 import { VendorPayoutWorkspace } from './pages/payouts/VendorPayoutWorkspace';
 import { PayoutDraftReview } from './pages/payouts/PayoutDraftReview';
+import { PayRunPage } from './pages/payouts/PayRunPage';
 import { PayoutStatementPage } from './pages/payouts/PayoutStatementPage';
 import { Customers } from './pages/Customers';
 import { Employees } from './pages/Employees';
@@ -173,7 +174,7 @@ export default function App() {
                         <Route path="pos" element={<POS />} />
                         <Route path="sales" element={<Sales />} />
                         <Route path="payouts" element={<Payouts />} />
-                        <Route path="payouts/pay-run" element={<Navigate to="/admin/payouts?tab=drafts" replace />} />
+                        <Route path="payouts/pay-run" element={<PayRunPage />} />
                         <Route path="payouts/vendor/:consignorId" element={<VendorPayoutWorkspace />} />
                         <Route path="payouts/drafts/:payoutId" element={<PayoutDraftReview />} />
                         <Route path="payouts/history/:payoutId" element={<PayoutStatementPage />} />

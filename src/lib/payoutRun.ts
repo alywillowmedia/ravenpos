@@ -1,6 +1,7 @@
 import { formatCurrency, formatDate } from './utils';
 import type { SplitBarProps } from '../components/ui/SplitBar';
 import type { PayoutRunRow } from '../types/payouts';
+import { validatePayment } from './payoutDraft';
 
 export type RunFilter = 'all' | 'ready' | 'draft' | 'accruing' | 'paid_up';
 
@@ -132,6 +133,42 @@ export function splitBarParts(totals: RunTotals): SplitBarProps['parts'] | null 
 export function payRunTotal(rows: PayoutRunRow[], selectedIds: Set<string>): { count: number; total: number } {
     const selected = rows.filter((row) => selectedIds.has(row.consignor_id));
     return { count: selected.length, total: sum(selected, (row) => row.paying_now) };
+}
+
+/** Paying something below the vendor's minimum needs a reason (same rule as the Mark paid dialog). */
+export function payRunReasonRequired(row: PayoutRunRow): boolean {
+    return row.paying_now > 0 && row.payable_before_invoices < row.threshold;
+}
+
+export interface PayRunEntry {
+    row: PayoutRunRow;
+    selected: boolean;
+    reference: string;
+    reason: string;
+}
+
+/** True when the run cannot start: nothing ticked, or a ticked row fails the payment rules. */
+export function payRunBlocked(rows: PayRunEntry[], method: string, date: string): boolean {
+    const selected = rows.filter((entry) => entry.selected);
+    if (selected.length === 0) return true;
+    return selected.some((entry) => Object.keys(validatePayment({
+        method,
+        date,
+        reference: entry.reference,
+        amount: entry.row.paying_now,
+        reasonRequired: payRunReasonRequired(entry.row),
+        reason: entry.reason,
+    })).length > 0);
+}
+
+/** End-of-run line: "5 paid, 1 failed". The failed part is left out when nothing failed. */
+export function payRunSummary(paid: number, failed: number): string {
+    return failed > 0 ? `${paid} paid, ${failed} failed` : `${paid} paid`;
+}
+
+/** "{n} payout(s)", singular for one. */
+export function payoutCount(count: number): string {
+    return `${count} ${count === 1 ? 'payout' : 'payouts'}`;
 }
 
 /** "All months" (empty value) followed by the last 24 months, newest first. */
