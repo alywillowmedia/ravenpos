@@ -223,11 +223,19 @@ describe('scope helpers', () => {
     });
 
     it('needs dates, with from on or before to', () => {
-        expect(isScopeValid({ kind: 'through', date: '2026-10-31' })).toBe(true);
-        expect(isScopeValid({ kind: 'through', date: '' })).toBe(false);
-        expect(isScopeValid({ kind: 'between', from: '2026-10-01', to: '2026-10-01' })).toBe(true);
-        expect(isScopeValid({ kind: 'between', from: '2026-11-01', to: '2026-10-01' })).toBe(false);
-        expect(isScopeValid({ kind: 'between', from: '', to: '2026-10-01' })).toBe(false);
+        expect(isScopeValid({ kind: 'through', date: '2026-10-31' }, '2026-11-06')).toBe(true);
+        expect(isScopeValid({ kind: 'through', date: '' }, '2026-11-06')).toBe(false);
+        expect(isScopeValid({ kind: 'between', from: '2026-10-01', to: '2026-10-01' }, '2026-11-06')).toBe(true);
+        expect(isScopeValid({ kind: 'between', from: '2026-11-01', to: '2026-10-01' }, '2026-11-06')).toBe(false);
+        expect(isScopeValid({ kind: 'between', from: '', to: '2026-10-01' }, '2026-11-06')).toBe(false);
+    });
+
+    it('refuses a date after today', () => {
+        const today = '2026-11-06';
+        expect(isScopeValid({ kind: 'through', date: '2026-11-06' }, today)).toBe(true);
+        expect(isScopeValid({ kind: 'through', date: '2027-01-31' }, today)).toBe(false);
+        expect(isScopeValid({ kind: 'between', from: '2026-10-01', to: '2026-11-06' }, today)).toBe(true);
+        expect(isScopeValid({ kind: 'between', from: '2026-10-01', to: '2027-10-31' }, today)).toBe(false);
     });
 });
 

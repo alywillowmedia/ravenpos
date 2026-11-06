@@ -41,7 +41,7 @@ export function nextPayingNow(input: { payable: number; typed: string; following
 
 export type DraftScope = { kind: 'through'; date: string } | { kind: 'between'; from: string; to: string };
 
-function storeDate(timestamp: string): string | null {
+export function storeDate(timestamp: string): string | null {
     const parsed = new Date(timestamp);
     if (Number.isNaN(parsed.getTime())) return null;
     return new Intl.DateTimeFormat('en-CA', { timeZone: STORE_TIME_ZONE }).format(parsed);
@@ -249,9 +249,10 @@ export function sameScope(a: DraftScope, b: DraftScope): boolean {
     return false;
 }
 
-export function isScopeValid(scope: DraftScope): boolean {
-    if (scope.kind === 'through') return scope.date !== '';
-    return scope.from !== '' && scope.to !== '' && scope.from <= scope.to;
+/** `today` is a plain YYYY-MM-DD store date; an end date after it is refused. */
+export function isScopeValid(scope: DraftScope, today: string): boolean {
+    if (scope.kind === 'through') return scope.date !== '' && scope.date <= today;
+    return scope.from !== '' && scope.to !== '' && scope.from <= scope.to && scope.to <= today;
 }
 
 /** `not_a_draft`: already paid or removed. `stale`: figures moved since the draft was saved. */

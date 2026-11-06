@@ -693,5 +693,27 @@ SELECT is((SELECT status FROM public.payouts WHERE id = (SELECT id FROM run_ids 
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
 
+-- A future end date is refused in both dated modes, and an already-paid payout reads as not found.
+SELECT throws_ok(
+  $$SELECT public.save_payout_draft((SELECT id FROM public.consignors WHERE consignor_number = 'RUN-20'), NULL, 'through_date', NULL, '2099-01-31', TRUE, NULL, NULL, NULL, NULL)$$,
+  '22023', 'The payout date cannot be in the future.', 'a future through date is refused');
+SELECT throws_ok(
+  $$SELECT public.save_payout_draft((SELECT id FROM public.consignors WHERE consignor_number = 'RUN-20'), NULL, 'selected_range', '2025-10-01', '2099-01-31', TRUE, NULL, NULL, NULL, NULL)$$,
+  '22023', 'The payout date cannot be in the future.', 'a future range end is refused');
+\set v21 'a0000000-0000-0000-0000-000000000015'
+INSERT INTO public.consignors (
+  id, consignor_number, name, business_name, commission_split,
+  consignor_pays_card_fee, payout_threshold_override, is_active, email
+) VALUES (:'v21', 'RUN-21', 'Run Twentyone', 'Run Twentyone Studio', 0.60, FALSE, 1, TRUE, 'run21@example.test');
+SELECT is(
+  (SELECT e ->> 'status' FROM JSONB_ARRAY_ELEMENTS(public.prepare_payout_run('2099-01-31', ARRAY[:'v21'::uuid])) e),
+  'failed', 'prepare reports a future date as a failed vendor instead of aborting');
+SELECT is(
+  (SELECT e ->> 'message' FROM JSONB_ARRAY_ELEMENTS(public.prepare_payout_run('2099-01-31', ARRAY[:'v21'::uuid])) e),
+  'The payout date cannot be in the future.', 'with the plain message');
+SELECT throws_ok(
+  $$SELECT public.finalize_payout_checked((SELECT id FROM run_ids WHERE name = 'r19'), 1.23, 'cash', '2025-11-05', NULL, NULL, NULL)$$,
+  'P0002', 'Finalizable payout draft not found.', 'a paid payout with a wrong expected amount reads as not found');
+
 SELECT * FROM finish();
 ROLLBACK;

@@ -160,7 +160,7 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink, backPath }: {
 
     const savedScope = useMemo(() => scopeFromPayout(payout, today), [payout, today]);
     const scopeDirty = !sameScope(scope, savedScope);
-    const scopeValid = isScopeValid(scope);
+    const scopeValid = isScopeValid(scope, today);
 
     const figures = useMemo(() => statementFigures(payout, draft.adjustments), [payout, draft.adjustments]);
     const invoiceApplications = useMemo(() => invoiceApplicationsFrom(invoiceAmounts), [invoiceAmounts]);
@@ -222,8 +222,12 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink, backPath }: {
         const message = reason instanceof Error ? reason.message : 'Please try again.';
         const kind = classifyDraftError(message);
         if (kind === 'not_a_draft') {
-            toast.warning('This payout was already paid.');
-            navigate(`/admin/payouts/history/${payoutId}`, { replace: true });
+            toast.warning('This payout was already paid or removed.');
+            // Paid: open its statement. Removed by someone else: back to the Drafts tab.
+            void getPayoutStatement(payoutId).then(
+                () => navigate(`/admin/payouts/history/${payoutId}`, { replace: true }),
+                () => navigate(backPath, { replace: true }),
+            );
             return 'leaving';
         }
         if (kind === 'stale') {
@@ -408,6 +412,7 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink, backPath }: {
                                     label="Through"
                                     type="date"
                                     value={scope.date}
+                                    max={today}
                                     onChange={(event) => setScope({ kind: 'through', date: event.target.value })}
                                 />
                             ) : (
@@ -416,12 +421,14 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink, backPath }: {
                                         label="From"
                                         type="date"
                                         value={scope.from}
+                                        max={today}
                                         onChange={(event) => setScope({ ...scope, from: event.target.value })}
                                     />
                                     <Input
                                         label="To"
                                         type="date"
                                         value={scope.to}
+                                        max={today}
                                         onChange={(event) => setScope({ ...scope, to: event.target.value })}
                                         error={scopeInputError}
                                     />

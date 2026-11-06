@@ -319,6 +319,12 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
+  IF p_range_mode IN ('through_date', 'selected_range')
+    AND p_source_range_end > (NOW() AT TIME ZONE public.payout_store_time_zone())::DATE THEN
+    RAISE EXCEPTION 'The payout date cannot be in the future.'
+      USING ERRCODE = '22023';
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM public.consignors c
     WHERE c.id = p_consignor_id
@@ -1522,18 +1528,19 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_amount NUMERIC;
+  v_status TEXT;
 BEGIN
   IF NOT (public.is_admin() OR COALESCE(auth.role(), '') = 'service_role') THEN
     RAISE EXCEPTION 'Admin access is required to finalize payouts.'
       USING ERRCODE = '42501';
   END IF;
 
-  SELECT p.amount INTO v_amount
+  SELECT p.amount, p.status INTO v_amount, v_status
   FROM public.payouts p
   WHERE p.id = p_payout_id
   FOR UPDATE;
 
-  IF FOUND AND (p_expected_amount IS NULL OR ROUND(v_amount, 2) <> ROUND(p_expected_amount, 2)) THEN
+  IF FOUND AND v_status = 'draft' AND (p_expected_amount IS NULL OR ROUND(v_amount, 2) <> ROUND(p_expected_amount, 2)) THEN
     -- Not 40001: PostgREST retries serialization failures forever instead of answering.
     -- PT409 answers HTTP 409.
     RAISE EXCEPTION 'The payout amount changed after this screen loaded.'
