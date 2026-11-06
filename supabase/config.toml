@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.send-employee-weekly-schedules]
 verify_jwt = false
+
+[functions.send-payout-statement]
+verify_jwt = false
