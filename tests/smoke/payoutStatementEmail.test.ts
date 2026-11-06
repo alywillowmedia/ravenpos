@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     buildStatementEmail,
+    formatMethod,
     formatPlainDate,
     isUsableEmail,
     normalizePortalUrl,
@@ -15,7 +16,7 @@ const input: StatementEmailInput = {
     vendorName: 'Alywillow',
     amount: 367,
     paidDate: '2025-11-03',
-    method: 'Check',
+    method: 'check',
     reference: '1042',
     scopeLabel: 'Earnings through Oct 31',
     carriedIn: 100,
@@ -71,6 +72,42 @@ describe('buildStatementEmail', () => {
     it('hides the equation lines on older payouts without snapshots', () => {
         const html = buildStatementEmail({ ...input, carriedIn: null, earned: null }).html;
         expect(html).not.toContain('Carried in');
+        expect(html).not.toContain('Earned');
+        expect(html).not.toContain('Payable');
+        expect(html).not.toContain('Paying now');
+        expect(html).toContain('Paid');
+    });
+
+    it('shows the spec equation: carried in, earned, deductions, payable, paying now, rolls forward', () => {
+        const html = buildStatementEmail({ ...input, amount: 300, rollsForward: 67 }).html;
+        for (const term of ['Carried in', 'Earned', 'Deductions', 'Payable', 'Paying now', 'Rolls forward']) {
+            expect(html).toContain(term);
+        }
+        expect(html).toContain('$367.00');
+        expect(html).toContain('$300.00');
+        expect(html).toContain('$67.00');
+        expect(html.indexOf('Payable')).toBeLessThan(html.indexOf('Paying now'));
+        expect(html.indexOf('Deductions')).toBeLessThan(html.indexOf('Payable'));
+    });
+
+    it('computes payable in cents and omits rolls forward at zero', () => {
+        const html = buildStatementEmail({ ...input, amount: 0.1, rollsForward: 0.2 }).html;
+        expect(html).toContain('$0.30');
+        const full = buildStatementEmail({ ...input, rollsForward: 0 }).html;
+        expect(full).toContain('Payable');
+        expect(full).not.toContain('Rolls forward');
+    });
+
+    it('does not rely on leading spaces for deduction items', () => {
+        const html = buildStatementEmail(input).html;
+        expect(html).not.toContain('>  Booth rent');
+        expect(html).toContain('padding-left');
+    });
+
+    it('escapes quotes in the statement url', () => {
+        const html = buildStatementEmail({ ...input, statementUrl: 'https://x.test/a"onmouseover="y' }).html;
+        expect(html).not.toContain('"onmouseover="y');
+        expect(html).toContain('&quot;onmouseover=&quot;y');
     });
 
     it('omits the deductions and rolls forward lines when there are none', () => {
@@ -92,6 +129,14 @@ describe('buildStatementEmail', () => {
 });
 
 describe('statement helpers', () => {
+    it('shows readable payment methods', () => {
+        expect(formatMethod('check')).toBe('Check');
+        expect(formatMethod('ach')).toBe('ACH');
+        expect(formatMethod('cash')).toBe('Cash');
+        expect(formatMethod('other')).toBe('Other');
+        expect(formatMethod(null)).toBe('Not recorded');
+    });
+
     it('formats a plain date with no timezone shift', () => {
         expect(formatPlainDate('2025-01-01')).toBe('Jan 1, 2025');
         expect(formatPlainDate('2025-12-31T00:00:00+00:00')).toBe('Dec 31, 2025');

@@ -55,7 +55,7 @@ Deno.serve(async (req: Request) => {
         const token = authHeader.replace('Bearer ', '')
         const { data: { user }, error: authError } = await adminClient.auth.getUser(token)
         if (authError || !user) {
-            console.error('Auth error:', authError)
+            console.error('Auth error:', authError?.status, authError?.message)
             return json({ error: 'Invalid token' }, 401)
         }
 
@@ -65,7 +65,7 @@ Deno.serve(async (req: Request) => {
             .eq('id', user.id)
             .single()
         if (userError) {
-            console.error('User lookup error:', userError)
+            console.error('User lookup error:', userError.code, userError.message)
             return json({ error: 'User not found in system' }, 403)
         }
         if (userData.role !== 'admin') {
@@ -89,7 +89,7 @@ Deno.serve(async (req: Request) => {
             .eq('id', payoutId)
             .maybeSingle()
         if (payoutError) {
-            console.error('Payout lookup error:', payoutError)
+            console.error('Payout lookup error:', payoutError.code, payoutError.message)
             return json({ error: 'Failed to load payout' }, 500)
         }
         if (!payout) {
@@ -105,7 +105,7 @@ Deno.serve(async (req: Request) => {
             .eq('id', payout.consignor_id)
             .maybeSingle()
         if (consignorError || !consignor) {
-            console.error('Vendor lookup error:', consignorError)
+            console.error('Vendor lookup error:', consignorError?.code, consignorError?.message)
             return json({ error: 'Failed to load vendor' }, 500)
         }
 
@@ -115,10 +115,6 @@ Deno.serve(async (req: Request) => {
         }
 
         const resendApiKey = Deno.env.get('RESEND_API_KEY')
-        if (!resendApiKey) {
-            console.error('RESEND_API_KEY not configured')
-            return json({ error: 'Email service not configured' }, 500)
-        }
 
         const { data: adjustments, error: adjustmentsError } = await adminClient
             .from('payout_adjustments')
@@ -127,7 +123,7 @@ Deno.serve(async (req: Request) => {
             .lt('amount', 0)
             .order('created_at', { ascending: true })
         if (adjustmentsError) {
-            console.error('Adjustments lookup error:', adjustmentsError)
+            console.error('Adjustments lookup error:', adjustmentsError.code, adjustmentsError.message)
             return json({ error: 'Failed to load deductions' }, 500)
         }
 
@@ -137,7 +133,7 @@ Deno.serve(async (req: Request) => {
             vendorName: consignor.business_name || consignor.name || 'Vendor',
             amount,
             paidDate: payout.payment_date ?? '',
-            method: payout.payment_method ?? '',
+            method: payout.payment_method,
             reference: payout.payment_reference || null,
             scopeLabel: scopeLabelFor(payout),
             carriedIn: toNumber(payout.carried_in_snapshot),
@@ -153,7 +149,10 @@ Deno.serve(async (req: Request) => {
         let status: 'sent' | 'failed' = 'failed'
         let providerId: string | null = null
         let errorMessage: string | null = null
-        try {
+        if (!resendApiKey) {
+            errorMessage = 'Email service not configured'
+            console.error('RESEND_API_KEY not configured')
+        } else try {
             const resendResponse = await fetch('https://api.resend.com/emails', {
                 method: 'POST',
                 headers: {
@@ -166,6 +165,7 @@ Deno.serve(async (req: Request) => {
                     subject: email.subject,
                     html: email.html,
                 }),
+                signal: AbortSignal.timeout(10000),
             })
             const result = await resendResponse.json().catch(() => ({}))
             if (resendResponse.ok) {
@@ -173,11 +173,11 @@ Deno.serve(async (req: Request) => {
                 providerId = typeof result?.id === 'string' ? result.id : null
             } else {
                 errorMessage = String(result?.message || `Resend responded with ${resendResponse.status}`)
-                console.error('Resend API error:', result)
+                console.error('Resend API error:', resendResponse.status, result?.name, result?.message)
             }
         } catch (sendError: unknown) {
             errorMessage = sendError instanceof Error ? sendError.message : 'Failed to reach the email service'
-            console.error('Resend request failed:', sendError)
+            console.error('Resend request failed:', sendError instanceof Error ? sendError.name : 'unknown')
         }
 
         const { error: logError } = await adminClient.from('payout_statement_emails').insert({
@@ -189,13 +189,12 @@ Deno.serve(async (req: Request) => {
             sent_by: user.id,
         })
         if (logError) {
-            console.error('Failed to record statement email attempt:', logError)
+            console.error('Failed to record statement email attempt:', logError.code, logError.message)
         }
 
         return json({ status })
     } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-        console.error('Unhandled error:', error)
-        return json({ error: errorMessage }, 500)
+        console.error('Unhandled error:', error instanceof Error ? error.name : 'unknown')
+        return json({ error: 'Failed to send payout statement' }, 500)
     }
 })

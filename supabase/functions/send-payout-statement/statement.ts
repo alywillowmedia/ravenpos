@@ -90,36 +90,52 @@ export function rollsForwardAmount(originalAmountDue: number | null, amount: num
     return Math.max(0, Math.round((originalAmountDue - amount) * 100) / 100);
 }
 
+const METHOD_LABELS: Record<string, string> = { check: 'Check', ach: 'ACH', cash: 'Cash', other: 'Other' };
+
+/** Readable payment method; a missing one reads "Not recorded". */
+export function formatMethod(method: string | null | undefined): string {
+    const trimmed = (method ?? '').trim();
+    if (!trimmed) return 'Not recorded';
+    return METHOD_LABELS[trimmed.toLowerCase()] ?? trimmed;
+}
+
 export function buildStatementEmail(input: StatementEmailInput): { subject: string; html: string } {
     const subject = `Your Ravenlia payout statement · ${formatMoney(input.amount)}`;
     const e = escapeHtml;
     const labelStyle = 'padding: 6px 0; font-size: 14px; color: #555;';
     const valueStyle = 'padding: 6px 0; font-size: 14px; color: #1a1a1a; text-align: right;';
 
-    const row = (label: string, value: string, bold = false): string => `
+    const row = (label: string, value: string, bold = false, indent = false): string => `
                             <tr>
-                                <td style="${labelStyle}${bold ? ' font-weight: 600; color: #1a1a1a;' : ''}">${e(label)}</td>
+                                <td style="${labelStyle}${bold ? ' font-weight: 600; color: #1a1a1a;' : ''}${indent ? ' padding-left: 16px;' : ''}">${e(label)}</td>
                                 <td style="${valueStyle}${bold ? ' font-weight: 600;' : ''}">${e(value)}</td>
                             </tr>`;
 
     const equation: string[] = [];
-    if (input.carriedIn !== null && input.earned !== null) {
-        equation.push(row('Carried in', formatMoney(input.carriedIn)));
-        equation.push(row('Earned', formatMoney(input.earned)));
+    const hasSnapshots = input.carriedIn !== null && input.earned !== null;
+    if (hasSnapshots) {
+        equation.push(row('Carried in', formatMoney(input.carriedIn as number)));
+        equation.push(row('Earned', formatMoney(input.earned as number)));
     }
     if (input.deductions.length > 0) {
         const total = input.deductions.reduce((sum, d) => sum + Math.round(d.amount * 100), 0) / 100;
         equation.push(row('Deductions', `-${formatMoney(total)}`));
         for (const deduction of input.deductions) {
-            equation.push(row(`  ${deduction.label}`, `-${formatMoney(deduction.amount)}`));
+            equation.push(row(deduction.label, `-${formatMoney(deduction.amount)}`, false, true));
         }
     }
-    equation.push(row('Paid', formatMoney(input.amount), true));
-    if (input.rollsForward > 0) equation.push(row('Rolls forward', formatMoney(input.rollsForward)));
+    if (hasSnapshots) {
+        const payable = (Math.round(input.amount * 100) + Math.round(input.rollsForward * 100)) / 100;
+        equation.push(row('Payable', formatMoney(payable)));
+        equation.push(row('Paying now', formatMoney(input.amount), true));
+        if (input.rollsForward > 0) equation.push(row('Rolls forward', formatMoney(input.rollsForward)));
+    } else {
+        equation.push(row('Paid', formatMoney(input.amount), true));
+    }
 
     const details: string[] = [
         row('Paid on', formatPlainDate(input.paidDate)),
-        row('Method', input.method),
+        row('Method', formatMethod(input.method)),
     ];
     if (input.reference) details.push(row('Reference', input.reference));
     details.push(row('Covers', input.scopeLabel));
