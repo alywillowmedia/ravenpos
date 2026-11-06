@@ -628,5 +628,8 @@ SELECT is(public.get_payout_statement((SELECT id FROM run_ids WHERE name = 'r17'
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
 
+-- The workspace history row carries the payment date, not just when it was recorded.
+SELECT is(public.get_vendor_payout_workspace(:'v18'::uuid)->'payout_history'->0->>'payment_date', '2025-10-09', 'workspace history row carries payment_date');
+
 SELECT * FROM finish();
 ROLLBACK;

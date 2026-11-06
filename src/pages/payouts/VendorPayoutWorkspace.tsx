@@ -222,7 +222,9 @@ export function VendorPayoutWorkspace() {
                             ? <>Minimum payout <span className="font-medium text-[var(--color-foreground)]">{formatCurrency(preview.threshold)}</span> ({hasOverride ? 'set for this vendor' : 'shop default'})</>
                             : 'No minimum payout applies to an inactive vendor.'}
                     </p>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setMinimumOpen(true)}>Change</Button>
+                    {preview.is_active ? (
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setMinimumOpen(true)}>Change</Button>
+                    ) : null}
                 </div>
             </Card>
 
@@ -312,7 +314,7 @@ export function VendorPayoutWorkspace() {
                                 <div>
                                     <p className="font-mono text-sm">Payout #{payout.id.slice(0, 8).toUpperCase()}</p>
                                     <p className="text-xs text-[var(--color-muted)]">
-                                        {formatPayoutDate({ payment_date: null, paid_at: payout.paid_at })} · {payout.items_sold} items
+                                        {formatPayoutDate(payout)} · {payout.items_sold} items
                                     </p>
                                 </div>
                                 {payout.status === 'voided' ? <Badge variant="danger" size="sm">Voided</Badge> : null}

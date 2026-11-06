@@ -1290,6 +1290,7 @@ BEGIN
     'status', p.status,
     'amount', p.amount,
     'paid_at', p.paid_at,
+    'payment_date', p.payment_date,
     'payment_method', p.payment_method,
     'payment_reference', p.payment_reference,
     'historical_confidence', p.historical_confidence,

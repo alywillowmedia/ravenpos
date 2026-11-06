@@ -93,6 +93,7 @@ export interface PayoutHistorySummary {
     status: PayoutLifecycleStatus;
     amount: number;
     paid_at: string | null;
+    payment_date: string | null;
     payment_method: string | null;
     payment_reference: string | null;
     historical_confidence: HistoricalConfidence;
