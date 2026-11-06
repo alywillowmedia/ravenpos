@@ -1540,14 +1540,20 @@ BEGIN
       USING ERRCODE = 'PT409';
   END IF;
 
-  RETURN public.finalize_payout(
-    p_payout_id,
-    p_payment_method,
-    p_payment_date,
-    p_payment_reference,
-    p_notes,
-    p_below_threshold_override_reason
-  );
+  -- finalize_payout raises 40001 for a stale draft. PostgREST retries 40001 forever, so
+  -- re-raise it with the original message as PT409 (HTTP 409).
+  BEGIN
+    RETURN public.finalize_payout(
+      p_payout_id,
+      p_payment_method,
+      p_payment_date,
+      p_payment_reference,
+      p_notes,
+      p_below_threshold_override_reason
+    );
+  EXCEPTION WHEN serialization_failure THEN
+    RAISE EXCEPTION '%', SQLERRM USING ERRCODE = 'PT409';
+  END;
 END;
 $$;
 

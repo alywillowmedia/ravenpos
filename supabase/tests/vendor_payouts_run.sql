@@ -669,5 +669,29 @@ SELECT throws_ok(
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
 
+-- A draft that went stale (finalize_payout raises 40001) reaches the client as PT409 with its message.
+\set v20 'a0000000-0000-0000-0000-000000000014'
+INSERT INTO public.consignors (
+  id, consignor_number, name, business_name, commission_split,
+  consignor_pays_card_fee, payout_threshold_override, is_active, email
+) VALUES (:'v20', 'RUN-20', 'Run Twenty', 'Run Twenty Studio', 0.60, FALSE, 1, TRUE, 'run20@example.test');
+SELECT pg_temp.add_sale('b0000000-0000-0000-0000-0000000000b5', 'c0000000-0000-0000-0000-0000000000b5', :'v20',
+  '2025-10-10 12:00'::TIMESTAMP AT TIME ZONE 'America/New_York', 100);
+INSERT INTO public.vendor_ledger_entries (consignor_id, description, amount) VALUES (:'v20', 'Run fixture stale charge', 6);
+INSERT INTO run_ids
+SELECT 'r20', public.save_payout_draft(:'v20'::uuid, NULL, 'through_date', NULL, '2025-10-31', TRUE, NULL, NULL, NULL, NULL);
+SELECT ok(EXISTS (SELECT 1 FROM public.payout_adjustments WHERE payout_id = (SELECT id FROM run_ids WHERE name = 'r20') AND source_table = 'vendor_ledger_entries'), 'fixture: RUN-20 draft carries a ledger deduction');
+UPDATE public.vendor_ledger_entries SET deducted_payout_id = (SELECT id FROM run_ids WHERE name = 'r19') WHERE consignor_id = :'v20';
+
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f4', TRUE);
+SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
+SELECT throws_ok(
+  $$SELECT public.finalize_payout_checked((SELECT id FROM run_ids WHERE name = 'r20'), (SELECT amount FROM public.payouts WHERE id = (SELECT id FROM run_ids WHERE name = 'r20')), 'cash', '2025-11-05', NULL, NULL, NULL)$$,
+  'PT409', 'A ledger deduction changed after the draft was prepared.', 'a stale draft surfaces as PT409 with the original message');
+SELECT is((SELECT status FROM public.payouts WHERE id = (SELECT id FROM run_ids WHERE name = 'r20')), 'draft', 'the stale payout is still a draft');
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
+
 SELECT * FROM finish();
 ROLLBACK;
