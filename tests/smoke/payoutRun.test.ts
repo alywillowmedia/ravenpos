@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     defaultThroughDate,
+    draftPath,
     countAfterCutoff,
     filterRows,
     formatDay,
@@ -195,6 +196,10 @@ describe('vendor page helpers', () => {
         expect(payoutsBackPath('2026-09-30', 'queue', today)).toBe('/admin/payouts?through=2026-09-30');
         expect(payoutsBackPath('2026-10-31', 'drafts', today)).toBe('/admin/payouts?tab=drafts');
         expect(payoutsBackPath('2026-09-30', 'history', today)).toBe('/admin/payouts?through=2026-09-30&tab=history');
+    });
+
+    it('builds the draft link with the through date', () => {
+        expect(draftPath('abc', '2026-09-30')).toBe('/admin/payouts/drafts/abc?through=2026-09-30');
     });
 
     it('validates a payout minimum', () => {

@@ -11,6 +11,7 @@ import { SplitBar } from '../../components/ui/SplitBar';
 import { Table, type Column } from '../../components/ui/Table';
 import { Tabs } from '../../components/ui/Tabs';
 import {
+    draftPath,
     filterRows,
     formatDay,
     runTotals,
@@ -61,7 +62,7 @@ export function QueueTab({ data, through, onPrepareVendor, onDiscard, onMarkPaid
         navigate(`/admin/payouts/vendor/${row.consignor_id}?through=${through}&tab=queue`);
     };
     const openDraft = (row: PayoutRunRow) => {
-        if (row.draft_id) navigate(`/admin/payouts/drafts/${row.draft_id}`);
+        if (row.draft_id) navigate(draftPath(row.draft_id, through));
     };
 
     const renderAction = (row: PayoutRunRow) => {

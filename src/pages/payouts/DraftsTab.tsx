@@ -3,17 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { DraftPanel } from '../../components/payouts/DraftPanel';
 import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { payRunTotal } from '../../lib/payoutRun';
+import { draftPath, payRunTotal } from '../../lib/payoutRun';
 import { formatCurrency } from '../../lib/utils';
 import type { PayoutRunData, PayoutRunRow } from '../../types/payouts';
 
 export interface DraftsTabProps {
     data: PayoutRunData;
+    through: string;
     onDiscard: (row: PayoutRunRow) => void;
     onMarkPaid: (row: PayoutRunRow) => void;
 }
 
-export function DraftsTab({ data, onDiscard, onMarkPaid }: DraftsTabProps) {
+export function DraftsTab({ data, through, onDiscard, onMarkPaid }: DraftsTabProps) {
     const navigate = useNavigate();
     const drafts = useMemo(() => data.rows.filter((row) => row.status === 'draft' && row.draft_id), [data.rows]);
     const run = useMemo(
@@ -42,7 +43,7 @@ export function DraftsTab({ data, onDiscard, onMarkPaid }: DraftsTabProps) {
                     <DraftPanel
                         key={row.consignor_id}
                         row={row}
-                        onOpen={() => navigate(`/admin/payouts/drafts/${row.draft_id}`)}
+                        onOpen={() => navigate(draftPath(row.draft_id ?? '', through))}
                         onDiscard={() => onDiscard(row)}
                         onMarkPaid={() => onMarkPaid(row)}
                     />

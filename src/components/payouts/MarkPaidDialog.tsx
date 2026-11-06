@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { markPayoutPaid, type MarkPaidEmailOutcome } from '../../hooks/usePayouts';
 import { useToast } from '../../contexts/ToastContext';
-import { describeFinalizeError, PAYMENT_METHODS, validatePayment } from '../../lib/payoutDraft';
+import { CHANGED_MESSAGE, describeFinalizeError, PAYMENT_METHODS, validatePayment } from '../../lib/payoutDraft';
 import { localDateString } from '../../lib/payoutRun';
 import { formatCurrency } from '../../lib/utils';
 import { Button } from '../ui/Button';
@@ -23,11 +23,14 @@ export interface MarkPaidTarget {
 export function MarkPaidDialog({
     target,
     beforeFinalize,
+    onStale,
     onClose,
     onPaid,
 }: {
     target: MarkPaidTarget | null;
     beforeFinalize?: () => Promise<boolean>;
+    /** Called, after the dialog closes, when the draft changed since it was prepared. */
+    onStale?: (message: string) => void;
     onClose: () => void;
     onPaid: (payoutId: string) => void;
 }) {
@@ -86,7 +89,13 @@ export function MarkPaidDialog({
             notify(email);
             onPaid(target.payoutId);
         } catch (err) {
-            setError(describeFinalizeError(err instanceof Error ? err.message : 'Could not mark this payout paid.'));
+            const message = describeFinalizeError(err instanceof Error ? err.message : 'Could not mark this payout paid.');
+            if (onStale && message === CHANGED_MESSAGE) {
+                onClose();
+                onStale(message);
+            } else {
+                setError(message);
+            }
         } finally {
             setIsSaving(false);
         }

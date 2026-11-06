@@ -22,6 +22,7 @@ import {
 import { rollsForward } from '../lib/payoutDraft';
 import {
     defaultThroughDate,
+    draftPath,
     formatDay,
     localDateString,
     monthName,
@@ -115,7 +116,7 @@ export function Payouts() {
         try {
             const [result] = await preparePayoutRun(through, [id]);
             if (result?.status === 'created' && result.payout_id) {
-                navigate(`/admin/payouts/drafts/${result.payout_id}`);
+                navigate(draftPath(result.payout_id, through));
             } else if (result?.status === 'failed') {
                 toast.error('Could not prepare this payout', result.message ?? undefined);
             } else {
@@ -279,6 +280,7 @@ export function Payouts() {
                     ) : tab === 'drafts' ? (
                         <DraftsTab
                             data={data}
+                            through={through}
                             onDiscard={setDiscardRow}
                             onMarkPaid={(row) => setMarkPaid(markPaidTarget(row))}
                         />

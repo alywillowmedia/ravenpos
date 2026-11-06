@@ -21,6 +21,7 @@ import {
 import { hasUnpaidBalance } from '../../lib/payoutLedger';
 import {
     countAfterCutoff,
+    draftPath,
     formatDay,
     formatPayoutDate,
     parseThrough,
@@ -106,12 +107,12 @@ export function VendorPayoutWorkspace() {
         try {
             const [result] = await preparePayoutRun(through, [consignorId]);
             if (result?.status === 'created' && result.payout_id) {
-                navigate(`/admin/payouts/drafts/${result.payout_id}`);
+                navigate(draftPath(result.payout_id, through));
             } else if (result?.status === 'failed') {
                 toast.error('Could not prepare this payout', result.message ?? undefined);
             } else if (result?.status === 'skipped') {
                 const next = await refetch();
-                if (next?.preview.draft_id) navigate(`/admin/payouts/drafts/${next.preview.draft_id}`);
+                if (next?.preview.draft_id) navigate(draftPath(next.preview.draft_id, through));
                 else toast.info('Nothing to prepare', result.message ?? undefined);
             } else {
                 toast.info('Nothing to prepare', result?.message ?? undefined);
@@ -181,7 +182,7 @@ export function VendorPayoutWorkspace() {
                     title={vendor.business_name || vendor.name}
                     description={`#${vendor.consignor_number} · Pay to ${vendor.pay_to_name}${vendor.booth_location ? ` · Booth ${vendor.booth_location}` : ''}`}
                     actions={hasDraft ? (
-                        <Button type="button" onClick={() => navigate(`/admin/payouts/drafts/${preview.draft_id}`)}>Open draft</Button>
+                        <Button type="button" onClick={() => navigate(draftPath(preview.draft_id ?? '', through))}>Open draft</Button>
                     ) : (
                         <Button type="button" onClick={() => void prepare()} isLoading={isPreparing} disabled={preview.payable <= 0}>
                             Prepare payout

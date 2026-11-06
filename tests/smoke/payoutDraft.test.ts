@@ -3,13 +3,15 @@ import {
     PAYMENT_METHODS,
     classifyDraftError,
     describeFinalizeError,
-    draftInputsChanged,
     invoiceAmountsFromAdjustments,
     invoiceApplicationsFrom,
     invoiceRoom,
     isScopeValid,
     pendingReasonText,
+    pendingDeductions,
     sameScope,
+    startsFollowing,
+    wouldLoseEdits,
     validateInvoiceAmount,
     draftPayable,
     nextPayingNow,
@@ -21,7 +23,7 @@ import {
     validatePayingNow,
     validatePayment,
 } from '../../src/lib/payoutDraft';
-import type { PayoutAdjustmentSnapshot, PayoutStatementData } from '../../src/types/payouts';
+import type { PayoutAdjustmentSnapshot, PayoutStatementData, RequiredPayoutAdjustment } from '../../src/types/payouts';
 
 type Payout = PayoutStatementData['payout'];
 
@@ -205,21 +207,6 @@ describe('invoice amounts', () => {
     });
 });
 
-describe('draftInputsChanged', () => {
-    const loaded = { payingNow: '30.00', invoiceAmounts: { a: '10.00' } };
-
-    it('is false when nothing differs, ignoring formatting and blanks', () => {
-        expect(draftInputsChanged({ payingNow: '30', invoiceAmounts: { a: '10', b: '' } }, loaded)).toBe(false);
-    });
-
-    it('is true when paying now or an invoice differs', () => {
-        expect(draftInputsChanged({ payingNow: '20.00', invoiceAmounts: { a: '10.00' } }, loaded)).toBe(true);
-        expect(draftInputsChanged({ payingNow: '30.00', invoiceAmounts: { a: '11.00' } }, loaded)).toBe(true);
-        expect(draftInputsChanged({ payingNow: '30.00', invoiceAmounts: { a: '10.00', b: '1' } }, loaded)).toBe(true);
-        expect(draftInputsChanged({ payingNow: '30.00', invoiceAmounts: {} }, loaded)).toBe(true);
-    });
-});
-
 describe('scope helpers', () => {
     it('compares scopes', () => {
         expect(sameScope({ kind: 'through', date: '2026-10-31' }, { kind: 'through', date: '2026-10-31' })).toBe(true);
@@ -264,6 +251,59 @@ describe('pendingReasonText', () => {
 
     it('falls back to a plain sentence', () => {
         expect(pendingReasonText('some_other_reason')).toBe('Some other reason.');
-        expect(pendingReasonText(null)).toBe('Pending.');
+        expect(pendingReasonText(null)).toBe('Not enough earnings in this payout to cover this yet.');
+    });
+});
+
+
+describe('wouldLoseEdits', () => {
+    const invoices = [
+        { id: 'a', created_at: '2026-01-01T00:00:00Z', balance_due: 30 },
+        { id: 'b', created_at: '2026-02-01T00:00:00Z', balance_due: 50 },
+    ];
+
+    it('is false for the default draft: paying the full payable and invoices filled oldest first', () => {
+        expect(wouldLoseEdits({ payingNow: '20.00', payable: 20, invoiceAmounts: { a: '30.00', b: '50.00' }, invoices, available: 100 })).toBe(false);
+        expect(wouldLoseEdits({ payingNow: '0.00', payable: 0, invoiceAmounts: { a: '30.00', b: '20.00' }, invoices, available: 50 })).toBe(false);
+    });
+
+    it('is true when paying now differs from payable', () => {
+        expect(wouldLoseEdits({ payingNow: '10.00', payable: 20, invoiceAmounts: { a: '30.00', b: '50.00' }, invoices, available: 100 })).toBe(true);
+    });
+
+    it('is true when an invoice amount is not the oldest-first fill', () => {
+        expect(wouldLoseEdits({ payingNow: '20.00', payable: 20, invoiceAmounts: { a: '10.00', b: '50.00' }, invoices, available: 100 })).toBe(true);
+        expect(wouldLoseEdits({ payingNow: '0.00', payable: 0, invoiceAmounts: { a: '0', b: '50.00' }, invoices, available: 50 })).toBe(true);
+    });
+
+    it('ignores blanks and formatting', () => {
+        expect(wouldLoseEdits({ payingNow: '20', payable: 20, invoiceAmounts: { a: '30', b: '' }, invoices, available: 30 })).toBe(false);
+    });
+});
+
+describe('pendingDeductions', () => {
+    const required = [
+        { adjustment_type: 'booth_rent', source_table: 'rent', source_reference: 'r1', will_apply: true, pending_reason: null },
+        { adjustment_type: 'booth_rent', source_table: 'rent', source_reference: 'r2', will_apply: false, pending_reason: 'insufficient_available_funds' },
+        { adjustment_type: 'fee', source_table: 'fees', source_reference: 'f1', will_apply: true, pending_reason: null },
+    ] as unknown as RequiredPayoutAdjustment[];
+
+    it('is every required deduction the draft did not apply, whatever will_apply says', () => {
+        const applied = [{ adjustment_type: 'booth_rent', source_table: 'rent', source_reference: 'r1', amount: -5 }] as unknown as PayoutAdjustmentSnapshot[];
+        expect(pendingDeductions(required, applied).map((row) => row.source_reference)).toEqual(['r2', 'f1']);
+    });
+
+    it('is empty when all were applied', () => {
+        const applied = required.map((row) => ({ ...row, amount: -1 })) as unknown as PayoutAdjustmentSnapshot[];
+        expect(pendingDeductions(required, applied)).toEqual([]);
+    });
+});
+
+describe('startsFollowing', () => {
+    it('is true only when the amount equals the original amount due', () => {
+        expect(startsFollowing(50, 50)).toBe(true);
+        expect(startsFollowing(49.99, 50)).toBe(false);
+        expect(startsFollowing(50, null)).toBe(false);
+        expect(startsFollowing(0, 0)).toBe(true);
     });
 });

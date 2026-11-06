@@ -1,6 +1,6 @@
 import type { SelectOption } from '../components/ui/Select';
-import type { PayoutAdjustmentSnapshot, PayoutStatementData, SavePayoutDraftInput } from '../types/payouts';
-import { fromCents, toCents } from './payoutLedger';
+import type { PayoutAdjustmentSnapshot, PayoutStatementData, RequiredPayoutAdjustment, SavePayoutDraftInput } from '../types/payouts';
+import { fromCents, selectInvoicesOldestFirst, toCents } from './payoutLedger';
 
 export const PAYMENT_METHODS: SelectOption[] = [
     { value: 'check', label: 'Check' },
@@ -10,7 +10,7 @@ export const PAYMENT_METHODS: SelectOption[] = [
 ];
 
 const STORE_TIME_ZONE = 'America/New_York';
-const CHANGED_MESSAGE = 'This draft changed after it was prepared. Open it and recalculate.';
+export const CHANGED_MESSAGE = 'This draft changed after it was prepared. Open it and recalculate.';
 
 export interface DraftFigures {
     carriedIn: number;
@@ -175,19 +175,44 @@ export function invoiceApplicationsFrom(amounts: Record<string, string>): Array<
         .filter((entry) => entry.amount > 0);
 }
 
-export interface DraftInputs {
+/**
+ * True when recalculating would replace something the admin chose: Paying now below Payable,
+ * or invoice amounts other than the oldest-first fill of the available money.
+ */
+export function wouldLoseEdits(input: {
     payingNow: string;
+    payable: number;
     invoiceAmounts: Record<string, string>;
-}
-
-/** True when Paying now or any invoice amount differs from what was loaded. */
-export function draftInputsChanged(current: DraftInputs, loaded: DraftInputs): boolean {
-    if (amountCents(current.payingNow) !== amountCents(loaded.payingNow)) return true;
-    const ids = new Set([...Object.keys(current.invoiceAmounts), ...Object.keys(loaded.invoiceAmounts)]);
+    invoices: Array<{ id: string; created_at: string; balance_due: number }>;
+    available: number;
+}): boolean {
+    if (amountCents(input.payingNow) !== toCents(input.payable)) return true;
+    const fill = new Map(selectInvoicesOldestFirst(
+        toCents(input.available),
+        input.invoices.map((invoice) => ({ id: invoice.id, createdAt: invoice.created_at, balanceCents: toCents(invoice.balance_due) })),
+    ).map((row) => [row.invoiceId, row.amountCents]));
+    const ids = new Set([...Object.keys(input.invoiceAmounts), ...fill.keys()]);
     for (const id of ids) {
-        if (amountCents(current.invoiceAmounts[id]) !== amountCents(loaded.invoiceAmounts[id])) return true;
+        if (amountCents(input.invoiceAmounts[id]) !== (fill.get(id) ?? 0)) return true;
     }
     return false;
+}
+
+/** Required deductions the draft did not apply, whatever the workspace says about affordability. */
+export function pendingDeductions(
+    required: RequiredPayoutAdjustment[],
+    applied: PayoutAdjustmentSnapshot[],
+): RequiredPayoutAdjustment[] {
+    const key = (row: { adjustment_type: string; source_table: string | null; source_reference: string | null }) =>
+        `${row.adjustment_type}|${row.source_table}|${row.source_reference}`;
+    const appliedKeys = new Set(applied.map(key));
+    return required.filter((row) => !appliedKeys.has(key(row)));
+}
+
+/** Following starts on only when the saved amount is the full amount that was due. */
+export function startsFollowing(amount: number, originalAmountDue: number | null | undefined): boolean {
+    if (originalAmountDue === null || originalAmountDue === undefined) return false;
+    return toCents(amount) === toCents(originalAmountDue);
 }
 
 export function sameScope(a: DraftScope, b: DraftScope): boolean {
@@ -218,7 +243,7 @@ export function classifyDraftError(message: string): 'not_a_draft' | 'stale' | n
 
 export function pendingReasonText(reason: string | null): string {
     if (reason === 'insufficient_available_funds') return 'Not enough earnings to cover this yet.';
-    if (!reason) return 'Pending.';
+    if (!reason) return 'Not enough earnings in this payout to cover this yet.';
     const words = reason.replace(/_/g, ' ').trim();
     return `${words.charAt(0).toUpperCase()}${words.slice(1)}.`;
 }

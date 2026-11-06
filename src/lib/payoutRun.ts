@@ -183,6 +183,11 @@ export function payoutsBackPath(through: string, tab: string, today: Date): stri
     return query ? `/admin/payouts?${query}` : '/admin/payouts';
 }
 
+/** Link to a draft, carrying the through date so every screen keeps it. */
+export function draftPath(payoutId: string, through: string): string {
+    return `/admin/payouts/drafts/${payoutId}?through=${through}`;
+}
+
 /** Problem with a typed payout minimum, or null when it is a valid amount of $0.00 or more. */
 export function validateMinimum(value: string): string | null {
     const trimmed = value.trim();

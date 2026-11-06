@@ -1,6 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Header } from '../../components/layout/Header';
 import { MarkPaidDialog, type MarkPaidTarget } from '../../components/payouts/MarkPaidDialog';
 import { PayoutEquation } from '../../components/payouts/PayoutLedgerUI';
@@ -20,7 +20,6 @@ import {
 } from '../../hooks/usePayouts';
 import {
     classifyDraftError,
-    draftInputsChanged,
     draftPayable,
     invoiceAmountsFromAdjustments,
     invoiceApplicationsFrom,
@@ -28,22 +27,23 @@ import {
     isScopeValid,
     nextPayingNow,
     notInThisPayout,
+    pendingDeductions,
     pendingReasonText,
     rollsForward,
     sameScope,
     scopeFromPayout,
     scopeToSaveInput,
+    startsFollowing,
     statementFigures,
     validateInvoiceAmount,
     validatePayingNow,
+    wouldLoseEdits,
     type DraftScope,
 } from '../../lib/payoutDraft';
 import { fromCents, toCents } from '../../lib/payoutLedger';
-import { formatDay, localDateString, shortId } from '../../lib/payoutRun';
+import { formatDay, localDateString, parseThrough, payoutsBackPath, shortId } from '../../lib/payoutRun';
 import { formatCurrency } from '../../lib/utils';
 import type { PayoutStatementData, VendorPayoutWorkspaceData } from '../../types/payouts';
-
-const DRAFTS_PATH = '/admin/payouts?tab=drafts';
 
 interface Loaded {
     id: string;
@@ -62,15 +62,12 @@ function firstOfMonth(date: string): string {
     return date.length >= 7 ? `${date.slice(0, 7)}-01` : date;
 }
 
-/** Following starts on only when the saved amount is the full amount that was due. */
-function startsFollowing(payout: PayoutStatementData['payout']): boolean {
-    if (payout.original_amount_due === null || payout.original_amount_due === undefined) return false;
-    return toCents(Number(payout.amount)) === toCents(Number(payout.original_amount_due));
-}
-
 export function PayoutDraftReview() {
     const { payoutId = '' } = useParams();
     const navigate = useNavigate();
+    const [params] = useSearchParams();
+    const today = useMemo(() => new Date(), []);
+    const backPath = payoutsBackPath(parseThrough(params.get('through'), today), 'drafts', today);
     const [initial, setInitial] = useState<Loaded | null>(null);
     const [error, setError] = useState<string | null>(null);
     const latestRequest = useRef(0);
@@ -102,7 +99,7 @@ export function PayoutDraftReview() {
     useEffect(() => { loadFirst(); }, [loadFirst]);
 
     const backLink = (
-        <Link to={DRAFTS_PATH} className="mb-3 inline-flex items-center gap-1 text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)]">
+        <Link to={backPath} className="mb-3 inline-flex items-center gap-1 text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)]">
             <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> Vendor payouts
         </Link>
     );
@@ -129,14 +126,15 @@ export function PayoutDraftReview() {
         );
     }
 
-    return <DraftEditor key={payoutId} payoutId={payoutId} initial={initial} fetchDraft={fetchDraft} backLink={backLink} />;
+    return <DraftEditor key={payoutId} payoutId={payoutId} initial={initial} fetchDraft={fetchDraft} backLink={backLink} backPath={backPath} />;
 }
 
-function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
+function DraftEditor({ payoutId, initial, fetchDraft, backLink, backPath }: {
     payoutId: string;
     initial: Loaded;
     fetchDraft: () => Promise<Loaded | null>;
     backLink: ReactNode;
+    backPath: string;
 }) {
     const navigate = useNavigate();
     const toast = useToast();
@@ -149,14 +147,9 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
     const [scope, setScope] = useState<DraftScope>(() => scopeFromPayout(payout, today));
     const [invoiceAmounts, setInvoiceAmounts] = useState(() => invoiceAmountsFromAdjustments(draft.adjustments));
     const [typedPayingNow, setTypedPayingNow] = useState(() => Number(payout.amount).toFixed(2));
-    const [following, setFollowing] = useState(() => startsFollowing(payout));
+    const [following, setFollowing] = useState(() => startsFollowing(Number(payout.amount), payout.original_amount_due));
     const [notes, setNotes] = useState(payout.notes || '');
     const [overrideReason, setOverrideReason] = useState(String(payout.below_threshold_override_reason || ''));
-    const [baseline, setBaseline] = useState(() => ({
-        payingNow: Number(payout.amount).toFixed(2),
-        invoiceAmounts: invoiceAmountsFromAdjustments(draft.adjustments),
-    }));
-
     const [busy, setBusy] = useState<Busy>(null);
     const [staleMessage, setStaleMessage] = useState<string | null>(null);
     const [recalculateWarningOpen, setRecalculateWarningOpen] = useState(false);
@@ -195,7 +188,6 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
     const hasInvoiceError = Object.values(invoiceErrors).some(Boolean);
     const inputsValid = !payingNowError && !hasInvoiceError;
 
-    const inputsChanged = draftInputsChanged({ payingNow, invoiceAmounts }, baseline);
     const reasonRequired = payingNowAmount > 0
         && payout.payable_before_invoices_snapshot !== null
         && payout.threshold_snapshot !== null
@@ -215,9 +207,8 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
         const loadedAmount = Number(next.draft.payout.amount).toFixed(2);
         const loadedInvoices = invoiceAmountsFromAdjustments(next.draft.adjustments);
         setTypedPayingNow(loadedAmount);
-        setFollowing(startsFollowing(next.draft.payout));
+        setFollowing(startsFollowing(Number(next.draft.payout.amount), next.draft.payout.original_amount_due));
         setInvoiceAmounts(loadedInvoices);
-        setBaseline({ payingNow: loadedAmount, invoiceAmounts: loadedInvoices });
         if (replace.scope) setScope(scopeFromPayout(next.draft.payout, today));
         if (replace.text) {
             setNotes(next.draft.payout.notes || '');
@@ -226,21 +217,21 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
         return true;
     };
 
-    /** Handles a failed save or discard. Returns true when the page is going elsewhere. */
-    const handleDraftError = (reason: unknown, fallbackTitle: string): boolean => {
+    /** Handles a failed save or discard. `leaving` means the page is going elsewhere. */
+    const handleDraftError = (reason: unknown, fallbackTitle: string): 'leaving' | 'stale' | 'other' => {
         const message = reason instanceof Error ? reason.message : 'Please try again.';
         const kind = classifyDraftError(message);
         if (kind === 'not_a_draft') {
             toast.warning('This payout was already paid.');
             navigate(`/admin/payouts/history/${payoutId}`, { replace: true });
-            return true;
+            return 'leaving';
         }
         if (kind === 'stale') {
             setStaleMessage(message);
-            return false;
+            return 'stale';
         }
         toast.error(fallbackTitle, message);
-        return false;
+        return 'other';
     };
 
     const refreshAfterWrite = async (replace: { scope: boolean; text: boolean }) => {
@@ -270,8 +261,11 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
             if (!quiet) toast.success('Draft saved');
             return true;
         } catch (reason) {
-            const leaving = handleDraftError(reason, quiet ? 'Could not save, so nothing was paid' : 'Could not save this draft');
-            if (quiet && !leaving) setMarkPaidOpen(false);
+            const outcome = handleDraftError(reason, quiet ? 'Could not save, so nothing was paid' : 'Could not save this draft');
+            if (quiet && outcome === 'stale') {
+                toast.error('Could not save, so nothing was paid', 'This draft is out of date. Recalculate it first.');
+                setMarkPaidOpen(false);
+            }
             return false;
         } finally {
             working.current = false;
@@ -307,7 +301,14 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
     };
 
     const requestRecalculate = () => {
-        if (inputsChanged) setRecalculateWarningOpen(true);
+        const losing = wouldLoseEdits({
+            payingNow,
+            payable,
+            invoiceAmounts,
+            invoices: workspace.invoices,
+            available: invoiceRoom(figures, 0),
+        });
+        if (losing) setRecalculateWarningOpen(true);
         else void recalculate();
     };
 
@@ -318,9 +319,9 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
         try {
             await discardPayoutDraft(payoutId);
             toast.success('Draft discarded');
-            navigate(DRAFTS_PATH, { replace: true });
+            navigate(backPath, { replace: true });
         } catch (reason) {
-            if (handleDraftError(reason, 'Could not discard this draft')) return;
+            if (handleDraftError(reason, 'Could not discard this draft') === 'leaving') return;
             setDiscardOpen(false);
         } finally {
             working.current = false;
@@ -357,7 +358,7 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
     const legacyCarried = fromCents(draft.adjustments
         .filter((row) => row.adjustment_type === 'legacy_carryover')
         .reduce((sum, row) => sum + toCents(Math.abs(Number(row.amount))), 0));
-    const pending = workspace.required_adjustments.filter((row) => !row.will_apply);
+    const pending = pendingDeductions(workspace.required_adjustments, draft.adjustments);
     const canMarkPaid = !scopeDirty && inputsValid && busy === null;
 
     return (
@@ -525,6 +526,7 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
                                                 value={invoiceAmounts[invoice.id] ?? ''}
                                                 onChange={(event) => changeInvoice(invoice.id, event.target.value)}
                                                 error={invoiceErrors[invoice.id] ?? undefined}
+                                                disabled={busy !== null}
                                             />
                                         </div>
                                     </li>
@@ -544,7 +546,7 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
                                     type="button"
                                     variant="secondary"
                                     size="sm"
-                                    onClick={() => void recalculate()}
+                                    onClick={requestRecalculate}
                                     isLoading={busy === 'recalculate'}
                                     disabled={!scopeValid || busy !== null}
                                 >
@@ -582,9 +584,10 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
                                     setFollowing(false);
                                 }}
                                 error={payingNowError ?? undefined}
+                                disabled={busy !== null}
                             />
                             {!following ? (
-                                <Button type="button" variant="ghost" size="sm" onClick={() => setFollowing(true)}>
+                                <Button type="button" variant="ghost" size="sm" onClick={() => setFollowing(true)} disabled={busy !== null}>
                                     Pay full amount
                                 </Button>
                             ) : null}
@@ -645,6 +648,7 @@ function DraftEditor({ payoutId, initial, fetchDraft, backLink }: {
             <MarkPaidDialog
                 target={markPaidTarget}
                 beforeFinalize={() => save(true)}
+                onStale={(message) => setStaleMessage(message)}
                 onClose={() => setMarkPaidOpen(false)}
                 onPaid={(id) => {
                     setMarkPaidOpen(false);
