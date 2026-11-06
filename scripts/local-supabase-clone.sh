@@ -8,7 +8,7 @@ BACKUP_ROOT="${SUPABASE_CLONE_BACKUP_ROOT:-${ROOT_DIR}/backups/supabase-clone}"
 PAYOUT_MIGRATION="${ROOT_DIR}/supabase/migrations/20260715120000_vendor_payout_ledger_rework.sql"
 PAYOUT_STALE_DRAFT_FIX="${ROOT_DIR}/supabase/migrations/20260827210000_fix_stale_payout_draft_allocations.sql"
 PAYOUT_RANGE_PREVIEW="${ROOT_DIR}/supabase/migrations/20261012120000_payout_range_preview.sql"
-PAYOUT_RUN_MIGRATION="${ROOT_DIR}/supabase/migrations/20261105120000_vendor_payouts_rework.sql"
+PAYOUT_RUN_MIGRATION="${ROOT_DIR}/supabase/migrations/20261105130000_vendor_payouts_rework.sql"
 LOCAL_DB_PORT="55322"
 
 LOCAL_ADMIN_EMAIL="${LOCAL_ADMIN_EMAIL:-local-admin@ravenpos.test}"

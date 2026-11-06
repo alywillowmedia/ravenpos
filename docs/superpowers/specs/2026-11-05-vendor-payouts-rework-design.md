@@ -104,7 +104,7 @@ Status, using the figure before invoices (matching the existing finalize check):
 
 ## Server
 
-One new migration, `supabase/migrations/20261105120000_vendor_payouts_rework.sql`. Existing function signatures stay valid so older desktop builds keep working.
+One new migration, `supabase/migrations/20261105130000_vendor_payouts_rework.sql`. Existing function signatures stay valid so older desktop builds keep working.
 
 ### Schema
 
@@ -131,6 +131,7 @@ One new migration, `supabase/migrations/20261105120000_vendor_payouts_rework.sql
   - `legacy` is the count of unreconciled payouts and of legacy-uncertain sold items.
 - **`get_vendor_payout_preview(p_consignor_id, p_through)`** returns the same row for one vendor, plus `cutoff_at` so the vendor page can mark items after the cutoff.
 - **`prepare_payout_run(p_through DATE, p_consignor_ids UUID[])`** creates a `through_date` draft per vendor. Each vendor runs in its own exception block, so one failure leaves the others alone. Returns `{ consignor_id, payout_id, status, message }` per vendor, with status `created`, `skipped` (already has a draft) or `failed`.
+- **`finalize_payout_checked(p_payout_id, p_expected_amount, p_payment_method, p_payment_date, p_payment_reference, p_notes, p_below_threshold_override_reason)`** finalizes a draft only if the stored amount still equals the amount the screen confirmed. The check runs inside the row lock, then it calls `finalize_payout`. A changed amount, or a stale draft that `finalize_payout` rejects with `40001`, is answered as `PT409` (HTTP 409), because PostgREST retries `40001` forever instead of answering.
 - **`discard_payout_draft(p_payout_id UUID)`** deletes a draft and its allocations and adjustments. It refuses any row that is not a draft.
 - **`get_vendor_sale_earnings(p_consignor_id UUID)`**, for admins or that vendor, returns `sale_item_id` and `vendor_earnings` (`final_vendor_cut`) for each of the vendor's sale items.
 
@@ -220,7 +221,7 @@ The old report equation, the range mode param and the date inputs on this page a
 - One row per draft: tick box, vendor, pay-to, amount, reference input, override reason when required.
 - Footer stays visible: "5 payouts · $1,842.50", "Email statements to vendors" with a count of vendors with no address, and "Mark 5 paid · $1,842.50".
 - A confirm dialog repeats the count, total, method and date.
-- On confirm, the browser calls the existing `finalize_payout` once per draft, in order. Each payout is its own transaction.
+- On confirm, the browser calls `finalize_payout_checked` once per draft, with the amount shown on screen, in order. Each payout is its own transaction.
 - Drafts are not re-saved first, so the amount confirmed is the amount recorded.
 - Rows update to Paid or Failed with the reason and an Open draft link. Emails follow each success.
 - Leaving mid-run shows a browser warning.
@@ -259,7 +260,7 @@ New function `supabase/functions/send-payout-statement`, modeled on `send-invoic
 | Situation | Behavior |
 |---|---|
 | Queue fails to load | Inline error with Retry. Never an empty table that looks like no vendors. |
-| Draft changed since it was prepared (`40001`) | The draft page says what changed and offers Recalculate. The pay run marks the row Failed and links to the draft. |
+| Draft changed since it was prepared (`PT409`) | The draft page says what changed and offers Recalculate. The pay run marks the row Failed and links to the draft. |
 | Batch prepare partly fails | Created drafts stay. Failures are listed by vendor. |
 | Reconciliation CSV fails | Error toast, button resets. |
 | Discard or save hits a paid payout | Message says it was already paid, then opens the statement. |
