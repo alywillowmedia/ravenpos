@@ -55,7 +55,7 @@ Deno.serve(async (req: Request) => {
         const token = authHeader.replace('Bearer ', '')
         const { data: { user }, error: authError } = await adminClient.auth.getUser(token)
         if (authError || !user) {
-            console.error('Auth error:', authError?.status, authError?.message)
+            console.error('Auth error:', authError?.status, authError?.name)
             return json({ error: 'Invalid token' }, 401)
         }
 
@@ -65,7 +65,7 @@ Deno.serve(async (req: Request) => {
             .eq('id', user.id)
             .single()
         if (userError) {
-            console.error('User lookup error:', userError.code, userError.message)
+            console.error('User lookup error:', userError.code)
             return json({ error: 'User not found in system' }, 403)
         }
         if (userData.role !== 'admin') {
@@ -89,7 +89,7 @@ Deno.serve(async (req: Request) => {
             .eq('id', payoutId)
             .maybeSingle()
         if (payoutError) {
-            console.error('Payout lookup error:', payoutError.code, payoutError.message)
+            console.error('Payout lookup error:', payoutError.code)
             return json({ error: 'Failed to load payout' }, 500)
         }
         if (!payout) {
@@ -105,7 +105,7 @@ Deno.serve(async (req: Request) => {
             .eq('id', payout.consignor_id)
             .maybeSingle()
         if (consignorError || !consignor) {
-            console.error('Vendor lookup error:', consignorError?.code, consignorError?.message)
+            console.error('Vendor lookup error:', consignorError?.code)
             return json({ error: 'Failed to load vendor' }, 500)
         }
 
@@ -123,7 +123,7 @@ Deno.serve(async (req: Request) => {
             .lt('amount', 0)
             .order('created_at', { ascending: true })
         if (adjustmentsError) {
-            console.error('Adjustments lookup error:', adjustmentsError.code, adjustmentsError.message)
+            console.error('Adjustments lookup error:', adjustmentsError.code)
             return json({ error: 'Failed to load deductions' }, 500)
         }
 
@@ -173,7 +173,7 @@ Deno.serve(async (req: Request) => {
                 providerId = typeof result?.id === 'string' ? result.id : null
             } else {
                 errorMessage = String(result?.message || `Resend responded with ${resendResponse.status}`)
-                console.error('Resend API error:', resendResponse.status, result?.name, result?.message)
+                console.error('Resend API error:', resendResponse.status, result?.name)
             }
         } catch (sendError: unknown) {
             errorMessage = sendError instanceof Error ? sendError.message : 'Failed to reach the email service'
@@ -189,7 +189,7 @@ Deno.serve(async (req: Request) => {
             sent_by: user.id,
         })
         if (logError) {
-            console.error('Failed to record statement email attempt:', logError.code, logError.message)
+            console.error('Failed to record statement email attempt:', logError.code)
         }
 
         return json({ status })

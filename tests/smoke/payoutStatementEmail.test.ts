@@ -75,7 +75,7 @@ describe('buildStatementEmail', () => {
         expect(html).not.toContain('Earned');
         expect(html).not.toContain('Payable');
         expect(html).not.toContain('Paying now');
-        expect(html).toContain('Paid');
+        expect(html).toContain('>Paid<');
     });
 
     it('shows the spec equation: carried in, earned, deductions, payable, paying now, rolls forward', () => {

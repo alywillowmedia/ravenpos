@@ -2,7 +2,7 @@
 // so Vitest can load this file directly.
 
 export interface StatementEmailInput {
-    vendorName: string; amount: number; paidDate: string; method: string; reference: string | null;
+    vendorName: string; amount: number; paidDate: string; method: string | null; reference: string | null;
     scopeLabel: string; carriedIn: number | null; earned: number | null;
     deductions: Array<{ label: string; amount: number }>; rollsForward: number; statementUrl: string | null;
 }
