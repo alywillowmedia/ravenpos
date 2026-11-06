@@ -3,6 +3,7 @@ import {
     defaultThroughDate,
     filterRows,
     formatDay,
+    formatPayoutDate,
     historyMonthOptions,
     localDateString,
     monthName,
@@ -163,5 +164,11 @@ describe('queue logic', () => {
         expect(prepareSummary(0, 2)).toBe('No new drafts, 2 already had drafts');
         expect(prepareSummary(0, 1)).toBe('No new drafts, 1 already had a draft');
         expect(prepareSummary(0, 0)).toBe('No drafts prepared');
+    });
+    it('shows the payment date for a payout, falling back to when it was paid', () => {
+        // A backdated payout shows the date it was paid on, not when it was recorded.
+        expect(formatPayoutDate({ payment_date: '2026-03-05', paid_at: '2026-04-12T15:00:00Z' })).toBe('Mar 5, 2026');
+        expect(formatPayoutDate({ payment_date: null, paid_at: '2026-04-12T15:00:00Z' })).toBe('Apr 12, 2026');
+        expect(formatPayoutDate({ payment_date: null, paid_at: null })).toBe('—');
     });
 });

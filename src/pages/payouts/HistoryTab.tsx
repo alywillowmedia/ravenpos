@@ -7,8 +7,7 @@ import { Money } from '../../components/ui/Money';
 import { Select } from '../../components/ui/Select';
 import { Table, type Column } from '../../components/ui/Table';
 import { getPayoutHistory } from '../../hooks/usePayouts';
-import { historyMonthOptions } from '../../lib/payoutRun';
-import { formatDate } from '../../lib/utils';
+import { formatPayoutDate, historyMonthOptions } from '../../lib/payoutRun';
 import type { PayoutHistoryRow } from '../../types/payouts';
 
 const PAGE_SIZE = 25;
@@ -69,9 +68,7 @@ export function HistoryTab() {
             key: 'paid_at',
             header: 'Paid date',
             minWidth: '7rem',
-            render: (row) => (
-                <span className="text-[var(--color-muted)]">{row.paid_at ? formatDate(row.paid_at) : '—'}</span>
-            ),
+            render: (row) => <span className="text-[var(--color-muted)]">{formatPayoutDate(row)}</span>,
         },
         {
             key: 'vendor',

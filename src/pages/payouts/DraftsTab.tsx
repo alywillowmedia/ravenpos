@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { DraftPanel } from '../../components/payouts/DraftPanel';
 import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -33,11 +33,9 @@ export function DraftsTab({ data, onDiscard, onMarkPaid }: DraftsTabProps) {
     return (
         <div className="space-y-4">
             <div className="flex justify-end">
-                <Link to="/admin/payouts/pay-run" tabIndex={-1}>
-                    <Button type="button">
-                        Pay run · {run.count} {run.count === 1 ? 'draft' : 'drafts'} · {formatCurrency(run.total)}
-                    </Button>
-                </Link>
+                <Button type="button" onClick={() => navigate('/admin/payouts/pay-run')}>
+                    Pay run · {run.count} {run.count === 1 ? 'draft' : 'drafts'} · {formatCurrency(run.total)}
+                </Button>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
                 {drafts.map((row) => (

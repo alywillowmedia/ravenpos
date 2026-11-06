@@ -1,4 +1,4 @@
-import { formatCurrency } from './utils';
+import { formatCurrency, formatDate } from './utils';
 import type { SplitBarProps } from '../components/ui/SplitBar';
 import type { PayoutRunRow } from '../types/payouts';
 
@@ -156,4 +156,13 @@ export function prepareSummary(created: number, skipped: number): string {
         return skipped > 0 ? `${head}, ${skippedText}` : head;
     }
     return skipped > 0 ? `No new drafts, ${skippedText}` : 'No drafts prepared';
+}
+
+/** Date a payout is shown under: its payment date (a plain date), else when it was paid. */
+export function formatPayoutDate(row: { payment_date: string | null; paid_at: string | null }): string {
+    if (row.payment_date) {
+        const parts = parseParts(row.payment_date.slice(0, 10));
+        return parts ? `${MONTHS[parts.month - 1].slice(0, 3)} ${parts.day}, ${parts.year}` : row.payment_date;
+    }
+    return row.paid_at ? formatDate(row.paid_at) : '—';
 }

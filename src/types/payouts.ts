@@ -308,7 +308,7 @@ export interface PrepareRunResult {
 }
 
 export interface PayoutHistoryRow {
-    id: string; status: PayoutLifecycleStatus; amount: number; paid_at: string | null;
+    id: string; status: PayoutLifecycleStatus; amount: number; paid_at: string | null; payment_date: string | null;
     payment_method: string | null; payment_reference: string | null;
     historical_confidence: HistoricalConfidence;
     consignor: { name: string; business_name: string | null; consignor_number: string };

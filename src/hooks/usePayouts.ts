@@ -170,10 +170,11 @@ export async function getPayoutHistory(query: PayoutHistoryQuery): Promise<{ row
     let request = supabase
         .from('payouts')
         .select(
-            'id, status, amount, paid_at, payment_method, payment_reference, historical_confidence, consignor:consignors(name, business_name, consignor_number)',
+            'id, status, amount, paid_at, payment_date, payment_method, payment_reference, historical_confidence, consignor:consignors(name, business_name, consignor_number)',
             { count: 'exact' },
         )
         .in('status', query.status === 'all' ? ['paid', 'voided'] : [query.status])
+        .order('payment_date', { ascending: false, nullsFirst: false })
         .order('paid_at', { ascending: false, nullsFirst: false })
         .order('id', { ascending: false });
 
