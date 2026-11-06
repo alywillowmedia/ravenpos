@@ -8,7 +8,7 @@ const payoutSurfaceFiles = [
     'src/pages/vendor/VendorPayouts.tsx',
     'src/pages/vendor/VendorSales.tsx',
     'src/lib/completedPayoutReport.ts',
-    'src/components/payouts/CompletedPayoutDetails.tsx',
+    'src/pages/payouts/PayRunPage.tsx',
 ];
 
 describe('vendor-specific store credit isolation', () => {

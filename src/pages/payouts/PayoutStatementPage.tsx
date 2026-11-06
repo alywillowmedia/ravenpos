@@ -1,16 +1,30 @@
-import { AlertTriangle, ArrowLeft, Download, Printer, RotateCcw } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { AlertTriangle, ArrowLeft, Download, Mail, Printer, RotateCcw } from 'lucide-react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { LedgerPageHeader } from '../../components/payouts/PayoutLedgerUI';
+import { Header } from '../../components/layout/Header';
+import { PayoutEquation } from '../../components/payouts/PayoutLedgerUI';
+import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { Modal, ModalFooter } from '../../components/ui/Modal';
+import { Money } from '../../components/ui/Money';
+import { Table, type Column } from '../../components/ui/Table';
 import { useToast } from '../../contexts/ToastContext';
-import { getPayoutStatement, voidPayout } from '../../hooks/usePayouts';
+import { getPayoutStatement, sendPayoutStatement, voidPayout } from '../../hooks/usePayouts';
 import { printPayoutStatementReport } from '../../lib/completedPayoutReport';
-import { formatCurrency } from '../../lib/utils';
-import type { PayoutStatementData } from '../../types/payouts';
+import {
+    draftPayable,
+    formatStatementCutoff,
+    rollsForward,
+    statementEmailLine,
+    statementFigures,
+    statementScopeLabel,
+} from '../../lib/payoutDraft';
+import { formatPayoutDate, shortId } from '../../lib/payoutRun';
+import { formatDate, formatDateTime } from '../../lib/utils';
+import type { PayoutAllocationSnapshot, PayoutStatementData } from '../../types/payouts';
 
 function csvCell(value: unknown): string {
     return `"${String(value ?? '').replace(/"/g, '""')}"`;
@@ -25,8 +39,9 @@ export function PayoutStatementPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [showVoid, setShowVoid] = useState(false);
-    const [voidReason, setVoidReason] = useState('');
+    const [voidInput, setVoidInput] = useState('');
     const [isVoiding, setIsVoiding] = useState(false);
+    const [isEmailing, setIsEmailing] = useState(false);
 
     const load = useCallback(async () => {
         setIsLoading(true);
@@ -73,10 +88,10 @@ export function PayoutStatementPage() {
     };
 
     const confirmVoid = async () => {
-        if (!voidReason.trim()) return;
+        if (!voidInput.trim()) return;
         setIsVoiding(true);
         try {
-            await voidPayout(payoutId, voidReason);
+            await voidPayout(payoutId, voidInput);
             setShowVoid(false);
             toast.success('Payout voided', 'Reversal records were created; original evidence remains preserved.');
             await load();
@@ -85,63 +100,244 @@ export function PayoutStatementPage() {
         } finally { setIsVoiding(false); }
     };
 
+    const sendEmail = async () => {
+        setIsEmailing(true);
+        try {
+            const outcome = await sendPayoutStatement(payoutId);
+            if (outcome === 'sent') toast.success('Statement emailed');
+            else if (outcome === 'no_email') toast.warning('No email on file', 'Add an email to this vendor, then send again.');
+            else toast.error('Statement email failed', 'The payout is unchanged. Try again.');
+            await load();
+        } finally { setIsEmailing(false); }
+    };
+
     if (isLoading) return <div className="flex min-h-72 items-center justify-center"><LoadingSpinner size={30} /></div>;
-    if (!statement || error) return <div className="border border-[var(--color-danger)] bg-[var(--color-danger-bg)] p-6 text-sm text-[var(--color-danger)]">{error || 'Statement not found.'}</div>;
+    if (!statement || error) {
+        return (
+            <Card className="text-sm text-[var(--color-danger)]">
+                <p role="alert">{error || 'Statement not found.'}</p>
+            </Card>
+        );
+    }
 
     const payout = statement.payout;
+    const vendorName = statement.vendor.business_name || statement.vendor.name;
     const allocationTotal = statement.allocations.reduce((sum, row) => sum + Number(row.amount_settled), 0);
     const adjustmentTotal = statement.adjustments.reduce((sum, row) => sum + Number(row.amount), 0);
-    const backHref = isVendor ? '/vendor/payouts' : `/admin/payouts/vendor/${statement.vendor.id}`;
+    const invoiceTotal = statement.invoice_payments.reduce((sum, row) => sum + Number(row.amount), 0);
+    const backHref = isVendor
+        ? '/vendor/payouts'
+        : statement.vendor.id ? `/admin/payouts/vendor/${statement.vendor.id}` : '/admin/payouts?tab=history';
+    const figures = statementFigures(payout, statement.adjustments);
+    const payable = draftPayable(figures);
+    const rolls = rollsForward(payable, Number(payout.amount));
+    const emailLine = isVendor ? '' : statementEmailLine(statement.latest_email);
+    const actors = isVendor ? null : statement.actors;
+    const actorLine = actors
+        ? [
+            actors.prepared_by_name ? `Prepared by ${actors.prepared_by_name}` : null,
+            actors.paid_by_name ? `Paid by ${actors.paid_by_name}` : null,
+        ].filter(Boolean).join(' · ')
+        : '';
+    const reversal = statement.reversal;
+    const voidReason = reversal && typeof reversal.reason === 'string' ? reversal.reason : '';
+    const voidedAt = reversal && typeof reversal.reversed_at === 'string' ? reversal.reversed_at : '';
+    const voidedBy = actors?.reversed_by_name ?? null;
+    const statusVariant = payout.status === 'paid' ? 'success' : payout.status === 'voided' ? 'danger' : 'info';
+
+    const allocationColumns: Column<PayoutAllocationSnapshot>[] = [
+        {
+            key: 'item_name',
+            header: 'Sale / item',
+            minWidth: '220px',
+            render: (row) => (
+                <div>
+                    <p className="font-medium">{row.item_name}</p>
+                    <p className="text-xs text-[var(--color-muted)]">{formatDate(row.sale_timestamp)} · {row.sku || 'No SKU'} · #{shortId(row.sale_id)}</p>
+                </div>
+            ),
+        },
+        { key: 'gross_line_amount', header: 'Gross', render: (row) => <Money amount={Number(row.gross_line_amount)} /> },
+        { key: 'discounts', header: 'Discounts', render: (row) => <Money amount={Number(row.item_discount) + Number(row.allocated_order_discount)} /> },
+        { key: 'net_line_amount', header: 'Net', render: (row) => <Money amount={Number(row.net_line_amount)} /> },
+        { key: 'commission_percentage', header: 'Vendor %', render: (row) => `${Number(row.commission_percentage).toFixed(0)}%` },
+        { key: 'vendor_earnings_before_fees', header: 'Before fees', render: (row) => <Money amount={Number(row.vendor_earnings_before_fees)} /> },
+        { key: 'allocated_card_fee', header: 'Card fee', render: (row) => <Money amount={Number(row.allocated_card_fee)} /> },
+        { key: 'final_vendor_cut', header: 'Vendor cut', render: (row) => <Money amount={Number(row.final_vendor_cut)} /> },
+        { key: 'amount_settled', header: 'Settled', render: (row) => <span className="font-medium"><Money amount={Number(row.amount_settled)} /></span> },
+        { key: 'remaining_amount_after', header: 'Remaining', render: (row) => <Money amount={Number(row.remaining_amount_after)} /> },
+    ];
 
     return (
-        <div className="mx-auto w-full max-w-[1400px] pb-24 print:max-w-none">
+        <div className="mx-auto w-full min-w-0 max-w-[1400px] space-y-6 pb-24 print:max-w-none">
             <div className="print:hidden">
-                <LedgerPageHeader
-                    breadcrumb={<Link className="inline-flex items-center gap-1 hover:text-[var(--color-foreground)]" to={backHref}><ArrowLeft className="h-3.5 w-3.5" /> {isVendor ? 'Payouts' : 'Vendor workspace'}</Link>}
-                    title={`Payout statement #${payoutId.slice(0, 8).toUpperCase()}`}
-                    description={`${statement.vendor.business_name || statement.vendor.name} · Pay to ${statement.vendor.pay_to_name} · ${payout.status} · ${payout.historical_confidence.replace(/_/g, ' ')}`}
-                    locked
-                    actions={<><Button variant="secondary" leftIcon={<Printer className="h-4 w-4" />} onClick={print}>Print</Button><Button variant="secondary" leftIcon={<Download className="h-4 w-4" />} onClick={download}>Export</Button>{!isVendor && payout.status === 'paid' ? <Button variant="danger" leftIcon={<RotateCcw className="h-4 w-4" />} onClick={() => setShowVoid(true)}>Void</Button> : null}</>}
+                <Link className="mb-3 inline-flex items-center gap-1 text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)]" to={backHref}>
+                    <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> {isVendor ? 'Payouts' : 'Vendor workspace'}
+                </Link>
+                <Header
+                    className="!mb-0"
+                    title={`Payout statement #${shortId(payoutId)}`}
+                    description={`${vendorName} · Pay to ${statement.vendor.pay_to_name}`}
+                    actions={(
+                        <>
+                            {!isVendor && payout.status === 'paid' ? (
+                                <Button variant="secondary" leftIcon={<Mail className="h-4 w-4" />} onClick={() => void sendEmail()} isLoading={isEmailing}>Email statement</Button>
+                            ) : null}
+                            <Button variant="secondary" leftIcon={<Printer className="h-4 w-4" />} onClick={print}>Print</Button>
+                            <Button variant="secondary" leftIcon={<Download className="h-4 w-4" />} onClick={download}>Export</Button>
+                            {!isVendor && payout.status === 'paid' ? <Button variant="danger" leftIcon={<RotateCcw className="h-4 w-4" />} onClick={() => setShowVoid(true)}>Void</Button> : null}
+                        </>
+                    )}
                 />
             </div>
 
-            <header className="hidden border-b-2 border-black pb-5 print:block"><h1 className="text-3xl font-semibold">Payout statement</h1><p>#{payoutId.toUpperCase()} · {statement.vendor.business_name || statement.vendor.name}</p><p>Pay to: {statement.vendor.pay_to_name}</p></header>
+            <header className="hidden border-b-2 border-black pb-5 print:block"><h1 className="text-3xl font-semibold">Payout statement</h1><p>#{payoutId.toUpperCase()} · {vendorName}</p><p>Pay to: {statement.vendor.pay_to_name}</p></header>
 
-            {!statement.is_exact ? (
-                <div className="mb-5 flex gap-3 border border-[var(--color-warning)] bg-[var(--color-warning-bg)] p-4 text-sm text-[var(--color-warning)]">
-                    <AlertTriangle className="h-5 w-5 shrink-0" /><div><p className="font-medium">Legacy record—exact sale allocation unavailable</p><p className="mt-1 text-xs">Saved totals are preserved, but reconstructed date-window lines are not presented as proof. {payout.reconciliation_explanation || ''}</p></div>
+            {payout.status === 'voided' ? (
+                <div role="status" className="rounded-xl bg-[var(--color-danger-bg)] p-4 text-sm text-[var(--color-danger)]">
+                    <p className="font-semibold">This payout was voided</p>
+                    <p className="mt-1">
+                        {[
+                            voidReason ? `Reason: ${voidReason}` : null,
+                            voidedAt ? formatDate(voidedAt) : null,
+                            voidedBy ? `Voided by ${voidedBy}` : null,
+                        ].filter(Boolean).join(' · ') || 'The original statement stays here with a separate reversal record.'}
+                    </p>
                 </div>
             ) : null}
-            {payout.status === 'voided' ? <div className="mb-5 border border-[var(--color-danger)] bg-[var(--color-danger-bg)] p-4 text-sm text-[var(--color-danger)]"><strong>Voided.</strong> The original statement remains visible with a separate reversal record.</div> : null}
+            {!statement.is_exact ? (
+                <div className="flex gap-3 rounded-xl bg-[var(--color-warning-bg)] p-4 text-sm text-[var(--color-warning)]">
+                    <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    <div>
+                        <p className="font-medium">Exact sales aren't available for this older payout</p>
+                        <p className="mt-1 text-xs">The saved totals are kept. Sale lines rebuilt from dates are not shown as proof. {payout.reconciliation_explanation || ''}</p>
+                    </div>
+                </div>
+            ) : null}
 
-            <section className="grid border border-[var(--color-border)] bg-[var(--color-card)] sm:grid-cols-2 lg:grid-cols-4">
-                <StatementMetric label="Amount paid" value={formatCurrency(Number(payout.amount))} />
-                <StatementMetric label="Payment date" value={payout.payment_date ? new Date(`${payout.payment_date}T12:00:00`).toLocaleDateString() : payout.paid_at ? new Date(payout.paid_at).toLocaleDateString() : '—'} />
-                <StatementMetric label="Method" value={payout.payment_method || 'Legacy / unspecified'} />
-                <StatementMetric label="Reference" value={payout.payment_reference || '—'} />
-            </section>
+            <div className="grid gap-6 lg:grid-cols-2">
+                <Card className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h2 className="text-sm font-semibold">Payout</h2>
+                        <Badge variant={statusVariant} dot>{payout.status === 'paid' && payout.is_partial ? 'Paid, partial' : payout.status}</Badge>
+                    </div>
+                    {figures.hasSnapshots ? (
+                        <div>
+                            <PayoutEquation
+                                lines={[
+                                    { label: 'Carried in', amount: figures.carriedIn },
+                                    { label: 'Earned', amount: figures.earned, sign: '+' },
+                                    { label: 'Deductions', amount: figures.required, sign: '−' },
+                                    { label: 'Invoices', amount: figures.invoices, sign: '−' },
+                                    { label: 'Payable', amount: payable, sign: '=', strong: true },
+                                ]}
+                            />
+                            <PayoutEquation
+                                lines={[
+                                    { label: 'Paying now', amount: Number(payout.amount), strong: true },
+                                    ...(rolls > 0 ? [{ label: 'Rolls forward', amount: rolls }] : []),
+                                ]}
+                            />
+                        </div>
+                    ) : (
+                        <PayoutEquation
+                            lines={[
+                                ...(payout.payable_before_invoices_snapshot !== null ? [{ label: 'Payable before invoices', amount: Number(payout.payable_before_invoices_snapshot) }] : []),
+                                { label: 'Paid', amount: Number(payout.amount), strong: true },
+                            ]}
+                        />
+                    )}
+                </Card>
 
-            <section className="mt-6"><div className="mb-3 flex items-end justify-between"><div><p className="text-xs text-[var(--color-muted)]">Immutable evidence</p><h2 className="font-display text-2xl">Sale allocations</h2></div><p className="font-display text-2xl">{formatCurrency(allocationTotal)}</p></div>
-                <div className="overflow-x-auto border border-[var(--color-border)] bg-[var(--color-card)]"><table className="w-full min-w-[1180px] text-xs"><thead className="bg-[var(--color-surface)] text-[var(--color-muted)]"><tr><th className="px-3 py-2 text-left">Sale / item</th><th className="px-3 py-2 text-right">Gross</th><th className="px-3 py-2 text-right">Discounts</th><th className="px-3 py-2 text-right">Net</th><th className="px-3 py-2 text-right">Vendor %</th><th className="px-3 py-2 text-right">Before fees</th><th className="px-3 py-2 text-right">Card fee</th><th className="px-3 py-2 text-right">Vendor cut</th><th className="px-3 py-2 text-right">Settled</th><th className="px-3 py-2 text-right">Remaining</th></tr></thead><tbody>{statement.allocations.map((row) => <tr key={row.id} className="border-t border-[var(--color-border)]"><td className="px-3 py-3"><p className="text-sm font-medium">{row.item_name}</p><p className="font-mono text-[11px] text-[var(--color-muted)]">{new Date(row.sale_timestamp).toLocaleDateString()} · {row.sku || 'No SKU'} · #{row.sale_id.slice(0, 8).toUpperCase()}</p></td><td className="px-3 py-3 text-right">{formatCurrency(row.gross_line_amount)}</td><td className="px-3 py-3 text-right">−{formatCurrency(Number(row.item_discount) + Number(row.allocated_order_discount))}</td><td className="px-3 py-3 text-right">{formatCurrency(row.net_line_amount)}</td><td className="px-3 py-3 text-right">{Number(row.commission_percentage).toFixed(0)}%</td><td className="px-3 py-3 text-right">{formatCurrency(row.vendor_earnings_before_fees)}</td><td className="px-3 py-3 text-right">−{formatCurrency(row.allocated_card_fee)}</td><td className="px-3 py-3 text-right">{formatCurrency(row.final_vendor_cut)}</td><td className="px-3 py-3 text-right font-medium">{formatCurrency(row.amount_settled)}</td><td className="px-3 py-3 text-right">{formatCurrency(row.remaining_amount_after)}</td></tr>)}</tbody></table>{statement.allocations.length === 0 ? <p className="p-8 text-center text-sm text-[var(--color-muted)]">No exact sale allocations are available for this record.</p> : null}</div>
-            </section>
-
-            <div className="mt-6 grid gap-5 lg:grid-cols-2">
-                <StatementList title="Adjustments" total={adjustmentTotal} empty="No adjustments on this payout." rows={statement.adjustments.map((row) => ({ id: row.id, label: row.description, meta: row.adjustment_type.replace(/_/g, ' '), amount: Number(row.amount), href: row.source_table === 'invoices' && row.source_reference ? `/admin/finances/invoices/${row.source_reference}` : undefined }))} />
-                <StatementList title="Invoice payments" total={statement.invoice_payments.reduce((sum, row) => sum + Number(row.amount), 0)} empty="No invoice payments on this payout." rows={statement.invoice_payments.map((row) => ({ id: row.id, label: `Invoice #${row.invoice_number}`, meta: `${row.payment_type.replace(/_/g, ' ')} · ${new Date(`${row.paid_date}T12:00:00`).toLocaleDateString()}`, amount: Number(row.amount), href: isVendor ? undefined : `/admin/finances/invoices/${row.invoice_id}` }))} />
+                <Card>
+                    <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+                        <Fact label="Payment date" value={formatPayoutDate(payout)} />
+                        <Fact label="Method" value={payout.payment_method || 'Legacy / unspecified'} capitalize />
+                        <Fact label="Reference" value={payout.payment_reference || '—'} />
+                        <Fact label="Covers" value={statementScopeLabel(payout)} />
+                        {payout.cutoff_at ? <Fact label="Cutoff" value={formatStatementCutoff(payout.cutoff_at)} /> : null}
+                        {payout.prepared_at ? <Fact label="Prepared" value={formatDateTime(payout.prepared_at)} /> : null}
+                    </dl>
+                    {actorLine || emailLine ? (
+                        <div className="mt-4 space-y-1 border-t border-[var(--color-border)] pt-4 text-sm text-[var(--color-muted)] print:hidden">
+                            {actorLine ? <p>{actorLine}</p> : null}
+                            {emailLine ? <p>{emailLine}</p> : null}
+                        </div>
+                    ) : null}
+                </Card>
             </div>
 
-            <section className="mt-6 border border-[var(--color-border)] bg-[var(--color-card)] p-5 text-sm"><h2 className="font-display text-xl">Audit details</h2><dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-xs text-[var(--color-muted)]">Confidence</dt><dd className="mt-1 capitalize">{payout.historical_confidence.replace(/_/g, ' ')}</dd></div><div><dt className="text-xs text-[var(--color-muted)]">Range mode</dt><dd className="mt-1 capitalize">{payout.range_mode.replace(/_/g, ' ')}</dd></div><div><dt className="text-xs text-[var(--color-muted)]">Prior balance</dt><dd className="mt-1">{payout.include_prior_balance ? 'Included' : 'Excluded'}</dd></div><div><dt className="text-xs text-[var(--color-muted)]">Threshold snapshot</dt><dd className="mt-1">{payout.threshold_snapshot == null ? '—' : formatCurrency(Number(payout.threshold_snapshot))}</dd></div></dl>{payout.notes ? <p className="mt-4 border-t border-[var(--color-border)] pt-4 text-[var(--color-muted)]">{payout.notes}</p> : null}</section>
+            {statement.is_exact || statement.allocations.length > 0 ? (
+                <Section title="Sale allocations" aside={<Money amount={allocationTotal} />}>
+                    <Table
+                        flat
+                        data={statement.allocations}
+                        columns={allocationColumns.map((column, index) => (index === 0 ? column : { ...column, minWidth: '96px' }))}
+                        keyExtractor={(row) => row.id}
+                        emptyMessage="No exact sale allocations are available for this record."
+                        ariaLabel="Sale allocations"
+                        stickyHeader={false}
+                    />
+                </Section>
+            ) : null}
+
+            <div className="grid gap-6 lg:grid-cols-2">
+                <StatementList title="Adjustments" total={adjustmentTotal} empty="No adjustments on this payout." rows={statement.adjustments.map((row) => ({ id: row.id, label: row.description, meta: row.adjustment_type.replace(/_/g, ' '), amount: Number(row.amount), href: !isVendor && row.source_table === 'invoices' && row.source_reference ? `/admin/finances/invoices/${row.source_reference}` : undefined }))} />
+                <StatementList title="Invoice payments" total={invoiceTotal} empty="No invoice payments on this payout." rows={statement.invoice_payments.map((row) => ({ id: row.id, label: `Invoice #${row.invoice_number}`, meta: `${row.payment_type.replace(/_/g, ' ')} · ${formatDate(`${row.paid_date}T12:00:00`)}`, amount: Number(row.amount), href: isVendor ? undefined : `/admin/finances/invoices/${row.invoice_id}` }))} />
+            </div>
+
+            <Card>
+                <h2 className="text-sm font-semibold">Audit details</h2>
+                <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                    <Fact label="Confidence" value={payout.historical_confidence.replace(/_/g, ' ')} capitalize />
+                    <Fact label="Range mode" value={payout.range_mode.replace(/_/g, ' ')} capitalize />
+                    <Fact label="Prior balance" value={payout.include_prior_balance ? 'Included' : 'Excluded'} />
+                    <Fact label="Threshold snapshot" value={payout.threshold_snapshot == null ? '—' : `$${Number(payout.threshold_snapshot).toFixed(2)}`} />
+                </dl>
+                {payout.notes ? <p className="mt-4 border-t border-[var(--color-border)] pt-4 text-sm text-[var(--color-muted)]">{payout.notes}</p> : null}
+            </Card>
 
             <Modal isOpen={showVoid} onClose={() => setShowVoid(false)} title="Void this payout?" description={`Payout to ${statement.vendor.pay_to_name}. This creates reversal records. The original statement cannot be edited or deleted.`} size="sm">
-                <Input label="Reason" value={voidReason} onChange={(event) => setVoidReason(event.target.value)} required autoFocus />
-                <ModalFooter><Button variant="secondary" onClick={() => setShowVoid(false)}>Cancel</Button><Button variant="danger" isLoading={isVoiding} disabled={!voidReason.trim()} onClick={confirmVoid}>Void payout</Button></ModalFooter>
+                <Input label="Reason" value={voidInput} onChange={(event) => setVoidInput(event.target.value)} required autoFocus />
+                <ModalFooter><Button variant="secondary" onClick={() => setShowVoid(false)}>Cancel</Button><Button variant="danger" isLoading={isVoiding} disabled={!voidInput.trim()} onClick={confirmVoid}>Void payout</Button></ModalFooter>
             </Modal>
         </div>
     );
 }
 
-function StatementMetric({ label, value }: { label: string; value: string }) { return <div className="border-b border-[var(--color-border)] p-5 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0"><p className="text-xs text-[var(--color-muted)]">{label}</p><p className="mt-1 font-display text-2xl capitalize">{value}</p></div>; }
+function Fact({ label, value, capitalize }: { label: string; value: string; capitalize?: boolean }) {
+    return (
+        <div className="min-w-0">
+            <dt className="text-xs text-[var(--color-muted)]">{label}</dt>
+            <dd className={capitalize ? 'mt-0.5 break-words capitalize' : 'mt-0.5 break-words'}>{value}</dd>
+        </div>
+    );
+}
+
+function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
+    return (
+        <Card padding="none" className="min-w-0 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+                <h2 className="text-sm font-semibold">{title}</h2>
+                {aside ? <span className="text-sm font-semibold">{aside}</span> : null}
+            </div>
+            {children}
+        </Card>
+    );
+}
 
 function StatementList({ title, total, rows, empty }: { title: string; total: number; rows: Array<{ id: string; label: string; meta: string; amount: number; href?: string }>; empty: string }) {
-    return <section className="border border-[var(--color-border)] bg-[var(--color-card)]"><div className="flex items-center border-b border-[var(--color-border)] px-4 py-3"><h2 className="font-display text-xl">{title}</h2><p className="ml-auto font-display text-xl">{formatCurrency(total)}</p></div>{rows.length ? rows.map((row) => <div key={row.id} className="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-3 last:border-b-0"><div>{row.href ? <Link className="text-sm font-medium text-[var(--color-primary)] hover:underline" to={row.href}>{row.label}</Link> : <p className="text-sm font-medium">{row.label}</p>}<p className="text-xs capitalize text-[var(--color-muted)]">{row.meta}</p></div><p className="ml-auto font-medium">{formatCurrency(row.amount)}</p></div>) : <p className="p-6 text-sm text-[var(--color-muted)]">{empty}</p>}</section>;
+    return (
+        <Section title={title} aside={<Money amount={total} />}>
+            {rows.length ? rows.map((row) => (
+                <div key={row.id} className="flex items-center gap-3 border-t border-[var(--color-border)] px-4 py-3">
+                    <div className="min-w-0">
+                        {row.href ? <Link className="text-sm font-medium text-[var(--color-primary)] hover:underline" to={row.href}>{row.label}</Link> : <p className="text-sm font-medium">{row.label}</p>}
+                        <p className="text-xs capitalize text-[var(--color-muted)]">{row.meta}</p>
+                    </div>
+                    <p className="ml-auto shrink-0 text-sm font-medium"><Money amount={row.amount} /></p>
+                </div>
+            )) : <p className="border-t border-[var(--color-border)] p-6 text-sm text-[var(--color-muted)]">{empty}</p>}
+        </Section>
+    );
 }

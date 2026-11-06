@@ -19,11 +19,14 @@ import {
     rollsForward,
     scopeFromPayout,
     scopeToSaveInput,
+    statementScopeLabel,
+    formatStatementCutoff,
+    statementEmailLine,
     statementFigures,
     validatePayingNow,
     validatePayment,
 } from '../../src/lib/payoutDraft';
-import type { PayoutAdjustmentSnapshot, PayoutStatementData, RequiredPayoutAdjustment } from '../../src/types/payouts';
+import type { PayoutAdjustmentSnapshot, PayoutStatementData, PayoutStatementEmail, RequiredPayoutAdjustment } from '../../src/types/payouts';
 
 type Payout = PayoutStatementData['payout'];
 
@@ -306,5 +309,42 @@ describe('startsFollowing', () => {
         expect(startsFollowing(49.99, 50)).toBe(false);
         expect(startsFollowing(50, null)).toBe(false);
         expect(startsFollowing(0, 0)).toBe(true);
+    });
+});
+
+describe('statementScopeLabel', () => {
+    it('names a through date', () => {
+        expect(statementScopeLabel(payout({ range_mode: 'through_date', source_range_end: '2025-10-31' }))).toBe('Earnings through Oct 31');
+    });
+
+    it('falls back to the cutoff day in store time when a through date has no end', () => {
+        expect(statementScopeLabel(payout({ range_mode: 'through_date', cutoff_at: '2025-11-01T03:30:00Z' }))).toBe('Earnings through Oct 31');
+    });
+
+    it('names a selected range from its plain dates', () => {
+        expect(statementScopeLabel(payout({ range_mode: 'selected_range', source_range_start: '2025-10-01', source_range_end: '2025-10-31' }))).toBe('Sales from Oct 1 to Oct 31');
+    });
+
+    it('says all outstanding for older rows', () => {
+        expect(statementScopeLabel(payout({ range_mode: 'all_outstanding' }))).toBe('All outstanding');
+        expect(statementScopeLabel(payout({ range_mode: 'through_date' }))).toBe('All outstanding');
+        expect(statementScopeLabel(payout({ range_mode: 'selected_range', source_range_start: '2025-10-01' }))).toBe('All outstanding');
+    });
+});
+
+describe('formatStatementCutoff', () => {
+    it('shows the cutoff in New York time', () => {
+        expect(formatStatementCutoff('2025-11-01T03:59:00Z')).toBe('Oct 31, 2025, 11:59 PM EDT');
+        expect(formatStatementCutoff('2025-12-01T04:59:00Z')).toBe('Nov 30, 2025, 11:59 PM EST');
+    });
+});
+
+describe('statementEmailLine', () => {
+    const email = (status: 'sent' | 'failed') => ({ recipient: 'a@b.com', status, created_at: '2025-11-05T17:00:00Z' }) as PayoutStatementEmail;
+
+    it('says sent or failed and reads nothing without an attempt', () => {
+        expect(statementEmailLine(email('sent'))).toBe('Emailed to a@b.com on Nov 5');
+        expect(statementEmailLine(email('failed'))).toBe('Email to a@b.com failed on Nov 5');
+        expect(statementEmailLine(null)).toBe('');
     });
 });

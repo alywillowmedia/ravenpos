@@ -1406,48 +1406,6 @@ export function printConsignorTaxStatements(report: ConsignorTaxReport, selected
     return true;
 }
 
-export async function loadCompletedPayoutDetails(payout: Payout): Promise<CompletedPayoutDetails> {
-    const { data, error } = await supabase.rpc('get_payout_statement', { p_payout_id: payout.id });
-    if (error) throw error;
-    const statement = data as unknown as {
-        allocations: Array<Record<string, unknown>>;
-        adjustments: Array<Record<string, unknown>>;
-    };
-    const saleLines: CompletedPayoutSaleLine[] = (statement.allocations || []).map((row) => ({
-        saleItemId: String(row.sale_item_id),
-        saleDate: String(row.sale_timestamp),
-        saleId: String(row.sale_id),
-        sku: String(row.sku || ''),
-        itemName: String(row.item_name || ''),
-        quantity: Number(row.quantity || 0),
-        refundedQuantity: Number(row.refunded_quantity || 0),
-        unitPrice: Number(row.unit_price || 0),
-        lineTotal: Number(row.net_line_amount || 0),
-        commissionSplit: Number(row.commission_percentage || 0) / 100,
-        consignorShare: Number(row.amount_settled || 0),
-        storeShare: Number(row.net_line_amount || 0) - Number(row.vendor_earnings_before_fees || 0),
-        taxAmount: 0,
-        creditCardFee: Number(row.allocated_card_fee || 0),
-    }));
-    const deductions: CompletedPayoutDeductionLine[] = (statement.adjustments || []).filter((row) => Number(row.amount || 0) < 0).map((row) => {
-        const adjustmentType = String(row.adjustment_type || '');
-        const type: CompletedPayoutDeductionLine['type'] = adjustmentType === 'booth_rent'
-            ? 'booth_rent'
-            : adjustmentType === 'marketing_fee'
-                ? 'marketing'
-                : adjustmentType === 'invoice_deduction'
-                    ? 'invoice'
-                    : 'ledger';
-        return {
-            id: String(row.id),
-            type,
-            label: String(row.description || adjustmentType.replace(/_/g, ' ')),
-            description: String(row.source_reference || '') || null,
-            amount: Math.abs(Number(row.amount || 0)),
-        };
-    });
-    return { saleLines, deductions };
-}
 
 export function buildConsignorsSummaryFilename(): string {
     return `consignors-report-${toLocalDateSlug()}.csv`;

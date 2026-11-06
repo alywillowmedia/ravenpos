@@ -189,14 +189,6 @@ function openPayoutReport(html: string): boolean {
     return true;
 }
 
-export function printCompletedPayoutReport(
-    payout: Payout,
-    details: CompletedPayoutDetails,
-    consignor: ReportConsignor | null | undefined = payout.consignor
-): boolean {
-    return openPayoutReport(buildCompletedPayoutReportHtml(payout, details, consignor));
-}
-
 function buildPayoutStatementDetails(statement: PayoutStatementData): CompletedPayoutDetails {
     return {
         discountTotal: statement.allocations.reduce(

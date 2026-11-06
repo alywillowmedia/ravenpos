@@ -1,5 +1,5 @@
 import type { SelectOption } from '../components/ui/Select';
-import type { PayoutAdjustmentSnapshot, PayoutStatementData, RequiredPayoutAdjustment, SavePayoutDraftInput } from '../types/payouts';
+import type { PayoutAdjustmentSnapshot, PayoutStatementData, PayoutStatementEmail, RequiredPayoutAdjustment, SavePayoutDraftInput } from '../types/payouts';
 import { fromCents, selectInvoicesOldestFirst, toCents } from './payoutLedger';
 
 export const PAYMENT_METHODS: SelectOption[] = [
@@ -45,6 +45,31 @@ function storeDate(timestamp: string): string | null {
     const parsed = new Date(timestamp);
     if (Number.isNaN(parsed.getTime())) return null;
     return new Intl.DateTimeFormat('en-CA', { timeZone: STORE_TIME_ZONE }).format(parsed);
+}
+
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Oct 31" from a plain date, with no timezone shift. */
+function plainDay(date: string): string | null {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+    if (!match) return null;
+    const month = SHORT_MONTHS[Number(match[2]) - 1];
+    return month ? `${month} ${Number(match[3])}` : null;
+}
+
+/** The scope line on a statement: what the payout covers. */
+export function statementScopeLabel(payout: PayoutStatementData['payout']): string {
+    if (payout.range_mode === 'selected_range' && payout.source_range_start && payout.source_range_end) {
+        const from = plainDay(payout.source_range_start);
+        const to = plainDay(payout.source_range_end);
+        if (from && to) return `Sales from ${from} to ${to}`;
+    }
+    if (payout.range_mode === 'through_date') {
+        const end = payout.source_range_end || (payout.cutoff_at ? storeDate(payout.cutoff_at) : null);
+        const day = end ? plainDay(end) : null;
+        if (day) return `Earnings through ${day}`;
+    }
+    return 'All outstanding';
 }
 
 export function scopeFromPayout(payout: PayoutStatementData['payout'], today: string): DraftScope {
@@ -249,4 +274,28 @@ export function pendingReasonText(reason: string | null): string {
     if (!reason) return 'Not enough earnings in this payout to cover this yet.';
     const words = reason.replace(/_/g, ' ').trim();
     return `${words.charAt(0).toUpperCase()}${words.slice(1)}.`;
+}
+
+/** Cutoff instant as the store sees it, e.g. "Oct 31, 2025, 11:59 PM EDT". */
+export function formatStatementCutoff(cutoffAt: string): string {
+    const parsed = new Date(cutoffAt);
+    if (Number.isNaN(parsed.getTime())) return cutoffAt;
+    return new Intl.DateTimeFormat('en-US', {
+        timeZone: STORE_TIME_ZONE,
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZoneName: 'short',
+    }).format(parsed);
+}
+
+/** The line under a statement saying whether it was emailed. Empty when nothing was tried. */
+export function statementEmailLine(email: PayoutStatementEmail | null): string {
+    if (!email) return '';
+    const when = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(email.created_at));
+    return email.status === 'sent'
+        ? `Emailed to ${email.recipient} on ${when}`
+        : `Email to ${email.recipient} failed on ${when}`;
 }
