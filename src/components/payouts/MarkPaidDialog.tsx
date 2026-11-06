@@ -80,6 +80,7 @@ export function MarkPaidDialog({
             if (beforeFinalize && !(await beforeFinalize())) return;
             const { email } = await markPayoutPaid({
                 payoutId: target.payoutId,
+                expectedAmount: target.amount,
                 paymentMethod: method,
                 paymentDate: date,
                 paymentReference: reference.trim() || null,

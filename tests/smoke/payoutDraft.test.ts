@@ -110,6 +110,7 @@ describe('describeFinalizeError', () => {
         expect(describeFinalizeError('Sales changed after the draft was prepared.')).toBe('This draft changed after it was prepared. Open it and recalculate.');
         expect(describeFinalizeError('Sale allocation conflict detected for item 3f2b8c1e-0000-4000-8000-000000000000.')).toBe('This draft changed after it was prepared. Open it and recalculate.');
         expect(describeFinalizeError('Draft no longer reconciles: allocations plus adjustments equal 10.00, expected 12.00.')).toBe('This draft changed after it was prepared. Open it and recalculate.');
+        expect(describeFinalizeError('The payout amount changed after this screen loaded.')).toBe('The amount changed after this screen loaded. Reload and check it.');
         expect(describeFinalizeError('Something else')).toBe('Something else');
     });
 });

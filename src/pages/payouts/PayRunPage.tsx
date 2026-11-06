@@ -10,12 +10,13 @@ import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { Modal, ModalFooter } from '../../components/ui/Modal';
 import { Money } from '../../components/ui/Money';
 import { Select } from '../../components/ui/Select';
-import { markPayoutPaid, usePayoutRun, type MarkPaidEmailOutcome } from '../../hooks/usePayouts';
-import { describeFinalizeError, PAYMENT_METHODS, validatePayment } from '../../lib/payoutDraft';
+import { finalizePayout, getPayoutStatement, sendPayoutStatement, usePayoutRun } from '../../hooks/usePayouts';
+import { PAYMENT_METHODS, validatePayment } from '../../lib/payoutDraft';
 import {
     defaultThroughDate,
     draftPath,
     formatDay,
+    isPayRunSettled,
     localDateString,
     payoutCount,
     payoutsBackPath,
@@ -23,29 +24,20 @@ import {
     payRunReasonRequired,
     payRunSummary,
     payRunTotal,
+    runPayRun,
+    type PayRunDeps,
+    type PayRunEmail,
     type PayRunEntry,
+    type PayRunJob,
+    type PayRunRowState,
 } from '../../lib/payoutRun';
 import { formatCurrency } from '../../lib/utils';
 import type { PayoutRunRow } from '../../types/payouts';
 
-type Phase = 'idle' | 'paying' | 'paid' | 'failed';
-
-interface RowState {
-    phase: Phase;
-    error?: string;
-    email?: MarkPaidEmailOutcome;
-}
-
-const IDLE: RowState = { phase: 'idle' };
+const IDLE: PayRunRowState = { phase: 'idle' };
 
 function vendorLabel(row: PayoutRunRow): string {
     return row.business_name || row.name;
-}
-
-function emailOutcomeText(email: MarkPaidEmailOutcome | undefined): string | null {
-    if (email === 'sent') return 'Emailed';
-    if (email === 'failed') return 'Paid, email failed';
-    return null;
 }
 
 export function PayRunPage() {
@@ -111,7 +103,7 @@ function PayRun({ drafts, through, backLink }: { drafts: PayoutRunRow[]; through
         () => Object.fromEntries(drafts.map((row) => [row.consignor_id, row.override_reason ?? ''])),
     );
     const [touched, setTouched] = useState<Record<string, boolean>>({});
-    const [states, setStates] = useState<Record<string, RowState>>({});
+    const [states, setStates] = useState<Record<string, PayRunRowState>>({});
     const [running, setRunning] = useState(false);
     const [ended, setEnded] = useState(false);
     const [confirmOpen, setConfirmOpen] = useState(false);
@@ -127,25 +119,27 @@ function PayRun({ drafts, through, backLink }: { drafts: PayoutRunRow[]; through
         return () => window.removeEventListener('beforeunload', warn);
     }, [running]);
 
-    const stateOf = (row: PayoutRunRow): RowState => states[row.consignor_id] ?? IDLE;
-    const setRowState = (id: string, next: RowState) => setStates((current) => ({ ...current, [id]: next }));
+    const stateOf = (row: PayoutRunRow): PayRunRowState => states[row.consignor_id] ?? IDLE;
 
-    // Rows already paid are never part of what is left to pay.
+    // Rows already settled (paid, already paid, removed, unconfirmed) are never part of what is left to pay.
     const pending: PayRunEntry[] = drafts.map((row) => ({
         row,
-        selected: !!selected[row.consignor_id] && stateOf(row).phase !== 'paid',
+        selected: !!selected[row.consignor_id] && !isPayRunSettled(stateOf(row).phase),
         reference: references[row.consignor_id] ?? '',
         reason: reasons[row.consignor_id] ?? '',
     }));
     const pendingIds = new Set(pending.filter((entry) => entry.selected).map((entry) => entry.row.consignor_id));
     const { count, total } = payRunTotal(drafts, pendingIds);
     const blocked = payRunBlocked(pending, method, date);
-    const needAttention = pending.filter((entry) => entry.selected && payRunBlocked([entry], method, date)).length;
+    const needAttention = pending.filter((entry) => entry.selected && payRunBlocked([entry], method, date || through)).length;
+    const nothingLeft = drafts.every((row) => isPayRunSettled(stateOf(row).phase));
     const noEmailCount = pending.filter((entry) => entry.selected && !entry.row.email).length;
     const methodLabel = PAYMENT_METHODS.find((option) => option.value === method)?.label ?? method;
 
-    const paidCount = drafts.filter((row) => stateOf(row).phase === 'paid').length;
-    const failedCount = drafts.filter((row) => stateOf(row).phase === 'failed').length;
+    const phases = drafts.map((row) => stateOf(row).phase);
+    const paidCount = phases.filter((phase) => phase === 'paid').length;
+    const failedCount = phases.filter((phase) => phase === 'failed').length;
+    const unresolvedCount = phases.filter((phase) => phase === 'unconfirmed').length;
     const isRetry = ended && failedCount > 0;
 
     const start = async () => {
@@ -154,28 +148,47 @@ function PayRun({ drafts, through, backLink }: { drafts: PayoutRunRow[]; through
         setRunning(true);
         setEnded(false);
         setConfirmOpen(false);
-        const queue = pending.filter((entry) => entry.selected);
-        try {
-            for (const entry of queue) {
-                const { row } = entry;
-                setRowState(row.consignor_id, { phase: 'paying' });
+        const entries = pending.filter((entry) => entry.selected);
+        const byId = new Map(entries.map((entry) => [entry.row.consignor_id, entry]));
+        const queue: PayRunJob[] = entries.map((entry) => ({
+            id: entry.row.consignor_id,
+            payoutId: entry.row.draft_id ?? '',
+            amount: entry.row.paying_now,
+            reference: entry.reference.trim() || null,
+            date,
+            sendEmail: sendEmail && !!entry.row.email,
+        }));
+        const deps: PayRunDeps = {
+            pay: async (job) => {
+                const entry = byId.get(job.id);
+                await finalizePayout({
+                    payoutId: job.payoutId,
+                    expectedAmount: job.amount,
+                    paymentMethod: method,
+                    paymentDate: job.date,
+                    paymentReference: job.reference,
+                    belowThresholdOverrideReason: entry && payRunReasonRequired(entry.row) ? entry.reason.trim() : null,
+                });
+            },
+            checkStatus: async (job) => {
                 try {
-                    const result = await markPayoutPaid({
-                        payoutId: row.draft_id ?? '',
-                        paymentMethod: method,
-                        paymentDate: date,
-                        paymentReference: entry.reference.trim() || null,
-                        belowThresholdOverrideReason: payRunReasonRequired(row) ? entry.reason.trim() : null,
-                        sendEmail: sendEmail && !!row.email,
-                    });
-                    setRowState(row.consignor_id, { phase: 'paid', email: result.email });
+                    const { payout } = await getPayoutStatement(job.payoutId);
+                    return {
+                        status: payout.status === 'paid' || payout.status === 'voided' ? payout.status : 'draft',
+                        amount: Number(payout.amount),
+                        reference: payout.payment_reference,
+                        date: payout.payment_date,
+                    };
                 } catch (err) {
-                    setRowState(row.consignor_id, {
-                        phase: 'failed',
-                        error: describeFinalizeError(err instanceof Error ? err.message : 'Could not mark this payout paid.'),
-                    });
+                    if (err instanceof Error && err.message.includes('Payout not found')) return null;
+                    throw err;
                 }
-            }
+            },
+            sendEmail: async (job): Promise<PayRunEmail> => (await sendPayoutStatement(job.payoutId)),
+            onRowState: (id, state) => setStates((current) => ({ ...current, [id]: state })),
+        };
+        try {
+            await runPayRun(queue, deps, states);
         } finally {
             runningRef.current = false;
             setRunning(false);
@@ -185,7 +198,7 @@ function PayRun({ drafts, through, backLink }: { drafts: PayoutRunRow[]; through
 
     return (
         <div>
-            {backLink}
+            {running ? null : backLink}
             <Header
                 title="Pay run"
                 description="Set the method and date once, add a reference for each vendor, then confirm."
@@ -216,7 +229,7 @@ function PayRun({ drafts, through, backLink }: { drafts: PayoutRunRow[]; through
                     {drafts.map((row) => {
                         const id = row.consignor_id;
                         const state = stateOf(row);
-                        const locked = running || state.phase === 'paid';
+                        const locked = running || isPayRunSettled(state.phase);
                         const reasonRequired = payRunReasonRequired(row);
                         const errors = validatePayment({
                             method,
@@ -226,7 +239,6 @@ function PayRun({ drafts, through, backLink }: { drafts: PayoutRunRow[]; through
                             reasonRequired,
                             reason: reasons[id] ?? '',
                         });
-                        const outcome = emailOutcomeText(state.email);
                         return (
                             <li key={id} className="space-y-3 p-4">
                                 <div className="flex items-start gap-3">
@@ -276,23 +288,36 @@ function PayRun({ drafts, through, backLink }: { drafts: PayoutRunRow[]; through
                                     {state.phase === 'paying' ? <p className="text-[var(--color-muted)]">Paying…</p> : null}
                                     {state.phase === 'paid' ? (
                                         <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                            <span className="font-medium text-[var(--color-success)]">Paid</span>
-                                            {outcome ? <span className="text-[var(--color-muted)]">{outcome}</span> : null}
-                                            <Link
-                                                to={`/admin/payouts/history/${row.draft_id}`}
-                                                className="text-[var(--color-primary)] hover:underline"
-                                            >
+                                            {state.email === 'failed' ? (
+                                                <span className="font-medium text-[var(--color-danger)]">Paid, email failed</span>
+                                            ) : (
+                                                <>
+                                                    <span className="font-medium text-[var(--color-success)]">Paid</span>
+                                                    {state.email === 'sent' ? <span className="text-[var(--color-muted)]">Emailed</span> : null}
+                                                    {state.email === 'no_email' ? <span className="text-[var(--color-muted)]">No email on file</span> : null}
+                                                </>
+                                            )}
+                                            <Link to={`/admin/payouts/history/${row.draft_id}`} className="text-[var(--color-primary)] hover:underline">
                                                 View statement
                                             </Link>
                                         </p>
                                     ) : null}
+                                    {state.phase === 'already_paid' ? (
+                                        <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                            <span className="font-medium text-[var(--color-muted)]">Already paid</span>
+                                            <Link to={`/admin/payouts/history/${row.draft_id}`} className="text-[var(--color-primary)] hover:underline">
+                                                View statement
+                                            </Link>
+                                        </p>
+                                    ) : null}
+                                    {state.phase === 'removed' ? <p className="font-medium text-[var(--color-muted)]">Removed</p> : null}
+                                    {state.phase === 'unconfirmed' ? (
+                                        <p role="alert" className="font-medium text-[var(--color-danger)]">{state.error}</p>
+                                    ) : null}
                                     {state.phase === 'failed' ? (
                                         <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
                                             <span role="alert" className="font-medium text-[var(--color-danger)]">Failed: {state.error}</span>
-                                            <Link
-                                                to={draftPath(row.draft_id ?? '', through)}
-                                                className="text-[var(--color-primary)] hover:underline"
-                                            >
+                                            <Link to={draftPath(row.draft_id ?? '', through)} className="text-[var(--color-primary)] hover:underline">
                                                 Open draft
                                             </Link>
                                         </p>
@@ -307,7 +332,7 @@ function PayRun({ drafts, through, backLink }: { drafts: PayoutRunRow[]; through
             <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-10 lg:bottom-0 -mx-1 rounded-xl bg-[var(--color-card)] p-4 shadow-[var(--shadow-surface)]">
                 {ended ? (
                     <p role="status" className="mb-3 text-sm font-medium text-[var(--color-foreground)]">
-                        {payRunSummary(paidCount, failedCount)}
+                        {payRunSummary(paidCount, failedCount, unresolvedCount)}
                     </p>
                 ) : null}
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -328,21 +353,26 @@ function PayRun({ drafts, through, backLink }: { drafts: PayoutRunRow[]; through
                                 {noEmailCount > 0 ? ` (${noEmailCount} ${noEmailCount === 1 ? 'has' : 'have'} no email on file)` : ''}
                             </span>
                         </label>
-                        {blocked && count > 0 && needAttention > 0 ? (
+                        {!date && count > 0 ? (
+                            <p className="text-sm text-[var(--color-muted)]">Choose a payment date.</p>
+                        ) : null}
+                        {date && blocked && count > 0 && needAttention > 0 ? (
                             <p className="text-sm text-[var(--color-muted)]">
                                 {needAttention} ticked {needAttention === 1 ? 'payout still needs' : 'payouts still need'} a reference or reason.
                             </p>
                         ) : null}
                     </div>
-                    <Button
-                        type="button"
-                        className="w-full sm:w-auto"
-                        disabled={blocked || running}
-                        isLoading={running}
-                        onClick={() => setConfirmOpen(true)}
-                    >
-                        {isRetry ? `Retry ${count} · ${formatCurrency(total)}` : `Mark ${count} paid · ${formatCurrency(total)}`}
-                    </Button>
+                    {nothingLeft ? null : (
+                        <Button
+                            type="button"
+                            className="w-full sm:w-auto"
+                            disabled={blocked || running}
+                            isLoading={running}
+                            onClick={() => setConfirmOpen(true)}
+                        >
+                            {isRetry ? `Retry ${count} · ${formatCurrency(total)}` : `Mark ${count} paid · ${formatCurrency(total)}`}
+                        </Button>
+                    )}
                 </div>
             </div>
 

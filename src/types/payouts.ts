@@ -125,6 +125,8 @@ export interface SavePayoutDraftInput {
 
 export interface FinalizePayoutInput {
     payoutId: string;
+    /** The amount the screen showed. The server refuses to pay if the draft no longer holds it. */
+    expectedAmount: number;
     paymentMethod: string;
     paymentDate: string;
     paymentReference?: string | null;

@@ -54,8 +54,9 @@ export async function savePayoutDraft(input: SavePayoutDraftInput): Promise<stri
 }
 
 export async function finalizePayout(input: FinalizePayoutInput): Promise<Record<string, unknown>> {
-    const { data, error } = await supabase.rpc('finalize_payout', {
+    const { data, error } = await supabase.rpc('finalize_payout_checked', {
         p_payout_id: input.payoutId,
+        p_expected_amount: input.expectedAmount,
         p_payment_method: input.paymentMethod,
         p_payment_date: input.paymentDate,
         p_payment_reference: input.paymentReference || null,

@@ -631,5 +631,43 @@ SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
 -- The workspace history row carries the payment date, not just when it was recorded.
 SELECT is(public.get_vendor_payout_workspace(:'v18'::uuid)->'payout_history'->0->>'payment_date', '2025-10-09', 'workspace history row carries payment_date');
 
+-- finalize_payout_checked: pays only the amount the screen confirmed.
+\set v19 'a0000000-0000-0000-0000-000000000013'
+INSERT INTO public.consignors (
+  id, consignor_number, name, business_name, commission_split,
+  consignor_pays_card_fee, payout_threshold_override, is_active, email
+) VALUES (:'v19', 'RUN-19', 'Run Nineteen', 'Run Nineteen Studio', 0.60, FALSE, 1, TRUE, 'run19@example.test');
+SELECT pg_temp.add_sale('b0000000-0000-0000-0000-0000000000b4', 'c0000000-0000-0000-0000-0000000000b4', :'v19',
+  '2025-10-10 12:00'::TIMESTAMP AT TIME ZONE 'America/New_York', 100);
+INSERT INTO run_ids
+SELECT 'r19', public.save_payout_draft(:'v19'::uuid, NULL, 'through_date', NULL, '2025-10-31', TRUE, NULL, NULL, NULL, NULL);
+SELECT is((SELECT amount FROM public.payouts WHERE id = (SELECT id FROM run_ids WHERE name = 'r19')), 60.00::numeric, 'fixture: RUN-19 draft is 60.00');
+
+-- Another admin lowers the draft after the screen loaded.
+SELECT public.save_payout_draft(:'v19'::uuid, (SELECT id FROM run_ids WHERE name = 'r19'), 'through_date', NULL, '2025-10-31', TRUE, 45, NULL, NULL, NULL);
+SELECT is((SELECT amount FROM public.payouts WHERE id = (SELECT id FROM run_ids WHERE name = 'r19')), 45.00::numeric, 'fixture: the draft was re-saved at 45.00');
+
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f4', TRUE);
+SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
+SELECT throws_ok(
+  $$SELECT public.finalize_payout_checked((SELECT id FROM run_ids WHERE name = 'r19'), 60.00, 'cash', '2025-11-05', NULL, NULL, NULL)$$,
+  'PT409', 'The payout amount changed after this screen loaded.', 'a stale expected amount is refused');
+SELECT is((SELECT status FROM public.payouts WHERE id = (SELECT id FROM run_ids WHERE name = 'r19')), 'draft', 'the refused payout is still a draft');
+SELECT lives_ok(
+  $$SELECT public.finalize_payout_checked((SELECT id FROM run_ids WHERE name = 'r19'), 45.00, 'cash', '2025-11-05', NULL, NULL, NULL)$$,
+  'the current amount finalizes');
+SELECT is((SELECT status FROM public.payouts WHERE id = (SELECT id FROM run_ids WHERE name = 'r19')), 'paid', 'the confirmed payout is paid');
+SELECT is((SELECT amount FROM public.payouts WHERE id = (SELECT id FROM run_ids WHERE name = 'r19')), 45.00::numeric, 'and paid at the confirmed amount');
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-0000000000f6', TRUE);
+SELECT set_config('request.jwt.claim.role', 'authenticated', TRUE);
+SELECT throws_ok(
+  $$SELECT public.finalize_payout_checked((SELECT id FROM run_ids WHERE name = 'r19'), 45.00, 'cash', '2025-11-05', NULL, NULL, NULL)$$,
+  '42501', NULL, 'a vendor is refused');
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role', 'service_role', TRUE);
+
 SELECT * FROM finish();
 ROLLBACK;

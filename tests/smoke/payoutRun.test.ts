@@ -18,6 +18,10 @@ import {
     payRunTotal,
     prepareSummary,
     readyToPrepare,
+    runPayRun,
+    type PayRunDeps,
+    type PayRunJob,
+    type PayRunRowState,
     runTotals,
     shortId,
     splitBarParts,
@@ -269,11 +273,157 @@ describe('pay run wording', () => {
         expect(payRunSummary(5, 1)).toBe('5 paid, 1 failed');
         expect(payRunSummary(3, 0)).toBe('3 paid');
         expect(payRunSummary(0, 2)).toBe('0 paid, 2 failed');
+        expect(payRunSummary(2, 1, 1)).toBe('2 paid, 1 failed, 1 could not be confirmed');
     });
 
     it('uses the singular for one payout', () => {
         expect(payoutCount(1)).toBe('1 payout');
         expect(payoutCount(5)).toBe('5 payouts');
         expect(payoutCount(0)).toBe('0 payouts');
+    });
+});
+
+describe('runPayRun', () => {
+    const job = (id: string, extra: Partial<PayRunJob> = {}): PayRunJob => ({
+        id, payoutId: `p-${id}`, amount: 50, reference: `ref-${id}`, date: '2026-11-06', sendEmail: false, ...extra,
+    });
+
+    function harness(overrides: Partial<PayRunDeps> = {}) {
+        const log: string[] = [];
+        const states: Record<string, PayRunRowState[]> = {};
+        const deps: PayRunDeps = {
+            pay: async (j) => { log.push(`pay:${j.id}`); },
+            checkStatus: async () => ({ status: 'draft', amount: 50, reference: null, date: null }),
+            sendEmail: async () => 'sent',
+            onRowState: (id, state) => { (states[id] ??= []).push(state); },
+            ...overrides,
+        };
+        return { deps, log, states };
+    }
+
+    it('pays rows in order, and a row is paid only after its payer resolves', async () => {
+        let release: () => void = () => {};
+        const { deps, states } = harness({
+            pay: () => new Promise<void>((resolve) => { release = resolve; }),
+        });
+        const run = runPayRun([job('a')], deps);
+        await Promise.resolve();
+        expect(states.a.map((s) => s.phase)).toEqual(['paying']);
+        release();
+        const final = await run;
+        expect(states.a.map((s) => s.phase)).toEqual(['paying', 'paid']);
+        expect(final.a.phase).toBe('paid');
+    });
+
+    it('continues with the next row after a throw, and never reads the failed row as paid', async () => {
+        const { deps, log, states } = harness({
+            pay: async (j) => {
+                log.push(`pay:${j.id}`);
+                if (j.id === 'a') throw new Error('Draft no longer reconciles: allocations plus adjustments equal 1.00, expected 2.00.');
+            },
+        });
+        const final = await runPayRun([job('a'), job('b')], deps);
+        expect(log).toEqual(['pay:a', 'pay:b']);
+        expect(final.a).toEqual({ phase: 'failed', error: 'This draft changed after it was prepared. Open it and recalculate.' });
+        expect(final.b.phase).toBe('paid');
+        expect(states.a.map((s) => s.phase)).not.toContain('paid');
+    });
+
+    it('maps the amount-changed error to a failed row', async () => {
+        const { deps } = harness({ pay: async () => { throw new Error('The payout amount changed after this screen loaded.'); } });
+        const final = await runPayRun([job('a')], deps);
+        expect(final.a).toEqual({ phase: 'failed', error: 'The amount changed after this screen loaded. Reload and check it.' });
+    });
+
+    it('skips rows that are already settled on a restart, and retries failed ones', async () => {
+        let fail = true;
+        const { deps, log } = harness({
+            pay: async (j) => { log.push(`pay:${j.id}`); if (j.id === 'b' && fail) throw new Error('boom'); },
+        });
+        const first = await runPayRun([job('a'), job('b')], deps);
+        expect(first.a.phase).toBe('paid');
+        expect(first.b.phase).toBe('failed');
+        fail = false;
+        log.length = 0;
+        const second = await runPayRun([job('a'), job('b')], deps, first);
+        expect(log).toEqual(['pay:b']);
+        expect(second.a.phase).toBe('paid');
+        expect(second.b.phase).toBe('paid');
+    });
+
+    describe('after a finalize failure the stored status decides', () => {
+        const failing = (stored: Awaited<ReturnType<PayRunDeps['checkStatus']>> | Error, extra: Partial<PayRunDeps> = {}) =>
+            harness({
+                pay: async () => { throw new Error('network dropped'); },
+                checkStatus: async () => { if (stored instanceof Error) throw stored; return stored; },
+                ...extra,
+            });
+
+        it('paid with this run reference, date and amount: becomes paid and is emailed when ticked', async () => {
+            const sent: string[] = [];
+            const { deps } = failing(
+                { status: 'paid', amount: 50, reference: 'ref-a', date: '2026-11-06' },
+                { sendEmail: async (j) => { sent.push(j.id); return 'failed'; } },
+            );
+            const final = await runPayRun([job('a', { sendEmail: true })], deps);
+            expect(final.a).toEqual({ phase: 'paid', email: 'failed' });
+            expect(sent).toEqual(['a']);
+        });
+
+        it('paid with this run reference but email not ticked: paid, no email sent', async () => {
+            const sent: string[] = [];
+            const { deps } = failing(
+                { status: 'paid', amount: 50, reference: 'ref-a', date: '2026-11-06' },
+                { sendEmail: async (j) => { sent.push(j.id); return 'sent'; } },
+            );
+            const final = await runPayRun([job('a')], deps);
+            expect(final.a).toEqual({ phase: 'paid', email: 'skipped' });
+            expect(sent).toEqual([]);
+        });
+
+        it('a blank reference matches a stored null reference', async () => {
+            const { deps } = failing({ status: 'paid', amount: 50, reference: null, date: '2026-11-06' });
+            const final = await runPayRun([job('a', { reference: null })], deps);
+            expect(final.a.phase).toBe('paid');
+        });
+
+        it('paid by someone else: Already paid, out of retry, not failed', async () => {
+            const { deps } = failing({ status: 'paid', amount: 50, reference: 'other', date: '2026-11-01' });
+            const final = await runPayRun([job('a')], deps);
+            expect(final.a.phase).toBe('already_paid');
+        });
+
+        it('voided: Removed', async () => {
+            const { deps } = failing({ status: 'voided', amount: 50, reference: 'ref-a', date: '2026-11-06' });
+            expect((await runPayRun([job('a')], deps)).a.phase).toBe('removed');
+        });
+
+        it('gone: Removed', async () => {
+            const { deps } = failing(null);
+            expect((await runPayRun([job('a')], deps)).a.phase).toBe('removed');
+        });
+
+        it('still a draft: Failed with the described reason', async () => {
+            const { deps } = failing({ status: 'draft', amount: 50, reference: null, date: null });
+            expect((await runPayRun([job('a')], deps)).a).toEqual({ phase: 'failed', error: 'network dropped' });
+        });
+
+        it('status read also fails: cannot confirm, and is skipped on restart', async () => {
+            const { deps, log } = failing(new Error('offline'));
+            const first = await runPayRun([job('a')], deps);
+            expect(first.a).toEqual({ phase: 'unconfirmed', error: 'Could not confirm. Reload before retrying.' });
+            const second = await runPayRun([job('a')], deps, first);
+            expect(log).toEqual([]);
+            expect(second.a.phase).toBe('unconfirmed');
+        });
+    });
+
+    it('maps the email outcome onto the paid row', async () => {
+        const outcomes = ['sent', 'failed', 'no_email'] as const;
+        for (const outcome of outcomes) {
+            const { deps } = harness({ sendEmail: async () => outcome });
+            const final = await runPayRun([job('a', { sendEmail: true })], deps);
+            expect(final.a).toEqual({ phase: 'paid', email: outcome });
+        }
     });
 });

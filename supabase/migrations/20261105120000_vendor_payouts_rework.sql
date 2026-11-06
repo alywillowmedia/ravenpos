@@ -1498,3 +1498,59 @@ USING (
     AND EXISTS (SELECT 1 FROM public.payouts p WHERE p.id = payout_id AND p.status <> 'draft')
   )
 );
+
+-- ---------------------------------------------------------------------------
+-- Finalize only the amount the screen confirmed
+-- ---------------------------------------------------------------------------
+
+-- finalize_payout pays whatever payouts.amount holds, and save_payout_draft rewrites a
+-- draft in place. This wrapper refuses to pay when the stored amount is no longer the
+-- amount the admin confirmed, checked inside the same row lock as the finalize.
+CREATE OR REPLACE FUNCTION public.finalize_payout_checked(
+  p_payout_id UUID,
+  p_expected_amount NUMERIC,
+  p_payment_method TEXT,
+  p_payment_date DATE,
+  p_payment_reference TEXT DEFAULT NULL,
+  p_notes TEXT DEFAULT NULL,
+  p_below_threshold_override_reason TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_amount NUMERIC;
+BEGIN
+  IF NOT (public.is_admin() OR COALESCE(auth.role(), '') = 'service_role') THEN
+    RAISE EXCEPTION 'Admin access is required to finalize payouts.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT p.amount INTO v_amount
+  FROM public.payouts p
+  WHERE p.id = p_payout_id
+  FOR UPDATE;
+
+  IF FOUND AND (p_expected_amount IS NULL OR ROUND(v_amount, 2) <> ROUND(p_expected_amount, 2)) THEN
+    -- Not 40001: PostgREST retries serialization failures forever instead of answering.
+    -- PT409 answers HTTP 409.
+    RAISE EXCEPTION 'The payout amount changed after this screen loaded.'
+      USING ERRCODE = 'PT409';
+  END IF;
+
+  RETURN public.finalize_payout(
+    p_payout_id,
+    p_payment_method,
+    p_payment_date,
+    p_payment_reference,
+    p_notes,
+    p_below_threshold_override_reason
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.finalize_payout_checked(UUID, NUMERIC, TEXT, DATE, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.finalize_payout_checked(UUID, NUMERIC, TEXT, DATE, TEXT, TEXT, TEXT)
+  TO authenticated, service_role;

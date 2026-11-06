@@ -98,7 +98,10 @@ export function validatePayment(input: {
     return errors;
 }
 
+export const AMOUNT_CHANGED_MESSAGE = 'The amount changed after this screen loaded. Reload and check it.';
+
 export function describeFinalizeError(message: string): string {
+    if (message.includes('The payout amount changed after this screen loaded')) return AMOUNT_CHANGED_MESSAGE;
     if (message.includes('Finalizable payout draft not found')) return 'This payout was already paid or removed.';
     if (
         message.includes('A sale allocation is no longer available')

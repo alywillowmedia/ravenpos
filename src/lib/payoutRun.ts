@@ -1,7 +1,7 @@
 import { formatCurrency, formatDate } from './utils';
 import type { SplitBarProps } from '../components/ui/SplitBar';
 import type { PayoutRunRow } from '../types/payouts';
-import { validatePayment } from './payoutDraft';
+import { describeFinalizeError, validatePayment } from './payoutDraft';
 
 export type RunFilter = 'all' | 'ready' | 'draft' | 'accruing' | 'paid_up';
 
@@ -161,9 +161,115 @@ export function payRunBlocked(rows: PayRunEntry[], method: string, date: string)
     })).length > 0);
 }
 
+export type PayRunPhase = 'idle' | 'paying' | 'paid' | 'failed' | 'already_paid' | 'removed' | 'unconfirmed';
+export type PayRunEmail = 'sent' | 'failed' | 'skipped' | 'no_email';
+
+export interface PayRunRowState {
+    phase: PayRunPhase;
+    error?: string;
+    email?: PayRunEmail;
+}
+
+export interface PayRunJob {
+    /** Row key (the vendor id). */
+    id: string;
+    payoutId: string;
+    amount: number;
+    reference: string | null;
+    date: string;
+    sendEmail: boolean;
+}
+
+export interface StoredPayout {
+    status: 'draft' | 'paid' | 'voided';
+    amount: number;
+    reference: string | null;
+    date: string | null;
+}
+
+export interface PayRunDeps {
+    /** Finalizes the payout. Rejects if it could not be paid. */
+    pay: (job: PayRunJob) => Promise<void>;
+    /** Reads the stored payout; null when it no longer exists. Rejects if the read fails. */
+    checkStatus: (job: PayRunJob) => Promise<StoredPayout | null>;
+    /** Emails the statement. Never rejects in practice; a rejection counts as a failed email. */
+    sendEmail: (job: PayRunJob) => Promise<PayRunEmail>;
+    onRowState: (id: string, state: PayRunRowState) => void;
+}
+
+const SETTLED: PayRunPhase[] = ['paid', 'already_paid', 'removed', 'unconfirmed'];
+
+/** Rows in these states are never sent again, until the page is reloaded. */
+export function isPayRunSettled(phase: PayRunPhase): boolean {
+    return SETTLED.includes(phase);
+}
+
+function sameText(a: string | null, b: string | null): boolean {
+    return (a ?? '').trim() === (b ?? '').trim();
+}
+
+function matchesRun(stored: StoredPayout, job: PayRunJob): boolean {
+    return stored.status === 'paid'
+        && Math.round(stored.amount * 100) === Math.round(job.amount * 100)
+        && sameText(stored.reference, job.reference)
+        && (stored.date ?? '').slice(0, 10) === job.date;
+}
+
+async function emailFor(job: PayRunJob, deps: PayRunDeps): Promise<PayRunEmail> {
+    if (!job.sendEmail) return 'skipped';
+    try {
+        return await deps.sendEmail(job);
+    } catch {
+        return 'failed';
+    }
+}
+
+/**
+ * Pays the queue one payout at a time. A row becomes paid only after its payer resolves, or after
+ * the stored payout proves this run paid it. Rows already settled in `current` are skipped, so a
+ * restart never pays one twice. Returns the final state of every row.
+ */
+export async function runPayRun(
+    queue: PayRunJob[],
+    deps: PayRunDeps,
+    current: Record<string, PayRunRowState> = {},
+): Promise<Record<string, PayRunRowState>> {
+    const states: Record<string, PayRunRowState> = { ...current };
+    const set = (id: string, state: PayRunRowState) => {
+        states[id] = state;
+        deps.onRowState(id, state);
+    };
+    for (const job of queue) {
+        if (states[job.id] && isPayRunSettled(states[job.id].phase)) continue;
+        set(job.id, { phase: 'paying' });
+        try {
+            await deps.pay(job);
+            set(job.id, { phase: 'paid', email: await emailFor(job, deps) });
+            continue;
+        } catch (err) {
+            const message = describeFinalizeError(err instanceof Error ? err.message : 'Could not mark this payout paid.');
+            let stored: StoredPayout | null;
+            try {
+                stored = await deps.checkStatus(job);
+            } catch {
+                set(job.id, { phase: 'unconfirmed', error: 'Could not confirm. Reload before retrying.' });
+                continue;
+            }
+            if (!stored || stored.status === 'voided') set(job.id, { phase: 'removed' });
+            else if (matchesRun(stored, job)) set(job.id, { phase: 'paid', email: await emailFor(job, deps) });
+            else if (stored.status === 'paid') set(job.id, { phase: 'already_paid' });
+            else set(job.id, { phase: 'failed', error: message });
+        }
+    }
+    return states;
+}
+
 /** End-of-run line: "5 paid, 1 failed". The failed part is left out when nothing failed. */
-export function payRunSummary(paid: number, failed: number): string {
-    return failed > 0 ? `${paid} paid, ${failed} failed` : `${paid} paid`;
+export function payRunSummary(paid: number, failed: number, unresolved = 0): string {
+    const parts = [`${paid} paid`];
+    if (failed > 0) parts.push(`${failed} failed`);
+    if (unresolved > 0) parts.push(`${unresolved} could not be confirmed`);
+    return parts.join(', ');
 }
 
 /** "{n} payout(s)", singular for one. */
