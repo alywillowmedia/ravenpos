@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { localDateString } from '../lib/payoutRun';
+import { localDateString, withTimeout } from '../lib/payoutRun';
 import { formatSupabaseError } from '../lib/supabaseError';
 import type {
     FinalizePayoutInput,
@@ -205,9 +205,15 @@ export async function getVendorSaleEarnings(consignorId: string): Promise<Map<st
     return earnings;
 }
 
+const EMAIL_TIMEOUT_MS = 15000;
+
 export async function sendPayoutStatement(payoutId: string): Promise<'sent' | 'failed' | 'no_email'> {
     try {
-        const { data, error } = await supabase.functions.invoke('send-payout-statement', { body: { payoutId } });
+        const { data, error } = await withTimeout(
+            supabase.functions.invoke('send-payout-statement', { body: { payoutId } }),
+            EMAIL_TIMEOUT_MS,
+            { data: null, error: new Error('timeout') },
+        );
         if (error || !data) return 'failed';
         const status = (data as { status?: string }).status;
         return status === 'sent' || status === 'no_email' ? status : 'failed';

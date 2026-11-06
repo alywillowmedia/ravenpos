@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     defaultThroughDate,
+    formatLastPaid,
+    withTimeout,
     draftPath,
     countAfterCutoff,
     filterRows,
@@ -437,5 +439,35 @@ describe('sumEarnings', () => {
 
     it('is 0 for no ids', () => {
         expect(sumEarnings([], new Map([['a', 5]]))).toBe(0);
+    });
+});
+
+describe('formatLastPaid', () => {
+    it('reads a late-evening store payment on the store day, not the UTC day', () => {
+        expect(formatLastPaid('2026-11-01T02:00:00Z')).toBe('Oct 31');
+        expect(formatLastPaid('2026-11-01T02:00:00+00:00')).toBe('Oct 31');
+        expect(formatLastPaid('2026-11-01T16:00:00Z')).toBe('Nov 1');
+    });
+});
+
+describe('withTimeout', () => {
+    it('resolves with the promise when it settles first', async () => {
+        vi.useFakeTimers();
+        try {
+            await expect(withTimeout(Promise.resolve('sent'), 1000, 'failed')).resolves.toBe('sent');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('resolves with the fallback when the promise hangs', async () => {
+        vi.useFakeTimers();
+        try {
+            const result = withTimeout(new Promise<string>(() => undefined), 15000, 'failed');
+            await vi.advanceTimersByTimeAsync(15000);
+            await expect(result).resolves.toBe('failed');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

@@ -13,7 +13,7 @@ import { Tabs } from '../../components/ui/Tabs';
 import {
     draftPath,
     filterRows,
-    formatDay,
+    formatLastPaid,
     runTotals,
     splitBarParts,
     statusLine,
@@ -111,7 +111,7 @@ export function QueueTab({ data, through, onPrepareVendor, onDiscard, onMarkPaid
             header: 'Last paid',
             hideBelow: 'xl',
             render: (row) => (
-                <span className="text-[var(--color-muted)]">{row.last_paid_at ? formatDay(row.last_paid_at) : '—'}</span>
+                <span className="text-[var(--color-muted)]">{row.last_paid_at ? formatLastPaid(row.last_paid_at) : '—'}</span>
             ),
         },
         { key: 'action', header: '', render: renderAction },

@@ -1,7 +1,7 @@
 import { formatCurrency, formatDate } from './utils';
 import type { SplitBarProps } from '../components/ui/SplitBar';
 import type { PayoutRunRow } from '../types/payouts';
-import { describeFinalizeError, validatePayment } from './payoutDraft';
+import { describeFinalizeError, storeDate, validatePayment } from './payoutDraft';
 
 export type RunFilter = 'all' | 'ready' | 'draft' | 'accruing' | 'paid_up';
 
@@ -55,6 +55,29 @@ export function formatDay(date: string): string {
     const parts = parseParts(date.slice(0, 10));
     if (!parts) return date;
     return `${MONTHS[parts.month - 1].slice(0, 3)} ${parts.day}`;
+}
+
+/** "Oct 31" for a payment timestamp, read in store time rather than UTC. */
+export function formatLastPaid(timestamp: string): string {
+    const day = storeDate(timestamp);
+    return day ? formatDay(day) : timestamp;
+}
+
+/** Resolves with `fallback` if `promise` has not settled within `ms`. */
+export function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(fallback), ms);
+        promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            (error) => {
+                clearTimeout(timer);
+                reject(error);
+            },
+        );
+    });
 }
 
 export function monthName(date: string): string {
