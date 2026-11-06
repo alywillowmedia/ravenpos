@@ -184,7 +184,7 @@ export function VendorPayoutWorkspace() {
                     actions={hasDraft ? (
                         <Button type="button" onClick={() => navigate(draftPath(preview.draft_id ?? '', through))}>Open draft</Button>
                     ) : (
-                        <Button type="button" onClick={() => void prepare()} isLoading={isPreparing} disabled={preview.payable <= 0}>
+                        <Button type="button" onClick={() => void prepare()} isLoading={isPreparing} disabled={preview.payable_before_invoices <= 0}>
                             Prepare payout
                         </Button>
                     )}
