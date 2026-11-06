@@ -133,3 +133,27 @@ export function payRunTotal(rows: PayoutRunRow[], selectedIds: Set<string>): { c
     const selected = rows.filter((row) => selectedIds.has(row.consignor_id));
     return { count: selected.length, total: sum(selected, (row) => row.paying_now) };
 }
+
+/** "All months" (empty value) followed by the last 24 months, newest first. */
+export function historyMonthOptions(today: Date): Array<{ value: string; label: string }> {
+    const options = [{ value: '', label: 'All months' }];
+    for (let offset = 0; offset < 24; offset += 1) {
+        const date = new Date(today.getFullYear(), today.getMonth() - offset, 1);
+        options.push({
+            value: `${date.getFullYear()}-${pad(date.getMonth() + 1)}`,
+            label: `${MONTHS[date.getMonth()]} ${date.getFullYear()}`,
+        });
+    }
+    return options;
+}
+
+/** Headline for a prepare run: what was created and what already had a draft. */
+export function prepareSummary(created: number, skipped: number): string {
+    const drafts = (count: number) => (count === 1 ? 'draft' : 'drafts');
+    const skippedText = skipped === 1 ? '1 already had a draft' : `${skipped} already had drafts`;
+    if (created > 0) {
+        const head = `${created} ${drafts(created)} prepared`;
+        return skipped > 0 ? `${head}, ${skippedText}` : head;
+    }
+    return skipped > 0 ? `No new drafts, ${skippedText}` : 'No drafts prepared';
+}

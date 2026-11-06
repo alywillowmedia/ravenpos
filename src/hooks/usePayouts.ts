@@ -174,7 +174,8 @@ export async function getPayoutHistory(query: PayoutHistoryQuery): Promise<{ row
             { count: 'exact' },
         )
         .in('status', query.status === 'all' ? ['paid', 'voided'] : [query.status])
-        .order('paid_at', { ascending: false });
+        .order('paid_at', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false });
 
     if (query.month) {
         // Matches the server's paid_in_month rule: COALESCE(payment_date, paid_at date).

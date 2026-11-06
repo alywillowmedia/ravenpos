@@ -173,6 +173,7 @@ export default function App() {
                         <Route path="pos" element={<POS />} />
                         <Route path="sales" element={<Sales />} />
                         <Route path="payouts" element={<Payouts />} />
+                        <Route path="payouts/pay-run" element={<Navigate to="/admin/payouts?tab=drafts" replace />} />
                         <Route path="payouts/vendor/:consignorId" element={<VendorPayoutWorkspace />} />
                         <Route path="payouts/drafts/:payoutId" element={<PayoutDraftReview />} />
                         <Route path="payouts/history/:payoutId" element={<PayoutStatementPage />} />

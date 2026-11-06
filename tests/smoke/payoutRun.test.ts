@@ -3,10 +3,12 @@ import {
     defaultThroughDate,
     filterRows,
     formatDay,
+    historyMonthOptions,
     localDateString,
     monthName,
     parseThrough,
     payRunTotal,
+    prepareSummary,
     readyToPrepare,
     runTotals,
     shortId,
@@ -144,5 +146,22 @@ describe('queue logic', () => {
 
     it('shortens ids', () => {
         expect(shortId('a1b2c3d4-0000-1111')).toBe('A1B2C3D4');
+    });
+    it('lists the last 24 months for history, plus All months', () => {
+        const options = historyMonthOptions(new Date(2026, 10, 5));
+        expect(options).toHaveLength(25);
+        expect(options[0]).toEqual({ value: '', label: 'All months' });
+        expect(options[1]).toEqual({ value: '2026-11', label: 'November 2026' });
+        expect(options[2]).toEqual({ value: '2026-10', label: 'October 2026' });
+        expect(options[24]).toEqual({ value: '2024-12', label: 'December 2024' });
+    });
+
+    it('summarises a prepare run including skipped vendors', () => {
+        expect(prepareSummary(4, 2)).toBe('4 drafts prepared, 2 already had drafts');
+        expect(prepareSummary(1, 1)).toBe('1 draft prepared, 1 already had a draft');
+        expect(prepareSummary(3, 0)).toBe('3 drafts prepared');
+        expect(prepareSummary(0, 2)).toBe('No new drafts, 2 already had drafts');
+        expect(prepareSummary(0, 1)).toBe('No new drafts, 1 already had a draft');
+        expect(prepareSummary(0, 0)).toBe('No drafts prepared');
     });
 });

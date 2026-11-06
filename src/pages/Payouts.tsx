@@ -6,7 +6,6 @@ import { PayoutSettingsModal } from '../components/payouts/PayoutSettingsModal';
 import { ThroughDateButton } from '../components/payouts/ThroughDateButton';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { EmptyState } from '../components/ui/EmptyState';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Money } from '../components/ui/Money';
@@ -27,10 +26,13 @@ import {
     localDateString,
     monthName,
     parseThrough,
+    prepareSummary,
     readyToPrepare,
     runTotals,
 } from '../lib/payoutRun';
 import type { PayoutRunRow } from '../types/payouts';
+import { DraftsTab } from './payouts/DraftsTab';
+import { HistoryTab } from './payouts/HistoryTab';
 import { QueueTab } from './payouts/QueueTab';
 
 type PayoutsTab = 'queue' | 'drafts' | 'history';
@@ -43,6 +45,7 @@ const TABS: Array<{ id: PayoutsTab; label: string }> = [
 
 interface PrepareOutcome {
     created: number;
+    skipped: number;
     failures: Array<{ vendor: string; message: string }>;
 }
 
@@ -90,7 +93,8 @@ export function Payouts() {
     const [markPaid, setMarkPaid] = useState<MarkPaidTarget | null>(null);
     const [threshold, setThreshold] = useState<number | null>(null);
     const [settingsOpen, setSettingsOpen] = useState(false);
-    const preparingVendor = useRef(false);
+    // One guard for both prepare paths, so neither can start while the other runs.
+    const preparing = useRef(false);
 
     const rows = useMemo(() => data?.rows ?? [], [data]);
     const totals = useMemo(() => runTotals(rows), [rows]);
@@ -106,8 +110,8 @@ export function Payouts() {
     };
 
     const prepareVendor = async (id: string) => {
-        if (preparingVendor.current) return;
-        preparingVendor.current = true;
+        if (preparing.current) return;
+        preparing.current = true;
         try {
             const [result] = await preparePayoutRun(through, [id]);
             if (result?.status === 'created' && result.payout_id) {
@@ -116,11 +120,12 @@ export function Payouts() {
                 toast.error('Could not prepare this payout', result.message ?? undefined);
             } else {
                 toast.info('Nothing to prepare', result?.message ?? undefined);
+                if (result?.status === 'skipped') await refetch();
             }
         } catch (err) {
             toast.error('Could not prepare this payout', err instanceof Error ? err.message : undefined);
         } finally {
-            preparingVendor.current = false;
+            preparing.current = false;
         }
     };
 
@@ -131,6 +136,8 @@ export function Payouts() {
     };
 
     const prepareAll = async () => {
+        if (preparing.current) return;
+        preparing.current = true;
         setIsPreparing(true);
         try {
             const results = await preparePayoutRun(through, ready.map((row) => row.consignor_id));
@@ -142,18 +149,22 @@ export function Payouts() {
                     message: result.message ?? 'Could not prepare this payout.',
                 }));
             const created = results.filter((result) => result.status === 'created').length;
+            const skipped = results.filter((result) => result.status === 'skipped').length;
             await refetch();
             if (created > 0) updateParams({ tab: 'drafts' });
             if (failures.length > 0) {
-                setPrepareOutcome({ created, failures });
+                setPrepareOutcome({ created, skipped, failures });
             } else {
                 setPrepareOpen(false);
-                if (created > 0) toast.success(`${created} ${created === 1 ? 'draft' : 'drafts'} prepared`);
+                const summary = prepareSummary(created, skipped);
+                if (created > 0 && skipped === 0) toast.success(summary);
+                else toast.info(summary);
             }
         } catch (err) {
             toast.error('Could not prepare the payouts', err instanceof Error ? err.message : undefined);
         } finally {
             setIsPreparing(false);
+            preparing.current = false;
         }
     };
 
@@ -266,9 +277,13 @@ export function Payouts() {
                             onDownloadCsv={() => void downloadCsv()}
                         />
                     ) : tab === 'drafts' ? (
-                        <EmptyState title="Drafts" description="Drafts will appear here." />
+                        <DraftsTab
+                            data={data}
+                            onDiscard={setDiscardRow}
+                            onMarkPaid={(row) => setMarkPaid(markPaidTarget(row))}
+                        />
                     ) : (
-                        <EmptyState title="History" description="Paid and voided payouts will appear here." />
+                        <HistoryTab />
                     )}
                 </div>
             )}
@@ -277,7 +292,7 @@ export function Payouts() {
                 isOpen={prepareOpen}
                 onClose={closePrepare}
                 title={prepareOutcome
-                    ? `${prepareOutcome.created} ${prepareOutcome.created === 1 ? 'draft' : 'drafts'} prepared`
+                    ? prepareSummary(prepareOutcome.created, prepareOutcome.skipped)
                     : `Prepare ${ready.length} ${payoutWord(ready.length)} through ${formatDay(through)}?`}
                 size="md"
             >
