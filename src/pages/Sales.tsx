@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, type ReactNode } from 'react';
+import { useState, useMemo, useEffect, useCallback, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Modal, ModalFooter } from '../components/ui/Modal';
@@ -190,7 +190,7 @@ export function Sales() {
     const location = useLocation();
     const { userRecord } = useAuth();
     const toast = useToast();
-    const { refunds, isLoading: isLoadingRefunds } = useRefundHistory();
+    const { refunds, isLoading: isLoadingRefunds, error: refundsError, refetch: refetchRefunds } = useRefundHistory();
     const { getSalesByCategory, getBusyTimeAnalytics } = useAnalytics();
     const { consignors } = useConsignors();
     const { searchCustomers, createCustomer, updateCustomer, getCustomerOrderHistory } = useCustomers();
@@ -238,11 +238,15 @@ export function Sales() {
     const [salesByCategoryData, setSalesByCategoryData] = useState<SalesByCategoryData[]>([]);
     const [busyTimeAnalytics, setBusyTimeAnalytics] = useState<BusyTimeAnalyticsData | null>(null);
     // Gift cards sold, dealer cash and offline cash load on their own; the
-    // summary must not say Balanced before they are in.
-    const [loadingExtras, setLoadingExtras] = useState({ dealer: true, offline: true, gifts: true });
-    const isLoadingExtras = !isEmployeeView && (loadingExtras.dealer || loadingExtras.offline || loadingExtras.gifts);
-    const markExtra = (key: 'dealer' | 'offline' | 'gifts', value: boolean) =>
-        setLoadingExtras((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
+    // summary must not say Balanced before they are in, or after one failed.
+    type ExtraKey = 'dealer' | 'offline' | 'gifts';
+    type ExtraState = 'loading' | 'ok' | 'error';
+    const [extras, setExtras] = useState<Record<ExtraKey, ExtraState>>({ dealer: 'loading', offline: 'loading', gifts: 'loading' });
+    const [extrasRetry, setExtrasRetry] = useState(0);
+    const markExtra = useCallback((key: ExtraKey, value: ExtraState) =>
+        setExtras((prev) => (prev[key] === value ? prev : { ...prev, [key]: value })), []);
+    const isLoadingExtras = !isEmployeeView && Object.values(extras).includes('loading');
+    const extrasFailed = !isEmployeeView && Object.values(extras).includes('error');
     const [openingFloatInput, setOpeningFloatInput] = useState('');
     const [manualCashAdjustmentInput, setManualCashAdjustmentInput] = useState('');
     const [checkCountInput, setCheckCountInput] = useState('');
@@ -340,6 +344,8 @@ export function Sales() {
         allFilteredSales: allFilteredSalesRows,
         isLoading,
         isLoadingAllFiltered,
+        allFilteredError,
+        refetchAllFiltered,
         calculateSalesSummary,
         refetch,
     } = useSalesHistory({
@@ -429,14 +435,18 @@ export function Sales() {
         setSalesPage((prev) => Math.min(prev, salesTotalPages));
     }, [salesTotalPages]);
 
+    // Each load below ignores its response once the range changed (or the page
+    // left), so an older answer can neither write data for a range we have left
+    // nor clear the loading flag of the newer request.
     useEffect(() => {
         if (isEmployeeView) {
             setCashDealerPurchasesTotal(0);
             return;
         }
 
+        let cancelled = false;
         const loadDealerCashPurchases = async () => {
-            markExtra('dealer', true);
+            markExtra('dealer', 'loading');
             let query = supabase
                 .from('dealer_purchases')
                 .select('total')
@@ -449,23 +459,35 @@ export function Sales() {
                 query = query.lte('purchased_at', dateEndIso);
             }
 
-            const { data, error } = await query;
+            let result;
+            try {
+                result = await query;
+            } catch {
+                if (!cancelled) markExtra('dealer', 'error');
+                return;
+            }
+            if (cancelled) return;
+            const { data, error } = result;
             if (error) {
-                if (!isMissingDealerPurchasesTableError(error.message)) {
-                    toast.error('Failed to load dealer cash purchases', error.message);
-                }
                 setCashDealerPurchasesTotal(0);
-                markExtra('dealer', false);
+                if (isMissingDealerPurchasesTableError(error.message)) {
+                    // No dealer purchases table yet: nothing to subtract, not a failure.
+                    markExtra('dealer', 'ok');
+                } else {
+                    toast.error('Failed to load dealer cash purchases', error.message);
+                    markExtra('dealer', 'error');
+                }
                 return;
             }
 
             const total = (data || []).reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
             setCashDealerPurchasesTotal(total);
-            markExtra('dealer', false);
+            markExtra('dealer', 'ok');
         };
 
         void loadDealerCashPurchases();
-    }, [dateStartIso, dateEndIso, isEmployeeView, toast]);
+        return () => { cancelled = true; };
+    }, [dateStartIso, dateEndIso, isEmployeeView, toast, extrasRetry, markExtra]);
 
     useEffect(() => {
         if (isEmployeeView) {
@@ -473,18 +495,25 @@ export function Sales() {
             return;
         }
 
+        let cancelled = false;
         const loadOfflineUnsyncedCash = async () => {
-            markExtra('offline', true);
-            const total = await getOfflineUnsyncedCashNetTotal({
-                dateStart: dateStartIso,
-                dateEnd: dateEndIso,
-            });
-            setOfflineUnsyncedCashNetTotal(total);
-            markExtra('offline', false);
+            markExtra('offline', 'loading');
+            try {
+                const total = await getOfflineUnsyncedCashNetTotal({
+                    dateStart: dateStartIso,
+                    dateEnd: dateEndIso,
+                });
+                if (cancelled) return;
+                setOfflineUnsyncedCashNetTotal(total);
+                markExtra('offline', 'ok');
+            } catch {
+                if (!cancelled) markExtra('offline', 'error');
+            }
         };
 
         void loadOfflineUnsyncedCash();
-    }, [dateStartIso, dateEndIso, isEmployeeView]);
+        return () => { cancelled = true; };
+    }, [dateStartIso, dateEndIso, isEmployeeView, extrasRetry, markExtra]);
 
     useEffect(() => {
         if (isEmployeeView) {
@@ -492,8 +521,9 @@ export function Sales() {
             return;
         }
 
+        let cancelled = false;
         const loadGiftCardSales = async () => {
-            markExtra('gifts', true);
+            markExtra('gifts', 'loading');
             let query = supabase
                 .from('gift_cards')
                 .select('original_amount, purchase_payment_method');
@@ -505,41 +535,69 @@ export function Sales() {
                 query = query.lte('issued_at', dateEndIso);
             }
 
-            const { data, error } = await query;
+            let result;
+            try {
+                result = await query;
+            } catch {
+                if (!cancelled) markExtra('gifts', 'error');
+                return;
+            }
+            if (cancelled) return;
+            const { data, error } = result;
             if (error) {
                 toast.error('Failed to load gift certificate sales', error.message);
                 setGiftCardSales([]);
-                markExtra('gifts', false);
+                markExtra('gifts', 'error');
                 return;
             }
 
             setGiftCardSales((data || []) as Array<{ original_amount: number; purchase_payment_method: string | null }>);
-            markExtra('gifts', false);
+            markExtra('gifts', 'ok');
         };
 
         void loadGiftCardSales();
-    }, [dateStartIso, dateEndIso, isEmployeeView, toast]);
+        return () => { cancelled = true; };
+    }, [dateStartIso, dateEndIso, isEmployeeView, toast, extrasRetry, markExtra]);
 
-    const accountabilityMetrics = useMemo(() => (
-        calculateTillAccountabilityMetrics({
-            sales: allFilteredSales,
-            refunds: filteredRefunds,
-            giftCardsSold: giftCardSales,
-            dealerCashPurchases: cashDealerPurchasesTotal,
-            offlineUnsyncedCashSales: offlineUnsyncedCashNetTotal,
-        })
-    ), [allFilteredSales, filteredRefunds, giftCardSales, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal]);
+    // The summary is built from whole sales in the date range (not the Sales tab
+    // search). With a vendor filter the sales are whole sales that include the
+    // vendor, so only refunds of those sales belong, and the store-wide pieces
+    // (gift cards sold, dealer cash, offline cash, categories, busy times) are left out.
+    const selectedVendor = useMemo(
+        () => (filterConsignor ? consignors.find((consignor) => consignor.id === filterConsignor) ?? null : null),
+        [consignors, filterConsignor]
+    );
+    const vendorScoped = Boolean(filterConsignor);
+    const vendorLabel = selectedVendor
+        ? `${selectedVendor.consignor_number} - ${selectedVendor.name}`
+        : 'this vendor';
+    const summaryRefunds = useMemo(
+        () => (vendorScoped ? refundsOfSales(filteredRefunds, allFilteredSalesRows) : filteredRefunds),
+        [vendorScoped, filteredRefunds, allFilteredSalesRows]
+    );
+    const summaryMetrics = useMemo(() => calculateTillAccountabilityMetrics({
+        sales: allFilteredSalesRows,
+        refunds: summaryRefunds,
+        giftCardsSold: vendorScoped ? [] : giftCardSales,
+        dealerCashPurchases: vendorScoped ? 0 : cashDealerPurchasesTotal,
+        offlineUnsyncedCashSales: vendorScoped ? 0 : offlineUnsyncedCashNetTotal,
+    }), [allFilteredSalesRows, summaryRefunds, vendorScoped, giftCardSales, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal]);
+
+    // The drawer modal, its till email and print, and the summary all read the
+    // same whole-range figures, so a search typed on the Sales tab (which only
+    // narrows the list) can never put a different expected cash on a report.
+    const accountabilityMetrics = summaryMetrics;
 
     const cashReconciliation = useMemo(() => {
         // Any sale with a cash tender, whether cash was the only tender or one of several.
-        const cashSales = allFilteredSales.filter((sale) => getSaleTenderAmountCents(sale, 'cash') > 0);
+        const cashSales = allFilteredSalesRows.filter((sale) => getSaleTenderAmountCents(sale, 'cash') > 0);
         const cashSalesCount = cashSales.length;
         const cashTenders = cashSales.map((sale) => getCashTenderCents(sale));
         const cashReceivedGrossCents = cashTenders.reduce((sum, tender) => sum + tender.tenderedCents, 0);
         const changeGivenCents = cashTenders.reduce((sum, tender) => sum + tender.changeCents, 0);
         const cashSalesNetCents = sumCashSalesNetCents(cashSales);
         // Only the cash portion of a refund leaves the drawer.
-        const cashRefundsCents = filteredRefunds.reduce(
+        const cashRefundsCents = summaryRefunds.reduce(
             (sum, refund) => sum + getRefundTenderAmountCents(refund, 'cash'),
             0
         );
@@ -561,8 +619,8 @@ export function Sales() {
             cashSalesNet: fromCurrencyCents(cashSalesNetCents),
             cashRefunds: fromCurrencyCents(cashRefundsCents),
             giftCardCashSales: accountabilityMetrics.giftCardSalesCash,
-            cashDealerPurchasesTotal,
-            offlineUnsyncedCashNetTotal,
+            cashDealerPurchasesTotal: vendorScoped ? 0 : cashDealerPurchasesTotal,
+            offlineUnsyncedCashNetTotal: vendorScoped ? 0 : offlineUnsyncedCashNetTotal,
             checkCount,
             checkTotal,
             expectedCashFromSales: fromCurrencyCents(expectedCashFromSalesCents),
@@ -572,7 +630,7 @@ export function Sales() {
             countedTotal: fromCurrencyCents(countedTotalCents),
             variance: fromCurrencyCents(varianceCents),
         };
-    }, [allFilteredSales, filteredRefunds, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal, accountabilityMetrics.expectedCashFromSales, accountabilityMetrics.giftCardSalesCash]);
+    }, [allFilteredSalesRows, summaryRefunds, vendorScoped, openingFloatInput, manualCashAdjustmentInput, checkCountInput, checkAmountInput, denominationCounts, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal, accountabilityMetrics.expectedCashFromSales, accountabilityMetrics.giftCardSalesCash]);
 
     useEffect(() => {
         if (isEmployeeView) {
@@ -723,31 +781,14 @@ export function Sales() {
         return { rows, attributedEmployees, attributedAdmins };
     }, [employeeDirectory, admins, allFilteredSales]);
 
-    // The summary is built from whole sales in the date range (not the Sales tab
-    // search). With a vendor filter the sales are whole sales that include the
-    // vendor, so only refunds of those sales belong, and the store-wide pieces
-    // (gift cards sold, dealer cash, offline cash, categories, busy times) are left out.
-    const selectedVendor = useMemo(
-        () => (filterConsignor ? consignors.find((consignor) => consignor.id === filterConsignor) ?? null : null),
-        [consignors, filterConsignor]
-    );
-    const vendorScoped = Boolean(filterConsignor);
-    const vendorLabel = selectedVendor
-        ? `${selectedVendor.consignor_number} - ${selectedVendor.name}`
-        : 'this vendor';
-    const summaryRefunds = useMemo(
-        () => (vendorScoped ? refundsOfSales(filteredRefunds, allFilteredSalesRows) : filteredRefunds),
-        [vendorScoped, filteredRefunds, allFilteredSalesRows]
-    );
-    const summaryMetrics = useMemo(() => calculateTillAccountabilityMetrics({
-        sales: allFilteredSalesRows,
-        refunds: summaryRefunds,
-        giftCardsSold: vendorScoped ? [] : giftCardSales,
-        dealerCashPurchases: vendorScoped ? 0 : cashDealerPurchasesTotal,
-        offlineUnsyncedCashSales: vendorScoped ? 0 : offlineUnsyncedCashNetTotal,
-    }), [allFilteredSalesRows, summaryRefunds, vendorScoped, giftCardSales, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal]);
-
-    const isSummaryLoading = isLoading || isLoadingAllFiltered || isLoadingRefunds || isLoadingExtras;
+    // Not the paged list's own flag: paging the Sales list must not flash Loading on the strip.
+    const isSummaryLoading = isLoadingAllFiltered || isLoadingRefunds || isLoadingExtras;
+    const summaryLoadFailed = !isEmployeeView && (Boolean(allFilteredError) || Boolean(refundsError) || extrasFailed);
+    const retrySummaryLoad = () => {
+        void refetchAllFiltered();
+        void refetchRefunds();
+        setExtrasRetry((count) => count + 1);
+    };
 
     const salesSummary = useMemo(() => buildSalesSummary({
         metrics: summaryMetrics,
@@ -765,7 +806,9 @@ export function Sales() {
         topCategory: vendorScoped ? null : topCategoryByItems(salesByCategoryData),
         vendor: vendorScoped ? { label: vendorLabel } : null,
         isLoading: isSummaryLoading,
-    }), [summaryMetrics, allFilteredSalesRows, summaryRefunds, filterConsignor, vendorScoped, vendorLabel, salesByCategoryData, isSummaryLoading]);
+        loadFailed: summaryLoadFailed,
+        refundCount: summaryRefunds.length,
+    }), [summaryMetrics, allFilteredSalesRows, summaryRefunds, filterConsignor, vendorScoped, vendorLabel, salesByCategoryData, isSummaryLoading, summaryLoadFailed]);
 
     const dailyNetSalesData = useMemo(() => dailyNetSales({
         sales: allFilteredSalesRows,
@@ -1468,6 +1511,7 @@ export function Sales() {
                     summary={salesSummary}
                     onCountDrawer={() => setShowCashReconciliation(true)}
                     onSeeSummary={() => setActiveTab('salesAnalytics')}
+                    onRetry={retrySummaryLoad}
                 />
             )}
 
@@ -1704,6 +1748,7 @@ export function Sales() {
                     onCountDrawer={() => setShowCashReconciliation(true)}
                     onExportCsv={handleExportSummaryCsv}
                     onPrint={handlePrintSummary}
+                    onRetry={retrySummaryLoad}
                 />
             )}
 

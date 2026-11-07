@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { calculateSaleItemDiscountBreakdown } from '../lib/saleDiscounts';
 import type { Sale, SaleItem, Consignor, Customer } from '../types';
@@ -68,6 +68,8 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
     const [isLoading, setIsLoading] = useState(true);
     const [isLoadingAllFiltered, setIsLoadingAllFiltered] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [allFilteredError, setAllFilteredError] = useState<string | null>(null);
+    const allFilteredRequest = useRef(0);
     const [totalCount, setTotalCount] = useState(0);
 
     // Vendor filter as a join on the server: an id list of a busy vendor's sales
@@ -145,8 +147,12 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
     }, [consignorId, dateEnd, dateStart, page, pageSize, salesSelect]);
 
     const fetchAllFilteredSales = useCallback(async () => {
+        // Only the newest request may write: an older answer for another range is dropped.
+        const requestId = ++allFilteredRequest.current;
+        const isCurrent = () => allFilteredRequest.current === requestId;
         try {
             setIsLoadingAllFiltered(true);
+            setAllFilteredError(null);
 
             const allSalesRows: (Sale & { customer?: Customer })[] = [];
             let from = 0;
@@ -186,6 +192,7 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
 
             const saleIds = allSalesRows.map((sale) => sale.id);
 
+            if (!isCurrent()) return;
             if (saleIds.length === 0) {
                 setAllFilteredSales([]);
                 return;
@@ -207,12 +214,15 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
                 customer: sale.customer || undefined,
             }));
 
+            if (!isCurrent()) return;
             setAllFilteredSales(salesWithItems);
         } catch (err) {
+            if (!isCurrent()) return;
             const message = err instanceof Error ? err.message : 'Failed to fetch full filtered sales';
             setError(message);
+            setAllFilteredError(message);
         } finally {
-            setIsLoadingAllFiltered(false);
+            if (isCurrent()) setIsLoadingAllFiltered(false);
         }
     }, [consignorId, dateEnd, dateStart, salesSelect]);
 
@@ -295,6 +305,8 @@ export function useSalesHistory(options: UseSalesHistoryOptions = {}) {
         isLoading,
         isLoadingAllFiltered,
         error,
+        allFilteredError,
+        refetchAllFiltered: fetchAllFilteredSales,
         refetch,
         calculateSalesSummary,
         filterByDateRange,

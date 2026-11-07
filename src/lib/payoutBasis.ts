@@ -7,6 +7,13 @@ import { splitRefundCents } from './tillAccountability';
  * commission split. It was inline in Sales.tsx; it lives here so it can be
  * tested against `calculateTillAccountabilityMetrics` on the same data.
  *
+ * This is an estimate, not the payout ledger. get_payout_sale_financials
+ * rounds differently: it floors each line's share of a discount or fee and
+ * hands the leftover cents to the largest remainders, where this uses a
+ * running total, so single lines can differ by a cent. The server also floors a
+ * vendor's cut at 0 per line, which this does not. Actual payouts are on
+ * Vendor payouts.
+ *
  * Everything is accumulated in whole cents per line:
  * - the net lines of one sale are rounded cumulatively, so they add up to the
  *   sale's subtotal less its discounts to the cent;
@@ -97,8 +104,11 @@ export function calculatePayoutBasis(input: {
         const orderDiscountRatio = subtotalAfterItemDiscounts > 0 ? orderDiscount / subtotalAfterItemDiscounts : 0;
         const saleNetSubtotal = Math.max(0, subtotalAfterItemDiscounts - orderDiscount);
 
-        // Card-fee basis is the card tender only (matches the server payout
-        // ledger); cash, check, store credit and gift card carry no fee.
+        // Card-fee basis is the card tender in the payment breakdown. The server
+        // does the same for 'split' sales, but for payment_method 'card' it uses
+        // the whole sale total even when the breakdown has several entries, so
+        // a card sale part-paid with store credit can differ from the ledger.
+        // Cash, check, store credit and gift card carry no fee.
         const cardTender = getSaleTenderAmount(sale, 'card');
         const saleFee = cardTender > 0 ? calculateStripeTerminalProcessingFee(cardTender) : 0;
 

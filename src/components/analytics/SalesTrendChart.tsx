@@ -58,8 +58,8 @@ export function SalesTrendChart({ data, variant = 'area', valueLabel = 'Sales' }
                         dataKey="amount"
                         stroke="var(--color-primary)"
                         strokeWidth={2}
-                        dot={data.length <= 2 ? { r: 3 } : false}
-                        activeDot={{ r: 3 }}
+                        dot={data.length <= 2 ? { r: 3, fill: 'var(--color-primary)', stroke: 'var(--color-primary)' } : false}
+                        activeDot={{ r: 3, fill: 'var(--color-primary)', stroke: 'var(--color-primary)' }}
                     />
                 </LineChart>
             </ResponsiveContainer>

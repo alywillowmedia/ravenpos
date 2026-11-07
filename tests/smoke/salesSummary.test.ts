@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calculateTillAccountabilityMetrics } from '../../src/lib/tillAccountability';
+import { calculateProRatedRefundAmount } from '../../src/lib/refundCalculations';
 import { calculatePayoutBasis, refundsOfSales, returnsOfEarlierSales } from '../../src/lib/payoutBasis';
 import {
     booksCsv,
@@ -128,9 +129,20 @@ describe('does it balance', () => {
         const collectedHigh = buildSalesSummary(withMetrics({ totalCollected: 6300 })).balance.hint;
         expect(collectedHigh).toMatch(/gift card/i);
         expect(collectedHigh).toMatch(/payment method/i);
+        expect(collectedHigh).toMatch(/payments are less than/i);
         const receivedHigh = buildSalesSummary(withMetrics({ totalCollected: 6200 })).balance.hint;
         expect(receivedHigh).toMatch(/refund/i);
         expect(receivedHigh).toMatch(/tender/i);
+    });
+
+    it('a failed load is never balanced and never shows figures as good news', () => {
+        const summary = buildSalesSummary({ ...realExample, loadFailed: true });
+        expect(summary.failed).toBe(true);
+        expect(summary.balance.balanced).toBe(false);
+        expect(summary.loading).toBe(false);
+        expect(buildSalesSummary(realExample).failed).toBe(false);
+        // Failing wins over loading: a retry in flight is still "loading", but an error with nothing loading is failed.
+        expect(buildSalesSummary({ ...realExample, loadFailed: true, isLoading: true }).failed).toBe(false);
     });
 
     it('is loading, never balanced, until the data has arrived', () => {
@@ -174,6 +186,20 @@ describe('who gets what', () => {
         expect(row?.label).toBe('Not split');
         expect(row?.tone).toBe('warning');
         expect(three.hint).toMatch(/check/i);
+    });
+
+    it('allows two cents per in-range refund before it warns', () => {
+        const input = (refundCount: number) => withMetrics({}, { payout: { consignorShare: 4706.8, storeShare: 1100.92, consignorCardFees: 0 }, refundCount });
+        // 11 cents short.
+        expect(buildSalesSummary(input(0)).split.rows.find((r) => r.key === 'notSplit')?.tone).toBe('warning');
+        expect(buildSalesSummary(input(4)).split.rows.find((r) => r.key === 'notSplit')?.tone).toBe('warning'); // allows 10
+        const fine = buildSalesSummary(input(5)).split; // allows 12
+        expect(fine.rows.find((r) => r.key === 'notSplit')?.tone).toBeUndefined();
+        expect(fine.rows.find((r) => r.key === 'notSplit')?.muted).toBe(true);
+        expect(fine.hint).toBeNull();
+        // Within what refunds can drift by, it is called Rounding.
+        const small = buildSalesSummary(withMetrics({}, { payout: { consignorShare: 4706.85, storeShare: 1100.92, consignorCardFees: 0 }, refundCount: 5 }));
+        expect(small.split.rows.find((r) => r.key === 'notSplit')?.label).toBe('Rounding');
     });
 
     it('shows a negative remainder as it is, with the same warning', () => {
@@ -324,6 +350,59 @@ describe('who gets what on the same data as the metrics', () => {
         const { metrics, payout } = run([sale], []);
         const lines = Math.round((payout.consignorShare + payout.storeShare + payout.consignorCardFees) * 100);
         expect(lines).toBe(Math.round(metrics.netSales * 100));
+    });
+
+    // Many real pro-rated refunds on clean data: each refund rounds three times,
+    // so the remainder drifts a cent or two per refund. That is not a data problem.
+    function manyRefunds(seed: number, count: number, mismatch = 0) {
+        let state = seed;
+        const random = () => { state = (state * 1664525 + 1013904223) % 4294967296; return state / 4294967296; };
+        const sales: ReturnType<typeof cashSale>[] = [];
+        const refunds: ReturnType<typeof cashRefund>[] = [];
+        for (let n = 0; n < count; n += 1) {
+            const items = Array.from({ length: 3 }, (_, k) => item(`s${n}i${k}`, Math.round((5 + random() * 60) * 100) / 100, 1, 0.6));
+            const subtotal = Math.round(items.reduce((sum, line) => sum + line.price, 0) * 100) / 100;
+            const discount = Math.round(random() * 500) / 100;
+            const tax = Math.round((subtotal - discount) * 0.0725 * 100) / 100;
+            const total = Math.round((subtotal - discount + tax) * 100) / 100;
+            sales.push({ ...cashSale(`s${n}`, items, subtotal, tax), discount_total: discount, total, payment_breakdown: [{ method: 'cash', amount: total }] });
+            const amount = calculateProRatedRefundAmount({
+                saleItems: items,
+                saleTotal: total,
+                saleDiscountTotal: discount,
+                existingRefundAmount: 0,
+                alreadyRefundedQuantityBySaleItemId: {},
+                selectedRefundQuantityBySaleItemId: { [items[0].id]: 1 },
+            });
+            refunds.push(cashRefund(`s${n}`, amount + (n === 0 ? mismatch : 0), { total, tax_amount: tax, card_fee_amount: 0 }, [{ sale_item_id: items[0].id, quantity: 1 }]));
+        }
+        const metrics = calculateTillAccountabilityMetrics({ sales, refunds, giftCardsSold: [] });
+        return buildSalesSummary({
+            metrics,
+            payout: calculatePayoutBasis({ sales, refunds }),
+            earlierReturns: returnsOfEarlierSales(refunds, sales),
+            refundCount: refunds.length,
+            transactionCount: sales.length,
+            itemsSold: 0,
+            topCategory: null,
+        });
+    }
+
+    it('30 clean pro-rated refunds drift by cents but never reach the warning', () => {
+        let drifted = 0;
+        for (let seed = 1; seed <= 40; seed += 1) {
+            const { split } = manyRefunds(seed, 30);
+            if (Math.abs(split.notSplit) > 0.02) drifted += 1; // the old fixed 2 cents would have warned here
+            expect(split.rows.find((r) => r.key === 'notSplit')?.tone).toBeUndefined();
+            expect(split.hint).toBeNull();
+        }
+        expect(drifted).toBeGreaterThan(0);
+    });
+
+    it('a genuine mismatch still warns among many refunds', () => {
+        const { split } = manyRefunds(7, 30, 25);
+        expect(split.rows.find((r) => r.key === 'notSplit')?.tone).toBe('warning');
+        expect(split.hint).toMatch(/check/i);
     });
 
     it('with a vendor filter the vendor and the others add to the vendors figure', () => {

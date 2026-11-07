@@ -15,6 +15,7 @@ export interface SalesSummaryProps {
     onCountDrawer: () => void;
     onExportCsv: () => void;
     onPrint: () => void;
+    onRetry: () => void;
 }
 
 /** A zero is quiet. Red and green are kept for bad and good news only. */
@@ -67,10 +68,19 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
     );
 }
 
-export function SalesSummary({ summary, trend, busiest, categories, onCountDrawer, onExportCsv, onPrint }: SalesSummaryProps) {
+export function SalesSummary({ summary, trend, busiest, categories, onCountDrawer, onExportCsv, onPrint, onRetry }: SalesSummaryProps) {
     const { headline, balance, split, books } = summary;
     const hasTrend = trend.some((day) => day.amount !== 0);
     const vendorScoped = summary.vendorNote !== null;
+
+    if (summary.failed) {
+        return (
+            <Card className="flex flex-wrap items-center justify-between gap-4 py-8">
+                <p className="text-sm text-[var(--color-muted)]">Couldn't load these figures. Nothing here can be trusted until they load.</p>
+                <Button variant="secondary" size="sm" onClick={onRetry}>Retry</Button>
+            </Card>
+        );
+    }
 
     if (summary.loading) {
         return (
@@ -178,7 +188,7 @@ export function SalesSummary({ summary, trend, busiest, categories, onCountDrawe
 
             <Section
                 title="Net sales by day"
-                aside={busiest ? <span className="text-[13px] text-[var(--color-muted)]">Busiest: {busiest.text}</span> : undefined}
+                aside={busiest ? <span className="text-[13px] text-[var(--color-muted)]">{busiest.text}</span> : undefined}
             >
                 <div className="h-56 w-full min-w-0">
                     {hasTrend ? (

@@ -8,6 +8,7 @@ export interface SalesSummaryStripProps {
     summary: SalesSummary;
     onCountDrawer: () => void;
     onSeeSummary: () => void;
+    onRetry: () => void;
 }
 
 function Dot() {
@@ -15,8 +16,17 @@ function Dot() {
 }
 
 /** One quiet line for the Sales tab: collected, sales, balance, drawer. */
-export function SalesSummaryStrip({ summary, onCountDrawer, onSeeSummary }: SalesSummaryStripProps) {
+export function SalesSummaryStrip({ summary, onCountDrawer, onSeeSummary, onRetry }: SalesSummaryStripProps) {
     const { balance, headline } = summary;
+
+    if (summary.failed) {
+        return (
+            <Card className="mb-6 flex flex-wrap items-center justify-between gap-3" padding="sm">
+                <span className="text-sm text-[var(--color-muted)]">Couldn't load these figures</span>
+                <Button variant="secondary" size="sm" onClick={onRetry}>Retry</Button>
+            </Card>
+        );
+    }
 
     if (summary.loading) {
         return (

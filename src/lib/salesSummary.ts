@@ -64,6 +64,10 @@ export interface SalesSummaryInput {
     /** Set when the page is filtered to one vendor. Totals then cover whole sales that include them. */
     vendor?: { label: string } | null;
     isLoading?: boolean;
+    /** A load reported an error and nothing is loading now. The figures cannot be trusted. */
+    loadFailed?: boolean;
+    /** Refunds in range. Each pro-rated refund rounds three times, so it may drift a cent or two. */
+    refundCount?: number;
 }
 
 export interface SummaryLine {
@@ -86,6 +90,7 @@ export interface DrawerNote {
 
 export interface SalesSummary {
     loading: boolean;
+    failed: boolean;
     vendorNote: string | null;
     headline: {
         netSales: number;
@@ -186,7 +191,7 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
     const hint = balanced
         ? null
         : gap > 0
-            ? 'Collected is above received. Look for a gift card sold with no payment method.'
+            ? 'Collected is above received. Look for a gift card sold with no payment method, or a sale whose payments are less than its total.'
             : 'Received is above collected. Look for a refund with no recorded tender.';
 
     const balance: SalesSummary['balance'] = {
@@ -199,7 +204,7 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
         ],
         received: roundMoney(metrics.totalReceived),
         collected: roundMoney(metrics.totalCollected),
-        balanced: balanced && !input.isLoading,
+        balanced: balanced && !input.isLoading && !input.loadFailed,
         difference,
         hint,
         drawer: {
@@ -246,14 +251,19 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
     if (giftCents !== 0) {
         splitRows.push({ key: 'giftCardsSold', label: 'Gift cards sold', amount: fromCents(giftCents) });
     }
+    // Each pro-rated refund rounds three times, so allow 2 cents per refund on top of the base 2.
+    const refundDrift = 2 * Math.max(0, Math.round(input.refundCount || 0));
+    const warnAbove = 2 + refundDrift;
+    const roundingUpTo = Math.max(1, refundDrift);
     const remainder = Math.abs(notSplitCents);
+    const warn = remainder > warnAbove;
     if (notSplitCents !== 0) {
         splitRows.push({
             key: 'notSplit',
-            label: remainder <= 1 ? 'Rounding' : 'Not split',
+            label: remainder <= roundingUpTo ? 'Rounding' : 'Not split',
             amount: fromCents(notSplitCents),
-            muted: remainder <= 2,
-            tone: remainder > 2 ? 'warning' : undefined,
+            muted: !warn,
+            tone: warn ? 'warning' : undefined,
         });
     }
 
@@ -261,7 +271,7 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
         rows: splitRows,
         total: fromCents(toCents(metrics.totalCollected)),
         notSplit: fromCents(notSplitCents),
-        hint: remainder > 2
+        hint: warn
             ? 'Part of the sales is not accounted for by the item splits. Check refunds whose amount does not match the items returned.'
             : null,
         footnote: SPLIT_FOOTNOTE,
@@ -291,6 +301,7 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
 
     return {
         loading: Boolean(input.isLoading),
+        failed: Boolean(input.loadFailed) && !input.isLoading,
         vendorNote: input.vendor ? vendorScopeNote(input.vendor.label) : null,
         headline,
         balance,
