@@ -9,16 +9,13 @@ import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Tabs } from '../components/ui/Tabs';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
-import { DetailCard } from '../components/ui/DetailCard';
 import { StatCard } from '../components/ui/StatCard';
-import { AnalyticsCard } from '../components/analytics/AnalyticsCard';
-import { SalesTrendChart } from '../components/analytics/SalesTrendChart';
-import { SalesByCategoryChart } from '../components/analytics/SalesByCategoryChart';
-import { BusyTimesCard } from '../components/analytics/BusyTimesCard';
+import { SalesSummary } from '../components/sales/SalesSummary';
+import { SalesSummaryStrip } from '../components/sales/SalesSummaryStrip';
 import { ReceiptDeliveryModal } from '../components/receipt/ReceiptDeliveryModal';
 import { useSalesHistory, type SaleWithItems } from '../hooks/useSalesHistory';
 import { useRefundHistory, type RefundWithDetails } from '../hooks/useRefundHistory';
-import { useAnalytics, type SalesTrendData, type SalesByCategoryData, type BusyTimeAnalyticsData } from '../hooks/useAnalytics';
+import { useAnalytics, type SalesByCategoryData, type BusyTimeAnalyticsData } from '../hooks/useAnalytics';
 import { useConsignors } from '../hooks/useConsignors';
 import { useCustomers } from '../hooks/useCustomers';
 import { useAuth } from '../contexts/AuthContext';
@@ -40,6 +37,7 @@ import {
     toCurrencyCents,
 } from '../lib/cashReconciliation';
 import { calculateTillAccountabilityMetrics } from '../lib/tillAccountability';
+import { booksCsv, booksFilename, buildBooksReportHtml, buildSalesSummary, busiestSlot, dailyNetSales, topCategories } from '../lib/salesSummary';
 import {
     TENDER_ORDER,
     describeTender,
@@ -51,7 +49,7 @@ import {
     type SaleTenderSource,
 } from '../lib/tenders';
 import type { ReceiptData } from '../types/receipt';
-import type { Customer, CustomerInput, PaymentBreakdownEntry, PaymentMethod, TenderMethod } from '../types';
+import type { Customer, CustomerInput, PaymentBreakdownEntry, PaymentMethod } from '../types';
 
 type DatePreset = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
 type SalesTab = 'sales' | 'refunds' | 'employeeAttribution' | 'salesAnalytics';
@@ -188,20 +186,12 @@ function refundTenderSource(refund: Pick<RefundWithDetails, 'payment_method' | '
     };
 }
 
-function sumSaleTender(sales: SaleWithItems[], method: TenderMethod): number {
-    return fromCurrencyCents(sales.reduce((sum, sale) => sum + getSaleTenderAmountCents(sale, method), 0));
-}
-
-function sumRefundTender(refunds: RefundWithDetails[], method: TenderMethod): number {
-    return fromCurrencyCents(refunds.reduce((sum, refund) => sum + getRefundTenderAmountCents(refund, method), 0));
-}
-
 export function Sales() {
     const location = useLocation();
     const { userRecord } = useAuth();
     const toast = useToast();
     const { refunds, isLoading: isLoadingRefunds } = useRefundHistory();
-    const { getSalesTrend, getSalesByCategory, getBusyTimeAnalytics, isLoading: isLoadingAnalytics } = useAnalytics();
+    const { getSalesByCategory, getBusyTimeAnalytics } = useAnalytics();
     const { consignors } = useConsignors();
     const { searchCustomers, createCustomer, updateCustomer, getCustomerOrderHistory } = useCustomers();
     const isEmployeeView = location.pathname.startsWith('/employee');
@@ -245,7 +235,6 @@ export function Sales() {
     const [admins, setAdmins] = useState<AdminContact[]>([]);
     const [selectedAdminId, setSelectedAdminId] = useState('');
     const [isSendingTillEmail, setIsSendingTillEmail] = useState(false);
-    const [salesTrendData, setSalesTrendData] = useState<SalesTrendData[]>([]);
     const [salesByCategoryData, setSalesByCategoryData] = useState<SalesByCategoryData[]>([]);
     const [busyTimeAnalytics, setBusyTimeAnalytics] = useState<BusyTimeAnalyticsData | null>(null);
     const [openingFloatInput, setOpeningFloatInput] = useState('');
@@ -270,7 +259,7 @@ export function Sales() {
                     { id: 'sales', label: 'Sales', icon: <ReceiptSmallIcon /> },
                     { id: 'refunds', label: 'Refunds', icon: <RefundTabIcon /> },
                     { id: 'employeeAttribution', label: 'By Employee', icon: <EmployeesAttributionIcon /> },
-                    { id: 'salesAnalytics', label: 'Analytics', icon: <AnalyticsSmallIcon /> },
+                    { id: 'salesAnalytics', label: 'Summary', icon: <AnalyticsSmallIcon /> },
                 ]
         ),
         [isEmployeeView]
@@ -621,7 +610,6 @@ export function Sales() {
 
     useEffect(() => {
         if (isEmployeeView) {
-            setSalesTrendData([]);
             setSalesByCategoryData([]);
             setBusyTimeAnalytics(null);
             return;
@@ -644,46 +632,17 @@ export function Sales() {
                 ? { startDate: rangeStart, endDate: rangeEnd }
                 : undefined;
 
-            const [trendRes, categoryRes, busyRes] = await Promise.all([
-                getSalesTrend(30, false, rangeOptions),
+            const [categoryRes, busyRes] = await Promise.all([
                 getSalesByCategory(30, false, rangeOptions),
                 getBusyTimeAnalytics(30, false, rangeOptions),
             ]);
 
-            if (!trendRes.error) setSalesTrendData(trendRes.data);
             if (!categoryRes.error) setSalesByCategoryData(categoryRes.data);
             if (!busyRes.error) setBusyTimeAnalytics(busyRes.data);
         };
 
         void loadAnalytics();
-    }, [activeTab, dateRange.start, dateRange.end, allFilteredSales, getSalesTrend, getSalesByCategory, getBusyTimeAnalytics, isEmployeeView]);
-
-    const paymentTotals = useMemo(() => {
-        // Each bucket comes from the tender entries, never from sale.total, which
-        // also includes store credit and gift card redemptions.
-        const netByTender = TENDER_ORDER.reduce<Record<TenderMethod, number>>(
-            (acc, method) => {
-                acc[method] = sumSaleTender(allFilteredSales, method) - sumRefundTender(filteredRefunds, method);
-                return acc;
-            },
-            { store_credit: 0, gift_card: 0, cash: 0, check: 0, card: 0 }
-        );
-
-        const cardFeeTotal = allFilteredSales.reduce((sum, sale) => sum + Number(sale.card_fee_amount || 0), 0);
-        const tenderNetTotal = fromCurrencyCents(
-            TENDER_ORDER.reduce((sum, method) => sum + toCurrencyCents(netByTender[method]), 0)
-        );
-
-        return {
-            cashNetTotal: netByTender.cash,
-            cardNetTotal: netByTender.card,
-            checkNetTotal: netByTender.check,
-            storeCreditNetTotal: netByTender.store_credit,
-            giftCardNetTotal: netByTender.gift_card,
-            tenderNetTotal,
-            cardFeeTotal,
-        };
-    }, [allFilteredSales, filteredRefunds]);
+    }, [activeTab, dateRange.start, dateRange.end, allFilteredSales, getSalesByCategory, getBusyTimeAnalytics, isEmployeeView]);
 
     const payoutBasisTotals = useMemo(() => {
         const refundedItemsMap = new Map<string, number>();
@@ -832,49 +791,30 @@ export function Sales() {
         return { rows, attributedEmployees, attributedAdmins };
     }, [employeeDirectory, admins, allFilteredSales]);
 
-    // Calculate totals (subtracting refunds). sale.total is the full order total
-    // (net subtotal + tax + card fee) whatever the tender, so
-    // Net Sales = Gross Sales + Taxes + Card Fees - Refunds = sum of every tender.
-    const totals = useMemo(() => {
-        const totalRefunded = filteredRefunds.reduce((sum, refund) => sum + Number(refund.refund_amount), 0);
-        const subtotal = fromCurrencyCents(allFilteredSales.reduce(
-            (sum, sale) => sum + toCurrencyCents(sale.subtotal) - toCurrencyCents(sale.discount_total || 0),
-            0
-        ));
-        const tax = fromCurrencyCents(allFilteredSales.reduce(
-            (sum, sale) => sum + toCurrencyCents(sale.tax_amount),
-            0
-        ));
-
-        return {
-            subtotal,
-            tax,
-            total: paymentTotals.tenderNetTotal,
+    const salesSummary = useMemo(() => buildSalesSummary({
+        metrics: accountabilityMetrics,
+        payout: {
             consignorShare: payoutBasisTotals.consignorShare,
             storeShare: payoutBasisTotals.storeShare,
-            totalRefunded,
-        };
-    }, [allFilteredSales, filteredRefunds, payoutBasisTotals, paymentTotals]);
-
-    const analyticsOverview = useMemo(() => {
-        const transactionCount = allFilteredSales.length;
-        const itemsSold = allFilteredSales.reduce(
+            consignorCardFees: payoutBasisTotals.consignorCardFees,
+        },
+        transactionCount: allFilteredSales.length,
+        itemsSold: allFilteredSales.reduce(
             (sum, sale) => sum + sale.items.reduce((itemSum, item) => itemSum + Number(item.quantity || 0), 0),
             0
-        );
-        const avgTicket = transactionCount > 0 ? totals.total / transactionCount : 0;
-        const topCategory = salesByCategoryData[0];
-        const cardShare = totals.total > 0 ? (paymentTotals.cardNetTotal / totals.total) * 100 : 0;
+        ),
+        topCategory: topCategories(salesByCategoryData, 1)[0]?.category ?? null,
+    }), [accountabilityMetrics, payoutBasisTotals, allFilteredSales, salesByCategoryData]);
 
-        return {
-            transactionCount,
-            itemsSold,
-            avgTicket,
-            topCategory: topCategory?.category || 'N/A',
-            topCategorySales: topCategory?.amount || 0,
-            cardShare,
-        };
-    }, [allFilteredSales, totals.total, salesByCategoryData, paymentTotals.cardNetTotal]);
+    const dailyNetSalesData = useMemo(() => dailyNetSales({
+        sales: allFilteredSales,
+        refunds: filteredRefunds,
+        start: dateRange.start,
+        end: dateRange.end,
+    }), [allFilteredSales, filteredRefunds, dateRange.start, dateRange.end]);
+
+    const busiestTime = useMemo(() => busiestSlot(busyTimeAnalytics), [busyTimeAnalytics]);
+    const topCategoryRows = useMemo(() => topCategories(salesByCategoryData, 5), [salesByCategoryData]);
 
     const consignorOptions = [
         { value: '', label: 'All Consignors' },
@@ -1268,6 +1208,39 @@ export function Sales() {
         URL.revokeObjectURL(url);
     };
 
+    const summaryReportLabels = () => {
+        const selectedConsignor = consignors.find((consignor) => consignor.id === filterConsignor);
+        return {
+            rangeLabel: filterDatePreset !== 'all' && selectedRangeLabel ? selectedRangeLabel : 'All time',
+            consignorLabel: selectedConsignor
+                ? `${selectedConsignor.consignor_number} - ${selectedConsignor.name}`
+                : 'All vendors',
+        };
+    };
+
+    const handleExportSummaryCsv = () => {
+        const labels = summaryReportLabels();
+        downloadCsv(
+            booksFilename(labels.rangeLabel, labels.consignorLabel),
+            [booksCsv({ books: salesSummary.books, ...labels })]
+        );
+    };
+
+    const handlePrintSummary = () => {
+        const html = buildBooksReportHtml({ books: salesSummary.books, ...summaryReportLabels() });
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+            toast.error('Could not open the print window', 'Allow pop-ups for this site and try again.');
+            return;
+        }
+        printWindow.document.write(html);
+        printWindow.document.close();
+        printWindow.onload = () => {
+            printWindow.focus();
+            printWindow.print();
+        };
+    };
+
     const handleExportSalesCsvItemized = () => {
         if (allFilteredSales.length === 0) return;
 
@@ -1532,98 +1505,14 @@ export function Sales() {
                 )}
             </div>
 
-            {/* Summary Cards - Only show for sales tab */}
+            {/* One quiet line for the Sales tab; the full summary is on its own tab */}
             {!isEmployeeView && activeTab === 'sales' && (
-                <>
-                    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/50 p-4 mb-6 space-y-4">
-                        <div className="flex items-center justify-between gap-3">
-                            <p className="text-sm font-medium text-[var(--color-foreground)]">Sales Snapshot</p>
-                            <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => setActiveTab('salesAnalytics')}
-                                disabled={isLoadingAllFiltered}
-                            >
-                                See all sales analytics
-                            </Button>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <SummaryCard
-                                label="Net Sales"
-                                value={formatCurrency(totals.total)}
-                                info="Sale totals after refunds, for the current date and consignor filters: every tender, including store credit and gift card redemptions. Equals Gross Sales + Taxes + card fees - Refunds."
-                            />
-                            <SummaryCard
-                                label="Gross Sales"
-                                value={formatCurrency(totals.subtotal)}
-                                info="Pre-tax subtotal after discounts from all matching sales, before refunds."
-                            />
-                            <SummaryCard
-                                label="Taxes"
-                                value={formatCurrency(totals.tax)}
-                                info="Total tax recorded on matching sales, before refunds."
-                            />
-                            <SummaryCard
-                                label="Refunds"
-                                value={`-${formatCurrency(totals.totalRefunded)}`}
-                                variant="danger"
-                                info="Money returned to customers in the selected date range."
-                            />
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                            <SummaryCard
-                                label="Cash"
-                                value={formatCurrency(paymentTotals.cashNetTotal)}
-                                info="Net cash sales after cash refunds."
-                            />
-                            <SummaryCard
-                                label="Card"
-                                value={formatCurrency(paymentTotals.cardNetTotal)}
-                                info="Net card sales after card refunds."
-                            />
-                            <SummaryCard
-                                label="Check"
-                                value={formatCurrency(paymentTotals.checkNetTotal)}
-                                info="Net check sales after check refunds."
-                            />
-                            <SummaryCard
-                                label="Store Credit"
-                                value={formatCurrency(paymentTotals.storeCreditNetTotal)}
-                                info="Store credit redeemed on sales, less credit returned on refunds. Not money received."
-                            />
-                            <SummaryCard
-                                label="Gift Card"
-                                value={formatCurrency(paymentTotals.giftCardNetTotal)}
-                                info="Gift card balances redeemed on sales, less balances returned on refunds. The money was received when the gift card was sold."
-                            />
-                        </div>
-                    </div>
-                    <DetailCard
-                        className="mb-6"
-                        title="Cash Reconciliation"
-                        subtitle={`${cashReconciliation.cashSalesCount} cash sale${cashReconciliation.cashSalesCount !== 1 ? 's' : ''} in current filter • dealer cash buys: -${formatCurrency(cashReconciliation.cashDealerPurchasesTotal)}${
-                            cashReconciliation.giftCardCashSales > 0.009
-                                ? ` • gift cards sold for cash: +${formatCurrency(cashReconciliation.giftCardCashSales)}`
-                                : ''
-                        }${
-                            cashReconciliation.offlineUnsyncedCashNetTotal > 0.009
-                                ? ` • offline unsynced: +${formatCurrency(cashReconciliation.offlineUnsyncedCashNetTotal)}`
-                                : ''
-                        }`}
-                        actions={(
-                            <Button variant="secondary" onClick={() => setShowCashReconciliation(true)}>
-                                Count Drawer
-                            </Button>
-                        )}
-                        items={[
-                            {
-                                label: 'Expected Cash',
-                                value: formatCurrency(cashReconciliation.expectedCashFromSales),
-                                tone: 'default',
-                            },
-                        ]}
-                    />
-                </>
+                <SalesSummaryStrip
+                    summary={salesSummary}
+                    onCountDrawer={() => setShowCashReconciliation(true)}
+                    onSeeSummary={() => setActiveTab('salesAnalytics')}
+                    disabled={isLoadingAllFiltered}
+                />
             )}
 
             {/* Sales Tab Content */}
@@ -1849,168 +1738,18 @@ export function Sales() {
                 </>
             )}
 
-            {/* Sales Analytics Tab Content */}
+            {/* Summary tab */}
             {activeTab === 'salesAnalytics' && (
-                <div className="space-y-4">
-                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]/40 p-4">
-                        <p className="text-sm font-medium">Every dollar must be accounted for: Total Collected = Total Received</p>
-                        <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
-                            <div className="rounded-lg border border-[var(--color-border)] p-3 bg-[var(--color-card)]">
-                                <p className="font-semibold">What Customers Paid For</p>
-                                <div className="mt-2 space-y-1 text-[var(--color-muted)]">
-                                    <p>Gross Product Sales: {formatCurrency(accountabilityMetrics.grossProductSales)}</p>
-                                    <p>Discounts: -{formatCurrency(accountabilityMetrics.discounts)}</p>
-                                    <p>Returns (pre-tax): -{formatCurrency(accountabilityMetrics.returns)}</p>
-                                    <p>Allowances: -{formatCurrency(accountabilityMetrics.allowances)}</p>
-                                    <p className="text-[var(--color-foreground)] font-medium">Net Sales: {formatCurrency(accountabilityMetrics.netSales)}</p>
-                                    <p>Sales Tax (net of refunds): {formatCurrency(accountabilityMetrics.salesTax)}</p>
-                                    <p>Credit Card Fees (net of refunds): {formatCurrency(accountabilityMetrics.creditCardFeesCharged)}</p>
-                                    <p>Gift Certificates Sold: {formatCurrency(accountabilityMetrics.giftCertificatesSold)}</p>
-                                    <p className="text-[var(--color-foreground)] font-semibold">Total Collected: {formatCurrency(accountabilityMetrics.totalCollected)}</p>
-                                </div>
-                            </div>
-                            <div className="rounded-lg border border-[var(--color-border)] p-3 bg-[var(--color-card)]">
-                                <p className="font-semibold">How Customers Paid</p>
-                                <div className="mt-2 space-y-1 text-[var(--color-muted)]">
-                                    <p>Cash in (drawer): {formatCurrency(accountabilityMetrics.cashInDrawer)}</p>
-                                    <p>Checks (in hand): {formatCurrency(accountabilityMetrics.checksInHand)}</p>
-                                    <p>Credit Cards (batch total): {formatCurrency(accountabilityMetrics.creditCardsBatchTotal)}</p>
-                                    <p>Store Credit (redeemed, not cash): {formatCurrency(accountabilityMetrics.storeCreditRedeemed)}</p>
-                                    <p>Gift Cards (redeemed, not cash): {formatCurrency(accountabilityMetrics.giftCardRedeemed)}</p>
-                                    <p className="text-[var(--color-foreground)] font-semibold">Total Received: {formatCurrency(accountabilityMetrics.totalReceived)}</p>
-                                    <p>Collected - Received: {accountabilityMetrics.difference >= 0 ? '+' : ''}{formatCurrency(accountabilityMetrics.difference)}</p>
-                                    <p>Dealer Purchases (Cash Out): -{formatCurrency(accountabilityMetrics.dealerCashPurchases)}</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
-                        <SummaryCard
-                            label="Net Sales"
-                            value={formatCurrency(totals.total)}
-                            info="Sale totals after refunds, for the selected filters: every tender, including store credit and gift card redemptions."
-                        />
-                        <SummaryCard
-                            label="Gross Sales"
-                            value={formatCurrency(totals.subtotal)}
-                            info="Pre-tax subtotal after discounts from matching sales, before refunds."
-                        />
-                        <SummaryCard
-                            label="Taxes"
-                            value={formatCurrency(totals.tax)}
-                            info="Total tax recorded on matching sales, before refunds."
-                        />
-                        <SummaryCard
-                            label="Refunds"
-                            value={`-${formatCurrency(totals.totalRefunded)}`}
-                            variant="danger"
-                            info="Money returned to customers in the selected range."
-                        />
-                        <SummaryCard
-                            label="Consignor Payouts"
-                            value={formatCurrency(totals.consignorShare)}
-                            variant="success"
-                            info="Estimated consignor portion based on item commission splits."
-                        />
-                        <SummaryCard
-                            label="Store Revenue"
-                            value={formatCurrency(totals.storeShare)}
-                            variant="primary"
-                            info="Estimated store portion after consignor share."
-                        />
-                        <SummaryCard
-                            label="Cash"
-                            value={formatCurrency(paymentTotals.cashNetTotal)}
-                            info="Net cash sales after cash refunds."
-                        />
-                        <SummaryCard
-                            label="Card"
-                            value={formatCurrency(paymentTotals.cardNetTotal)}
-                            info="Net card sales after card refunds."
-                        />
-                        <SummaryCard
-                            label="Check"
-                            value={formatCurrency(paymentTotals.checkNetTotal)}
-                            info="Net check sales after check refunds."
-                        />
-                        <SummaryCard
-                            label="Store Credit"
-                            value={formatCurrency(paymentTotals.storeCreditNetTotal)}
-                            info="Store credit redeemed on sales, less credit returned on refunds. Not money received."
-                        />
-                        <SummaryCard
-                            label="Gift Card"
-                            value={formatCurrency(paymentTotals.giftCardNetTotal)}
-                            info="Gift card balances redeemed on sales, less balances returned on refunds. The money was received when the gift card was sold."
-                        />
-                        <SummaryCard
-                            label="Card Fee Total"
-                            value={`-${formatCurrency(paymentTotals.cardFeeTotal)}`}
-                            variant="warning"
-                            info="Total card fee surcharge amount recorded on sales."
-                        />
-                        <SummaryCard
-                            label="Consignor Card Fees"
-                            value={`-${formatCurrency(payoutBasisTotals.consignorCardFees)}`}
-                            variant="warning"
-                            info="Processing fees deducted from consignor earnings where consignor-pays-card-fee is enabled."
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-                        <SummaryCard
-                            label="Transactions"
-                            value={String(analyticsOverview.transactionCount)}
-                            info="Number of completed sales in the selected filters."
-                        />
-                        <SummaryCard
-                            label="Items Sold"
-                            value={String(analyticsOverview.itemsSold)}
-                            info="Total item quantities sold across matching sales."
-                        />
-                        <SummaryCard
-                            label="Avg Ticket"
-                            value={formatCurrency(analyticsOverview.avgTicket)}
-                            info="Average net sale amount per transaction."
-                        />
-                        <SummaryCard
-                            label="Top Category"
-                            value={analyticsOverview.topCategory}
-                            info="Highest-selling category by revenue in this period."
-                        />
-                        <SummaryCard
-                            label="Card Share"
-                            value={`${analyticsOverview.cardShare.toFixed(1)}%`}
-                            info="Percent of net sales paid by card."
-                        />
-                        <SummaryCard
-                            label="Expected Cash"
-                            value={formatCurrency(cashReconciliation.expectedCashFromSales)}
-                            info="Expected cash from cash tenders and gift cards sold for cash, minus cash refunds and dealer cash purchases."
-                        />
-                    </div>
-
-                    {isLoadingAnalytics ? (
-                        <div className="flex justify-center py-12">
-                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                            <AnalyticsCard title="Sales Trend">
-                                <SalesTrendChart data={salesTrendData} />
-                            </AnalyticsCard>
-                            <AnalyticsCard title="Sales by Category">
-                                <SalesByCategoryChart data={salesByCategoryData} />
-                            </AnalyticsCard>
-                            <div className="xl:col-span-2">
-                                <AnalyticsCard title="Busy Time Analytics">
-                                    <BusyTimesCard data={busyTimeAnalytics} />
-                                </AnalyticsCard>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <SalesSummary
+                    summary={salesSummary}
+                    trend={dailyNetSalesData}
+                    busiest={busiestTime}
+                    categories={topCategoryRows}
+                    isLoadingTrend={isLoadingAllFiltered}
+                    onCountDrawer={() => setShowCashReconciliation(true)}
+                    onExportCsv={handleExportSummaryCsv}
+                    onPrint={handlePrintSummary}
+                />
             )}
 
             {/* Receipt Preview Modal */}
