@@ -176,13 +176,16 @@ export function SalesSummary({ summary, trend, busiest, categories, isLoadingTre
                     )}
                 </div>
                 {categories.length > 0 && (
-                    <div className="mt-4 grid grid-cols-1 gap-x-10 border-t border-[var(--color-border)] pt-3 sm:grid-cols-2">
+                    <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+                        <p className="mb-1 text-[12.5px] text-[var(--color-muted)]">Top categories, before discounts and returns</p>
+                        <div className="grid grid-cols-1 gap-x-10 sm:grid-cols-2">
                         {categories.map((row) => (
                             <div key={row.category} className="flex items-baseline justify-between gap-4 py-1 text-sm">
                                 <span className="min-w-0 truncate text-[var(--color-foreground)]">{row.category}</span>
                                 <span className="shrink-0 tabular-nums text-[var(--color-foreground)]"><Money amount={row.amount} /></span>
                             </div>
                         ))}
+                        </div>
                     </div>
                 )}
             </Section>

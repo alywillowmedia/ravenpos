@@ -54,7 +54,7 @@ export function SalesTrendChart({ data, variant = 'area', valueLabel = 'Sales' }
                         formatter={(value) => [formatCurrency(Number(value) || 0), valueLabel]}
                     />
                     <Line
-                        type="monotone"
+                        type="linear"
                         dataKey="amount"
                         stroke="var(--color-primary)"
                         strokeWidth={2}
