@@ -104,7 +104,7 @@ function sumRefundTenderCents(refunds: RefundLike[], method: TenderMethod): numb
  * fee. Split each refund the same way its sale was made up; without the sale
  * the whole refund is treated as merchandise.
  */
-function splitRefundCents(refund: RefundLike): { merchandiseCents: number; taxCents: number; cardFeeCents: number } {
+export function splitRefundCents(refund: RefundLike): { merchandiseCents: number; taxCents: number; cardFeeCents: number } {
     const refundCents = toCurrencyCents(refund.refund_amount || 0);
     const sale = Array.isArray(refund.sale) ? refund.sale[0] : refund.sale;
     const saleTotalCents = toCurrencyCents(sale?.total || 0);
