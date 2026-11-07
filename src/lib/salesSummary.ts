@@ -9,13 +9,17 @@ import { formatCurrency } from './utils';
  *
  * Who gets what. Every dollar collected is one of:
  *   Collected = Net sales + Sales tax + Card fees charged + Gift cards sold
- * and net sales splits by each item's commission split into
- *   Net sales = Vendors + Store + Vendor-paid card fees + Not split
- * where Vendors is already net of the card fee a vendor pays (so that fee is
- * added back as its own row) and Not split is whatever the item splits do not
- * reach: items of inactive vendors, refunds that are not tied to an item,
- * rounding. Not split is measured, never forced: it is shown whenever it is
- * not zero, so the rows always add up to Collected without hiding anything.
+ * and net sales is made of the in-range item lines less returns of sales from
+ * before the range:
+ *   Net sales = Vendors + Store + Vendor-paid card fees   (active vendors' lines)
+ *             + Inactive vendors' items
+ *             - Returns of earlier sales
+ *             + Not split
+ * Vendors is already net of the card fee a vendor pays, so that fee is added
+ * back as its own row. Each known cause has its own row. Not split is only
+ * what is left over (refunds whose amount does not match the returned
+ * quantity, bad data, rounding), so it is a check on the data and never a
+ * plug for known differences.
  */
 
 export type SummaryMetrics = Pick<
@@ -43,11 +47,23 @@ export type SummaryMetrics = Pick<
 
 export interface SalesSummaryInput {
     metrics: SummaryMetrics;
-    /** Estimated shares from each item's commission split (payoutBasisTotals). */
-    payout: { consignorShare: number; storeShare: number; consignorCardFees: number };
+    /** Estimated shares from each item's commission split (calculatePayoutBasis). */
+    payout: {
+        consignorShare: number;
+        storeShare: number;
+        consignorCardFees: number;
+        inactiveVendorLines?: number;
+        selectedVendorShare?: number;
+        otherVendorsShare?: number;
+    };
+    /** Merchandise of in-range refunds whose sale is not in range (returnsOfEarlierSales). */
+    earlierReturns?: number;
     transactionCount: number;
     itemsSold: number;
     topCategory: string | null;
+    /** Set when the page is filtered to one vendor. Totals then cover whole sales that include them. */
+    vendor?: { label: string } | null;
+    isLoading?: boolean;
 }
 
 export interface SummaryLine {
@@ -57,9 +73,20 @@ export interface SummaryLine {
     /** Shown with a minus sign when nonzero. */
     deduct?: boolean;
     muted?: boolean;
+    /** A warning, not an error: amber, never red. */
+    tone?: 'warning';
+}
+
+export interface DrawerNote {
+    key: string;
+    amount: number;
+    /** Ready to show, with its sign. */
+    text: string;
 }
 
 export interface SalesSummary {
+    loading: boolean;
+    vendorNote: string | null;
     headline: {
         netSales: number;
         storeKeeps: number;
@@ -77,13 +104,14 @@ export interface SalesSummary {
         /** Absolute gap between collected and received. */
         difference: number;
         hint: string | null;
-        drawer: { expected: number; notes: SummaryLine[] };
+        drawer: { expected: number; notes: DrawerNote[] };
     };
     split: {
         rows: SummaryLine[];
         total: number;
         notSplit: number;
-        sumsToCollected: boolean;
+        /** Set when Not split is more than two cents. */
+        hint: string | null;
         footnote: string;
     };
     books: {
@@ -116,6 +144,22 @@ export function isZeroAmount(value: number | null | undefined): boolean {
     return Math.abs(Number(value) || 0) < HALF_CENT;
 }
 
+function drawerNotes(metrics: SummaryMetrics): DrawerNote[] {
+    const dealer = roundMoney(metrics.dealerCashPurchases);
+    const gifts = roundMoney(metrics.giftCardSalesCash);
+    const offline = roundMoney(metrics.offlineUnsyncedCashSales);
+    const notes: DrawerNote[] = [];
+    if (!isZeroAmount(dealer)) notes.push({ key: 'dealerCashOut', amount: dealer, text: `Dealer cash out \u2212${formatCurrency(dealer)}` });
+    // Gift cards sold for cash are already inside the Cash row.
+    if (!isZeroAmount(gifts)) notes.push({ key: 'giftCardsSoldForCash', amount: gifts, text: `Includes ${formatCurrency(gifts)} gift cards sold for cash` });
+    if (!isZeroAmount(offline)) notes.push({ key: 'offlineUnsynced', amount: offline, text: `Offline unsynced +${formatCurrency(offline)}` });
+    return notes;
+}
+
+export function vendorScopeNote(label: string): string {
+    return `Sales that include ${label}. Totals cover whole sales.`;
+}
+
 export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
     const { metrics, payout } = input;
 
@@ -142,8 +186,8 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
     const hint = balanced
         ? null
         : gap > 0
-            ? 'Collected is more than received. A sale may be missing a payment, or a payment is recorded on the wrong type.'
-            : 'Received is more than collected. A payment may be counted twice, or a sale is missing from this range.';
+            ? 'Collected is above received. Look for a gift card sold with no payment method.'
+            : 'Received is above collected. Look for a refund with no recorded tender.';
 
     const balance: SalesSummary['balance'] = {
         rows: [
@@ -155,16 +199,12 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
         ],
         received: roundMoney(metrics.totalReceived),
         collected: roundMoney(metrics.totalCollected),
-        balanced,
+        balanced: balanced && !input.isLoading,
         difference,
         hint,
         drawer: {
             expected: roundMoney(metrics.expectedCashFromSales),
-            notes: [
-                { key: 'dealerCashOut', label: 'Dealer cash out', amount: roundMoney(metrics.dealerCashPurchases) },
-                { key: 'giftCardsSoldForCash', label: 'Gift cards sold for cash', amount: roundMoney(metrics.giftCardSalesCash) },
-                { key: 'offlineUnsynced', label: 'Offline unsynced', amount: roundMoney(metrics.offlineUnsyncedCashSales) },
-            ].filter((note) => !isZeroAmount(note.amount)),
+            notes: drawerNotes(metrics),
         },
     };
 
@@ -173,17 +213,31 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
     const vendorCents = toCents(payout.consignorShare);
     const storeCents = toCents(payout.storeShare);
     const vendorFeeCents = toCents(payout.consignorCardFees);
-    const notSplitCents = netCents - vendorCents - storeCents - vendorFeeCents;
+    const inactiveCents = toCents(payout.inactiveVendorLines);
+    const earlierReturnsCents = toCents(input.earlierReturns);
+    const notSplitCents = netCents - (vendorCents + storeCents + vendorFeeCents + inactiveCents - earlierReturnsCents);
     const taxCents = toCents(metrics.salesTax);
     const cardFeeCents = toCents(metrics.creditCardFeesCharged);
     const giftCents = toCents(metrics.giftCertificatesSold);
 
-    const splitRows: SummaryLine[] = [
-        { key: 'vendors', label: 'Vendors', amount: fromCents(vendorCents) },
-        { key: 'store', label: 'Store', amount: fromCents(storeCents) },
-    ];
+    const splitRows: SummaryLine[] = [];
+    if (input.vendor) {
+        splitRows.push({ key: 'vendor', label: input.vendor.label, amount: roundMoney(payout.selectedVendorShare) });
+        if (toCents(payout.otherVendorsShare) !== 0) {
+            splitRows.push({ key: 'otherVendors', label: 'Other vendors in the same sales', amount: roundMoney(payout.otherVendorsShare) });
+        }
+    } else {
+        splitRows.push({ key: 'vendors', label: 'Vendors', amount: fromCents(vendorCents) });
+    }
+    splitRows.push({ key: 'store', label: 'Store', amount: fromCents(storeCents) });
     if (vendorFeeCents !== 0) {
-        splitRows.push({ key: 'vendorCardFees', label: 'Card fees withheld from vendors', amount: fromCents(vendorFeeCents) });
+        splitRows.push({ key: 'vendorCardFees', label: 'Card fees paid by vendors, to the processor', amount: fromCents(vendorFeeCents) });
+    }
+    if (inactiveCents !== 0) {
+        splitRows.push({ key: 'inactiveVendors', label: "Inactive vendors' items", amount: fromCents(inactiveCents) });
+    }
+    if (earlierReturnsCents !== 0) {
+        splitRows.push({ key: 'earlierReturns', label: 'Returns of earlier sales', amount: fromCents(-earlierReturnsCents) });
     }
     splitRows.push(
         { key: 'salesTax', label: 'Sales tax, owed to the state', amount: fromCents(taxCents) },
@@ -192,17 +246,24 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
     if (giftCents !== 0) {
         splitRows.push({ key: 'giftCardsSold', label: 'Gift cards sold', amount: fromCents(giftCents) });
     }
+    const remainder = Math.abs(notSplitCents);
     if (notSplitCents !== 0) {
-        splitRows.push({ key: 'notSplit', label: 'Not split', amount: fromCents(notSplitCents), muted: true });
+        splitRows.push({
+            key: 'notSplit',
+            label: remainder <= 1 ? 'Rounding' : 'Not split',
+            amount: fromCents(notSplitCents),
+            muted: remainder <= 2,
+            tone: remainder > 2 ? 'warning' : undefined,
+        });
     }
-    const totalCents = toCents(metrics.totalCollected);
-    const rowsCents = splitRows.reduce((sum, row) => sum + toCents(row.amount), 0);
 
     const split: SalesSummary['split'] = {
         rows: splitRows,
-        total: fromCents(totalCents),
+        total: fromCents(toCents(metrics.totalCollected)),
         notSplit: fromCents(notSplitCents),
-        sumsToCollected: rowsCents === totalCents,
+        hint: remainder > 2
+            ? 'Part of the sales is not accounted for by the item splits. Check refunds whose amount does not match the items returned.'
+            : null,
         footnote: SPLIT_FOOTNOTE,
     };
 
@@ -228,7 +289,14 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
         },
     };
 
-    return { headline, balance, split, books };
+    return {
+        loading: Boolean(input.isLoading),
+        vendorNote: input.vendor ? vendorScopeNote(input.vendor.label) : null,
+        headline,
+        balance,
+        split,
+        books,
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -240,28 +308,30 @@ interface BooksReportInput {
     books: Books;
     rangeLabel: string;
     consignorLabel: string;
+    /** Printed under the header when the page is filtered to one vendor. */
+    scopeNote?: string | null;
 }
 
-type CsvCell = string | { amount: string };
+type CsvCell = string | number;
 
 function csvCell(cell: CsvCell): string {
     // Amounts are plain numbers. Text that starts with = + - @ would be read
     // as a formula by spreadsheets, so it gets a leading apostrophe.
-    if (typeof cell !== 'string') return cell.amount;
+    if (typeof cell === 'number') return roundMoney(cell).toFixed(2);
     const safe = /^[=+\-@\t\r]/.test(cell) ? `'${cell}` : cell;
     return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-function csvAmount(line: { amount: number; deduct?: boolean }): CsvCell {
-    const amount = line.deduct && !isZeroAmount(line.amount) ? -line.amount : line.amount;
-    return { amount: roundMoney(amount).toFixed(2) };
+function csvAmount(line: { amount: number; deduct?: boolean }): number {
+    return line.deduct && !isZeroAmount(line.amount) ? -line.amount : line.amount;
 }
 
-export function booksCsv({ books, rangeLabel, consignorLabel }: BooksReportInput): string {
+export function booksCsv({ books, rangeLabel, consignorLabel, scopeNote }: BooksReportInput): string {
     const rows: CsvCell[][] = [
         ['Sales summary for the books'],
         ['Date range', rangeLabel],
         ['Vendor', consignorLabel],
+        ...(scopeNote ? [['Note', scopeNote]] : []),
         [],
         ['What was sold', 'Amount'],
         ...books.left.lines.map((line) => [line.label, csvAmount(line)]),
@@ -297,7 +367,7 @@ function printAmount(line: SummaryLine): string {
     return line.deduct && !isZeroAmount(line.amount) ? `-${text}` : text;
 }
 
-export function buildBooksReportHtml({ books, rangeLabel, consignorLabel }: BooksReportInput): string {
+export function buildBooksReportHtml({ books, rangeLabel, consignorLabel, scopeNote }: BooksReportInput): string {
     const column = (title: string, lines: SummaryLine[], total: { label: string; amount: number }) => `
         <div class="col">
             <h2>${escapeHtml(title)}</h2>
@@ -323,7 +393,7 @@ export function buildBooksReportHtml({ books, rangeLabel, consignorLabel }: Book
 </head>
 <body>
     <h1>Sales summary for the books</h1>
-    <div class="meta">Date range: ${escapeHtml(rangeLabel)} &middot; Vendor: ${escapeHtml(consignorLabel)}</div>
+    <div class="meta">Date range: ${escapeHtml(rangeLabel)} &middot; Vendor: ${escapeHtml(consignorLabel)}${scopeNote ? `<br />${escapeHtml(scopeNote)}` : ''}</div>
     <div class="cols">
         ${column('What was sold', books.left.lines, books.left.total)}
         ${column('What was collected', books.right.lines, books.right.total)}
@@ -368,8 +438,8 @@ function hourRange(hour: number): string {
     const start = hourLabel(hour);
     const end = hourLabel(hour + 1);
     return start.period === end.period
-        ? `${start.number}-${end.number} ${end.period}`
-        : `${start.number} ${start.period}-${end.number} ${end.period}`;
+        ? `${start.number}\u2013${end.number} ${end.period}`
+        : `${start.number} ${start.period}\u2013${end.number} ${end.period}`;
 }
 
 export function busiestSlot(
@@ -380,7 +450,16 @@ export function busiestSlot(
     const hour = pickBusiest(data.hourlyBreakdown);
     if (!day || !hour) return null;
     const range = hourRange(hour.index);
-    return { weekday: day.bucket.label, hourRange: range, text: `${day.bucket.label}, ${range}` };
+    return { weekday: day.bucket.label, hourRange: range, text: `Busiest day ${day.bucket.label} \u00b7 busiest hour ${range}` };
+}
+
+/** The category with the most items sold, or null when nothing sold. */
+export function topCategoryByItems<T extends { category: string; count: number }>(data: T[]): string | null {
+    let best: T | null = null;
+    for (const row of data) {
+        if (row.count > 0 && (!best || row.count > best.count)) best = row;
+    }
+    return best ? best.category : null;
 }
 
 export function topCategories<T extends { category: string; amount: number }>(data: T[], limit = 5): T[] {

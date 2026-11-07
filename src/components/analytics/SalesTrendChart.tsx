@@ -42,7 +42,7 @@ export function SalesTrendChart({ data, variant = 'area', valueLabel = 'Sales' }
                         tickLine={false}
                         axisLine={false}
                         width={52}
-                        tickFormatter={(value) => `$${value}`}
+                        tickFormatter={(value) => (Number(value) < 0 ? `\u2212$${Math.abs(Number(value))}` : `$${value}`)}
                         domain={hasData ? [0, 'auto'] : [0, 100]}
                     />
                     <Tooltip
@@ -58,7 +58,7 @@ export function SalesTrendChart({ data, variant = 'area', valueLabel = 'Sales' }
                         dataKey="amount"
                         stroke="var(--color-primary)"
                         strokeWidth={2}
-                        dot={false}
+                        dot={data.length <= 2 ? { r: 3 } : false}
                         activeDot={{ r: 3 }}
                     />
                 </LineChart>

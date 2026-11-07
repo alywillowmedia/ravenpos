@@ -25,7 +25,6 @@ import { supabase } from '../lib/supabase';
 import { printReceipt } from '../lib/printReceipt';
 import { printTillCountReceipt } from '../lib/printTillCountReceipt';
 import { calculateSaleItemDiscountBreakdown } from '../lib/saleDiscounts';
-import { calculateStripeTerminalProcessingFee } from '../lib/cardFees';
 import { getOfflineUnsyncedCashNetTotal } from '../lib/offlineCashSales';
 import {
     fromCurrencyCents,
@@ -37,7 +36,8 @@ import {
     toCurrencyCents,
 } from '../lib/cashReconciliation';
 import { calculateTillAccountabilityMetrics } from '../lib/tillAccountability';
-import { booksCsv, booksFilename, buildBooksReportHtml, buildSalesSummary, busiestSlot, dailyNetSales, topCategories } from '../lib/salesSummary';
+import { booksCsv, booksFilename, buildBooksReportHtml, buildSalesSummary, busiestSlot, dailyNetSales, topCategories, topCategoryByItems } from '../lib/salesSummary';
+import { calculatePayoutBasis, refundsOfSales, returnsOfEarlierSales } from '../lib/payoutBasis';
 import {
     TENDER_ORDER,
     describeTender,
@@ -237,6 +237,12 @@ export function Sales() {
     const [isSendingTillEmail, setIsSendingTillEmail] = useState(false);
     const [salesByCategoryData, setSalesByCategoryData] = useState<SalesByCategoryData[]>([]);
     const [busyTimeAnalytics, setBusyTimeAnalytics] = useState<BusyTimeAnalyticsData | null>(null);
+    // Gift cards sold, dealer cash and offline cash load on their own; the
+    // summary must not say Balanced before they are in.
+    const [loadingExtras, setLoadingExtras] = useState({ dealer: true, offline: true, gifts: true });
+    const isLoadingExtras = !isEmployeeView && (loadingExtras.dealer || loadingExtras.offline || loadingExtras.gifts);
+    const markExtra = (key: 'dealer' | 'offline' | 'gifts', value: boolean) =>
+        setLoadingExtras((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
     const [openingFloatInput, setOpeningFloatInput] = useState('');
     const [manualCashAdjustmentInput, setManualCashAdjustmentInput] = useState('');
     const [checkCountInput, setCheckCountInput] = useState('');
@@ -430,6 +436,7 @@ export function Sales() {
         }
 
         const loadDealerCashPurchases = async () => {
+            markExtra('dealer', true);
             let query = supabase
                 .from('dealer_purchases')
                 .select('total')
@@ -448,11 +455,13 @@ export function Sales() {
                     toast.error('Failed to load dealer cash purchases', error.message);
                 }
                 setCashDealerPurchasesTotal(0);
+                markExtra('dealer', false);
                 return;
             }
 
             const total = (data || []).reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
             setCashDealerPurchasesTotal(total);
+            markExtra('dealer', false);
         };
 
         void loadDealerCashPurchases();
@@ -465,11 +474,13 @@ export function Sales() {
         }
 
         const loadOfflineUnsyncedCash = async () => {
+            markExtra('offline', true);
             const total = await getOfflineUnsyncedCashNetTotal({
                 dateStart: dateStartIso,
                 dateEnd: dateEndIso,
             });
             setOfflineUnsyncedCashNetTotal(total);
+            markExtra('offline', false);
         };
 
         void loadOfflineUnsyncedCash();
@@ -482,6 +493,7 @@ export function Sales() {
         }
 
         const loadGiftCardSales = async () => {
+            markExtra('gifts', true);
             let query = supabase
                 .from('gift_cards')
                 .select('original_amount, purchase_payment_method');
@@ -497,10 +509,12 @@ export function Sales() {
             if (error) {
                 toast.error('Failed to load gift certificate sales', error.message);
                 setGiftCardSales([]);
+                markExtra('gifts', false);
                 return;
             }
 
             setGiftCardSales((data || []) as Array<{ original_amount: number; purchase_payment_method: string | null }>);
+            markExtra('gifts', false);
         };
 
         void loadGiftCardSales();
@@ -644,88 +658,6 @@ export function Sales() {
         void loadAnalytics();
     }, [activeTab, dateRange.start, dateRange.end, allFilteredSales, getSalesByCategory, getBusyTimeAnalytics, isEmployeeView]);
 
-    const payoutBasisTotals = useMemo(() => {
-        const refundedItemsMap = new Map<string, number>();
-        for (const refund of filteredRefunds) {
-            const items = refund.items as Array<{ sale_item_id: string; quantity: number }> | null | undefined;
-            for (const item of items || []) {
-                const current = refundedItemsMap.get(item.sale_item_id) || 0;
-                refundedItemsMap.set(item.sale_item_id, current + Number(item.quantity || 0));
-            }
-        }
-
-        let grossSales = 0;
-        let taxCollected = 0;
-        let consignorShare = 0;
-        let storeShare = 0;
-        let consignorCardFees = 0;
-
-        for (const sale of allFilteredSales) {
-            const saleItems = sale.items.filter((item) => item.consignor?.is_active !== false);
-            if (saleItems.length === 0) continue;
-
-            let subtotalAfterItemDiscounts = 0;
-            let totalItemDiscounts = 0;
-            for (const item of saleItems) {
-                const rawLineTotal = Number(item.price || 0) * Number(item.quantity || 0);
-                const itemDiscount = Math.max(0, Math.min(Number(item.discount_amount || 0), rawLineTotal));
-                subtotalAfterItemDiscounts += Math.max(0, rawLineTotal - itemDiscount);
-                totalItemDiscounts += itemDiscount;
-            }
-
-            const saleDiscountTotal = Math.max(0, Number(sale.discount_total || 0));
-            const orderDiscountTotal = Math.max(
-                0,
-                Math.min(saleDiscountTotal - totalItemDiscounts, subtotalAfterItemDiscounts)
-            );
-            const orderDiscountRatio = subtotalAfterItemDiscounts > 0 ? orderDiscountTotal / subtotalAfterItemDiscounts : 0;
-            const saleNetSubtotal = Math.max(0, subtotalAfterItemDiscounts - orderDiscountTotal);
-            const saleTax = Number(sale.tax_amount || 0);
-            // Card-fee basis is the card tender only (matches the server payout
-            // ledger); cash, check, store credit and gift card carry no fee.
-            const cardTenderAmount = getSaleTenderAmount(sale, 'card');
-            const totalSaleFee = cardTenderAmount > 0
-                ? calculateStripeTerminalProcessingFee(cardTenderAmount)
-                : 0;
-
-            for (const item of saleItems) {
-                const rawLineTotal = Number(item.price || 0) * Number(item.quantity || 0);
-                const itemDiscount = Math.max(0, Math.min(Number(item.discount_amount || 0), rawLineTotal));
-                const lineAfterItemDiscount = Math.max(0, rawLineTotal - itemDiscount);
-                const netLineTotal = lineAfterItemDiscount * (1 - orderDiscountRatio);
-
-                const itemTaxPortion = saleNetSubtotal > 0 ? (netLineTotal / saleNetSubtotal) * saleTax : 0;
-                const itemCreditCardFee =
-                    cardTenderAmount > 0 && item.consignor_pays_card_fee
-                        ? (saleNetSubtotal > 0 ? totalSaleFee * (netLineTotal / saleNetSubtotal) : 0)
-                        : 0;
-
-                const refundedQty = refundedItemsMap.get(item.id) || 0;
-                const effectiveQuantity = Math.max(0, Number(item.quantity || 0) - refundedQty);
-                const effectiveRatio = Number(item.quantity || 0) > 0 ? effectiveQuantity / Number(item.quantity || 0) : 0;
-                const effectiveLineTotal = netLineTotal * effectiveRatio;
-                const effectiveTax = itemTaxPortion * effectiveRatio;
-                const effectiveCardFee = itemCreditCardFee * effectiveRatio;
-                const effectiveConsignorShare = (effectiveLineTotal * Number(item.commission_split || 0)) - effectiveCardFee;
-                const effectiveStoreShare = effectiveLineTotal - (effectiveLineTotal * Number(item.commission_split || 0));
-
-                grossSales += effectiveLineTotal;
-                taxCollected += effectiveTax;
-                consignorShare += effectiveConsignorShare;
-                storeShare += effectiveStoreShare;
-                consignorCardFees += effectiveCardFee;
-            }
-        }
-
-        return {
-            grossSales,
-            taxCollected,
-            consignorShare,
-            storeShare,
-            consignorCardFees,
-        };
-    }, [allFilteredSales, filteredRefunds]);
-
     const employeeAttribution = useMemo(() => {
         const employeeNameById = new Map(employeeDirectory.map((employee) => [employee.id, employee.name]));
         const adminNameById = new Map(
@@ -791,30 +723,59 @@ export function Sales() {
         return { rows, attributedEmployees, attributedAdmins };
     }, [employeeDirectory, admins, allFilteredSales]);
 
+    // The summary is built from whole sales in the date range (not the Sales tab
+    // search). With a vendor filter the sales are whole sales that include the
+    // vendor, so only refunds of those sales belong, and the store-wide pieces
+    // (gift cards sold, dealer cash, offline cash, categories, busy times) are left out.
+    const selectedVendor = useMemo(
+        () => (filterConsignor ? consignors.find((consignor) => consignor.id === filterConsignor) ?? null : null),
+        [consignors, filterConsignor]
+    );
+    const vendorScoped = Boolean(filterConsignor);
+    const vendorLabel = selectedVendor
+        ? `${selectedVendor.consignor_number} - ${selectedVendor.name}`
+        : 'this vendor';
+    const summaryRefunds = useMemo(
+        () => (vendorScoped ? refundsOfSales(filteredRefunds, allFilteredSalesRows) : filteredRefunds),
+        [vendorScoped, filteredRefunds, allFilteredSalesRows]
+    );
+    const summaryMetrics = useMemo(() => calculateTillAccountabilityMetrics({
+        sales: allFilteredSalesRows,
+        refunds: summaryRefunds,
+        giftCardsSold: vendorScoped ? [] : giftCardSales,
+        dealerCashPurchases: vendorScoped ? 0 : cashDealerPurchasesTotal,
+        offlineUnsyncedCashSales: vendorScoped ? 0 : offlineUnsyncedCashNetTotal,
+    }), [allFilteredSalesRows, summaryRefunds, vendorScoped, giftCardSales, cashDealerPurchasesTotal, offlineUnsyncedCashNetTotal]);
+
+    const isSummaryLoading = isLoading || isLoadingAllFiltered || isLoadingRefunds || isLoadingExtras;
+
     const salesSummary = useMemo(() => buildSalesSummary({
-        metrics: accountabilityMetrics,
-        payout: {
-            consignorShare: payoutBasisTotals.consignorShare,
-            storeShare: payoutBasisTotals.storeShare,
-            consignorCardFees: payoutBasisTotals.consignorCardFees,
-        },
-        transactionCount: allFilteredSales.length,
-        itemsSold: allFilteredSales.reduce(
+        metrics: summaryMetrics,
+        payout: calculatePayoutBasis({
+            sales: allFilteredSalesRows,
+            refunds: summaryRefunds,
+            vendorId: filterConsignor || null,
+        }),
+        earlierReturns: returnsOfEarlierSales(summaryRefunds, allFilteredSalesRows),
+        transactionCount: allFilteredSalesRows.length,
+        itemsSold: allFilteredSalesRows.reduce(
             (sum, sale) => sum + sale.items.reduce((itemSum, item) => itemSum + Number(item.quantity || 0), 0),
             0
         ),
-        topCategory: topCategories(salesByCategoryData, 1)[0]?.category ?? null,
-    }), [accountabilityMetrics, payoutBasisTotals, allFilteredSales, salesByCategoryData]);
+        topCategory: vendorScoped ? null : topCategoryByItems(salesByCategoryData),
+        vendor: vendorScoped ? { label: vendorLabel } : null,
+        isLoading: isSummaryLoading,
+    }), [summaryMetrics, allFilteredSalesRows, summaryRefunds, filterConsignor, vendorScoped, vendorLabel, salesByCategoryData, isSummaryLoading]);
 
     const dailyNetSalesData = useMemo(() => dailyNetSales({
-        sales: allFilteredSales,
-        refunds: filteredRefunds,
+        sales: allFilteredSalesRows,
+        refunds: summaryRefunds,
         start: dateRange.start,
         end: dateRange.end,
-    }), [allFilteredSales, filteredRefunds, dateRange.start, dateRange.end]);
+    }), [allFilteredSalesRows, summaryRefunds, dateRange.start, dateRange.end]);
 
-    const busiestTime = useMemo(() => busiestSlot(busyTimeAnalytics), [busyTimeAnalytics]);
-    const topCategoryRows = useMemo(() => topCategories(salesByCategoryData, 5), [salesByCategoryData]);
+    const busiestTime = useMemo(() => (vendorScoped ? null : busiestSlot(busyTimeAnalytics)), [vendorScoped, busyTimeAnalytics]);
+    const topCategoryRows = useMemo(() => (vendorScoped ? [] : topCategories(salesByCategoryData, 5)), [vendorScoped, salesByCategoryData]);
 
     const consignorOptions = [
         { value: '', label: 'All Consignors' },
@@ -1208,15 +1169,11 @@ export function Sales() {
         URL.revokeObjectURL(url);
     };
 
-    const summaryReportLabels = () => {
-        const selectedConsignor = consignors.find((consignor) => consignor.id === filterConsignor);
-        return {
-            rangeLabel: filterDatePreset !== 'all' && selectedRangeLabel ? selectedRangeLabel : 'All time',
-            consignorLabel: selectedConsignor
-                ? `${selectedConsignor.consignor_number} - ${selectedConsignor.name}`
-                : 'All vendors',
-        };
-    };
+    const summaryReportLabels = () => ({
+        rangeLabel: filterDatePreset !== 'all' && selectedRangeLabel ? selectedRangeLabel : 'All time',
+        consignorLabel: vendorScoped ? vendorLabel : 'All vendors',
+        scopeNote: salesSummary.vendorNote,
+    });
 
     const handleExportSummaryCsv = () => {
         const labels = summaryReportLabels();
@@ -1511,7 +1468,6 @@ export function Sales() {
                     summary={salesSummary}
                     onCountDrawer={() => setShowCashReconciliation(true)}
                     onSeeSummary={() => setActiveTab('salesAnalytics')}
-                    disabled={isLoadingAllFiltered}
                 />
             )}
 
@@ -1705,7 +1661,7 @@ export function Sales() {
                                         <tr>
                                             <th className="text-left px-4 py-2 font-medium text-[var(--color-muted)]">Team Member</th>
                                             <th className="text-right px-4 py-2 font-medium text-[var(--color-muted)]">Sales Count</th>
-                                            <th className="text-right px-4 py-2 font-medium text-[var(--color-muted)]">Gross Sales</th>
+                                            <th className="text-right px-4 py-2 font-medium text-[var(--color-muted)]">Collected</th>
                                             <th className="text-right px-4 py-2 font-medium text-[var(--color-muted)]">Avg Ticket</th>
                                         </tr>
                                     </thead>
@@ -1745,7 +1701,6 @@ export function Sales() {
                     trend={dailyNetSalesData}
                     busiest={busiestTime}
                     categories={topCategoryRows}
-                    isLoadingTrend={isLoadingAllFiltered}
                     onCountDrawer={() => setShowCashReconciliation(true)}
                     onExportCsv={handleExportSummaryCsv}
                     onPrint={handlePrintSummary}

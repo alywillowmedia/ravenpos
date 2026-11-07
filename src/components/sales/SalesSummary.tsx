@@ -4,7 +4,7 @@ import { StatCard } from '../ui/StatCard';
 import { Money } from '../ui/Money';
 import { Button } from '../ui/Button';
 import { SalesTrendChart } from '../analytics/SalesTrendChart';
-import { cn, formatCurrency } from '../../lib/utils';
+import { cn } from '../../lib/utils';
 import { isZeroAmount, type BusiestSlot, type SalesSummary as SalesSummaryData, type SummaryLine } from '../../lib/salesSummary';
 
 export interface SalesSummaryProps {
@@ -12,17 +12,16 @@ export interface SalesSummaryProps {
     trend: Array<{ date: string; amount: number; count: number }>;
     busiest: BusiestSlot | null;
     categories: Array<{ category: string; amount: number }>;
-    isLoadingTrend: boolean;
     onCountDrawer: () => void;
     onExportCsv: () => void;
     onPrint: () => void;
 }
 
 /** A zero is quiet. Red and green are kept for bad and good news only. */
-function AmountText({ line }: { line: Pick<SummaryLine, 'amount' | 'deduct' | 'muted'> }) {
+function AmountText({ line }: { line: Pick<SummaryLine, 'amount' | 'deduct' | 'muted' | 'tone'> }) {
     const zero = isZeroAmount(line.amount);
     return (
-        <span className={cn('shrink-0 tabular-nums', zero || line.muted ? 'text-[var(--color-muted)]' : 'text-[var(--color-foreground)]')}>
+        <span className={cn('shrink-0 tabular-nums', line.tone === 'warning' ? 'text-[var(--color-warning)]' : zero || line.muted ? 'text-[var(--color-muted)]' : 'text-[var(--color-foreground)]')}>
             {line.deduct && !zero ? '−' : ''}
             <Money amount={line.amount} />
         </span>
@@ -32,7 +31,7 @@ function AmountText({ line }: { line: Pick<SummaryLine, 'amount' | 'deduct' | 'm
 function Row({ line }: { line: SummaryLine }) {
     return (
         <div className="flex items-baseline justify-between gap-4 py-1.5 text-sm">
-            <span className={cn('min-w-0', line.muted ? 'text-[var(--color-muted)]' : 'text-[var(--color-foreground)]')}>{line.label}</span>
+            <span className={cn('min-w-0', line.tone === 'warning' ? 'text-[var(--color-warning)]' : line.muted ? 'text-[var(--color-muted)]' : 'text-[var(--color-foreground)]')}>{line.label}</span>
             <AmountText line={line} />
         </div>
     );
@@ -68,17 +67,28 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
     );
 }
 
-export function SalesSummary({ summary, trend, busiest, categories, isLoadingTrend, onCountDrawer, onExportCsv, onPrint }: SalesSummaryProps) {
+export function SalesSummary({ summary, trend, busiest, categories, onCountDrawer, onExportCsv, onPrint }: SalesSummaryProps) {
     const { headline, balance, split, books } = summary;
     const hasTrend = trend.some((day) => day.amount !== 0);
+    const vendorScoped = summary.vendorNote !== null;
+
+    if (summary.loading) {
+        return (
+            <Card className="flex items-center justify-center gap-3 py-16 text-sm text-[var(--color-muted)]">
+                <div className="h-5 w-5 animate-spin rounded-full border-b-2 border-[var(--color-primary)]" />
+                <span>Loading{'\u2026'}</span>
+            </Card>
+        );
+    }
 
     return (
         <div className="space-y-4">
+            {summary.vendorNote && <p className="text-sm text-[var(--color-muted)]">{summary.vendorNote}</p>}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <StatCard
                     label="Net sales"
                     value={<Money amount={headline.netSales} />}
-                    subtext={`${headline.transactionCount} sale${headline.transactionCount === 1 ? '' : 's'} · ${formatCurrency(headline.averageSale)} average`}
+                    subtext={<>{headline.transactionCount} sale{headline.transactionCount === 1 ? '' : 's'} {'·'} <Money amount={headline.averageSale} /> average</>}
                 />
                 <StatCard
                     label="Store keeps"
@@ -93,6 +103,13 @@ export function SalesSummary({ summary, trend, busiest, categories, isLoadingTre
             </div>
 
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                {vendorScoped ? (
+                    <Section title="Does it balance">
+                        <p className="text-sm text-[var(--color-muted)]">
+                            The drawer and the balance check cover the whole store. Pick All consignors to see them.
+                        </p>
+                    </Section>
+                ) : (
                 <Section title="Does it balance">
                     <div
                         className={cn(
@@ -121,20 +138,19 @@ export function SalesSummary({ summary, trend, busiest, categories, isLoadingTre
                                 Drawer should hold <Money amount={balance.drawer.expected} />
                             </div>
                             {balance.drawer.notes.map((note) => (
-                                <div key={note.key} className="text-[12.5px] text-[var(--color-muted)]">
-                                    {note.label}{' '}
-                                    {note.key === 'dealerCashOut' ? '−' : '+'}
-                                    <Money amount={note.amount} />
-                                </div>
+                                <div key={note.key} className="text-[12.5px] text-[var(--color-muted)]">{note.text}</div>
                             ))}
                         </div>
                         <Button variant="secondary" size="sm" onClick={onCountDrawer}>Count drawer</Button>
                     </div>
                 </Section>
+                )}
+
 
                 <Section title="Who gets what">
                     {split.rows.map((line) => <Row key={line.key} line={line} />)}
                     <TotalRow label="Collected" amount={split.total} />
+                    {split.hint && <p className="mt-3 text-[12.5px] text-[var(--color-warning)]">{split.hint}</p>}
                     <p className="mt-3 text-[12.5px] text-[var(--color-muted)]">{split.footnote}</p>
                 </Section>
             </div>
@@ -165,11 +181,7 @@ export function SalesSummary({ summary, trend, busiest, categories, isLoadingTre
                 aside={busiest ? <span className="text-[13px] text-[var(--color-muted)]">Busiest: {busiest.text}</span> : undefined}
             >
                 <div className="h-56 w-full min-w-0">
-                    {isLoadingTrend ? (
-                        <div className="flex h-full items-center justify-center">
-                            <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-[var(--color-primary)]" />
-                        </div>
-                    ) : hasTrend ? (
+                    {hasTrend ? (
                         <SalesTrendChart data={trend} variant="line" valueLabel="Net sales" />
                     ) : (
                         <div className="flex h-full items-center justify-center text-sm text-[var(--color-muted)]">No sales in this range</div>

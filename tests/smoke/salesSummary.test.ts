@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { calculateTillAccountabilityMetrics } from '../../src/lib/tillAccountability';
+import { calculatePayoutBasis, refundsOfSales, returnsOfEarlierSales } from '../../src/lib/payoutBasis';
 import {
     booksCsv,
     booksFilename,
@@ -7,6 +9,7 @@ import {
     busiestSlot,
     dailyNetSales,
     topCategories,
+    topCategoryByItems,
     type SalesSummaryInput,
 } from '../../src/lib/salesSummary';
 
@@ -41,11 +44,6 @@ const realExample: SalesSummaryInput = {
 
 function withMetrics(patch: Partial<SalesSummaryInput['metrics']>, rest: Partial<SalesSummaryInput> = {}): SalesSummaryInput {
     return { ...realExample, ...rest, metrics: { ...realExample.metrics, ...patch } };
-}
-
-function splitSum(input: SalesSummaryInput): number {
-    const { split } = buildSalesSummary(input);
-    return Math.round(split.rows.reduce((sum, row) => sum + Math.round(row.amount * 100), 0)) / 100;
 }
 
 describe('headline', () => {
@@ -110,21 +108,41 @@ describe('does it balance', () => {
         expect(balance.balanced).toBe(true);
     });
 
-    it('shows the drawer expectation and only the nonzero notes', () => {
+    it('shows the drawer expectation and only the nonzero notes, with the sign decided here', () => {
         const { balance } = buildSalesSummary(realExample);
         expect(balance.drawer.expected).toBe(1575.81);
-        expect(balance.drawer.notes).toEqual([{ key: 'dealerCashOut', label: 'Dealer cash out', amount: 43 }]);
+        expect(balance.drawer.notes).toEqual([
+            { key: 'dealerCashOut', text: 'Dealer cash out \u2212$43.00', amount: 43 },
+        ]);
 
         const all = buildSalesSummary(withMetrics({ giftCardSalesCash: 25, offlineUnsyncedCashSales: 12.5 })).balance.drawer.notes;
         expect(all.map((note) => note.key)).toEqual(['dealerCashOut', 'giftCardsSoldForCash', 'offlineUnsynced']);
+        expect(all[1].text).toBe('Includes $25.00 gift cards sold for cash');
+        expect(all[2].text).toBe('Offline unsynced +$12.50');
 
         const none = buildSalesSummary(withMetrics({ dealerCashPurchases: 0 })).balance.drawer.notes;
         expect(none).toEqual([]);
     });
+
+    it('names the real causes when it is off', () => {
+        const collectedHigh = buildSalesSummary(withMetrics({ totalCollected: 6300 })).balance.hint;
+        expect(collectedHigh).toMatch(/gift card/i);
+        expect(collectedHigh).toMatch(/payment method/i);
+        const receivedHigh = buildSalesSummary(withMetrics({ totalCollected: 6200 })).balance.hint;
+        expect(receivedHigh).toMatch(/refund/i);
+        expect(receivedHigh).toMatch(/tender/i);
+    });
+
+    it('is loading, never balanced, until the data has arrived', () => {
+        const summary = buildSalesSummary({ ...realExample, isLoading: true });
+        expect(summary.loading).toBe(true);
+        expect(summary.balance.balanced).toBe(false);
+        expect(buildSalesSummary(realExample).loading).toBe(false);
+    });
 });
 
 describe('who gets what', () => {
-    it('adds up to Collected on the real example with no Not split row', () => {
+    it('adds up to Collected on the real example with no extra rows', () => {
         const { split } = buildSalesSummary(realExample);
         expect(split.rows.map((row) => [row.key, row.amount])).toEqual([
             ['vendors', 4706.91],
@@ -134,74 +152,204 @@ describe('who gets what', () => {
         ]);
         expect(split.notSplit).toBe(0);
         expect(split.total).toBe(6226.34);
-        expect(splitSum(realExample)).toBe(6226.34);
+        expect(split.hint).toBeNull();
     });
 
-    it('adds the identity on a refund: vendors + store + vendor fees + Not split = Net sales', () => {
-        // $200 of goods, 7% tax, $50 of it returned with its $3.50 tax: net $150, tax $10.50.
-        const refund = withMetrics(
-            {
-                grossProductSales: 200,
-                discounts: 0,
-                returns: 50,
-                netSales: 150,
-                salesTax: 10.5,
-                creditCardFeesCharged: 0,
-                totalCollected: 160.5,
-                totalReceived: 160.5,
-            },
-            { payout: { consignorShare: 120, storeShare: 30, consignorCardFees: 0 } }
-        );
-        const { split, books } = buildSalesSummary(refund);
-        expect(split.notSplit).toBe(0);
-        expect(split.total).toBe(160.5);
-        expect(splitSum(refund)).toBe(160.5);
-        expect(books.left.total.amount).toBe(150);
+    it('labels a remainder of one cent or less Rounding, quietly', () => {
+        const { split } = buildSalesSummary(withMetrics({}, { payout: { consignorShare: 4706.9, storeShare: 1100.92, consignorCardFees: 0 } }));
+        const row = split.rows.find((r) => r.key === 'notSplit');
+        expect(row?.label).toBe('Rounding');
+        expect(row?.amount).toBe(0.01);
+        expect(row?.tone).toBeUndefined();
+        expect(split.hint).toBeNull();
     });
 
-    it('shows a muted Not split row for what the item splits do not cover, and still sums', () => {
-        // Items of an inactive vendor are left out of the payout basis.
-        const input = withMetrics({}, { payout: { consignorShare: 4000, storeShare: 1000, consignorCardFees: 0 } });
-        const { split } = buildSalesSummary(input);
-        const notSplit = split.rows.find((row) => row.key === 'notSplit');
-        expect(notSplit).toBeDefined();
-        expect(notSplit?.muted).toBe(true);
-        expect(notSplit?.amount).toBe(807.83);
-        expect(split.notSplit).toBe(807.83);
-        expect(splitSum(input)).toBe(6226.34);
+    it('keeps Not split for two cents without alarm, and warns above that', () => {
+        const two = buildSalesSummary(withMetrics({}, { payout: { consignorShare: 4706.89, storeShare: 1100.92, consignorCardFees: 0 } })).split;
+        expect(two.rows.find((r) => r.key === 'notSplit')?.label).toBe('Not split');
+        expect(two.rows.find((r) => r.key === 'notSplit')?.tone).toBeUndefined();
+
+        const three = buildSalesSummary(withMetrics({}, { payout: { consignorShare: 4706.88, storeShare: 1100.92, consignorCardFees: 0 } })).split;
+        const row = three.rows.find((r) => r.key === 'notSplit');
+        expect(row?.label).toBe('Not split');
+        expect(row?.tone).toBe('warning');
+        expect(three.hint).toMatch(/check/i);
     });
 
-    it('shows vendor-paid card fees as their own row, added back so the sum still holds', () => {
-        // Vendors keep 4700 after a 6.91 card fee came out of their share.
+    it('shows a negative remainder as it is, with the same warning', () => {
+        const { split } = buildSalesSummary(withMetrics({}, { payout: { consignorShare: 4800, storeShare: 1100.92, consignorCardFees: 0 } }));
+        expect(split.notSplit).toBe(-93.09);
+        expect(split.rows.find((r) => r.key === 'notSplit')?.tone).toBe('warning');
+    });
+
+    it('shows vendor-paid card fees as their own row, added back', () => {
         const input = withMetrics({}, { payout: { consignorShare: 4700, storeShare: 1100.92, consignorCardFees: 6.91 } });
         const { split } = buildSalesSummary(input);
-        const keys = split.rows.map((row) => row.key);
-        expect(keys).toContain('vendorCardFees');
-        expect(split.rows.find((row) => row.key === 'vendorCardFees')?.amount).toBe(6.91);
+        const row = split.rows.find((r) => r.key === 'vendorCardFees');
+        expect(row?.label).toBe('Card fees paid by vendors, to the processor');
+        expect(row?.amount).toBe(6.91);
         expect(split.notSplit).toBe(0);
-        expect(splitSum(input)).toBe(6226.34);
     });
 
-    it('shows gift cards sold only when there are some, and they are part of Collected', () => {
+    it('shows gift cards sold only when there are some', () => {
         const input = withMetrics({ giftCertificatesSold: 50, totalCollected: 6276.34, totalReceived: 6276.34 });
         const { split } = buildSalesSummary(input);
         expect(split.rows.find((row) => row.key === 'giftCardsSold')?.amount).toBe(50);
         expect(split.total).toBe(6276.34);
-        expect(splitSum(input)).toBe(6276.34);
         expect(buildSalesSummary(realExample).split.rows.some((row) => row.key === 'giftCardsSold')).toBe(false);
-    });
-
-    it('keeps a one-cent remainder visible instead of absorbing it', () => {
-        const input = withMetrics({}, { payout: { consignorShare: 4706.9, storeShare: 1100.92, consignorCardFees: 0 } });
-        const { split } = buildSalesSummary(input);
-        expect(split.notSplit).toBe(0.01);
-        expect(splitSum(input)).toBe(6226.34);
     });
 
     it('carries the footnote about estimates', () => {
         expect(buildSalesSummary(realExample).split.footnote).toBe(
             "Vendor figure is an estimate from each item's split. Actual payouts are on Vendor payouts."
         );
+    });
+
+    it('with a vendor filter, splits Vendors into the vendor and the others in the same sales', () => {
+        const input: SalesSummaryInput = {
+            ...realExample,
+            payout: { consignorShare: 4706.91, storeShare: 1100.92, consignorCardFees: 0, selectedVendorShare: 3000, otherVendorsShare: 1706.91 },
+            vendor: { label: 'C001 - Maple Co' },
+        };
+        const { split } = buildSalesSummary(input);
+        expect(split.rows.map((row) => [row.key, row.label, row.amount]).slice(0, 3)).toEqual([
+            ['vendor', 'C001 - Maple Co', 3000],
+            ['otherVendors', 'Other vendors in the same sales', 1706.91],
+            ['store', 'Store', 1100.92],
+        ]);
+        expect(split.notSplit).toBe(0);
+        expect(buildSalesSummary(input).vendorNote).toBe('Sales that include C001 - Maple Co. Totals cover whole sales.');
+        expect(buildSalesSummary(realExample).vendorNote).toBeNull();
+    });
+});
+
+// The same data through the real metrics and the real payout basis.
+describe('who gets what on the same data as the metrics', () => {
+    const item = (id: string, price: number, quantity: number, split: number, extra: Record<string, unknown> = {}) => ({
+        id, price, quantity, commission_split: split, discount_amount: 0, consignor_id: 'v1', consignor: { is_active: true }, ...extra,
+    });
+    const cashSale = (id: string, items: ReturnType<typeof item>[], subtotal: number, tax: number) => ({
+        id,
+        items,
+        subtotal,
+        discount_total: 0,
+        tax_amount: tax,
+        card_fee_amount: 0,
+        total: subtotal + tax,
+        payment_method: 'cash',
+        payment_breakdown: [{ method: 'cash', amount: subtotal + tax }],
+    });
+    const cashRefund = (saleId: string | null, amount: number, sale: { total: number; tax_amount: number; card_fee_amount: number } | null, items: unknown = []) => ({
+        sale_id: saleId,
+        created_at: new Date(2026, 9, 3, 12).toISOString(),
+        refund_amount: amount,
+        payment_method: 'cash',
+        payment_breakdown: [{ method: 'cash', amount }],
+        items,
+        sale,
+    });
+
+    function run(sales: ReturnType<typeof cashSale>[], refunds: ReturnType<typeof cashRefund>[], vendorId?: string) {
+        const metrics = calculateTillAccountabilityMetrics({ sales, refunds, giftCardsSold: [] });
+        const payout = calculatePayoutBasis({ sales, refunds, vendorId });
+        const summary = buildSalesSummary({
+            metrics,
+            payout,
+            earlierReturns: returnsOfEarlierSales(refunds, sales),
+            transactionCount: sales.length,
+            itemsSold: 0,
+            topCategory: null,
+        });
+        return { metrics, payout, summary };
+    }
+    const rows = (summary: ReturnType<typeof buildSalesSummary>) => Object.fromEntries(summary.split.rows.map((r) => [r.key, r.amount]));
+
+    it('a plain sale splits to the cent', () => {
+        const { summary } = run([cashSale('s1', [item('i1', 100, 1, 0.6)], 100, 7)], []);
+        expect(rows(summary)).toEqual({ vendors: 60, store: 40, salesTax: 7, cardFees: 0 });
+        expect(summary.split.notSplit).toBe(0);
+        expect(summary.split.total).toBe(107);
+    });
+
+    it('a refund of an earlier sale gets its own negative row and Not split stays 0', () => {
+        const sale = cashSale('s1', [item('i1', 100, 1, 0.6), item('i2', 50, 1, 0.5, { consignor: { is_active: false } })], 150, 10.5);
+        // Sale 'old' is from before the range: $20 of goods, $1.40 tax.
+        const refund = cashRefund('old', 21.4, { total: 107, tax_amount: 7, card_fee_amount: 0 });
+        const { metrics, summary } = run([sale], [refund]);
+        expect(metrics.netSales).toBe(130);
+        expect(metrics.totalCollected).toBe(139.1);
+        expect(rows(summary)).toEqual({
+            vendors: 60,
+            store: 40,
+            inactiveVendors: 50,
+            earlierReturns: -20,
+            salesTax: 9.1,
+            cardFees: 0,
+        });
+        expect(summary.split.notSplit).toBe(0);
+        expect(summary.split.total).toBe(139.1);
+    });
+
+    it('a refund of an in-range item leaves the item out of both shares', () => {
+        const sale = cashSale('s1', [item('i1', 50, 2, 0.5)], 100, 7);
+        const refund = cashRefund('s1', 53.5, { total: 107, tax_amount: 7, card_fee_amount: 0 }, [{ sale_item_id: 'i1', quantity: 1 }]);
+        const { metrics, summary } = run([sale], [refund]);
+        expect(metrics.netSales).toBe(50);
+        expect(rows(summary)).toEqual({ vendors: 25, store: 25, salesTax: 3.5, cardFees: 0 });
+        expect(summary.split.notSplit).toBe(0);
+    });
+
+    it('a refund with no sale at all counts as a return of an earlier sale', () => {
+        const sale = cashSale('s1', [item('i1', 100, 1, 0.6)], 100, 7);
+        const { summary } = run([sale], [cashRefund(null, 10, null)]);
+        expect(rows(summary).earlierReturns).toBe(-10);
+        expect(summary.split.notSplit).toBe(0);
+    });
+
+    it('a refund whose amount does not match the returned quantity is a real remainder, flagged', () => {
+        const sale = cashSale('s1', [item('i1', 50, 2, 0.5)], 100, 7);
+        const refund = cashRefund('s1', 32.1, { total: 107, tax_amount: 7, card_fee_amount: 0 }, [{ sale_item_id: 'i1', quantity: 1 }]);
+        const { summary } = run([sale], [refund]);
+        // 30 of goods refunded but one 50 item taken out of the shares: the 20 gap is not split.
+        expect(summary.split.notSplit).toBe(20);
+        expect(summary.split.rows.find((r) => r.key === 'notSplit')?.tone).toBe('warning');
+    });
+
+    it('does not lose or invent cents across many odd-priced lines with an order discount', () => {
+        const items = Array.from({ length: 40 }, (_, index) => item(`i${index}`, 3.33 + index * 0.07, 1, 0.65));
+        const subtotal = Math.round(items.reduce((sum, line) => sum + line.price, 0) * 100) / 100;
+        const sale = { ...cashSale('s1', items, subtotal, 0), discount_total: 12.34 };
+        sale.total = Math.round((subtotal - 12.34) * 100) / 100;
+        sale.payment_breakdown = [{ method: 'cash', amount: sale.total }];
+        const { metrics, payout } = run([sale], []);
+        const lines = Math.round((payout.consignorShare + payout.storeShare + payout.consignorCardFees) * 100);
+        expect(lines).toBe(Math.round(metrics.netSales * 100));
+    });
+
+    it('with a vendor filter the vendor and the others add to the vendors figure', () => {
+        const sale = cashSale('s1', [item('i1', 100, 1, 0.6), item('i2', 50, 1, 0.5, { consignor_id: 'v2' })], 150, 0);
+        const { payout } = run([sale], [], 'v1');
+        expect(payout.selectedVendorShare).toBe(60);
+        expect(payout.otherVendorsShare).toBe(25);
+        expect(payout.consignorShare).toBe(85);
+    });
+
+    it('keeps only refunds of the filtered sales', () => {
+        const refunds = [cashRefund('s1', 5, null), cashRefund('old', 6, null), cashRefund(null, 7, null)];
+        expect(refundsOfSales(refunds, [{ id: 's1' }]).map((r) => r.refund_amount)).toEqual([5]);
+    });
+
+    it('daily net sales add up to the metrics net sales on the same data', () => {
+        const day = (n: number) => new Date(2026, 9, n, 12).toISOString();
+        const sales = [
+            { ...cashSale('s1', [item('i1', 100, 1, 0.6)], 100, 7), completed_at: day(1), discount_total: 10 },
+            { ...cashSale('s2', [item('i2', 40.55, 1, 0.6)], 40.55, 2.84), completed_at: day(3) },
+        ];
+        const refunds = [{ ...cashRefund('s2', 10.7, { total: 43.39, tax_amount: 2.84, card_fee_amount: 0 }), created_at: day(5) }];
+        const metrics = calculateTillAccountabilityMetrics({ sales, refunds, giftCardsSold: [] });
+        const rowsDaily = dailyNetSales({ sales, refunds, start: new Date(2026, 9, 1), end: new Date(2026, 9, 6) });
+        const total = Math.round(rowsDaily.reduce((sum, entry) => sum + Math.round(entry.amount * 100), 0)) / 100;
+        expect(total).toBe(metrics.netSales);
     });
 });
 
@@ -266,6 +414,15 @@ describe('booksCsv', () => {
         expect(csv).toContain(`Vendor,"'=HYPERLINK(""x"")"`);
     });
 
+    it('adds the vendor scope note to the CSV header and the print page', () => {
+        const note = 'Sales that include C001 - Maple Co. Totals cover whole sales.';
+        const csv = booksCsv({ books, rangeLabel: 'r', consignorLabel: 'C001 - Maple Co', scopeNote: note });
+        expect(csv).toContain(`Note,${note}`);
+        expect(booksCsv({ books, rangeLabel: 'r', consignorLabel: 'All vendors' })).not.toContain('Note,');
+        const html = buildBooksReportHtml({ books, rangeLabel: 'r', consignorLabel: 'C001', scopeNote: '<b>x</b>' });
+        expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
+    });
+
     it('builds a filename that carries the range and vendor', () => {
         expect(booksFilename('10/8/2026 - 11/6/2026', 'All vendors')).toBe('sales-summary-10-8-2026-11-6-2026-all-vendors.csv');
         expect(booksFilename('', '  ')).toBe('sales-summary.csv');
@@ -302,23 +459,23 @@ describe('busiestSlot', () => {
 
     it('names the weekday and the hour range', () => {
         expect(busiestSlot({ hourlyBreakdown: hours({ 14: 9, 11: 3 }), weekdayBreakdown: days({ 6: 12, 1: 2 }) }))
-            .toEqual({ weekday: 'Saturday', hourRange: '2-3 PM', text: 'Saturday, 2-3 PM' });
+            .toEqual({ weekday: 'Saturday', hourRange: '2\u20133 PM', text: 'Busiest day Saturday \u00b7 busiest hour 2\u20133 PM' });
     });
 
     it('crosses noon and midnight cleanly', () => {
-        expect(busiestSlot({ hourlyBreakdown: hours({ 11: 4 }), weekdayBreakdown: days({ 0: 1 }) })?.hourRange).toBe('11 AM-12 PM');
-        expect(busiestSlot({ hourlyBreakdown: hours({ 23: 4 }), weekdayBreakdown: days({ 0: 1 }) })?.hourRange).toBe('11 PM-12 AM');
+        expect(busiestSlot({ hourlyBreakdown: hours({ 11: 4 }), weekdayBreakdown: days({ 0: 1 }) })?.hourRange).toBe('11 AM\u201312 PM');
+        expect(busiestSlot({ hourlyBreakdown: hours({ 23: 4 }), weekdayBreakdown: days({ 0: 1 }) })?.hourRange).toBe('11 PM\u201312 AM');
     });
 
     it('breaks a tie on count by amount, then by the earlier slot', () => {
         const hourly = hours({ 9: 5, 15: 5 });
         hourly[15].amount = 999;
-        expect(busiestSlot({ hourlyBreakdown: hourly, weekdayBreakdown: days({ 2: 3 }) })?.hourRange).toBe('3-4 PM');
+        expect(busiestSlot({ hourlyBreakdown: hourly, weekdayBreakdown: days({ 2: 3 }) })?.hourRange).toBe('3\u20134 PM');
 
         const evenHours = hours({ 9: 5, 15: 5 });
         const evenDays = days({ 2: 4, 4: 4 });
         const slot = busiestSlot({ hourlyBreakdown: evenHours, weekdayBreakdown: evenDays });
-        expect(slot?.hourRange).toBe('9-10 AM');
+        expect(slot?.hourRange).toBe('9\u201310 AM');
         expect(slot?.weekday).toBe('Tuesday');
     });
 
@@ -342,6 +499,17 @@ describe('topCategories', () => {
         ];
         expect(topCategories(data, 5).map((row) => row.category)).toEqual(['B', 'D', 'E', 'F', 'A']);
         expect(topCategories([], 5)).toEqual([]);
+    });
+});
+
+describe('topCategoryByItems', () => {
+    it('ranks by items sold, not by amount', () => {
+        expect(topCategoryByItems([
+            { category: 'Pricey', amount: 900, count: 2 },
+            { category: 'Busy', amount: 100, count: 30 },
+        ])).toBe('Busy');
+        expect(topCategoryByItems([])).toBeNull();
+        expect(topCategoryByItems([{ category: 'None', amount: 0, count: 0 }])).toBeNull();
     });
 });
 
