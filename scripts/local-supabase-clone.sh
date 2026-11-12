@@ -330,7 +330,7 @@ run_dev() {
   cd "$ROOT_DIR"
   VITE_SUPABASE_URL="$LOCAL_API_URL" \
     VITE_SUPABASE_ANON_KEY="$LOCAL_ANON_KEY" \
-    npm run dev
+    npm run dev -- "$@"
 }
 
 stop_local() {
@@ -376,7 +376,10 @@ main() {
       ;;
     test-payouts) test_payouts ;;
     smoke) smoke_local_api ;;
-    dev) run_dev ;;
+    dev)
+      shift
+      run_dev "$@"
+      ;;
     stop) stop_local ;;
     help|-h|--help) show_help ;;
     *)

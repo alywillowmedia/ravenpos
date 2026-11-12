@@ -6,6 +6,12 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": ["scripts/local-supabase-clone.sh", "dev"],
       "port": 5173
+    },
+    {
+      "name": "ravenpos-local-clone-alt-port",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["scripts/local-supabase-clone.sh", "dev", "--port", "5199", "--strictPort"],
+      "port": 5199
     }
   ]
 }
