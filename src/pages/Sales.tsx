@@ -1533,22 +1533,24 @@ export function Sales() {
                             No sales match your filters
                         </div>
                     ) : (
-                        <div>
-                            {/* Header Row */}
-                            <div className="bg-[var(--color-surface)] rounded-t-xl border border-[var(--color-border)] px-4 py-2 flex items-center gap-4">
-                                <div className="flex items-center gap-4 flex-1">
-                                    <div className="w-[16px]" /> {/* Expand icon spacer */}
-                                    <div className="w-[90px] text-xs font-medium text-[var(--color-muted)]">Date</div>
-                                    <div className="w-[140px] text-xs font-medium text-[var(--color-muted)]">Receipt #</div>
-                                    <div className="w-[120px] text-xs font-medium text-[var(--color-muted)]">Consignor</div>
-                                    <div className="w-[100px] text-xs font-medium text-[var(--color-muted)]">Customer</div>
-                                    <div className="w-[70px] text-xs font-medium text-[var(--color-muted)]">Status</div>
-                                </div>
-                                <div className="flex items-center gap-3 flex-shrink-0">
-                                    <div className="w-[70px] text-right text-xs font-medium text-[var(--color-muted)]">Net Subtotal</div>
-                                    <div className="w-[50px] text-right text-xs font-medium text-[var(--color-muted)]">Tax</div>
-                                    <div className="w-[100px] text-right text-xs font-medium text-[var(--color-muted)]">Commission</div>
-                                    <div className="w-[70px] text-right text-xs font-medium text-[var(--color-muted)]">Total</div>
+                        <div className="@container">
+                            {/* Header Row: only when the list is wide enough for columns */}
+                            <div className="hidden @4xl:flex bg-[var(--color-surface)] rounded-t-xl border border-[var(--color-border)] px-4 py-2 items-center gap-4">
+                                <div className="w-[16px] flex-shrink-0" />
+                                <div className="flex flex-1 min-w-0 items-center justify-between gap-4">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-[90px] text-xs font-medium text-[var(--color-muted)]">Date</div>
+                                        <div className="w-[140px] text-xs font-medium text-[var(--color-muted)]">Receipt #</div>
+                                        <div className="w-[120px] text-xs font-medium text-[var(--color-muted)]">Consignor</div>
+                                        <div className="w-[100px] text-xs font-medium text-[var(--color-muted)]">Customer</div>
+                                        <div className="w-[70px] text-xs font-medium text-[var(--color-muted)]">Status</div>
+                                    </div>
+                                    <div className="flex items-center gap-3 flex-shrink-0">
+                                        <div className="w-[70px] text-right text-xs font-medium text-[var(--color-muted)]">Net Subtotal</div>
+                                        <div className="hidden @5xl:block w-[50px] text-right text-xs font-medium text-[var(--color-muted)]">Tax</div>
+                                        <div className="hidden @5xl:block w-[100px] text-right text-xs font-medium text-[var(--color-muted)]">Commission</div>
+                                        <div className="w-[70px] text-right text-xs font-medium text-[var(--color-muted)]">Total</div>
+                                    </div>
                                 </div>
                             </div>
                             {/* Sales List */}
@@ -1576,7 +1578,7 @@ export function Sales() {
                                     <div className="text-xs text-[var(--color-muted)]">
                                         Showing {(salesPage - 1) * salesPageSize + 1}-{Math.min(salesPage * salesPageSize, filteredSalesTotalCount)} of {filteredSalesTotalCount}
                                     </div>
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex flex-wrap items-center gap-3">
                                         <label className="text-xs text-[var(--color-muted)] flex items-center gap-2">
                                             Rows
                                             <select
@@ -2610,92 +2612,107 @@ function SaleRow({
     const consignorDisplay = summary.consignorNames.length > 1
         ? 'Multiple'
         : summary.consignorNames[0] || '—';
+    const saleDate = new Date(sale.completed_at).toLocaleDateString();
+    const saleTime = new Date(sale.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const itemCountLabel = `${sale.items.length} item${sale.items.length !== 1 ? 's' : ''}`;
+    const statusBadge = sale.refund_status === 'full' ? (
+        <Badge variant="danger">Refunded</Badge>
+    ) : sale.refund_status === 'partial' ? (
+        <Badge variant="warning">Partial</Badge>
+    ) : (
+        <Badge variant="success">Paid</Badge>
+    );
 
     return (
         <div className="bg-[var(--color-card)] rounded-xl border border-[var(--color-border)] overflow-hidden">
             {/* Main Row - Clickable Header */}
             <button
                 onClick={onToggle}
-                className="w-full px-4 py-3 flex items-center justify-between hover:bg-[var(--color-surface-hover)] transition-colors text-left gap-4"
+                className="w-full px-4 py-3 flex items-center hover:bg-[var(--color-surface-hover)] transition-colors text-left gap-3 @4xl:gap-4"
             >
-                <div className="flex items-center gap-4 flex-1 min-w-0">
-                    {/* Expand Icon */}
-                    <div className={`w-[16px] flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
-                        <ChevronIcon />
-                    </div>
+                {/* Expand Icon */}
+                <div className={`w-[16px] flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
+                    <ChevronIcon />
+                </div>
 
-                    {/* Date & Time */}
-                    <div className="w-[90px] flex-shrink-0">
-                        <p className="font-medium text-[var(--color-foreground)] text-sm">
-                            {new Date(sale.completed_at).toLocaleDateString()}
+                {/* Compact layout for narrow lists */}
+                <div className="flex @4xl:hidden min-w-0 flex-1 flex-col gap-1">
+                    <div className="flex items-center justify-between gap-3">
+                        <p className="min-w-0 truncate text-sm font-medium text-[var(--color-foreground)]">
+                            {saleDate} · {saleTime}
                         </p>
-                        <p className="text-xs text-[var(--color-muted)]">
-                            {new Date(sale.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <p className="flex-shrink-0 font-semibold tabular-nums">{formatCurrency(sale.total)}</p>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                        <p className="min-w-0 truncate text-xs text-[var(--color-muted)]">
+                            {consignorDisplay} · {sale.customer ? sale.customer.name : 'Walk-in'} · {itemCountLabel}
                         </p>
-                    </div>
-
-                    {/* Receipt # & Items Count */}
-                    <div className="w-[140px] flex-shrink-0 flex items-center gap-2">
-                        <span className="font-mono text-xs bg-[var(--color-surface)] px-2 py-1 rounded">
-                            {sale.id.slice(0, 8)}
-                        </span>
-                        <span className="text-xs text-[var(--color-muted)]">
-                            {sale.items.length} item{sale.items.length !== 1 ? 's' : ''}
-                        </span>
-                    </div>
-
-                    {/* Consignor */}
-                    <div className="w-[120px] flex-shrink-0 truncate">
-                        {summary.consignorNames.length > 1 ? (
-                            <Badge variant="warning">Multiple</Badge>
-                        ) : (
-                            <span className="text-sm truncate">{consignorDisplay}</span>
-                        )}
-                    </div>
-
-                    {/* Customer */}
-                    <div className="w-[100px] flex-shrink-0 truncate">
-                        {sale.customer ? (
-                            <span className="text-sm text-[var(--color-primary)] truncate">
-                                {sale.customer.name}
-                            </span>
-                        ) : (
-                            <span className="text-xs text-[var(--color-muted)]">Walk-in</span>
-                        )}
-                    </div>
-
-                    {/* Status Badge */}
-                    <div className="w-[70px] flex-shrink-0">
-                        {sale.refund_status === 'full' ? (
-                            <Badge variant="danger">Refunded</Badge>
-                        ) : sale.refund_status === 'partial' ? (
-                            <Badge variant="warning">Partial</Badge>
-                        ) : (
-                            <Badge variant="success">Paid</Badge>
-                        )}
+                        <span className="flex-shrink-0">{statusBadge}</span>
                     </div>
                 </div>
 
-                {/* Right Side - Totals */}
-                <div className="flex items-center gap-3 flex-shrink-0">
-                    <div className="text-right w-[70px]">
-                        <p className="text-sm">{formatCurrency(saleNetSubtotal)}</p>
-                        {saleDiscountTotal > 0 && (
-                            <p className="text-[10px] text-[var(--color-muted)]">-{formatCurrency(saleDiscountTotal)}</p>
-                        )}
+                {/* Column layout once the list is wide enough */}
+                <div className="hidden @4xl:flex min-w-0 flex-1 items-center justify-between gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
+                        {/* Date & Time */}
+                        <div className="w-[90px] flex-shrink-0">
+                            <p className="font-medium text-[var(--color-foreground)] text-sm">{saleDate}</p>
+                            <p className="text-xs text-[var(--color-muted)]">{saleTime}</p>
+                        </div>
+
+                        {/* Receipt # & Items Count */}
+                        <div className="w-[140px] flex-shrink-0 flex items-center gap-2">
+                            <span className="font-mono text-xs bg-[var(--color-surface)] px-2 py-1 rounded">
+                                {sale.id.slice(0, 8)}
+                            </span>
+                            <span className="text-xs text-[var(--color-muted)]">{itemCountLabel}</span>
+                        </div>
+
+                        {/* Consignor */}
+                        <div className="w-[120px] flex-shrink-0 truncate">
+                            {summary.consignorNames.length > 1 ? (
+                                <Badge variant="warning">Multiple</Badge>
+                            ) : (
+                                <span className="text-sm truncate">{consignorDisplay}</span>
+                            )}
+                        </div>
+
+                        {/* Customer */}
+                        <div className="w-[100px] flex-shrink-0 truncate">
+                            {sale.customer ? (
+                                <span className="text-sm text-[var(--color-primary)] truncate">
+                                    {sale.customer.name}
+                                </span>
+                            ) : (
+                                <span className="text-xs text-[var(--color-muted)]">Walk-in</span>
+                            )}
+                        </div>
+
+                        {/* Status Badge */}
+                        <div className="w-[70px] flex-shrink-0">{statusBadge}</div>
                     </div>
-                    <div className="text-right w-[50px]">
-                        <p className="text-sm">{formatCurrency(sale.tax_amount)}</p>
-                    </div>
-                    <div className="text-right w-[100px]">
-                        <p className="text-sm">
-                            <span className="text-[var(--color-success)]">{formatCurrency(summary.consignorShare)}</span>
-                            <span className="text-[var(--color-muted)]"> / </span>
-                            <span>{formatCurrency(summary.storeShare)}</span>
-                        </p>
-                    </div>
-                    <div className="text-right w-[70px]">
-                        <p className="font-semibold">{formatCurrency(sale.total)}</p>
+
+                    {/* Right Side - Totals */}
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="text-right w-[70px]">
+                            <p className="text-sm">{formatCurrency(saleNetSubtotal)}</p>
+                            {saleDiscountTotal > 0 && (
+                                <p className="text-[10px] text-[var(--color-muted)]">-{formatCurrency(saleDiscountTotal)}</p>
+                            )}
+                        </div>
+                        <div className="hidden @5xl:block text-right w-[50px]">
+                            <p className="text-sm">{formatCurrency(sale.tax_amount)}</p>
+                        </div>
+                        <div className="hidden @5xl:block text-right w-[100px]">
+                            <p className="text-sm">
+                                <span className="text-[var(--color-success)]">{formatCurrency(summary.consignorShare)}</span>
+                                <span className="text-[var(--color-muted)]"> / </span>
+                                <span>{formatCurrency(summary.storeShare)}</span>
+                            </p>
+                        </div>
+                        <div className="text-right w-[70px]">
+                            <p className="font-semibold">{formatCurrency(sale.total)}</p>
+                        </div>
                     </div>
                 </div>
             </button>
@@ -2704,7 +2721,8 @@ function SaleRow({
             {isExpanded && (
                 <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
                     <div className="px-4 py-3">
-                        <table className="w-full text-sm">
+                        <div className="overflow-x-auto">
+                        <table className="w-full min-w-[560px] text-sm">
                             <thead>
                                 <tr className="text-[var(--color-muted)] text-xs">
                                     <th className="text-left py-2 font-medium">Item</th>
@@ -2760,6 +2778,7 @@ function SaleRow({
                                 })}
                             </tbody>
                         </table>
+                        </div>
 
                         {/* Payment Info */}
                         <div className="mt-3 pt-3 border-t border-[var(--color-border)] text-sm text-[var(--color-muted)] space-y-1">
