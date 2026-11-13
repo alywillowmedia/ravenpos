@@ -225,10 +225,7 @@ export function useMessaging({ portalBasePath }: UseMessagingOptions) {
             const employeeIdCsv = employeeIdList.join(',');
 
             const [{ data: employeesData }, { data: employeeUsers }] = await Promise.all([
-                supabase
-                    .from('employees')
-                    .select('id, name')
-                    .in('id', employeeIdList),
+                supabase.rpc('get_chat_employee_names', { p_employee_ids: employeeIdList }),
                 supabase
                     .from('users')
                     .select('employee_id, linked_employee_id, profile_image_url')

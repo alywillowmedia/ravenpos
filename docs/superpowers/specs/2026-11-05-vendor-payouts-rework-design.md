@@ -213,13 +213,13 @@ The old report equation, the range mode param and the date inputs on this page a
 - Drafts saved before this release have no snapshots. They show one combined Earned line until saved.
 - Older `all_outstanding` drafts, and `selected_range` drafts that include prior balance, open as "Everything through" and convert when saved.
 
-**Mark paid dialog**, shared with the queue panels: vendor, amount, method, date, reference, the override reason when needed, Rolls forward if any, and the "Email statement to name@example.com" checkbox, on by default. With no address on file it shows "No email on file for this vendor" and no checkbox. From the draft page it saves first and then finalizes, as today. From a queue panel there are no edits to save, so it finalizes the stored draft.
+**Mark paid dialog**, shared with the queue panels: vendor, amount, method, date, reference, the override reason when needed, Rolls forward if any, and the "Email statement to name@example.com" checkbox, off by default. With no address on file it shows "No email on file for this vendor" and no checkbox. From the draft page it saves first and then finalizes, as today. From a queue panel there are no edits to save, so it finalizes the stored draft.
 
 ### Pay run `/admin/payouts/pay-run`
 
 - Top: payment method and date, set once.
 - One row per draft: tick box, vendor, pay-to, amount, reference input, override reason when required.
-- Footer stays visible: "5 payouts · $1,842.50", "Email statements to vendors" with a count of vendors with no address, and "Mark 5 paid · $1,842.50".
+- Footer stays visible: "5 payouts · $1,842.50", "Email statements to vendors" (off by default) with a count of vendors with no address, and "Mark 5 paid · $1,842.50".
 - A confirm dialog repeats the count, total, method and date.
 - On confirm, the browser calls `finalize_payout_checked` once per draft, with the amount shown on screen, in order. Each payout is its own transaction.
 - Drafts are not re-saved first, so the amount confirmed is the amount recorded.

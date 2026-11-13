@@ -47,6 +47,15 @@ export function storeDate(timestamp: string): string | null {
     return new Intl.DateTimeFormat('en-CA', { timeZone: STORE_TIME_ZONE }).format(parsed);
 }
 
+/** True when the timestamp's store day falls within from..to (YYYY-MM-DD, either may be blank). */
+export function inStoreDateRange(timestamp: string, from: string, to: string): boolean {
+    const day = storeDate(timestamp);
+    if (!day) return false;
+    if (from && day < from) return false;
+    if (to && day > to) return false;
+    return true;
+}
+
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** "Oct 31" from a plain date, with no timezone shift. */

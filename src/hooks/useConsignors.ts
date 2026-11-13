@@ -256,12 +256,12 @@ export function useConsignors() {
                 );
             }
 
-            const { data, error: updateError } = await supabase
-                .from('consignors')
-                .update(updatePayload)
-                .eq('id', id)
-                .select()
-                .single();
+            // Nothing on the record itself changed (for example only the scheduled change did):
+            // read it back instead of sending an empty update.
+            const hasFieldUpdates = Object.keys(updatePayload).length > 0;
+            const { data, error: updateError } = hasFieldUpdates
+                ? await supabase.from('consignors').update(updatePayload).eq('id', id).select().single()
+                : await supabase.from('consignors').select().eq('id', id).single();
 
             if (updateError) throw updateError;
 

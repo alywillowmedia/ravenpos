@@ -1,12 +1,14 @@
-import { type ReactNode } from 'react';
+import { type ReactNode, useCallback, useState } from 'react';
 import type { useMessaging } from '../../hooks/useMessaging';
 import { useMobile } from '../../hooks/useMobile';
 import { useSidebarCollapsed } from '../../hooks/useSidebarCollapsed';
 import { cn } from '../../lib/utils';
+import { hasUnseenWhatsNew, markWhatsNewSeen } from '../../lib/whatsNew';
 import { MobileBottomNav } from './MobileBottomNav';
 import { PortalSidebar, type PortalProfile, type ProfileMenuAction } from './PortalSidebar';
 import { PortalTopBar } from './PortalTopBar';
 import type { PortalNavEntry } from './portalNavigation';
+import { WhatsNewModal } from './WhatsNewModal';
 
 export interface PortalShellProps {
     portalBasePath: '/admin' | '/employee' | '/vendor';
@@ -43,6 +45,14 @@ export function PortalShell({
 }: PortalShellProps) {
     const { isMobile } = useMobile();
     const { isCollapsed, canToggle, toggle } = useSidebarCollapsed(collapseStorageKey);
+    const role = MOBILE_VARIANT[portalBasePath];
+    const [isWhatsNewOpen, setIsWhatsNewOpen] = useState(false);
+    const [hasUnseen, setHasUnseen] = useState(() => hasUnseenWhatsNew(role));
+    const openWhatsNew = useCallback(() => {
+        markWhatsNewSeen(role);
+        setHasUnseen(false);
+        setIsWhatsNewOpen(true);
+    }, [role]);
 
     return (
         <div className="min-h-screen bg-[var(--color-canvas)]">
@@ -53,6 +63,8 @@ export function PortalShell({
                     profile={profile}
                     menuActions={menuActions}
                     footerSlot={footerSlot}
+                    onOpenWhatsNew={openWhatsNew}
+                    hasUnseenWhatsNew={hasUnseen}
                     isCollapsed={isCollapsed}
                     canToggle={canToggle}
                     onToggle={toggle}
@@ -67,7 +79,8 @@ export function PortalShell({
                 <PortalTopBar messaging={messaging} portalBasePath={portalBasePath} />
                 <div className="px-4 py-5 sm:px-6 lg:px-7">{children}</div>
             </main>
-            {isMobile && <MobileBottomNav variant={MOBILE_VARIANT[portalBasePath]} />}
+            {isMobile && <MobileBottomNav variant={role} onOpenWhatsNew={openWhatsNew} hasUnseenWhatsNew={hasUnseen} />}
+            <WhatsNewModal isOpen={isWhatsNewOpen} onClose={() => setIsWhatsNewOpen(false)} role={role} />
         </div>
     );
 }

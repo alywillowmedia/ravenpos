@@ -149,19 +149,21 @@ export function EmployeeLogin() {
     // Device is authorized - show PIN pad
     return (
         <AuthShell
+            layout="split"
             eyebrow="Employee terminal"
-            title="Clock in with your PIN"
-            description="Enter your four-digit employee PIN. The terminal submits automatically after the fourth digit."
+            title="Enter your PIN"
+            description="Clock in or out, or open the register."
+            footer={
+                <span className="inline-flex items-center gap-1.5 text-xs">
+                    <ShieldCheck size={14} aria-hidden="true" />
+                    {expiresAt
+                        ? `This device is authorized until ${new Date(expiresAt).toLocaleDateString()}`
+                        : 'This device is authorized'}
+                </span>
+            }
         >
-            <div className="mb-5 flex items-center justify-center gap-2 text-xs font-medium text-[var(--color-success)]">
-                <ShieldCheck size={15} aria-hidden="true" />
-                {expiresAt
-                    ? `Authorized until ${new Date(expiresAt).toLocaleDateString()}`
-                    : 'Authorized terminal'}
-            </div>
-
             <div
-                className={`mb-6 flex justify-center gap-4 ${shake ? 'animate-shake' : ''}`}
+                className={`flex justify-center gap-4 ${shake ? 'animate-shake' : ''}`}
                 aria-label={`${pin.length} of 4 PIN digits entered`}
                 role="status"
             >
@@ -174,21 +176,15 @@ export function EmployeeLogin() {
                 ))}
             </div>
 
-            {/* Error Message */}
-            {error && (
-                <div className="mb-4 rounded-lg border border-[var(--color-danger)]/20 bg-[var(--color-danger-bg)] px-4 py-2 text-center text-sm text-[var(--color-danger)]" role="alert">
-                    {error}
-                </div>
-            )}
+            {/* Fixed-height status line so the keypad never moves under the finger */}
+            <div className="my-3 flex h-6 items-center justify-center text-sm font-medium">
+                {error ? (
+                    <p className="text-[var(--color-danger)]" role="alert">{error}</p>
+                ) : isLoading ? (
+                    <p className="text-[var(--color-primary)]" role="status">Verifying…</p>
+                ) : null}
+            </div>
 
-            {/* Loading indicator */}
-            {isLoading && (
-                <div className="mb-4 text-center text-sm font-medium text-[var(--color-primary)]" role="status">
-                    Verifying…
-                </div>
-            )}
-
-            {/* Number Pad */}
             <NumberPad
                 onDigit={handleDigit}
                 onClear={handleClear}
@@ -196,22 +192,20 @@ export function EmployeeLogin() {
                 disabled={isLoading}
             />
 
-            <div className="mt-6 space-y-1 border-t border-[var(--color-border)] pt-4 text-center">
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-x-5 border-t border-[var(--color-border)] pt-3 text-sm">
                 <Link
                     to="/employee/portal-login?email=1"
-                    className="block min-h-11 py-3 text-sm font-medium text-[var(--color-foreground)] hover:text-[var(--color-primary)]"
+                    className="flex min-h-11 items-center font-medium text-[var(--color-foreground)] hover:text-[var(--color-primary)]"
                 >
-                    Use employee email and password
+                    Use email and password
                 </Link>
                 <Link
                     to="/login"
-                    className="block min-h-11 py-3 text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+                    className="flex min-h-11 items-center text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
                 >
                     Admin or vendor sign in
                 </Link>
             </div>
-
-            {/* Shake animation styles */}
         </AuthShell>
     );
 }

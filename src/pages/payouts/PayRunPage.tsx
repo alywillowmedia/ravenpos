@@ -94,7 +94,7 @@ export function PayRunPage() {
 function PayRun({ drafts, through, backLink }: { drafts: PayoutRunRow[]; through: string; backLink: ReactNode }) {
     const [method, setMethod] = useState('check');
     const [date, setDate] = useState(() => localDateString(new Date()));
-    const [sendEmail, setSendEmail] = useState(true);
+    const [sendEmail, setSendEmail] = useState(false);
     const [selected, setSelected] = useState<Record<string, boolean>>(
         () => Object.fromEntries(drafts.map((row) => [row.consignor_id, true])),
     );

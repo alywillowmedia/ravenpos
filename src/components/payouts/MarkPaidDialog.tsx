@@ -39,7 +39,7 @@ export function MarkPaidDialog({
     const [date, setDate] = useState(() => localDateString(new Date()));
     const [reference, setReference] = useState('');
     const [reason, setReason] = useState('');
-    const [sendEmail, setSendEmail] = useState(true);
+    const [sendEmail, setSendEmail] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -51,7 +51,7 @@ export function MarkPaidDialog({
         setDate(localDateString(new Date()));
         setReference('');
         setReason(initialReason);
-        setSendEmail(true);
+        setSendEmail(false);
         setError(null);
     }, [payoutId, initialReason]);
 

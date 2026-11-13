@@ -1,19 +1,28 @@
 import { useEffect, useState } from 'react';
 import { FormEvent } from 'react';
+import type { ReactNode } from 'react';
 import { Input, Textarea } from '../ui/Input';
+import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
 import { supabase } from '../../lib/supabase';
 import { getLocalDateString } from '../../lib/consignorRateSchedules';
+import { changedFields } from '../../lib/changedFields';
 import { calculateBoothRent, getConsignorDisplayName, getConsignorPayToName } from '../../lib/consignors';
+import { formatCurrency } from '../../lib/utils';
 import type { Consignor, ConsignorInput } from '../../types';
+
+/** Which part of the consignor record the form edits. 'all' shows every section (used when adding). */
+export type ConsignorFormSection = 'all' | 'identity' | 'terms' | 'notes';
 
 interface ConsignorFormProps {
     consignor?: Consignor;
+    section?: ConsignorFormSection;
     onSubmit: (data: Partial<ConsignorInput>) => Promise<{ error: string | null }>;
     onCancel: () => void;
 }
 
-export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormProps) {
+export function ConsignorForm({ consignor, section = 'all', onSubmit, onCancel }: ConsignorFormProps) {
+    const shows = (name: ConsignorFormSection) => section === 'all' || section === name;
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isLoadingScheduledChange, setIsLoadingScheduledChange] = useState(false);
@@ -59,6 +68,9 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
         scheduled_active_date: consignor?.scheduled_active_date || '',
         is_active: consignor?.is_active ?? true,
     });
+
+    // What the form opened with. An edit saves only the fields changed since then.
+    const [initialFormData] = useState(formData);
 
     useEffect(() => {
         const fetchUpcomingScheduledChange = async () => {
@@ -163,14 +175,15 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
             return;
         }
 
-        if (hasScheduledChange && !scheduledChange.effective_date) {
+        if (shows('terms') && hasScheduledChange && !scheduledChange.effective_date) {
             setError('Scheduled change date is required');
             return;
         }
 
         setIsSubmitting(true);
+        // Only the terms section edits the scheduled change; other sections leave it untouched.
         const scheduledRateChange =
-            consignor?.id && isLoadingScheduledChange
+            !shows('terms') || (consignor?.id && isLoadingScheduledChange)
                 ? undefined
                 : (hasScheduledChange
                     ? {
@@ -185,13 +198,25 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                     }
                     : (consignor?.id ? null : undefined));
 
-        const result = await onSubmit({
+        const full: Partial<ConsignorInput> = {
             ...formData,
             name: getConsignorDisplayName(formData),
             monthly_booth_rent: calculateBoothRent(formData.booth_square_feet, formData.booth_cost_per_square_foot),
             scheduled_active_date: formData.scheduled_active_date || null,
-            scheduled_rate_change: scheduledRateChange,
-        });
+        };
+        let payload = full;
+        if (consignor?.id) {
+            // Editing: send only what changed, so a save from a screen opened earlier cannot put
+            // back an email, split or active flag that was changed elsewhere since. The name and
+            // rent are derived from the fields that are sent.
+            const changed = changedFields(initialFormData, formData);
+            delete changed.monthly_booth_rent;
+            payload = {};
+            for (const key of Object.keys(changed) as Array<keyof typeof changed>) {
+                Object.assign(payload, { [key]: full[key as keyof ConsignorInput] });
+            }
+        }
+        const result = await onSubmit({ ...payload, scheduled_rate_change: scheduledRateChange });
         setIsSubmitting(false);
 
         if (result.error) {
@@ -203,358 +228,348 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
         setFormData((prev) => ({ ...prev, [field]: value }));
     };
 
+    const checkboxClass = 'w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]';
+    const showHeadings = section === 'all';
+
     return (
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
                 <div className="p-3 rounded-lg bg-[var(--color-danger-bg)] text-[var(--color-danger)] text-sm">
                     {error}
                 </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-                <Input
-                    label="Business Name"
-                    value={formData.business_name}
-                    onChange={(e) => updateField('business_name', e.target.value)}
-                    placeholder="Raven Vintage"
-                />
-                <Input
-                    label="Consignor ID"
-                    value={formData.consignor_number}
-                    onChange={(e) => updateField('consignor_number', e.target.value)}
-                    placeholder="Auto-generated if empty"
-                    hint="Leave blank to auto-generate"
-                />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-                <Input
-                    label="First Name"
-                    value={formData.first_name}
-                    onChange={(e) => updateField('first_name', e.target.value)}
-                    placeholder="John"
-                />
-                <Input
-                    label="Last Name"
-                    value={formData.last_name}
-                    onChange={(e) => updateField('last_name', e.target.value)}
-                    placeholder="Smith"
-                />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label className="block text-sm font-medium mb-1">Pay To</label>
-                    <select
-                        value={formData.pay_to_type}
-                        onChange={(e) => updateField('pay_to_type', e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-sm"
-                    >
-                        <option value="business">Business</option>
-                        <option value="individual">Individual</option>
-                    </select>
-                </div>
-                <Input
-                    label="Pay To Name"
-                    value={getConsignorPayToName(formData)}
-                    disabled
-                    hint="Derived from your selected pay-to type"
-                />
-            </div>
-
-            <Input
-                label="Display Name"
-                value={getConsignorDisplayName(formData)}
-                disabled
-                hint="Used throughout RavenPOS"
-            />
-
-            <Input
-                label="Booth/Location"
-                value={formData.booth_location}
-                onChange={(e) => updateField('booth_location', e.target.value)}
-                placeholder="Booth A-12"
-            />
-
-            <div className="grid grid-cols-2 gap-4">
-                <Input
-                    label="Email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => updateField('email', e.target.value)}
-                    placeholder="john@example.com"
-                />
-                <Input
-                    label="Phone"
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => updateField('phone', e.target.value)}
-                    placeholder="(555) 123-4567"
-                />
-            </div>
-
-            <Input
-                label="Street Address"
-                value={formData.address}
-                onChange={(e) => updateField('address', e.target.value)}
-                placeholder="123 Main St"
-            />
-
-            <Input
-                label="Address Line 2"
-                value={formData.address_line_2}
-                onChange={(e) => updateField('address_line_2', e.target.value)}
-                placeholder="Suite, Apt, Unit (optional)"
-            />
-
-            <div className="grid grid-cols-3 gap-4">
-                <Input
-                    label="City"
-                    value={formData.city}
-                    onChange={(e) => updateField('city', e.target.value)}
-                    placeholder="Nashville"
-                />
-                <Input
-                    label="State"
-                    value={formData.state}
-                    onChange={(e) => updateField('state', e.target.value)}
-                    placeholder="TN"
-                />
-                <Input
-                    label="ZIP"
-                    value={formData.postal_code}
-                    onChange={(e) => updateField('postal_code', e.target.value)}
-                    placeholder="37201"
-                />
-            </div>
-
-            <Input
-                label="Country"
-                value={formData.country}
-                onChange={(e) => updateField('country', e.target.value)}
-                placeholder="USA"
-            />
-
-            <Textarea
-                label="Vendor Bio"
-                value={formData.storefront_description}
-                onChange={(e) => updateField('storefront_description', e.target.value.slice(0, 5000))}
-                placeholder="Tell shoppers what makes this vendor's booth unique."
-                hint="Shown on the public vendor storefront."
-                maxLength={5000}
-                rows={4}
-            />
-
-            <div className="grid grid-cols-2 gap-4">
-                <Input
-                    label="Commission Split (%)"
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={Math.round(formData.commission_split * 100)}
-                    onChange={(e) => updateField('commission_split', Number(e.target.value) / 100)}
-                    hint="Consignor's percentage"
-                />
-                <Input
-                    label="Booth Square Feet"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.booth_square_feet}
-                    onChange={(e) => {
-                        const boothSquareFeet = Number(e.target.value) || 0;
-                        updateField('booth_square_feet', boothSquareFeet);
-                        updateField(
-                            'monthly_booth_rent',
-                            calculateBoothRent(boothSquareFeet, formData.booth_cost_per_square_foot)
-                        );
-                    }}
-                />
-            </div>
-
-            <Input
-                label="Dealer Discount (%)"
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={formData.dealer_discount_percent}
-                onChange={(e) => updateField('dealer_discount_percent', Number(e.target.value) || 0)}
-                hint="Applied at checkout only when Dealer Discount is toggled on."
-            />
-
-            <div className="grid grid-cols-2 gap-4">
-                <Input
-                    label="Cost Per Sq Ft"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.booth_cost_per_square_foot}
-                    onChange={(e) => {
-                        const boothCostPerSquareFoot = Number(e.target.value) || 0;
-                        updateField('booth_cost_per_square_foot', boothCostPerSquareFoot);
-                        updateField(
-                            'monthly_booth_rent',
-                            calculateBoothRent(formData.booth_square_feet, boothCostPerSquareFoot)
-                        );
-                    }}
-                />
-                <Input
-                    label="Calculated Monthly Booth Rent"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.monthly_booth_rent}
-                    disabled
-                    hint="Booth sqft * cost per sqft"
-                />
-            </div>
-
-            <Input
-                label="Schedule Active Date (optional)"
-                type="date"
-                value={formData.scheduled_active_date}
-                onChange={(e) => updateField('scheduled_active_date', e.target.value)}
-                hint="If set in the future, status shows as Scheduled until that date."
-            />
-
-            <div className="rounded-lg border border-[var(--color-border)] p-4 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                    <div>
-                        <p className="text-sm font-medium">Schedule Future Terms Change</p>
-                        <p className="text-xs text-[var(--color-muted)]">
-                            Keep current rates now and apply new ones on a future date.
-                        </p>
-                    </div>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={hasScheduledChange}
-                            disabled={isLoadingScheduledChange}
-                            onChange={(e) => setHasScheduledChange(e.target.checked)}
-                            className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
-                        />
-                        <span className="text-sm font-medium">Enable</span>
-                    </label>
-                </div>
-
-                {hasScheduledChange && (
-                    <div className="space-y-3">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {shows('identity') && (
+                <>
+                    <FormSection title="Identity" showHeading>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <Input
-                                label="Effective Date"
-                                type="date"
-                                min={getLocalDateString()}
-                                value={scheduledChange.effective_date}
-                                onChange={(e) => setScheduledChange((prev) => ({ ...prev, effective_date: e.target.value }))}
+                                label="Business Name"
+                                value={formData.business_name}
+                                onChange={(e) => updateField('business_name', e.target.value)}
+                                placeholder="Raven Vintage"
                             />
                             <Input
-                                label="Future Commission (%)"
+                                label="Consignor ID"
+                                value={formData.consignor_number}
+                                onChange={(e) => updateField('consignor_number', e.target.value)}
+                                placeholder="Auto-generated if empty"
+                            />
+                            <Input
+                                label="First Name"
+                                value={formData.first_name}
+                                onChange={(e) => updateField('first_name', e.target.value)}
+                                placeholder="John"
+                            />
+                            <Input
+                                label="Last Name"
+                                value={formData.last_name}
+                                onChange={(e) => updateField('last_name', e.target.value)}
+                                placeholder="Smith"
+                            />
+                            <Select
+                                label="Pay To"
+                                value={formData.pay_to_type}
+                                onChange={(e) => updateField('pay_to_type', e.target.value)}
+                                options={[
+                                    { value: 'business', label: 'Business' },
+                                    { value: 'individual', label: 'Individual' },
+                                ]}
+                            />
+                            <Input
+                                label="Booth/Location"
+                                value={formData.booth_location}
+                                onChange={(e) => updateField('booth_location', e.target.value)}
+                                placeholder="Booth A-12"
+                            />
+                        </div>
+                        <p className="text-xs text-[var(--color-muted)]">
+                            Shown in RavenPOS as{' '}
+                            <strong className="text-[var(--color-foreground)]">{getConsignorDisplayName(formData) || '—'}</strong>
+                            {' · '}Payouts made out to{' '}
+                            <strong className="text-[var(--color-foreground)]">{getConsignorPayToName(formData) || '—'}</strong>
+                        </p>
+                    </FormSection>
+
+                    <FormSection title="Contact" showHeading>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <Input
+                                label="Email"
+                                type="email"
+                                value={formData.email}
+                                onChange={(e) => updateField('email', e.target.value)}
+                                placeholder="john@example.com"
+                            />
+                            <Input
+                                label="Phone"
+                                type="tel"
+                                value={formData.phone}
+                                onChange={(e) => updateField('phone', e.target.value)}
+                                placeholder="(555) 123-4567"
+                            />
+                            <Input
+                                label="Street Address"
+                                value={formData.address}
+                                onChange={(e) => updateField('address', e.target.value)}
+                                placeholder="123 Main St"
+                            />
+                            <Input
+                                label="Address Line 2"
+                                value={formData.address_line_2}
+                                onChange={(e) => updateField('address_line_2', e.target.value)}
+                                placeholder="Suite, Apt, Unit (optional)"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                            <div className="col-span-2 sm:col-span-1">
+                                <Input
+                                    label="City"
+                                    value={formData.city}
+                                    onChange={(e) => updateField('city', e.target.value)}
+                                    placeholder="Nashville"
+                                />
+                            </div>
+                            <Input
+                                label="State"
+                                value={formData.state}
+                                onChange={(e) => updateField('state', e.target.value)}
+                                placeholder="TN"
+                            />
+                            <Input
+                                label="ZIP"
+                                value={formData.postal_code}
+                                onChange={(e) => updateField('postal_code', e.target.value)}
+                                placeholder="37201"
+                            />
+                            <div className="col-span-2 sm:col-span-1">
+                                <Input
+                                    label="Country"
+                                    value={formData.country}
+                                    onChange={(e) => updateField('country', e.target.value)}
+                                    placeholder="USA"
+                                />
+                            </div>
+                        </div>
+                    </FormSection>
+                </>
+            )}
+
+            {shows('terms') && (
+                <>
+                    <FormSection title="Commission" showHeading>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <Input
+                                label="Commission Split (%)"
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={Math.round(formData.commission_split * 100)}
+                                onChange={(e) => updateField('commission_split', Number(e.target.value) / 100)}
+                                hint="Consignor's percentage"
+                            />
+                            <Input
+                                label="Dealer Discount (%)"
                                 type="number"
                                 min="0"
                                 max="100"
                                 step="0.01"
-                                value={Number((scheduledChange.commission_split * 100).toFixed(2))}
-                                onChange={(e) => setScheduledChange((prev) => ({
-                                    ...prev,
-                                    commission_split: Number(e.target.value) / 100
-                                }))}
+                                value={formData.dealer_discount_percent}
+                                onChange={(e) => updateField('dealer_discount_percent', Number(e.target.value) || 0)}
+                                hint="Applied at checkout only when Dealer Discount is on."
                             />
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="flex flex-wrap gap-x-6 gap-y-2">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={formData.consignor_pays_card_fee}
+                                    onChange={(e) => updateField('consignor_pays_card_fee', e.target.checked)}
+                                    className={checkboxClass}
+                                />
+                                <span className="text-sm font-medium">Consignor Pays Card Fee</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={!!formData.has_w9_filled_out}
+                                    onChange={(e) => updateField('has_w9_filled_out', e.target.checked)}
+                                    className={checkboxClass}
+                                />
+                                <span className="text-sm font-medium">W-9 On File</span>
+                            </label>
+                        </div>
+                    </FormSection>
+
+                    <FormSection title="Booth rent" showHeading>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <Input
-                                label="Future Booth Sq Ft"
+                                label="Booth Square Feet"
                                 type="number"
                                 min="0"
                                 step="0.01"
-                                value={scheduledChange.booth_square_feet}
+                                value={formData.booth_square_feet}
                                 onChange={(e) => {
                                     const boothSquareFeet = Number(e.target.value) || 0;
-                                    setScheduledChange((prev) => ({
-                                        ...prev,
-                                        booth_square_feet: boothSquareFeet,
-                                        monthly_booth_rent: calculateBoothRent(
-                                            boothSquareFeet,
-                                            prev.booth_cost_per_square_foot
-                                        ),
-                                    }));
+                                    updateField('booth_square_feet', boothSquareFeet);
+                                    updateField(
+                                        'monthly_booth_rent',
+                                        calculateBoothRent(boothSquareFeet, formData.booth_cost_per_square_foot)
+                                    );
                                 }}
                             />
                             <Input
-                                label="Future Cost Per Sq Ft"
+                                label="Cost Per Sq Ft"
                                 type="number"
                                 min="0"
                                 step="0.01"
-                                value={scheduledChange.booth_cost_per_square_foot}
+                                value={formData.booth_cost_per_square_foot}
                                 onChange={(e) => {
                                     const boothCostPerSquareFoot = Number(e.target.value) || 0;
-                                    setScheduledChange((prev) => ({
-                                        ...prev,
-                                        booth_cost_per_square_foot: boothCostPerSquareFoot,
-                                        monthly_booth_rent: calculateBoothRent(
-                                            prev.booth_square_feet,
-                                            boothCostPerSquareFoot
-                                        ),
-                                    }));
+                                    updateField('booth_cost_per_square_foot', boothCostPerSquareFoot);
+                                    updateField(
+                                        'monthly_booth_rent',
+                                        calculateBoothRent(formData.booth_square_feet, boothCostPerSquareFoot)
+                                    );
                                 }}
                             />
+                        </div>
+                        <p className="text-xs text-[var(--color-muted)]">
+                            Monthly rent:{' '}
+                            <strong className="text-[var(--color-foreground)]">{formatCurrency(formData.monthly_booth_rent)}</strong>
+                            {' '}(square feet × cost per square foot)
+                        </p>
+                    </FormSection>
+
+                    <FormSection title="Status" showHeading>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:items-start">
+                            <label className="flex items-center gap-2 cursor-pointer sm:pt-8">
+                                <input
+                                    type="checkbox"
+                                    checked={formData.is_active}
+                                    onChange={(e) => updateField('is_active', e.target.checked)}
+                                    className={checkboxClass}
+                                />
+                                <span className="text-sm font-medium">Active</span>
+                            </label>
                             <Input
-                                label="Calculated Future Rent"
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={scheduledChange.monthly_booth_rent}
-                                disabled
-                                hint="Future booth sqft * future cost per sqft"
+                                label="Schedule Active Date (optional)"
+                                type="date"
+                                value={formData.scheduled_active_date}
+                                onChange={(e) => updateField('scheduled_active_date', e.target.value)}
+                                hint="If in the future, status shows as Scheduled until then."
                             />
                         </div>
+                    </FormSection>
+
+                    <div className="rounded-lg border border-[var(--color-border)] p-4 space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-sm font-medium">Schedule Future Terms Change</p>
+                                <p className="text-xs text-[var(--color-muted)]">
+                                    Keep current rates now and apply new ones on a future date.
+                                </p>
+                            </div>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={hasScheduledChange}
+                                    disabled={isLoadingScheduledChange}
+                                    onChange={(e) => setHasScheduledChange(e.target.checked)}
+                                    className={checkboxClass}
+                                />
+                                <span className="text-sm font-medium">Enable</span>
+                            </label>
+                        </div>
+
+                        {hasScheduledChange && (
+                            <div className="space-y-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <Input
+                                        label="Effective Date"
+                                        type="date"
+                                        min={getLocalDateString()}
+                                        value={scheduledChange.effective_date}
+                                        onChange={(e) => setScheduledChange((prev) => ({ ...prev, effective_date: e.target.value }))}
+                                    />
+                                    <Input
+                                        label="Future Commission (%)"
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="0.01"
+                                        value={Number((scheduledChange.commission_split * 100).toFixed(2))}
+                                        onChange={(e) => setScheduledChange((prev) => ({
+                                            ...prev,
+                                            commission_split: Number(e.target.value) / 100
+                                        }))}
+                                    />
+                                    <Input
+                                        label="Future Booth Sq Ft"
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={scheduledChange.booth_square_feet}
+                                        onChange={(e) => {
+                                            const boothSquareFeet = Number(e.target.value) || 0;
+                                            setScheduledChange((prev) => ({
+                                                ...prev,
+                                                booth_square_feet: boothSquareFeet,
+                                                monthly_booth_rent: calculateBoothRent(
+                                                    boothSquareFeet,
+                                                    prev.booth_cost_per_square_foot
+                                                ),
+                                            }));
+                                        }}
+                                    />
+                                    <Input
+                                        label="Future Cost Per Sq Ft"
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={scheduledChange.booth_cost_per_square_foot}
+                                        onChange={(e) => {
+                                            const boothCostPerSquareFoot = Number(e.target.value) || 0;
+                                            setScheduledChange((prev) => ({
+                                                ...prev,
+                                                booth_cost_per_square_foot: boothCostPerSquareFoot,
+                                                monthly_booth_rent: calculateBoothRent(
+                                                    prev.booth_square_feet,
+                                                    boothCostPerSquareFoot
+                                                ),
+                                            }));
+                                        }}
+                                    />
+                                </div>
+                                <p className="text-xs text-[var(--color-muted)]">
+                                    Future monthly rent:{' '}
+                                    <strong className="text-[var(--color-foreground)]">{formatCurrency(scheduledChange.monthly_booth_rent)}</strong>
+                                </p>
+                            </div>
+                        )}
                     </div>
-                )}
-            </div>
+                </>
+            )}
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="flex items-end pb-1">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={formData.consignor_pays_card_fee}
-                            onChange={(e) => updateField('consignor_pays_card_fee', e.target.checked)}
-                            className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
-                        />
-                        <span className="text-sm font-medium">Consignor Pays Card Fee</span>
-                    </label>
-                </div>
-                <div className="flex items-end pb-1">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={!!formData.has_w9_filled_out}
-                            onChange={(e) => updateField('has_w9_filled_out', e.target.checked)}
-                            className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
-                        />
-                        <span className="text-sm font-medium">W-9 On File</span>
-                    </label>
-                </div>
-                <div className="flex items-end pb-1">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={formData.is_active}
-                            onChange={(e) => updateField('is_active', e.target.checked)}
-                            className="w-4 h-4 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
-                        />
-                        <span className="text-sm font-medium">Active</span>
-                    </label>
-                </div>
-            </div>
-
-            <Textarea
-                label="Notes"
-                value={formData.notes}
-                onChange={(e) => updateField('notes', e.target.value)}
-                placeholder="Any additional notes..."
-                rows={3}
-            />
+            {shows('notes') && (
+                <FormSection title="Bio & notes" showHeading={showHeadings}>
+                    <Textarea
+                        label="Vendor Bio"
+                        value={formData.storefront_description}
+                        onChange={(e) => updateField('storefront_description', e.target.value.slice(0, 5000))}
+                        placeholder="Tell shoppers what makes this vendor's booth unique."
+                        hint="Shown on the public vendor storefront."
+                        maxLength={5000}
+                        rows={4}
+                    />
+                    <Textarea
+                        label="Notes"
+                        value={formData.notes}
+                        onChange={(e) => updateField('notes', e.target.value)}
+                        placeholder="Any additional notes..."
+                        rows={3}
+                    />
+                </FormSection>
+            )}
 
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
                 <Button type="button" variant="ghost" onClick={onCancel}>
@@ -565,5 +580,16 @@ export function ConsignorForm({ consignor, onSubmit, onCancel }: ConsignorFormPr
                 </Button>
             </div>
         </form>
+    );
+}
+
+function FormSection({ title, showHeading, children }: { title: string; showHeading: boolean; children: ReactNode }) {
+    return (
+        <section className="space-y-4">
+            {showHeading && (
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">{title}</h3>
+            )}
+            {children}
+        </section>
     );
 }

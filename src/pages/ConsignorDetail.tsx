@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
@@ -9,12 +9,14 @@ import { Modal, ModalFooter } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { EmptyState, PackageIcon } from '../components/ui/EmptyState';
 import { Input, Textarea } from '../components/ui/Input';
-import { ConsignorForm } from '../components/consignors/ConsignorForm';
+import { Tabs } from '../components/ui/Tabs';
+import { ConsignorForm, type ConsignorFormSection } from '../components/consignors/ConsignorForm';
 import { ConsignorExportOptionsModal } from '../components/consignors/ConsignorExportOptionsModal';
 import { VendorCredentials } from '../components/consignors/VendorCredentials';
 import { useConsignors } from '../hooks/useConsignors';
 import { useInventory } from '../hooks/useInventory';
 import { useBoothRentPayments } from '../hooks/useBoothRentPayments';
+import { localDateString } from '../lib/payoutRun';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { getLocalDateString } from '../lib/consignorRateSchedules';
@@ -35,6 +37,35 @@ const MONTH_NAMES = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
 ];
+
+type DetailTab = 'overview' | 'rent' | 'inventory' | 'portal';
+type EditableSection = Exclude<ConsignorFormSection, 'all'>;
+
+const EDIT_SECTION_TITLES: Record<EditableSection, string> = {
+    identity: 'Edit identity & contact',
+    terms: 'Edit terms & rent',
+    notes: 'Edit bio & notes',
+};
+
+function SectionCardHeader({ title, onEdit }: { title: string; onEdit: () => void }) {
+    return (
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <CardTitle className="text-sm text-[var(--color-muted)]">{title}</CardTitle>
+            <Button variant="ghost" size="sm" onClick={onEdit} aria-label={`Edit ${title.toLowerCase()}`}>
+                Edit
+            </Button>
+        </CardHeader>
+    );
+}
+
+function DetailLine({ label, value }: { label: string; value: ReactNode }) {
+    return (
+        <div className="flex items-start justify-between gap-4">
+            <dt className="flex-shrink-0 text-[var(--color-muted)]">{label}</dt>
+            <dd className="min-w-0 text-right font-medium break-words">{value}</dd>
+        </div>
+    );
+}
 
 export function ConsignorDetail() {
     const { id } = useParams<{ id: string }>();
@@ -65,14 +96,15 @@ export function ConsignorDetail() {
         booth_cost_per_square_foot?: number;
         monthly_booth_rent: number;
     } | null>(null);
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editSection, setEditSection] = useState<EditableSection | null>(null);
+    const [activeTab, setActiveTab] = useState<DetailTab>('overview');
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [paymentFormData, setPaymentFormData] = useState({
         amount: 0,
         period_month: new Date().getMonth() + 1,
         period_year: new Date().getFullYear(),
         notes: '',
-        paid_at: new Date().toISOString().split('T')[0],
+        paid_at: localDateString(new Date()),
     });
     const [paymentError, setPaymentError] = useState<string | null>(null);
     const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
@@ -171,7 +203,7 @@ export function ConsignorDetail() {
             } else if (data.scheduled_rate_change) {
                 setUpcomingRateChange(data.scheduled_rate_change);
             }
-            setIsEditModalOpen(false);
+            setEditSection(null);
         }
         return result;
     };
@@ -187,7 +219,8 @@ export function ConsignorDetail() {
             period_month: paymentFormData.period_month,
             period_year: paymentFormData.period_year,
             notes: paymentFormData.notes || null,
-            paid_at: new Date(paymentFormData.paid_at).toISOString(),
+            // Noon local time, so the date reads the same in every time zone the store uses.
+            paid_at: new Date(`${paymentFormData.paid_at}T12:00:00`).toISOString(),
         });
 
         setIsSubmittingPayment(false);
@@ -200,7 +233,7 @@ export function ConsignorDetail() {
             setPaymentFormData(prev => ({
                 ...prev,
                 notes: '',
-                paid_at: new Date().toISOString().split('T')[0],
+                paid_at: localDateString(new Date()),
             }));
         }
     };
@@ -208,9 +241,10 @@ export function ConsignorDetail() {
     const handleDeletePayment = async () => {
         if (!deleteTarget) return;
         setIsDeleting(true);
-        await deletePayment(deleteTarget.id);
+        const result = await deletePayment(deleteTarget.id);
         setIsDeleting(false);
         setDeleteTarget(null);
+        if (result.error) toast.error('Could not delete the payment', result.error);
     };
 
     const handleExportConsignorCsv = async () => {
@@ -328,13 +362,14 @@ export function ConsignorDetail() {
         {
             key: 'notes',
             header: 'Notes',
-            render: (p) => p.notes || '—',
+            render: (p) => (p.reversed_at ? `${p.notes || 'Rent'} · payout voided, rent owed again` : p.notes || '—'),
         },
         {
             key: 'actions',
             header: '',
             width: '60px',
-            render: (p) => (
+            // Rent a payout deducted is reversed by voiding that payout, never by deleting the row.
+            render: (p) => p.source_payout_id ? null : (
                 <button
                     onClick={(e) => {
                         e.stopPropagation();
@@ -357,6 +392,13 @@ export function ConsignorDetail() {
 
     const monthlyRent = Number(consignor.monthly_booth_rent) || 0;
     const currentYear = new Date().getFullYear();
+    const showRentTab = !isEmployee && monthlyRent > 0;
+    const tabs: { id: DetailTab; label: string }[] = [
+        { id: 'overview', label: 'Overview' },
+        ...(showRentTab ? [{ id: 'rent' as const, label: 'Booth rent' }] : []),
+        { id: 'inventory', label: `Inventory (${items.length})` },
+        ...(!isEmployee ? [{ id: 'portal' as const, label: 'Portal access' }] : []),
+    ];
 
     return (
         <div className="animate-fadeIn">
@@ -373,156 +415,138 @@ export function ConsignorDetail() {
                 title={getConsignorDisplayName(consignor)}
                 description={`Consignor ${consignor.consignor_number}`}
                 actions={
-                    <>
-                        {!isEmployee && <Button variant="secondary" onClick={() => setIsExportModalOpen(true)}>
+                    !isEmployee && (
+                        <Button variant="secondary" onClick={() => setIsExportModalOpen(true)}>
                             <DownloadIcon />
                             Export CSV
-                        </Button>}
-                        <Button variant="secondary" onClick={() => setIsEditModalOpen(true)}>
-                            Edit
                         </Button>
-                    </>
+                    )
                 }
             />
 
-            {/* Info Cards */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                <Card variant="outlined">
-                    <CardHeader>
-                        <CardTitle className="text-sm text-[var(--color-muted)]">Contact Info</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                        <p>
-                            <strong>Business:</strong> {consignor.business_name || '—'}
-                        </p>
-                        <p>
-                            <strong>Individual:</strong> {[consignor.first_name, consignor.last_name].filter(Boolean).join(' ') || '—'}
-                        </p>
-                        <p>
-                            <strong>Pay To:</strong> {getConsignorPayToName(consignor)}
-                        </p>
-                        <p>
-                            <strong>Email:</strong> {consignor.email || '—'}
-                        </p>
-                        <p>
-                            <strong>Phone:</strong> {consignor.phone || '—'}
-                        </p>
-                        <p>
-                            <strong>Address:</strong> {[
-                                consignor.address,
-                                consignor.address_line_2,
-                                [consignor.city, consignor.state, consignor.postal_code].filter(Boolean).join(' '),
-                                consignor.country,
-                            ].filter(Boolean).join(', ') || '—'}
-                        </p>
-                        <p>
-                            <strong>Booth:</strong> {consignor.booth_location || '—'}
-                        </p>
-                    </CardContent>
-                </Card>
+            <Tabs
+                tabs={tabs}
+                activeTab={activeTab}
+                onChange={(tabId) => setActiveTab(tabId as DetailTab)}
+                ariaLabel="Consignor sections"
+                className="mb-6 sm:inline-flex"
+            />
 
-                <Card variant="outlined">
-                    <CardHeader>
-                        <CardTitle className="text-sm text-[var(--color-muted)]">Account</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                        <p className="flex items-center justify-between">
-                            <strong>Status:</strong>
-                            {!consignor.is_active ? (
-                                <Badge variant="secondary">Inactive</Badge>
-                            ) : isConsignorScheduled(consignor) ? (
-                                <Badge variant="warning">Scheduled</Badge>
-                            ) : (
-                                <Badge variant="success">Active</Badge>
-                            )}
-                        </p>
-                        {consignor.scheduled_active_date && isConsignorScheduled(consignor) && (
-                            <p>
-                                <strong>Scheduled Active Date:</strong> {formatDate(consignor.scheduled_active_date)}
-                            </p>
-                        )}
-                        <p>
-                            <strong>Commission:</strong> {Math.round(Number(consignor.commission_split) * 100)}%
-                        </p>
-                        <p>
-                            <strong>Monthly Rent:</strong> {monthlyRent > 0 ? formatCurrency(monthlyRent) : 'None'}
-                        </p>
-                        <p>
-                            <strong>Booth Cost Formula:</strong> {(Number(consignor.booth_square_feet) || 0)} sqft x {formatCurrency(Number(consignor.booth_cost_per_square_foot) || 0)}
-                        </p>
-                        <p>
-                            <strong>Card Fee Policy:</strong> {consignor.consignor_pays_card_fee ? 'Consignor Pays' : 'Customer Pays'}
-                        </p>
-                        <p>
-                            <strong>W-9 On File:</strong> {consignor.has_w9_filled_out ? 'Yes' : 'No'}
-                        </p>
-                        <p>
-                            <strong>Dealer Discount:</strong> {Number(consignor.dealer_discount_percent || 0).toFixed(2)}%
-                        </p>
-                        {upcomingRateChange && (
-                            <p>
-                                <strong>Scheduled Change ({formatDate(upcomingRateChange.effective_date)}):</strong>{' '}
-                                {Math.round(upcomingRateChange.commission_split * 100)}% commission, {Number(upcomingRateChange.booth_square_feet) || 0} sqft x {formatCurrency(Number(upcomingRateChange.booth_cost_per_square_foot) || 0)} = {formatCurrency(upcomingRateChange.monthly_booth_rent)} rent
-                            </p>
-                        )}
-                        <p>
-                            <strong>Member Since:</strong> {formatDate(consignor.created_at)}
-                        </p>
-                    </CardContent>
-                </Card>
+            {activeTab === 'overview' && (
+                <div className="space-y-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <Card variant="outlined">
+                            <SectionCardHeader title="Identity & contact" onEdit={() => setEditSection('identity')} />
+                            <CardContent>
+                                <dl className="space-y-2 text-sm">
+                                    <DetailLine label="Business" value={consignor.business_name || '—'} />
+                                    <DetailLine
+                                        label="Individual"
+                                        value={[consignor.first_name, consignor.last_name].filter(Boolean).join(' ') || '—'}
+                                    />
+                                    <DetailLine label="Pay to" value={getConsignorPayToName(consignor)} />
+                                    <DetailLine label="Booth" value={consignor.booth_location || '—'} />
+                                    <DetailLine label="Email" value={consignor.email || '—'} />
+                                    <DetailLine label="Phone" value={consignor.phone || '—'} />
+                                    <DetailLine
+                                        label="Address"
+                                        value={[
+                                            consignor.address,
+                                            consignor.address_line_2,
+                                            [consignor.city, consignor.state, consignor.postal_code].filter(Boolean).join(' '),
+                                            consignor.country,
+                                        ].filter(Boolean).join(', ') || '—'}
+                                    />
+                                </dl>
+                            </CardContent>
+                        </Card>
 
-                <Card variant="elevated" className="bg-gradient-to-br from-[var(--color-primary)]/5 to-transparent">
-                    <CardHeader>
-                        <CardTitle className="text-sm text-[var(--color-muted)]">Inventory Summary</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                        <p className="text-3xl font-bold text-[var(--color-foreground)]">
-                            {items.length}
-                            <span className="text-base font-medium text-[var(--color-muted)] ml-2">products</span>
-                        </p>
-                        <p className="text-lg font-medium text-[var(--color-foreground)]">
-                            {totalUnits}
-                            <span className="text-sm font-normal text-[var(--color-muted)] ml-2">total units</span>
-                        </p>
-                        <p className="text-lg font-medium text-[var(--color-primary)]">
-                            {formatCurrency(totalValue)}
-                            <span className="text-sm font-normal text-[var(--color-muted)] ml-2">total value</span>
-                        </p>
-                    </CardContent>
-                </Card>
-            </div>
+                        <Card variant="outlined">
+                            <SectionCardHeader title="Terms & rent" onEdit={() => setEditSection('terms')} />
+                            <CardContent>
+                                <dl className="space-y-2 text-sm">
+                                    <DetailLine
+                                        label="Status"
+                                        value={!consignor.is_active ? (
+                                            <Badge variant="secondary">Inactive</Badge>
+                                        ) : isConsignorScheduled(consignor) ? (
+                                            <Badge variant="warning">Scheduled</Badge>
+                                        ) : (
+                                            <Badge variant="success">Active</Badge>
+                                        )}
+                                    />
+                                    {consignor.scheduled_active_date && isConsignorScheduled(consignor) && (
+                                        <DetailLine label="Active from" value={formatDate(consignor.scheduled_active_date)} />
+                                    )}
+                                    <DetailLine label="Commission" value={`${Math.round(Number(consignor.commission_split) * 100)}%`} />
+                                    <DetailLine label="Dealer discount" value={`${Number(consignor.dealer_discount_percent || 0).toFixed(2)}%`} />
+                                    <DetailLine
+                                        label="Monthly rent"
+                                        value={monthlyRent > 0
+                                            ? `${formatCurrency(monthlyRent)} (${Number(consignor.booth_square_feet) || 0} sqft × ${formatCurrency(Number(consignor.booth_cost_per_square_foot) || 0)})`
+                                            : 'None'}
+                                    />
+                                    <DetailLine label="Card fee" value={consignor.consignor_pays_card_fee ? 'Consignor pays' : 'Customer pays'} />
+                                    <DetailLine label="W-9 on file" value={consignor.has_w9_filled_out ? 'Yes' : 'No'} />
+                                    <DetailLine label="Member since" value={formatDate(consignor.created_at)} />
+                                </dl>
+                                {upcomingRateChange && (
+                                    <p className="mt-4 rounded-lg bg-[var(--color-surface)] p-3 text-xs text-[var(--color-muted)]">
+                                        <strong className="text-[var(--color-foreground)]">
+                                            Changes {formatDate(upcomingRateChange.effective_date)}:
+                                        </strong>{' '}
+                                        {Math.round(upcomingRateChange.commission_split * 100)}% commission, {Number(upcomingRateChange.booth_square_feet) || 0} sqft × {formatCurrency(Number(upcomingRateChange.booth_cost_per_square_foot) || 0)} = {formatCurrency(upcomingRateChange.monthly_booth_rent)} rent
+                                    </p>
+                                )}
+                            </CardContent>
+                        </Card>
 
-            {/* Vendor Bio */}
-            {consignor.storefront_description && (
-                <Card variant="outlined" className="mb-8">
-                    <CardHeader>
-                        <CardTitle className="text-sm">Vendor Bio</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-sm text-[var(--color-muted)] whitespace-pre-wrap">
-                            {consignor.storefront_description}
-                        </p>
-                    </CardContent>
-                </Card>
+                        <Card variant="elevated" className="bg-gradient-to-br from-[var(--color-primary)]/5 to-transparent">
+                            <CardHeader className="flex flex-row items-center justify-between gap-3">
+                                <CardTitle className="text-sm text-[var(--color-muted)]">Inventory</CardTitle>
+                                <Button variant="ghost" size="sm" onClick={() => setActiveTab('inventory')}>
+                                    View
+                                </Button>
+                            </CardHeader>
+                            <CardContent className="space-y-2">
+                                <p className="text-3xl font-bold text-[var(--color-foreground)]">
+                                    {items.length}
+                                    <span className="text-base font-medium text-[var(--color-muted)] ml-2">products</span>
+                                </p>
+                                <p className="text-lg font-medium text-[var(--color-foreground)]">
+                                    {totalUnits}
+                                    <span className="text-sm font-normal text-[var(--color-muted)] ml-2">total units</span>
+                                </p>
+                                <p className="text-lg font-medium text-[var(--color-primary)]">
+                                    {formatCurrency(totalValue)}
+                                    <span className="text-sm font-normal text-[var(--color-muted)] ml-2">total value</span>
+                                </p>
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    <Card variant="outlined">
+                        <SectionCardHeader title="Bio & notes" onEdit={() => setEditSection('notes')} />
+                        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                            <div>
+                                <p className="mb-1 font-medium">Vendor bio</p>
+                                <p className="text-[var(--color-muted)] whitespace-pre-wrap">
+                                    {consignor.storefront_description || 'No bio yet.'}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="mb-1 font-medium">Notes</p>
+                                <p className="text-[var(--color-muted)] whitespace-pre-wrap">
+                                    {consignor.notes || 'No notes.'}
+                                </p>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
             )}
 
-            {/* Notes */}
-            {consignor.notes && (
-                <Card variant="outlined" className="mb-8">
-                    <CardHeader>
-                        <CardTitle className="text-sm">Notes</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-sm text-[var(--color-muted)] whitespace-pre-wrap">
-                            {consignor.notes}
-                        </p>
-                    </CardContent>
-                </Card>
-            )}
-
-            {/* Booth Rent Payments Section - Only show if consignor has booth rent */}
-            {!isEmployee && monthlyRent > 0 && (
-                <div className="mb-8">
+            {activeTab === 'rent' && showRentTab && (
+                <div>
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h2 className="text-lg font-semibold">Booth Rent Payments</h2>
@@ -557,58 +581,67 @@ export function ConsignorDetail() {
                 </div>
             )}
 
-            {/* Vendor Credentials */}
-            {!isEmployee && <VendorCredentials
-                consignorId={id!}
-                consignorEmail={consignor.email || undefined}
-            />}
+            {activeTab === 'inventory' && (
+                <div>
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-semibold">Inventory</h2>
+                        <Link to={`${portalBase}/add-items?consignor=${id}`}>
+                            <Button size="sm">Add Items</Button>
+                        </Link>
+                    </div>
 
-            {/* Inventory */}
-            <div className="flex items-center justify-between mb-4 mt-8">
-                <h2 className="text-lg font-semibold">Inventory</h2>
-                <Link to={`${portalBase}/add-items?consignor=${id}`}>
-                    <Button size="sm">Add Items</Button>
-                </Link>
-            </div>
-
-            {items.length === 0 && !itemsLoading ? (
-                <Card variant="outlined" padding="lg">
-                    <EmptyState
-                        icon={<PackageIcon />}
-                        title="No items yet"
-                        description={`${getConsignorDisplayName(consignor)} doesn't have any items in inventory.`}
-                        action={
-                            <Link to={`${portalBase}/add-items?consignor=${id}`}>
-                                <Button>Add Items</Button>
-                            </Link>
-                        }
-                    />
-                </Card>
-            ) : (
-                <Table
-                    data={items}
-                    columns={itemColumns}
-                    keyExtractor={(item) => item.id}
-                    searchable
-                    searchPlaceholder="Search items..."
-                    searchKeys={['name', 'sku', 'category', 'variant']}
-                    isLoading={itemsLoading}
-                    ariaLabel={`${getConsignorDisplayName(consignor)} inventory`}
-                />
+                    {items.length === 0 && !itemsLoading ? (
+                        <Card variant="outlined" padding="lg">
+                            <EmptyState
+                                icon={<PackageIcon />}
+                                title="No items yet"
+                                description={`${getConsignorDisplayName(consignor)} doesn't have any items in inventory.`}
+                                action={
+                                    <Link to={`${portalBase}/add-items?consignor=${id}`}>
+                                        <Button>Add Items</Button>
+                                    </Link>
+                                }
+                            />
+                        </Card>
+                    ) : (
+                        <Table
+                            data={items}
+                            columns={itemColumns}
+                            keyExtractor={(item) => item.id}
+                            searchable
+                            searchPlaceholder="Search items..."
+                            searchKeys={['name', 'sku', 'category', 'variant']}
+                            isLoading={itemsLoading}
+                            ariaLabel={`${getConsignorDisplayName(consignor)} inventory`}
+                        />
+                    )}
+                </div>
             )}
 
-            {/* Edit Consignor Modal */}
+            {activeTab === 'portal' && !isEmployee && (
+                <div className="max-w-xl [&>*]:mt-0">
+                    <VendorCredentials
+                        consignorId={id!}
+                        consignorEmail={consignor.email || undefined}
+                    />
+                </div>
+            )}
+
+            {/* Edit one section of the consignor */}
             <Modal
-                isOpen={isEditModalOpen}
-                onClose={() => setIsEditModalOpen(false)}
-                title="Edit Consignor"
-                size="md"
+                isOpen={editSection !== null}
+                onClose={() => setEditSection(null)}
+                title={editSection ? EDIT_SECTION_TITLES[editSection] : ''}
+                size={editSection === 'notes' ? 'lg' : '2xl'}
             >
-                <ConsignorForm
-                    consignor={consignor}
-                    onSubmit={handleUpdate}
-                    onCancel={() => setIsEditModalOpen(false)}
-                />
+                {editSection && (
+                    <ConsignorForm
+                        consignor={consignor}
+                        section={editSection}
+                        onSubmit={handleUpdate}
+                        onCancel={() => setEditSection(null)}
+                    />
+                )}
             </Modal>
 
             {/* Record Payment Modal */}

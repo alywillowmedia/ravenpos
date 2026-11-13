@@ -13,6 +13,7 @@ import {
     type SaleItemDiscountAllocationInput,
 } from '../../lib/saleDiscounts';
 import { getVendorSaleEarnings } from '../../hooks/usePayouts';
+import { inStoreDateRange } from '../../lib/payoutDraft';
 import { sumEarnings } from '../../lib/payoutRun';
 import { formatCurrency, formatDate } from '../../lib/utils';
 
@@ -146,16 +147,8 @@ export function VendorSales() {
     }, [userRecord?.consignor_id]);
 
     // Filter by date range
-    const filteredSales = sales.filter((sale) => {
-        const saleDate = new Date(sale.completed_at);
-        if (dateFrom && saleDate < new Date(dateFrom)) return false;
-        if (dateTo) {
-            const toDate = new Date(dateTo);
-            toDate.setHours(23, 59, 59, 999);
-            if (saleDate > toDate) return false;
-        }
-        return true;
-    });
+    // Store days, the same boundaries payouts use.
+    const filteredSales = sales.filter((sale) => inStoreDateRange(sale.completed_at, dateFrom, dateTo));
 
     // Calculate totals
     const totalSales = filteredSales.reduce((sum, s) => sum + s.net_line_total, 0);

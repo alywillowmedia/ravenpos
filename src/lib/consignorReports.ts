@@ -446,6 +446,11 @@ function isDateInReportRange(value: string, startDate: string, endDate: string):
     return true;
 }
 
+/** The day a payout counts as paid: the statement's payment date, else when it was recorded. */
+export function payoutPaidOn(payout: Pick<Payout, 'paid_at' | 'payment_date'>): string {
+    return payout.payment_date ? `${payout.payment_date}T12:00:00` : payout.paid_at;
+}
+
 function isDateOnOrBeforeReportEnd(value: string, endDate: string): boolean {
     const target = new Date(value);
     const end = parseReportDate(endDate, true);
@@ -726,8 +731,10 @@ export function buildConsignorTaxReportFromData(
         const allPayoutsForConsignor = reportData.payoutsByConsignor.get(consignor.id) || [];
         const salesLines = (reportData.linesByConsignor.get(consignor.id) || [])
             .filter((line) => isDateInReportRange(line.saleDate, options.startDate, options.endDate));
+        // Bucket by the payment date on the statement, as payout history does. A check dated
+        // Dec 31 and recorded Jan 2 belongs to December.
         const payouts = allPayoutsForConsignor
-            .filter((payout) => isDateInReportRange(payout.paid_at, options.startDate, options.endDate));
+            .filter((payout) => isDateInReportRange(payoutPaidOn(payout), options.startDate, options.endDate));
         const salesTotals = getSalesTotalsForTaxReport(salesLines);
         const payoutTotals = getPayoutTotalsForTaxReport(payouts);
         const openPayoutEstimate = getOpenPayoutEstimate(salesLines, allPayoutsForConsignor, options.endDate);
@@ -823,6 +830,8 @@ async function fetchConsignorReportData(
             .from('booth_rent_payments')
             .select('*')
             .in('consignor_id', consignorIds)
+            // Rent from a voided payout was never kept, so it is not reported as paid.
+            .is('reversed_at', null)
             .order('paid_at', { ascending: false })
         ),
     ]);
@@ -968,11 +977,26 @@ export async function loadConsignorTaxReport(options: ConsignorTaxReportOptions)
         p_range_end: options.endDate,
     });
     if (error) throw error;
-    const canonicalByVendor = new Map((canonicalQueue as unknown as Array<{
+    type CanonicalWorkspace = {
         vendor: { id: string };
         summary: { closing_balance: number };
         payout_history: Array<{ status: string; paid_at: string | null }>;
-    }> || []).map((workspace) => [workspace.vendor.id, workspace]));
+    };
+    const canonicalByVendor = new Map((canonicalQueue as unknown as CanonicalWorkspace[] || [])
+        .map((workspace) => [workspace.vendor.id, workspace]));
+    // The queue lists active vendors only. Inactive vendors can still be owed money, so read
+    // theirs one at a time from the same source instead of keeping the client estimate.
+    const missing = report.rows.filter((row) => !canonicalByVendor.has(row.consignor.id) && row.consignor.is_active === false);
+    await Promise.all(missing.map(async (row) => {
+        const { data: workspace, error: workspaceError } = await supabase.rpc('get_vendor_payout_workspace', {
+            p_consignor_id: row.consignor.id,
+            p_range_start: options.startDate,
+            p_range_end: options.endDate,
+        });
+        if (workspaceError) throw workspaceError;
+        const canonical = workspace as unknown as CanonicalWorkspace | null;
+        if (canonical?.summary && Array.isArray(canonical.payout_history)) canonicalByVendor.set(row.consignor.id, canonical);
+    }));
     for (const row of report.rows) {
         const canonical = canonicalByVendor.get(row.consignor.id);
         if (!canonical) continue;

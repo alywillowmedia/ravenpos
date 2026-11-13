@@ -1,20 +1,34 @@
 // Employee Action Selection Page
 // Shown after PIN entry - allows choosing between clock in/out and POS access
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { Button } from '../../components/ui/Button';
-import { Modal } from '../../components/ui/Modal';
 import { AuthShell } from '../../components/layout/AuthShell';
 import { CheckCircle2, Clock3, LogOut, ShoppingCart } from 'lucide-react';
+
+// How long the clocked in/out confirmation stays up before returning to the PIN pad.
+const CONFIRMATION_MS = 3000;
 
 export function EmployeeActionSelection() {
     const navigate = useNavigate();
     const { employee, clockStatus, clockIn, clockOut, logout } = useEmployee();
     const [isProcessing, setIsProcessing] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState<{ type: 'in' | 'out'; hours?: number } | null>(null);
-    const [showClockInPrompt, setShowClockInPrompt] = useState(false);
+
+    // Sign out and return to the PIN pad for the next employee
+    const handleLogout = useCallback(async () => {
+        await logout();
+        navigate('/employee/login');
+    }, [logout, navigate]);
+
+    // The confirmation dismisses itself; "Done" just skips the wait
+    useEffect(() => {
+        if (!showConfirmation) return;
+        const timer = setTimeout(() => void handleLogout(), CONFIRMATION_MS);
+        return () => clearTimeout(timer);
+    }, [showConfirmation, handleLogout]);
 
     // Redirect if not logged in
     if (!employee) {
@@ -39,37 +53,13 @@ export function EmployeeActionSelection() {
         setIsProcessing(false);
     };
 
-    const handleGoToPOS = () => {
-        if (!clockStatus.isClockedIn) {
-            // Show prompt asking if they want to clock in
-            setShowClockInPrompt(true);
-        } else {
-            navigate('/employee/pos');
-        }
-    };
-
-    const handleClockInPromptResponse = async (shouldClockIn: boolean) => {
-        setShowClockInPrompt(false);
-
-        if (shouldClockIn) {
+    const handleOpenRegister = async (clockInFirst: boolean) => {
+        if (clockInFirst) {
             setIsProcessing(true);
             await clockIn();
             setIsProcessing(false);
         }
-
         navigate('/employee/pos');
-    };
-
-    const handleConfirmationClose = async () => {
-        setShowConfirmation(null);
-        // Log out after clocking out to return to PIN screen
-        await logout();
-        navigate('/employee/login');
-    };
-
-    const handleLogout = async () => {
-        await logout();
-        navigate('/employee/login');
     };
 
     const formatHours = (hours: number) => {
@@ -78,22 +68,36 @@ export function EmployeeActionSelection() {
         return `${h}h ${m}m`;
     };
 
+    if (showConfirmation) {
+        const clockedIn = showConfirmation.type === 'in';
+        return (
+            <AuthShell
+                eyebrow="Employee terminal"
+                title={clockedIn ? 'Clocked in' : 'Clocked out'}
+                description={clockedIn ? `Have a great shift, ${employee.name}.` : `Thanks, ${employee.name}.`}
+            >
+                <div className="py-4 text-center" role="status">
+                    <CheckCircle2 size={56} className="mx-auto mb-4 text-[var(--color-success)]" aria-hidden="true" />
+                    {!clockedIn && (
+                        <p className="mb-4 font-display text-3xl tabular-nums text-[var(--color-primary)]">
+                            Total: {formatHours(showConfirmation.hours || 0)}
+                        </p>
+                    )}
+                    <p className="mb-5 text-sm text-[var(--color-muted)]">Returning to the PIN pad…</p>
+                    <Button onClick={() => void handleLogout()} size="lg" variant="secondary">
+                        Done
+                    </Button>
+                </div>
+            </AuthShell>
+        );
+    }
+
     return (
         <AuthShell
             eyebrow="Employee terminal"
             title={`Welcome, ${employee.name}`}
             description={clockStatus.isClockedIn ? `Clocked in for ${clockStatus.duration}` : 'You are currently clocked out.'}
         >
-            <div className={`mb-5 flex items-center gap-3 rounded-xl border p-4 ${clockStatus.isClockedIn ? 'border-[var(--color-success)]/20 bg-[var(--color-success-bg)]' : 'border-[var(--color-border)] bg-[var(--color-surface)]'}`} role="status">
-                <span className={`flex h-10 w-10 items-center justify-center rounded-full ${clockStatus.isClockedIn ? 'bg-[var(--color-success)] text-[var(--color-success-foreground)]' : 'bg-[var(--color-card)] text-[var(--color-muted)]'}`} aria-hidden="true">
-                    <Clock3 size={20} />
-                </span>
-                <div>
-                    <p className="text-sm font-semibold text-[var(--color-foreground)]">{clockStatus.isClockedIn ? 'Shift in progress' : 'Ready to start a shift'}</p>
-                    <p className="text-xs text-[var(--color-muted)]">{clockStatus.isClockedIn ? clockStatus.duration : 'Clock in when you begin working.'}</p>
-                </div>
-            </div>
-
             <div className="space-y-3">
                 <Button
                     size="xl"
@@ -108,79 +112,32 @@ export function EmployeeActionSelection() {
                 <Button
                     size="xl"
                     variant="secondary"
-                    onClick={handleGoToPOS}
+                    onClick={() => void handleOpenRegister(!clockStatus.isClockedIn)}
                     disabled={isProcessing}
                     className="min-h-16 w-full text-base"
                 >
                     <ShoppingCart aria-hidden="true" />
-                    Open register
+                    {clockStatus.isClockedIn ? 'Open register' : 'Clock in & open register'}
                 </Button>
             </div>
 
-            <button
-                onClick={handleLogout}
-                className="mt-6 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg text-sm font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]"
-            >
-                <LogOut size={16} aria-hidden="true" /> Switch employee
-            </button>
-
-            {/* Clock In/Out Confirmation Modal */}
-            <Modal
-                isOpen={!!showConfirmation}
-                onClose={handleConfirmationClose}
-                title={showConfirmation?.type === 'in' ? 'Clocked in' : 'Clocked out'}
-                size="sm"
-            >
-                <div className="py-5 text-center">
-                    <CheckCircle2 size={56} className="mx-auto mb-4 text-[var(--color-success)]" aria-hidden="true" />
-                    {showConfirmation?.type === 'in' ? (
-                        <p className="mb-6 text-base text-[var(--color-muted)]">
-                            You're now clocked in. Have a great shift!
-                        </p>
-                    ) : (
-                        <>
-                            <p className="mb-2 text-base text-[var(--color-muted)]">
-                                You've been clocked out.
-                            </p>
-                            <p className="mb-6 font-display text-3xl tabular-nums text-[var(--color-primary)]">
-                                Total: {formatHours(showConfirmation?.hours || 0)}
-                            </p>
-                        </>
-                    )}
-                    <Button onClick={handleConfirmationClose} size="lg">
-                        Done
-                    </Button>
-                </div>
-            </Modal>
-
-            {/* Clock In Prompt Modal (when going to POS without clocking in) */}
-            <Modal
-                isOpen={showClockInPrompt}
-                onClose={() => setShowClockInPrompt(false)}
-                title="Clock In?"
-                size="sm"
-            >
-                <div className="py-4 text-center">
-                    <p className="mb-6 text-sm text-[var(--color-muted)]">
-                        You're not currently clocked in. Would you like to clock in before going to the POS?
-                    </p>
-                    <div className="flex flex-col-reverse justify-center gap-3 sm:flex-row">
-                        <Button
-                            variant="secondary"
-                            onClick={() => handleClockInPromptResponse(false)}
-                            className="sm:min-w-28"
-                        >
-                            No
-                        </Button>
-                        <Button
-                            onClick={() => handleClockInPromptResponse(true)}
-                            className="sm:min-w-32"
-                        >
-                            Yes, Clock In
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-x-2 border-t border-[var(--color-border)] pt-3">
+                {!clockStatus.isClockedIn && (
+                    <button
+                        onClick={() => void handleOpenRegister(false)}
+                        disabled={isProcessing}
+                        className="flex min-h-11 items-center justify-center rounded-lg px-3 text-sm font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]"
+                    >
+                        Open register without clocking in
+                    </button>
+                )}
+                <button
+                    onClick={() => void handleLogout()}
+                    className="flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]"
+                >
+                    <LogOut size={16} aria-hidden="true" /> Switch employee
+                </button>
+            </div>
         </AuthShell>
     );
 }
