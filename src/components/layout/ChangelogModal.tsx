@@ -40,6 +40,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                                         <li>The employee PIN pad clocks in and opens the register in one tap, and returns to the pad after clocking in or out.</li>
                                         <li>Employee records can no longer be read without signing in.</li>
                                         <li>A "What's new" panel in the sidebar shows each account type what changed for them.</li>
+                                        <li>v3.12.1: gift card sales are rebuilt. Sell several cards in one payment, pick a printed design, tie a card to one vendor, email or print the cards, and reprint any card from its code.</li>
                                     </ul>
                                 </div>
 

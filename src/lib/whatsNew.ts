@@ -15,9 +15,13 @@ export interface WhatsNewRelease {
 
 export const RELEASES: WhatsNewRelease[] = [
     {
-        version: '3.12.0',
+        version: '3.12.1',
         notes: {
             admin: [
+                {
+                    title: 'Gift cards, rebuilt',
+                    body: 'Sell gift cards from Options at the register: several cards in one payment, a choice of printed designs, and cards that are good for one vendor only. Cards print on letter paper or go out by email, and any card can be reprinted from its code.',
+                },
                 {
                     title: 'A new look',
                     body: 'Every screen has been restyled, in light and dark. The sidebar is grouped into Inventory, People, Money and Store, and the top bar shows where you are.',
@@ -49,6 +53,10 @@ export const RELEASES: WhatsNewRelease[] = [
             ],
             employee: [
                 {
+                    title: 'Gift cards, rebuilt',
+                    body: 'Sell gift cards from Options at the register: several cards in one payment, a choice of printed designs, and cards that are good for one vendor only. Cards print on letter paper or go out by email, and any card can be reprinted from its code.',
+                },
+                {
                     title: 'A new look',
                     body: 'Every screen has been restyled, and the sidebar is tidier. Everything is where it was; People now holds Consignors, Customers and Dealers.',
                 },
@@ -66,6 +74,10 @@ export const RELEASES: WhatsNewRelease[] = [
                 },
             ],
             vendor: [
+                {
+                    title: 'Gift cards for your booth',
+                    body: 'The store can now sell gift cards that are good for your items only. They are redeemed at the register like any other gift card.',
+                },
                 {
                     title: 'Your earnings now include card fees and refunds',
                     body: 'Earnings figures are worked out by the store system and already account for card fees and refunds. On card sales they will read a little lower than before; what you are paid has not changed.',
