@@ -8,7 +8,8 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Receipt } from '../components/pos/Receipt';
 import { RefundModal } from '../components/pos/RefundModal';
 import { DiscountModal } from '../components/pos/DiscountModal';
-import { GiftCardSaleModal } from '../components/pos/GiftCardSaleModal';
+import { GiftCardSaleScreen } from '../components/giftcards/GiftCardSaleScreen';
+import { getGiftCardRedeemAmount, isGiftCardCode } from '../lib/giftCardBatch';
 import { ReceiptDeliveryModal } from '../components/receipt/ReceiptDeliveryModal';
 import { InvoiceDeliveryModal } from '../components/invoice/InvoiceDeliveryModal';
 import { StripeReaderSetupModal } from '../components/pos/StripeReaderSetupModal';
@@ -261,7 +262,13 @@ export function POS() {
     const [showGiftCardEntry, setShowGiftCardEntry] = useState(false);
     const [giftCardError, setGiftCardError] = useState<string | null>(null);
     const [isApplyingGiftCard, setIsApplyingGiftCard] = useState(false);
-    const [appliedGiftCard, setAppliedGiftCard] = useState<{ code: string; balance: number } | null>(null);
+    const [appliedGiftCard, setAppliedGiftCard] = useState<{
+        code: string;
+        balance: number;
+        /** Set for a vendor card, which only pays for that vendor's items. */
+        consignorId: string | null;
+        vendorName: string | null;
+    } | null>(null);
     const [newCustomerData, setNewCustomerData] = useState<CustomerInput>({
         name: '',
         email: null,
@@ -369,7 +376,13 @@ export function POS() {
     const subtotalAfterItemDiscounts = cart.reduce((sum, cartItem) => sum + cartItem.discountedLineTotal, 0);
     const cardFeeRatio = subtotalAfterItemDiscounts > 0 ? eligibleSubtotalAfterDiscounts / subtotalAfterItemDiscounts : 0;
     const appliedGiftCardAmount = appliedGiftCard
-        ? Math.min(Math.max(0, appliedGiftCard.balance), total)
+        ? getGiftCardRedeemAmount({
+            balance: appliedGiftCard.balance,
+            orderTotal: total,
+            vendorCartTotal: appliedGiftCard.consignorId
+                ? calculateConsignorCartTotal(cart, appliedGiftCard.consignorId, orderDiscounts)
+                : null,
+        })
         : 0;
     const remainingAfterGiftCard = Math.max(0, total - appliedGiftCardAmount);
     const generalStoreCreditBalance = Number(selectedCustomer?.store_credit || 0);
@@ -832,6 +845,14 @@ export function POS() {
         if (!sku) return;
 
         setScanError(null);
+
+        // A printed gift card's barcode pays with that card instead of adding an item.
+        if (isGiftCardCode(sku)) {
+            setScanInput('');
+            setShowGiftCardEntry(true);
+            await handleApplyGiftCard(sku);
+            return;
+        }
 
         // Check if item already in cart
         const existingIndex = cart.findIndex((ci) => ci.item.sku === sku);
@@ -1991,13 +2012,15 @@ export function POS() {
         });
     };
 
-    const handleApplyGiftCard = async () => {
+    // Applies a gift card by code: typed into the gift card box, or scanned
+    // from a printed card's barcode at the main scan field.
+    const handleApplyGiftCard = async (scannedCode?: string) => {
         if (isOfflineMode) {
             setGiftCardError('Gift cards require internet. Offline mode supports cash sales only.');
             return;
         }
 
-        const normalizedCode = giftCardInput.trim().toUpperCase();
+        const normalizedCode = (scannedCode ?? giftCardInput).trim().toUpperCase();
         if (!normalizedCode) {
             setGiftCardError('Enter a gift card code');
             return;
@@ -2033,9 +2056,19 @@ export function POS() {
             return;
         }
 
+        // A vendor card only pays for that vendor's items.
+        const giftCardConsignorId = giftCard.consignor_id ? String(giftCard.consignor_id) : null;
+        const giftCardVendorName = giftCardConsignorId ? String(giftCard.consignor_name || 'that vendor') : null;
+        if (giftCardConsignorId && calculateConsignorCartTotal(cart, giftCardConsignorId, orderDiscounts) <= 0) {
+            setGiftCardError(`This card is only good for ${giftCardVendorName} items, and there are none in this sale.`);
+            return;
+        }
+
         setAppliedGiftCard({
             code: String(giftCard.code),
             balance,
+            consignorId: giftCardConsignorId,
+            vendorName: giftCardVendorName,
         });
         setGiftCardInput(String(giftCard.code));
     };
@@ -2378,7 +2411,7 @@ export function POS() {
 
                                             <OptionsMenuItem icon={<FileTextIcon />} label="Create invoice" disabled={cart.length === 0 || isOfflineMode} title={isOfflineMode ? 'Invoices require internet' : cart.length === 0 ? 'Cart is empty' : undefined} onClick={() => { setShowOptionsMenu(false); setShowInvoiceModal(true); }} />
                                             <OptionsMenuItem icon={<RefundIcon />} label="Refund" disabled={isOfflineMode} title={isOfflineMode ? 'Refunds require internet' : undefined} onClick={() => { setShowOptionsMenu(false); setShowRefundModal(true); }} />
-                                            <OptionsMenuItem icon={<GiftCardIcon />} label="Sell gift card" disabled={isOfflineMode} title={isOfflineMode ? 'Gift cards require internet' : undefined} onClick={() => { setShowOptionsMenu(false); setShowGiftCardSaleModal(true); }} />
+                                            <OptionsMenuItem icon={<GiftCardIcon />} label="Sell gift cards" disabled={isOfflineMode} title={isOfflineMode ? 'Gift cards require internet' : undefined} onClick={() => { setShowOptionsMenu(false); setShowGiftCardSaleModal(true); }} />
                                             <OptionsMenuItem icon={<MonitorIcon />} label="Customer display" onClick={() => { setShowOptionsMenu(false); openCustomerDisplay(); }} />
 
                                             {cart.length > 0 && (
@@ -2811,7 +2844,7 @@ export function POS() {
                                         />
                                         <Button
                                             variant="secondary"
-                                            onClick={handleApplyGiftCard}
+                                            onClick={() => void handleApplyGiftCard()}
                                             isLoading={isApplyingGiftCard}
                                             className="shrink-0"
                                             disabled={isOfflineMode}
@@ -2851,6 +2884,9 @@ export function POS() {
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
                                                 <p className="font-medium">Gift Card ••••{appliedGiftCard.code.slice(-4)}</p>
+                                                {appliedGiftCard.vendorName && (
+                                                    <p className="text-xs text-[var(--color-muted)]">{appliedGiftCard.vendorName} items only</p>
+                                                )}
                                                 <p className="text-xs text-[var(--color-muted)]">
                                                     {formatCurrency(Math.max(0, appliedGiftCard.balance - appliedGiftCardAmount))} left after this sale
                                                 </p>
@@ -3677,7 +3713,7 @@ export function POS() {
             />
 
             {/* Gift Card Sale Modal */}
-            <GiftCardSaleModal
+            <GiftCardSaleScreen
                 isOpen={showGiftCardSaleModal}
                 onClose={() => setShowGiftCardSaleModal(false)}
                 connectedReader={!!connectedReader}

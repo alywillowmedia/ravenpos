@@ -5,6 +5,8 @@ import { ShoppingCartIcon, TagIcon, Store, CheckCircle, Receipt, CreditCard, Wal
 import type { CartItem, Discount, Sale, PaymentMethod } from '../types';
 import ravenposLogo from '../../assets/ravenpos_logo.svg';
 import { supabase } from '../lib/supabase';
+import { GIFT_CARD_DISPLAY_CHANNEL, type GiftCardDisplayMessage } from '../lib/giftCardDisplay';
+import { GiftCardDisplay } from '../components/giftcards/GiftCardDisplay';
 
 type CustomerIntakeStatus = 'idle' | 'ready' | 'entering_name' | 'entering_contact' | 'saving' | 'attached' | 'skipped' | 'error';
 
@@ -45,6 +47,7 @@ export function Display() {
     const [data, setData] = useState<BroadcastData | null>(null);
     const [now, setNow] = useState(() => new Date());
     const [idleImageUrl, setIdleImageUrl] = useState<string | null>(null);
+    const [giftCardSale, setGiftCardSale] = useState<GiftCardDisplayMessage | null>(null);
 
     useEffect(() => {
         const channel = new BroadcastChannel('ravenpos-cart');
@@ -52,6 +55,19 @@ export function Display() {
         channel.onmessage = (event) => {
             if (event.data && typeof event.data === 'object') {
                 setData(event.data as BroadcastData);
+            }
+        };
+
+        return () => channel.close();
+    }, []);
+
+    // A gift card sale takes over the display while it is open at the register.
+    useEffect(() => {
+        const channel = new BroadcastChannel(GIFT_CARD_DISPLAY_CHANNEL);
+
+        channel.onmessage = (event) => {
+            if (event.data && typeof event.data === 'object') {
+                setGiftCardSale(event.data as GiftCardDisplayMessage);
             }
         };
 
@@ -89,6 +105,10 @@ export function Display() {
             isMounted = false;
         };
     }, []);
+
+    if (giftCardSale?.active && giftCardSale.cards.length > 0) {
+        return <GiftCardDisplay sale={giftCardSale} />;
+    }
 
     if (!data) {
         return (

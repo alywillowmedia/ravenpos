@@ -7,6 +7,11 @@ export interface GiftCardEmailPayload {
     toEmail: string;
     fromName?: string | null;
     message?: string | null;
+    /** Design of the card, so the email matches the printed one. */
+    occasion?: string | null;
+    brand?: 'ravenlia' | 'alywillow' | null;
+    /** Set for a vendor card, which is only good for that vendor's items. */
+    vendorName?: string | null;
 }
 
 export interface SendGiftCardEmailResult {
