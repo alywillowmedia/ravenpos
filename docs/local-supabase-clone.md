@@ -22,7 +22,8 @@ That command:
 4. Creates local-only admin and vendor Auth users.
 5. Applies the payout-ledger migration only when it is not already present.
 6. Verifies saved payout and invoice aggregates did not change.
-7. Runs the payout contract, behavior, and RLS test suites.
+7. Applies the employee access migration, then runs the payout contract, behavior,
+   and RLS test suites and the employee access suite.
 8. Signs in locally and calls the payout queue through PostgREST.
 
 The pull is read-only against the linked project. All restore, migration, and
@@ -54,7 +55,7 @@ Supabase Studio is available at <http://127.0.0.1:55323>.
 npm run local:pull          # create a fresh linked-project dump
 npm run local:start         # start/reuse the isolated Docker stack
 npm run local:restore       # restore the latest dump and seed local users
-npm run local:test:payouts  # apply and test the payout migration locally
+npm run local:test:payouts  # apply and test the payout and employee access migrations locally
 npm run local:smoke         # verify local Auth and payout RPC access
 npm run local:stop          # stop containers but preserve the local volume
 ```

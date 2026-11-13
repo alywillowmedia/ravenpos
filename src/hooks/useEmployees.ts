@@ -8,6 +8,9 @@ import { hashPin, generateSalt } from '../lib/employeeAuth';
 import { getSundaySaturdayWeekDateRange } from '../lib/timeCalculations';
 import type { Employee, EmployeeWithStats, TimeEntry, EmployeeInput } from '../types/employee';
 
+// pin_hash and pin_salt are not selectable through the API, so never use '*' here.
+const EMPLOYEE_COLUMNS = 'id, name, hourly_rate, is_active, removed_at, employer, employment_type, address_line_1, address_line_2, city, state, postal_code, country, created_at, updated_at';
+
 async function getFunctionErrorMessage(error: FunctionsHttpError): Promise<string | null> {
     try {
         const payload = await error.context.clone().json();
@@ -69,7 +72,7 @@ export function useEmployees() {
             // Get all employees
             const { data: employeesData, error: empError } = await supabase
                 .from('employees')
-                .select('*')
+                .select(EMPLOYEE_COLUMNS)
                 .order('name');
 
             if (empError) {
@@ -147,7 +150,7 @@ export function useEmployees() {
                     postal_code: input.postal_code || null,
                     country: input.country || null,
                 })
-                .select()
+                .select(EMPLOYEE_COLUMNS)
                 .single();
 
             if (error) {
@@ -233,7 +236,7 @@ export function useEmployees() {
     const getEmployee = async (id: string): Promise<{ data: Employee | null; error: string | null }> => {
         const { data, error } = await supabase
             .from('employees')
-            .select('id, name, hourly_rate, is_active, employer, employment_type, address_line_1, address_line_2, city, state, postal_code, country, created_at, updated_at')
+            .select(EMPLOYEE_COLUMNS)
             .eq('id', id)
             .single();
 
