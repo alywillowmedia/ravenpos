@@ -15,9 +15,13 @@ export interface WhatsNewRelease {
 
 export const RELEASES: WhatsNewRelease[] = [
     {
-        version: '3.12.1',
+        version: '3.12.2',
         notes: {
             admin: [
+                {
+                    title: 'Gift cards with real artwork',
+                    body: 'Printed gift cards now carry illustrated borders: wildflowers for Alywillow and vintage parchment for Ravenlia. Long names and notes shrink to fit instead of being cut off.',
+                },
                 {
                     title: 'Gift cards, rebuilt',
                     body: 'Sell gift cards from Options at the register: several cards in one payment, a choice of printed designs, and cards that are good for one vendor only. Cards print on letter paper or go out by email, and any card can be reprinted from its code.',

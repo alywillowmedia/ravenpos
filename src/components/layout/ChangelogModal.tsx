@@ -41,6 +41,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                                         <li>Employee records can no longer be read without signing in.</li>
                                         <li>A "What's new" panel in the sidebar shows each account type what changed for them.</li>
                                         <li>v3.12.1: gift card sales are rebuilt. Sell several cards in one payment, pick a printed design, tie a card to one vendor, email or print the cards, and reprint any card from its code.</li>
+                                        <li>v3.12.2: gift cards carry illustrated borders for Alywillow and Ravenlia, and long names and notes shrink to fit.</li>
                                     </ul>
                                 </div>
 
