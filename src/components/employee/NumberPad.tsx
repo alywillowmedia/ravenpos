@@ -2,6 +2,7 @@
 // Touch-friendly design for POS terminals
 
 import { useState } from 'react';
+import { Delete } from 'lucide-react';
 
 interface NumberPadProps {
     onDigit: (digit: string) => void;
@@ -21,13 +22,13 @@ export function NumberPad({ onDigit, onClear, onBackspace, onSubmit, disabled }:
         onDigit(value);
     };
 
-    const numberClass = (key: string) => `flex aspect-square w-full items-center justify-center rounded-xl border text-2xl font-semibold tabular-nums transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+    const numberClass = (key: string) => `flex h-16 w-full items-center justify-center rounded-xl border text-2xl font-semibold tabular-nums transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
         pressedKey === key
             ? 'scale-95 border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
             : 'border-[var(--color-input)] bg-[var(--color-surface-elevated)] text-[var(--color-foreground)] hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-hover)]'
     }`;
 
-    const actionClass = (key: string) => `flex aspect-square w-full items-center justify-center rounded-xl border text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+    const actionClass = (key: string) => `flex h-16 w-full items-center justify-center rounded-xl border text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
         pressedKey === key
             ? 'scale-95 border-[var(--color-border-strong)] bg-[var(--color-surface-hover)]'
             : 'border-[var(--color-input)] bg-[var(--color-surface)] text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]'
@@ -49,7 +50,7 @@ export function NumberPad({ onDigit, onClear, onBackspace, onSubmit, disabled }:
                         setTimeout(() => setPressedKey(null), 100);
                         onClear();
                     }}
-                    className={actionClass('clear')}
+                    className={`${actionClass('clear')} !border-transparent !bg-transparent`}
                     disabled={disabled}
                 >
                     Clear
@@ -74,7 +75,7 @@ export function NumberPad({ onDigit, onClear, onBackspace, onSubmit, disabled }:
                     disabled={disabled}
                     aria-label="Delete last digit"
                 >
-                    Delete
+                    <Delete size={26} aria-hidden="true" />
                 </button>
             </div>
 

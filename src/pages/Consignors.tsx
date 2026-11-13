@@ -282,7 +282,7 @@ export function Consignors() {
                 onClose={closeAddConsignorModal}
                 title="Add Consignor"
                 description="Enter the consignor's details below."
-                size="md"
+                size="2xl"
                 closeOnOverlayClick={false}
                 closeOnEscape={false}
                 showCloseButton

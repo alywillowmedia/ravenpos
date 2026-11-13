@@ -78,20 +78,23 @@ export function useBoothRentPayments(consignorId: string | undefined) {
             setPayments((prev) => prev.filter((p) => p.id !== id));
             return { error: null };
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to delete payment';
+            const message = err instanceof Error
+                ? err.message
+                : (err as { message?: string } | null)?.message || 'Failed to delete payment';
             return { error: message };
         }
     };
 
     // Calculate total paid for the current year
+    // Rent from a voided payout stays listed as evidence but no longer counts as paid.
     const currentYear = new Date().getFullYear();
     const yearlyTotal = payments
-        .filter((p) => p.period_year === currentYear)
+        .filter((p) => p.period_year === currentYear && !p.reversed_at)
         .reduce((sum, p) => sum + Number(p.amount), 0);
 
     // Get months with payments for the current year
     const paidMonths = payments
-        .filter((p) => p.period_year === currentYear)
+        .filter((p) => p.period_year === currentYear && !p.reversed_at)
         .map((p) => p.period_month);
 
     return {

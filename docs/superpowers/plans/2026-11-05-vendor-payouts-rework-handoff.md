@@ -11,6 +11,7 @@ Do not push or deploy until the owner clears it. Aliya is running real payouts o
 1. Ship the staff records fix first (`claude/eloquent-cori-0a02ca`). It has its own migration, `20261105120000_close_public_employee_access.sql`, and both branches touch `scripts/local-supabase-clone.sh`.
 2. Confirm `20260827210000` and `20261012120000` are applied on the live project.
 3. Apply `20261105130000_vendor_payouts_rework.sql`. The old functions stay, so older desktop builds keep working.
+3a. Apply `20261113120000_payout_rent_safeguards.sql` straight after. It needs `payout_store_time_zone()` and `finalize_payout_checked` from step 3. It changes no rows: it adds a guard on payout-created rent rows, moves rent month boundaries to store time, and gives Mark paid a plain message when rent was recorded by hand after a draft.
 4. Run `send-payout-statement` once with a stubbed Resend against four callers: no token, vendor, employee, admin. It has never run end to end.
 5. Deploy `send-payout-statement`. `RESEND_API_KEY` already exists. `PORTAL_URL` is optional and adds a link to the email.
 6. Ship the front end.

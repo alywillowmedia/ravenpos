@@ -9,6 +9,7 @@ PAYOUT_MIGRATION="${ROOT_DIR}/supabase/migrations/20260715120000_vendor_payout_l
 PAYOUT_STALE_DRAFT_FIX="${ROOT_DIR}/supabase/migrations/20260827210000_fix_stale_payout_draft_allocations.sql"
 PAYOUT_RANGE_PREVIEW="${ROOT_DIR}/supabase/migrations/20261012120000_payout_range_preview.sql"
 PAYOUT_RUN_MIGRATION="${ROOT_DIR}/supabase/migrations/20261105130000_vendor_payouts_rework.sql"
+PAYOUT_RENT_SAFEGUARDS="${ROOT_DIR}/supabase/migrations/20261113120000_payout_rent_safeguards.sql"
 LOCAL_DB_PORT="55322"
 
 LOCAL_ADMIN_EMAIL="${LOCAL_ADMIN_EMAIL:-local-admin@ravenpos.test}"
@@ -233,6 +234,8 @@ apply_payout_rework() {
   printf 'Applying payout range preview and rework migrations to the LOCAL clone only.\n'
   psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --file "$PAYOUT_RANGE_PREVIEW"
   psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --file "$PAYOUT_RUN_MIGRATION"
+  [[ -f "$PAYOUT_RENT_SAFEGUARDS" ]] || die "Missing payout rent safeguards migration: $PAYOUT_RENT_SAFEGUARDS"
+  psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --file "$PAYOUT_RENT_SAFEGUARDS"
   psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --command "NOTIFY pgrst, 'reload schema';"
 }
 
@@ -284,7 +287,8 @@ test_payouts() {
     "${ROOT_DIR}/supabase/tests/vendor_payouts_rework.sql" \
     "${ROOT_DIR}/supabase/tests/vendor_payouts_behavior.sql" \
     "${ROOT_DIR}/supabase/tests/vendor_payouts_rls.sql" \
-    "${ROOT_DIR}/supabase/tests/vendor_payouts_run.sql"; do
+    "${ROOT_DIR}/supabase/tests/vendor_payouts_run.sql" \
+    "${ROOT_DIR}/supabase/tests/vendor_payouts_rent_safeguards.sql"; do
     printf 'Running %s\n' "${test_file#${ROOT_DIR}/}"
     test_output="$(psql "$LOCAL_DB_URL" --set ON_ERROR_STOP=1 --file "$test_file")"
     printf '%s\n' "$test_output"

@@ -8,13 +8,19 @@ interface AuthShellProps {
     children: ReactNode;
     footer?: ReactNode;
     maxWidth?: 'sm' | 'md';
+    /** 'split' puts the heading beside the card on wide screens, so tall cards (the PIN pad) fit a landscape terminal. */
+    layout?: 'stacked' | 'split';
 }
 
-export function AuthShell({ eyebrow, title, description, children, footer, maxWidth = 'sm' }: AuthShellProps) {
+export function AuthShell({ eyebrow, title, description, children, footer, maxWidth = 'sm', layout = 'stacked' }: AuthShellProps) {
+    const split = layout === 'split';
+    const widthClass = split
+        ? 'max-w-md lg:grid lg:max-w-4xl lg:grid-cols-2 lg:items-center lg:gap-12'
+        : maxWidth === 'md' ? 'max-w-2xl' : 'max-w-md';
     return (
         <main className="relative min-h-dvh overflow-hidden bg-[var(--color-background)] px-4 py-8 text-[var(--color-foreground)] sm:px-6">
-            <div className={`relative mx-auto flex min-h-[calc(100dvh-4rem)] w-full ${maxWidth === 'md' ? 'max-w-2xl' : 'max-w-md'} flex-col justify-center`}>
-                <div className="mb-6 text-center">
+            <div className={`relative mx-auto flex min-h-[calc(100dvh-4rem)] w-full ${widthClass} flex-col justify-center`}>
+                <div className={`mb-6 text-center ${split ? 'lg:mb-0' : ''}`}>
                     <div className="mx-auto mb-5 w-full max-w-[15rem] rounded-2xl border border-[var(--color-border)] bg-white px-6 py-4 shadow-sm">
                         <img src={ravenposLogo} alt="RavenPOS" className="mx-auto h-12 w-auto" />
                     </div>
@@ -23,11 +29,13 @@ export function AuthShell({ eyebrow, title, description, children, footer, maxWi
                     <p className="mx-auto mt-2 max-w-lg text-sm text-[var(--color-muted)] sm:text-base">{description}</p>
                 </div>
 
-                <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-5 shadow-lg sm:p-6" aria-label={title}>
-                    {children}
-                </section>
+                <div>
+                    <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-5 shadow-lg sm:p-6" aria-label={title}>
+                        {children}
+                    </section>
 
-                {footer && <div className="mt-6 text-center text-sm text-[var(--color-muted)]">{footer}</div>}
+                    {footer && <div className="mt-6 text-center text-sm text-[var(--color-muted)]">{footer}</div>}
+                </div>
             </div>
         </main>
     );

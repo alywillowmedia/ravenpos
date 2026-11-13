@@ -476,6 +476,10 @@ export interface BoothRentPayment {
     notes: string | null;
     paid_at: string;
     created_at: string;
+    /** Set when a payout deducted this rent. Such rows are reversed by voiding the payout. */
+    source_payout_id?: string | null;
+    /** Set when the payout that deducted this rent was voided. */
+    reversed_at?: string | null;
 }
 
 export type BoothRentPaymentInput = Omit<BoothRentPayment, 'id' | 'created_at'>;

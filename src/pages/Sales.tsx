@@ -1525,7 +1525,7 @@ export function Sales() {
                             description="Complete your first sale in the Point of Sale to see it here."
                         />
                     ) : isLoading ? (
-                        <div className="flex justify-center py-12">
+                        <div key="loading" className="flex justify-center py-12">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
                         </div>
                     ) : filteredSales.length === 0 ? (
@@ -1533,7 +1533,9 @@ export function Sales() {
                             No sales match your filters
                         </div>
                     ) : (
-                        <div className="@container">
+                        // Keyed so React mounts fresh nodes instead of turning the spinner's
+                        // div into the header row, which left the header spinning in Safari.
+                        <div key="sales-list" className="@container">
                             {/* Header Row: only when the list is wide enough for columns */}
                             <div className="hidden @4xl:flex bg-[var(--color-surface)] rounded-t-xl border border-[var(--color-border)] px-4 py-2 items-center gap-4">
                                 <div className="w-[16px] flex-shrink-0" />
@@ -1546,10 +1548,10 @@ export function Sales() {
                                         <div className="w-[70px] text-xs font-medium text-[var(--color-muted)]">Status</div>
                                     </div>
                                     <div className="flex items-center gap-3 flex-shrink-0">
-                                        <div className="w-[70px] text-right text-xs font-medium text-[var(--color-muted)]">Net Subtotal</div>
+                                        <div className="w-[80px] whitespace-nowrap text-right text-xs font-medium text-[var(--color-muted)]">Net Subtotal</div>
                                         <div className="hidden @5xl:block w-[50px] text-right text-xs font-medium text-[var(--color-muted)]">Tax</div>
-                                        <div className="hidden @5xl:block w-[100px] text-right text-xs font-medium text-[var(--color-muted)]">Commission</div>
-                                        <div className="w-[70px] text-right text-xs font-medium text-[var(--color-muted)]">Total</div>
+                                        <div className="hidden @5xl:block w-[90px] text-right text-xs font-medium text-[var(--color-muted)]">Commission</div>
+                                        <div className="w-[80px] text-right text-xs font-medium text-[var(--color-muted)]">Total</div>
                                     </div>
                                 </div>
                             </div>
@@ -1642,7 +1644,7 @@ export function Sales() {
                             description={filterDatePreset === 'all' ? 'Refunds processed from the POS will appear here.' : 'No refunds match your date filter.'}
                         />
                     ) : isLoadingRefunds ? (
-                        <div className="flex justify-center py-12">
+                        <div key="loading" className="flex justify-center py-12">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
                         </div>
                     ) : (
@@ -1665,7 +1667,7 @@ export function Sales() {
                             description="Complete sales in the POS to view employee attribution."
                         />
                     ) : isLoadingAllFiltered ? (
-                        <div className="flex justify-center py-12">
+                        <div key="loading" className="flex justify-center py-12">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
                         </div>
                     ) : employeeAttribution.rows.length === 0 ? (
@@ -2586,6 +2588,16 @@ export function Sales() {
 }
 
 // Individual Sale Row Component with expandable details
+// Sale lines are stored as "name - variant"; when the variant repeats the name,
+// show it once ("Lip Balm - Lip Balm" -> "Lip Balm").
+function collapseRepeatedName(name: string): string {
+    const parts = name.split(' - ');
+    if (parts.length < 2 || parts.length % 2 !== 0) return name;
+    const half = parts.length / 2;
+    const first = parts.slice(0, half).join(' - ');
+    return first.trim() === parts.slice(half).join(' - ').trim() ? first : name;
+}
+
 function SaleRow({
     sale,
     isExpanded,
@@ -2694,7 +2706,7 @@ function SaleRow({
 
                     {/* Right Side - Totals */}
                     <div className="flex items-center gap-3 flex-shrink-0">
-                        <div className="text-right w-[70px]">
+                        <div className="text-right w-[80px] tabular-nums">
                             <p className="text-sm">{formatCurrency(saleNetSubtotal)}</p>
                             {saleDiscountTotal > 0 && (
                                 <p className="text-[10px] text-[var(--color-muted)]">-{formatCurrency(saleDiscountTotal)}</p>
@@ -2703,14 +2715,11 @@ function SaleRow({
                         <div className="hidden @5xl:block text-right w-[50px]">
                             <p className="text-sm">{formatCurrency(sale.tax_amount)}</p>
                         </div>
-                        <div className="hidden @5xl:block text-right w-[100px]">
-                            <p className="text-sm">
-                                <span className="text-[var(--color-success)]">{formatCurrency(summary.consignorShare)}</span>
-                                <span className="text-[var(--color-muted)]"> / </span>
-                                <span>{formatCurrency(summary.storeShare)}</span>
-                            </p>
+                        <div className="hidden @5xl:block text-right w-[90px] tabular-nums">
+                            <p className="text-sm text-[var(--color-success)]">{formatCurrency(summary.consignorShare)}</p>
+                            <p className="whitespace-nowrap text-[10px] text-[var(--color-muted)]">Store {formatCurrency(summary.storeShare)}</p>
                         </div>
-                        <div className="text-right w-[70px]">
+                        <div className="text-right w-[80px] tabular-nums">
                             <p className="font-semibold">{formatCurrency(sale.total)}</p>
                         </div>
                     </div>
@@ -2722,17 +2731,17 @@ function SaleRow({
                 <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
                     <div className="px-4 py-3">
                         <div className="overflow-x-auto">
-                        <table className="w-full min-w-[560px] text-sm">
+                        <table className="w-full min-w-[720px] text-sm">
                             <thead>
-                                <tr className="text-[var(--color-muted)] text-xs">
-                                    <th className="text-left py-2 font-medium">Item</th>
-                                    <th className="text-left py-2 font-medium">SKU</th>
-                                    <th className="text-left py-2 font-medium">Consignor</th>
-                                    <th className="text-center py-2 font-medium">Qty</th>
-                                    <th className="text-right py-2 font-medium">Price</th>
-                                    <th className="text-right py-2 font-medium">Split</th>
-                                    <th className="text-right py-2 font-medium">Consignor $</th>
-                                    <th className="text-right py-2 font-medium">Store $</th>
+                                <tr className="text-[var(--color-muted)] text-xs whitespace-nowrap">
+                                    <th className="text-left py-2 pr-4 font-medium">Item</th>
+                                    <th className="text-left py-2 px-3 font-medium">SKU</th>
+                                    <th className="text-left py-2 px-3 font-medium">Consignor</th>
+                                    <th className="text-center py-2 px-3 font-medium">Qty</th>
+                                    <th className="text-right py-2 px-3 font-medium">Price</th>
+                                    <th className="text-right py-2 px-3 font-medium">Split</th>
+                                    <th className="text-right py-2 px-3 font-medium">Consignor $</th>
+                                    <th className="text-right py-2 pl-3 font-medium">Store $</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2744,17 +2753,17 @@ function SaleRow({
 
                                     return (
                                         <tr key={idx} className="border-t border-[var(--color-border)]">
-                                            <td className="py-2 font-medium">{item.name}</td>
-                                            <td className="py-2">
+                                            <td className="py-2 pr-4 font-medium">{collapseRepeatedName(item.name)}</td>
+                                            <td className="py-2 px-3 whitespace-nowrap">
                                                 <span className="font-mono text-xs bg-[var(--color-surface-elevated)] px-1.5 py-0.5 rounded">
                                                     {item.sku}
                                                 </span>
                                             </td>
-                                            <td className="py-2 text-[var(--color-muted)]">
+                                            <td className="py-2 px-3 whitespace-nowrap text-[var(--color-muted)]">
                                                 {item.consignor?.name || '—'}
                                             </td>
-                                            <td className="py-2 text-center">{item.quantity}</td>
-                                            <td className="py-2 text-right">
+                                            <td className="py-2 px-3 text-center tabular-nums">{item.quantity}</td>
+                                            <td className="py-2 px-3 text-right whitespace-nowrap tabular-nums">
                                                 <div>{formatCurrency(Number(item.price))}</div>
                                                 {(breakdown?.totalDiscountAmount || 0) > 0 && (
                                                     <div className="text-xs text-[var(--color-muted)]">
@@ -2762,15 +2771,15 @@ function SaleRow({
                                                     </div>
                                                 )}
                                             </td>
-                                            <td className="py-2 text-right">
+                                            <td className="py-2 px-3 text-right">
                                                 <Badge variant="default">
                                                     {Math.round(item.commission_split * 100)}%
                                                 </Badge>
                                             </td>
-                                            <td className="py-2 text-right text-[var(--color-success)]">
+                                            <td className="py-2 px-3 text-right whitespace-nowrap tabular-nums text-[var(--color-success)]">
                                                 {formatCurrency(consignorAmount)}
                                             </td>
-                                            <td className="py-2 text-right">
+                                            <td className="py-2 pl-3 text-right whitespace-nowrap tabular-nums">
                                                 {formatCurrency(storeAmount)}
                                             </td>
                                         </tr>
