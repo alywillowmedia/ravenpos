@@ -1,3 +1,4 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
 
 interface RequestBody {
@@ -145,12 +146,64 @@ function generateGiftCardHTML(body: RequestBody): string {
     `
 }
 
+function reply(body: unknown, status: number): Response {
+    return new Response(JSON.stringify(body), {
+        status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+}
+
+// Only staff may send gift card emails: an admin or employee login, or a
+// PIN session at a terminal. Vendors and anonymous callers are refused.
+async function refuseUnlessStaff(req: Request): Promise<Response | null> {
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) return reply({ error: 'Missing authorization header' }, 401)
+
+    const adminClient = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+        { auth: { autoRefreshToken: false, persistSession: false } },
+    )
+
+    const { data: { user }, error: authError } = await adminClient.auth.getUser(authHeader.replace('Bearer ', ''))
+    if (authError || !user) return reply({ error: 'Invalid token' }, 401)
+
+    const { data: userRow, error: userError } = await adminClient
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle()
+    if (userError) {
+        console.error('User lookup error:', userError.code)
+        return reply({ error: 'Could not check access' }, 500)
+    }
+    if (userRow?.role === 'admin' || userRow?.role === 'employee') return null
+
+    const { data: session, error: sessionError } = await adminClient
+        .from('employee_sessions')
+        .select('employee_id')
+        .eq('auth_user_id', user.id)
+        .gt('expires_at', new Date().toISOString())
+        .limit(1)
+        .maybeSingle()
+    if (sessionError) {
+        console.error('Session lookup error:', sessionError.code)
+        return reply({ error: 'Could not check access' }, 500)
+    }
+    if (session) return null
+
+    return reply({ error: 'Staff access required' }, 403)
+}
+
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
     }
 
     try {
+        const refusal = await refuseUnlessStaff(req)
+        if (refusal) return refusal
+
         const resendApiKey = Deno.env.get('RESEND_API_KEY')
         if (!resendApiKey) {
             return new Response(
