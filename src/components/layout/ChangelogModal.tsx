@@ -30,6 +30,20 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                             </h3>
                             <div className="space-y-4 pl-2">
                                 <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">v3.12 · New Look, Vendor Payouts & Sales Summary</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                        <li>Every screen has been restyled in light and dark, with one shared sidebar grouped into Inventory, People, Money and Store, and a top bar that shows where you are.</li>
+                                        <li>Vendor payouts are rebuilt around a "through" date: a queue of who is owed what, drafts prepared singly or in a batch, a Pay run screen, and a check that the amount you confirm is the amount recorded.</li>
+                                        <li>Payout statements show the full equation and can be emailed to the vendor. Vendor earnings now account for card fees and refunds.</li>
+                                        <li>Sales has one summary for the date range in place of the Analytics tab and snapshot.</li>
+                                        <li>Consignor pages are split into Overview, Booth rent, Inventory and Portal access, and each section is edited on its own.</li>
+                                        <li>The employee PIN pad clocks in and opens the register in one tap, and returns to the pad after clocking in or out.</li>
+                                        <li>Employee records can no longer be read without signing in.</li>
+                                        <li>A "What's new" panel in the sidebar shows each account type what changed for them.</li>
+                                    </ul>
+                                </div>
+
+                                <div className="space-y-1">
                                     <h4 className="font-medium text-sm text-[var(--color-foreground)]">v3.11 · Store Credit & Gift Card Payments</h4>
                                     <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
                                         <li>Store Credit and Gift Card are now payment types at checkout, next to Cash, Check, and Card. A customer's credit applies automatically and shows as its own payment line, and either can be combined with cash, check, or card.</li>
