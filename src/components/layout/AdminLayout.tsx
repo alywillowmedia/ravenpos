@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useState } from 'react';
-import { ArrowLeftRight, LogOut, Printer, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, History, LogOut, Printer } from 'lucide-react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useMessaging } from '../../hooks/useMessaging';
@@ -26,7 +26,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
     const menuActions = useMemo<ProfileMenuAction[]>(() => [
         ...(isElectron ? [{ label: 'Printer settings', icon: Printer, onSelect: () => setIsPrinterSettingsOpen(true) }] : []),
-        { label: "What's new", icon: Sparkles, onSelect: () => setIsChangelogOpen(true) },
+        { label: 'Release history', icon: History, onSelect: () => setIsChangelogOpen(true) },
         ...(canSwitchPortal ? [{
             label: 'Switch portal',
             icon: ArrowLeftRight,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, type LucideIcon } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Sparkles, type LucideIcon } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import {
@@ -30,6 +30,8 @@ interface PortalSidebarProps {
     profile: PortalProfile;
     menuActions: ProfileMenuAction[];
     footerSlot?: ReactNode;
+    onOpenWhatsNew: () => void;
+    hasUnseenWhatsNew: boolean;
     isCollapsed: boolean;
     canToggle: boolean;
     onToggle: () => void;
@@ -43,6 +45,8 @@ export function PortalSidebar({
     profile,
     menuActions,
     footerSlot,
+    onOpenWhatsNew,
+    hasUnseenWhatsNew,
     isCollapsed,
     canToggle,
     onToggle,
@@ -263,6 +267,27 @@ export function PortalSidebar({
 
             <div className="shrink-0 space-y-2 p-3">
                 {!isCollapsed && footerSlot}
+                <button
+                    type="button"
+                    onClick={onOpenWhatsNew}
+                    title={isCollapsed ? "What's new" : undefined}
+                    aria-label={hasUnseenWhatsNew ? "What's new, unread" : "What's new"}
+                    className={cn(
+                        'flex min-h-10 w-full items-center rounded-lg text-sm text-[var(--color-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-foreground)]',
+                        isCollapsed ? 'justify-center' : 'gap-3 px-3'
+                    )}
+                >
+                    <span className="relative">
+                        <Sparkles className="h-[18px] w-[18px]" aria-hidden="true" />
+                        {hasUnseenWhatsNew && isCollapsed && (
+                            <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-[var(--color-primary)]" aria-hidden="true" />
+                        )}
+                    </span>
+                    {!isCollapsed && <span className="flex-1 text-left">What's new</span>}
+                    {!isCollapsed && hasUnseenWhatsNew && (
+                        <span className="h-2 w-2 rounded-full bg-[var(--color-primary)]" aria-hidden="true" />
+                    )}
+                </button>
                 {canToggle && (
                     <button
                         type="button"

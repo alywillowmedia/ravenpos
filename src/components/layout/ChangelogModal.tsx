@@ -12,7 +12,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
         <Modal
             isOpen={isOpen}
             onClose={onClose}
-            title="What's New"
+            title="Release history"
             description="The latest updates and improvements to RavenPOS."
             size="lg"
         >

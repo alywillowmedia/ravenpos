@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef } from 'react';
-import { Circle, CircleDot, LogOut, X } from 'lucide-react';
+import { Circle, CircleDot, LogOut, Sparkles, X } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useEmployee } from '../../contexts/EmployeeContext';
@@ -10,6 +10,8 @@ interface MobileMoreSheetProps {
     isOpen: boolean;
     onClose: () => void;
     variant: 'admin' | 'employee' | 'vendor';
+    onOpenWhatsNew: () => void;
+    hasUnseenWhatsNew: boolean;
 }
 
 interface NavigationSection {
@@ -17,7 +19,7 @@ interface NavigationSection {
     items: PortalNavItem[];
 }
 
-export function MobileMoreSheet({ isOpen, onClose, variant }: MobileMoreSheetProps) {
+export function MobileMoreSheet({ isOpen, onClose, variant, onOpenWhatsNew, hasUnseenWhatsNew }: MobileMoreSheetProps) {
     const { signOut } = useAuth();
     const { logout: employeeLogout, clockStatus } = useEmployee();
     const navigate = useNavigate();
@@ -150,6 +152,18 @@ export function MobileMoreSheet({ isOpen, onClose, variant }: MobileMoreSheetPro
                             </div>
                         </section>
                     ))}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            onClose();
+                            onOpenWhatsNew();
+                        }}
+                        className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm font-medium text-[var(--color-foreground)] hover:bg-[var(--color-surface-hover)]"
+                    >
+                        <Sparkles className="h-5 w-5 shrink-0" aria-hidden="true" />
+                        <span className="flex-1 text-left">What's new</span>
+                        {hasUnseenWhatsNew && <span className="h-2 w-2 rounded-full bg-[var(--color-primary)]" aria-hidden="true" />}
+                    </button>
                 </div>
 
                 <div className="sticky bottom-0 border-t border-[var(--color-border)] bg-[var(--color-background)] p-4">

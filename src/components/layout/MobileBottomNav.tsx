@@ -5,6 +5,8 @@ import { MobileMoreSheet } from './MobileMoreSheet';
 
 interface MobileBottomNavProps {
     variant: 'admin' | 'employee' | 'vendor';
+    onOpenWhatsNew: () => void;
+    hasUnseenWhatsNew: boolean;
 }
 
 // Admin navigation items for bottom nav
@@ -32,7 +34,7 @@ const vendorNavItems = [
     { name: 'More', href: null, icon: MenuIcon, isMenu: true },
 ];
 
-export function MobileBottomNav({ variant }: MobileBottomNavProps) {
+export function MobileBottomNav({ variant, onOpenWhatsNew, hasUnseenWhatsNew }: MobileBottomNavProps) {
     const [isMoreSheetOpen, setIsMoreSheetOpen] = useState(false);
     const location = useLocation();
 
@@ -99,6 +101,8 @@ export function MobileBottomNav({ variant }: MobileBottomNavProps) {
             </nav>
 
             <MobileMoreSheet
+                onOpenWhatsNew={onOpenWhatsNew}
+                hasUnseenWhatsNew={hasUnseenWhatsNew}
                 isOpen={isMoreSheetOpen}
                 onClose={() => setIsMoreSheetOpen(false)}
                 variant={variant}
