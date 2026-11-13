@@ -1,20 +1,10 @@
-// Gift card designs. A card's look is an occasion (stored on the card as
-// `theme`) drawn in one of two brand styles: Ravenlia for store-wide cards and
-// most vendors, Alywillow for Alywillow's own cards.
+// Gift card designs. A card's look is its brand's illustrated border (Ravenlia
+// for store-wide cards and most vendors, Alywillow for Alywillow's own cards)
+// plus an occasion (stored on the card as `theme`), which sets the headline and
+// its colour.
 
 export type GiftCardOccasion = 'everyday' | 'birthday' | 'thankyou' | 'christmas' | 'holidays';
 export type GiftCardBrand = 'ravenlia' | 'alywillow';
-
-export interface GiftCardPalette {
-    /** Card background. */
-    bg: string;
-    /** Main text. */
-    ink: string;
-    /** Small caps labels and ornaments. */
-    accent: string;
-    /** Hairline frame and divider. */
-    line: string;
-}
 
 export interface GiftCardOccasionDef {
     id: GiftCardOccasion;
@@ -23,7 +13,8 @@ export interface GiftCardOccasionDef {
     /** Printed on the card. */
     headline: string;
     seasonal: boolean;
-    palettes: Record<GiftCardBrand, GiftCardPalette>;
+    /** Colour of the headline, per brand. The border art is the brand's and never changes. */
+    accents: Record<GiftCardBrand, string>;
 }
 
 export const GIFT_CARD_OCCASIONS: GiftCardOccasionDef[] = [
@@ -32,50 +23,35 @@ export const GIFT_CARD_OCCASIONS: GiftCardOccasionDef[] = [
         label: 'Everyday',
         headline: 'A gift for you',
         seasonal: false,
-        palettes: {
-            ravenlia: { bg: '#F3ECDD', ink: '#2B2420', accent: '#8F5236', line: '#B9A88E' },
-            alywillow: { bg: '#ECEBE3', ink: '#29251F', accent: '#566548', line: '#A9AE98' },
-        },
+        accents: { ravenlia: '#5A1512', alywillow: '#33482A' },
     },
     {
         id: 'birthday',
         label: 'Birthday',
         headline: 'Happy Birthday',
         seasonal: false,
-        palettes: {
-            ravenlia: { bg: '#F7E8D8', ink: '#33241F', accent: '#B4492F', line: '#D9B79B' },
-            alywillow: { bg: '#F1EBDD', ink: '#29251F', accent: '#94583B', line: '#C9BBA0' },
-        },
+        accents: { ravenlia: '#A3271C', alywillow: '#9A3F63' },
     },
     {
         id: 'thankyou',
         label: 'Thank you',
         headline: 'Thank you',
         seasonal: false,
-        palettes: {
-            ravenlia: { bg: '#EFE6D2', ink: '#2B2420', accent: '#6B5B2E', line: '#BDAE86' },
-            alywillow: { bg: '#E7EBE0', ink: '#29251F', accent: '#4E6350', line: '#A3B09C' },
-        },
+        accents: { ravenlia: '#6B4A16', alywillow: '#4F437C' },
     },
     {
         id: 'christmas',
         label: 'Christmas',
         headline: 'Merry Christmas',
         seasonal: true,
-        palettes: {
-            ravenlia: { bg: '#1E3A2D', ink: '#F3ECDD', accent: '#D0AC62', line: '#6E8A6F' },
-            alywillow: { bg: '#EDEBE1', ink: '#243528', accent: '#8C3B2E', line: '#A9AE98' },
-        },
+        accents: { ravenlia: '#1F5A3A', alywillow: '#8C2F26' },
     },
     {
         id: 'holidays',
         label: 'Happy Holidays',
         headline: 'Happy Holidays',
         seasonal: true,
-        palettes: {
-            ravenlia: { bg: '#1F2A3C', ink: '#F1ECE0', accent: '#C9B88A', line: '#5E6C82' },
-            alywillow: { bg: '#E6EAEA', ink: '#25302F', accent: '#4F6B6A', line: '#A5B3B1' },
-        },
+        accents: { ravenlia: '#1F5F6B', alywillow: '#2F5A6B' },
     },
 ];
 
