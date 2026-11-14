@@ -30,6 +30,14 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                             </h3>
                             <div className="space-y-4 pl-2">
                                 <div className="space-y-1">
+                                    <h4 className="font-medium text-sm text-[var(--color-foreground)]">v3.13 · Gift Cards in Sales History</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
+                                        <li>Sales History has a Gift Cards tab listing every gift card sold, one row per payment, with search by code, name, email or vendor.</li>
+                                        <li>Open a row to see each card's balance, who sold it, the sales it was used on, and to reprint it.</li>
+                                    </ul>
+                                </div>
+
+                                <div className="space-y-1">
                                     <h4 className="font-medium text-sm text-[var(--color-foreground)]">v3.12 · New Look, Vendor Payouts & Sales Summary</h4>
                                     <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--color-muted-foreground)]">
                                         <li>Every screen has been restyled in light and dark, with one shared sidebar grouped into Inventory, People, Money and Store, and a top bar that shows where you are.</li>

@@ -15,9 +15,13 @@ export interface WhatsNewRelease {
 
 export const RELEASES: WhatsNewRelease[] = [
     {
-        version: '3.12.4',
+        version: '3.13.0',
         notes: {
             admin: [
+                {
+                    title: 'Find the gift cards you sold',
+                    body: 'Sales History has a new Gift Cards tab listing every card sold. Search by code, name, email or vendor, see what is left on each card and where it was spent, and reprint a card from there.',
+                },
                 {
                     title: 'Cash rounds to the nickel',
                     body: 'The store no longer gives pennies, so cash due and change round to the nearest 5 cents. Cards, checks, store credit and gift cards stay exact. Receipts and the Sales summary show a "Cash rounding" line, and prices, tax and vendor payouts are unchanged.',
