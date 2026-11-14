@@ -43,6 +43,7 @@ export function ChangelogModal({ isOpen, onClose }: ChangelogModalProps) {
                                         <li>v3.12.1: gift card sales are rebuilt. Sell several cards in one payment, pick a printed design, tie a card to one vendor, email or print the cards, and reprint any card from its code.</li>
                                         <li>v3.12.2: gift cards carry illustrated borders for Alywillow and Ravenlia, and long names and notes shrink to fit.</li>
                                         <li>v3.12.3: cash sales, change and cash refunds round to the nearest nickel, with a "Cash rounding" line on receipts and the Sales summary. Gift cards can be printed in four sizes.</li>
+                                        <li>v3.12.4: the clock in/out button shows on the register again, as a clock icon at the bottom of the sidebar.</li>
                                     </ul>
                                 </div>
 

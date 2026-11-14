@@ -15,7 +15,7 @@ export interface WhatsNewRelease {
 
 export const RELEASES: WhatsNewRelease[] = [
     {
-        version: '3.12.3',
+        version: '3.12.4',
         notes: {
             admin: [
                 {
@@ -64,6 +64,10 @@ export const RELEASES: WhatsNewRelease[] = [
                 },
             ],
             employee: [
+                {
+                    title: 'Clock in and out from the register',
+                    body: 'The clock button is back on the register: the clock icon at the bottom of the sidebar. Tap it to clock in, or to clock out when it shows a green dot.',
+                },
                 {
                     title: 'Cash rounds to the nickel',
                     body: 'No more pennies: the register rounds cash due and change to the nearest 5 cents, including cash refunds. Cards, checks, store credit and gift cards stay exact.',
