@@ -37,6 +37,7 @@ interface RefundSaleRow {
     total: number;
     tax_amount: number;
     card_fee_amount: number | null;
+    cash_rounding?: number | null;
 }
 
 interface TillFloatRecord {
@@ -138,7 +139,7 @@ export function EmployeeTillCount() {
                 supabase.rpc('get_chat_admin_contacts'),
                 supabase
                     .from('sales')
-                    .select('subtotal, tax_amount, total, discount_total, card_fee_amount, store_credit_used, gift_card_used, payment_method, payment_breakdown, cash_tendered, change_given')
+                    .select('subtotal, tax_amount, total, discount_total, card_fee_amount, cash_rounding, store_credit_used, gift_card_used, payment_method, payment_breakdown, cash_tendered, change_given')
                     .gte('completed_at', startIso)
                     .lte('completed_at', endIso),
                 supabase
@@ -154,7 +155,7 @@ export function EmployeeTillCount() {
                     .lte('purchased_at', endIso),
                 supabase
                     .from('gift_cards')
-                    .select('original_amount, purchase_payment_method')
+                    .select('original_amount, purchase_payment_method, batch_id')
                     .gte('issued_at', startIso)
                     .lte('issued_at', endIso),
                 supabase

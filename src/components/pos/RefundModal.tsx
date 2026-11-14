@@ -5,7 +5,7 @@ import { Input } from '../ui/Input';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { useRefunds } from '../../hooks/useRefunds';
 import { calculateProRatedRefundAmount } from '../../lib/refundCalculations';
-import { allocateRefundToTenders, derivePaymentMethod, describeTender, formatSalePaymentLabel, getSaleTenders } from '../../lib/tenders';
+import { allocateRefundToTenders, derivePaymentMethod, describeTender, formatSalePaymentLabel, getSaleTenders, sumTenderAmounts } from '../../lib/tenders';
 import { formatCurrency, formatDateTime } from '../../lib/utils';
 import { printRefundReceipt } from '../../lib/printReceipt';
 import { sendRefundReceiptEmail } from '../../lib/emailReceipt';
@@ -173,6 +173,10 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
         })
         : [];
 
+    // Cash is handed back in nickels, so the amount returned can differ from
+    // the exact refund by a cent or two.
+    const refundTotal = refundAllocation.length > 0 ? sumTenderAmounts(refundAllocation) : refundAmount;
+
     const describeRefundTender = (entry: PaymentBreakdownEntry): string => {
         switch (entry.method) {
             case 'card':
@@ -208,7 +212,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
 
         setCompletedRefund({
             refund_id: data.refund.id,
-            refund_amount: Number(data.refund.refund_amount || refundAmount),
+            refund_amount: Number(data.refund.refund_amount || refundTotal),
             payment_method: derivePaymentMethod(data.allocation, sale.payment_method),
             payment_breakdown: data.allocation,
             stripe_refund_id: data.stripe_refund_id,
@@ -409,7 +413,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
                 <div className="flex justify-between items-center">
                     <span className="font-medium">Refund Amount</span>
                     <span className="text-2xl font-bold text-[var(--color-primary)]">
-                        {formatCurrency(refundAmount)}
+                        {formatCurrency(refundTotal)}
                     </span>
                 </div>
             </div>
@@ -467,7 +471,7 @@ export function RefundModal({ isOpen, onClose }: RefundModalProps) {
             <div className="pt-3 border-t border-[var(--color-border)]">
                 <div className="flex justify-between text-lg font-bold">
                     <span>Total Refund</span>
-                    <span className="text-[var(--color-primary)]">{formatCurrency(refundAmount)}</span>
+                    <span className="text-[var(--color-primary)]">{formatCurrency(refundTotal)}</span>
                 </div>
                 <p className="text-xs text-[var(--color-muted)] mt-1">
                     to {refundAllocation.map((entry) => describeTender(entry)).join(' + ')}

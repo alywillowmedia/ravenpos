@@ -43,7 +43,10 @@ export type SummaryMetrics = Pick<
     | 'dealerCashPurchases'
     | 'giftCardSalesCash'
     | 'offlineUnsyncedCashSales'
->;
+> & {
+    /** Pennies gained or lost by rounding cash to nickels; already inside totalCollected. */
+    cashRounding?: number;
+};
 
 export interface SalesSummaryInput {
     metrics: SummaryMetrics;
@@ -251,6 +254,11 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
     if (giftCents !== 0) {
         splitRows.push({ key: 'giftCardsSold', label: 'Gift cards sold', amount: fromCents(giftCents) });
     }
+    // Pennies gained or lost because cash is paid in nickels. Stays with the store.
+    const cashRoundingCents = toCents(metrics.cashRounding || 0);
+    if (cashRoundingCents !== 0) {
+        splitRows.push({ key: 'cashRounding', label: 'Cash rounding', amount: fromCents(cashRoundingCents) });
+    }
     // Each pro-rated refund rounds three times, so allow 2 cents per refund on top of the base 2.
     const refundDrift = 2 * Math.max(0, Math.round(input.refundCount || 0));
     const warnAbove = 2 + refundDrift;
@@ -294,6 +302,9 @@ export function buildSalesSummary(input: SalesSummaryInput): SalesSummary {
                 { key: 'salesTax', label: 'Sales tax', amount: roundMoney(metrics.salesTax) },
                 { key: 'cardFees', label: 'Card fees charged', amount: roundMoney(metrics.creditCardFeesCharged) },
                 { key: 'giftCardsSold', label: 'Gift cards sold', amount: roundMoney(metrics.giftCertificatesSold) },
+                ...(cashRoundingCents !== 0
+                    ? [{ key: 'cashRounding' as const, label: 'Cash rounding', amount: fromCents(cashRoundingCents) }]
+                    : []),
             ],
             total: { label: 'Total collected', amount: roundMoney(metrics.totalCollected) },
         },

@@ -196,6 +196,8 @@ export interface Sale {
     store_credit_used?: number;
     gift_card_used?: number;
     card_fee_amount?: number;
+    /** Cents added or taken off so cash is paid in nickels (-0.02 to 0.02). Part of total. */
+    cash_rounding?: number;
     payment_method: PaymentMethod;
     payment_breakdown?: PaymentBreakdownEntry[] | null;
     check_number?: string | null;

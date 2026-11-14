@@ -6,6 +6,7 @@ import {
     formatSalePaymentLabel,
     getSaleTenderAmount,
     getSaleTenders,
+    sumTenderAmounts,
 } from '../../src/lib/tenders';
 
 describe('sale tenders', () => {
@@ -130,5 +131,40 @@ describe('refund allocation', () => {
         const totalCents = allocation.reduce((sum, entry) => sum + Math.round(entry.amount * 100), 0);
         expect(totalCents).toBe(1000);
         expect(allocation.find((entry) => entry.method === 'gift_card')?.gift_card_id).toBe('g1');
+    });
+
+    it('hands cash back in nickels and leaves other tenders exact', () => {
+        const allocation = allocateRefundToTenders({
+            tenders: [
+                { method: 'cash', amount: 10 },
+                { method: 'card', amount: 5.37, stripe_payment_intent_id: 'pi_3' },
+            ],
+            priorRefunds: [],
+            refundAmount: 3.33,
+        });
+
+        expect(allocation.map((entry) => [entry.method, entry.amount])).toEqual([
+            ['cash', 2.15],
+            ['card', 1.16],
+        ]);
+        expect(sumTenderAmounts(allocation)).toBe(3.31);
+    });
+
+    it('rounds an all-cash refund to the nearest nickel', () => {
+        const tenders = [{ method: 'cash' as const, amount: 20 }];
+        expect(allocateRefundToTenders({ tenders, priorRefunds: [], refundAmount: 3.33 })[0].amount).toBe(3.35);
+        expect(allocateRefundToTenders({ tenders, priorRefunds: [], refundAmount: 3.32 })[0].amount).toBe(3.3);
+        expect(allocateRefundToTenders({ tenders, priorRefunds: [], refundAmount: 20 })[0].amount).toBe(20);
+    });
+
+    it('never refunds more cash than is left on a sale paid to the penny', () => {
+        const tenders = [{ method: 'cash' as const, amount: 10.04 }];
+        // 10.04 would round up to 10.05, which is more than was paid.
+        expect(allocateRefundToTenders({ tenders, priorRefunds: [], refundAmount: 10.04 })[0].amount).toBe(10);
+        expect(allocateRefundToTenders({
+            tenders,
+            priorRefunds: [{ refund_amount: 10, payment_breakdown: [{ method: 'cash', amount: 10 }] }],
+            refundAmount: 0.04,
+        })).toEqual([]);
     });
 });

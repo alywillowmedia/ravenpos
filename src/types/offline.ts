@@ -22,6 +22,8 @@ export interface OfflineCashSaleRecord {
     store_credit_used: number;
     gift_card_used: number;
     card_fee_amount: number;
+    /** Missing on sales queued before cash rounding existed. */
+    cash_rounding?: number;
     processed_by_user: string | null;
     processed_by_employee: string | null;
     completed_at: string;

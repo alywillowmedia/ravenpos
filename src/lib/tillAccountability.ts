@@ -6,6 +6,7 @@ import {
     getSaleTenderAmountCents,
     toCurrencyCents,
 } from './cashReconciliation';
+import { getGiftCardCashRounding } from './cashRounding';
 
 interface PaymentBreakdownLike {
     method?: string | null;
@@ -20,6 +21,7 @@ interface SaleLike {
     total?: number | string | null;
     discount_total?: number | string | null;
     card_fee_amount?: number | string | null;
+    cash_rounding?: number | string | null;
     store_credit_used?: number | string | null;
     gift_card_used?: number | string | null;
     payment_method?: string | null;
@@ -45,6 +47,8 @@ interface RefundLike {
 interface GiftCardLike {
     original_amount?: number | string | null;
     purchase_payment_method?: string | null;
+    /** Cards sold together in one payment; cash for them is rounded once. */
+    batch_id?: string | null;
 }
 
 export interface TillAccountabilityMetrics {
@@ -59,6 +63,8 @@ export interface TillAccountabilityMetrics {
     /** Card fees on sales less card fees refunded. */
     creditCardFeesCharged: number;
     giftCertificatesSold: number;
+    /** Cents gained or lost by rounding cash to nickels, on sales and cash gift card sales. */
+    cashRounding: number;
     totalCollected: number;
     /** Cash tenders less cash refunds, plus gift cards sold for cash. */
     cashInDrawer: number;
@@ -156,17 +162,26 @@ export function calculateTillAccountabilityMetrics(
         (sum, giftCard) => sum + toCurrencyCents(giftCard.original_amount || 0),
         0
     );
+    // Cash is paid in nickels. Sales carry the difference in cash_rounding;
+    // gift cards sold for cash are rounded once per payment.
+    const giftCardCashRoundingCents = toCurrencyCents(getGiftCardCashRounding(input.giftCardsSold));
+    const cashRoundingCents = input.sales.reduce(
+        (sum, sale) => sum + toCurrencyCents(sale.cash_rounding || 0),
+        0
+    ) + giftCardCashRoundingCents;
     const totalCollectedCents =
         netSalesCents
         + salesTaxCents
         + creditCardFeesChargedCents
-        + giftCertificatesSoldCents;
+        + giftCertificatesSoldCents
+        + cashRoundingCents;
 
     // Gift card sales are not sales rows: the money comes in through the
     // drawer (cash) or the card batch (card) when the card is sold.
     const giftCardSalesCashCents = input.giftCardsSold
         .filter((giftCard) => giftCard.purchase_payment_method === 'cash')
-        .reduce((sum, giftCard) => sum + toCurrencyCents(giftCard.original_amount || 0), 0);
+        .reduce((sum, giftCard) => sum + toCurrencyCents(giftCard.original_amount || 0), 0)
+        + giftCardCashRoundingCents;
     const giftCardSalesCardCents = input.giftCardsSold
         .filter((giftCard) => giftCard.purchase_payment_method === 'card')
         .reduce((sum, giftCard) => sum + toCurrencyCents(giftCard.original_amount || 0), 0);
@@ -217,6 +232,7 @@ export function calculateTillAccountabilityMetrics(
         salesTax: fromCurrencyCents(salesTaxCents),
         creditCardFeesCharged: fromCurrencyCents(creditCardFeesChargedCents),
         giftCertificatesSold: fromCurrencyCents(giftCertificatesSoldCents),
+        cashRounding: fromCurrencyCents(cashRoundingCents),
         totalCollected: fromCurrencyCents(totalCollectedCents),
         cashInDrawer: fromCurrencyCents(cashInDrawerCents),
         checksInHand: fromCurrencyCents(checksInHandCents),

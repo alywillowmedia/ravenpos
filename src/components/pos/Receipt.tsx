@@ -90,6 +90,12 @@ export function Receipt({ sale, items, onNewSale }: ReceiptProps) {
                             <span>{formatCurrency(Number(sale.card_fee_amount || 0))}</span>
                         </div>
                     )}
+                    {Number(sale.cash_rounding || 0) !== 0 && (
+                        <div className="flex justify-between text-[var(--color-muted)]">
+                            <span>Cash rounding</span>
+                            <span>{Number(sale.cash_rounding) > 0 ? '+' : '-'}{formatCurrency(Math.abs(Number(sale.cash_rounding)))}</span>
+                        </div>
+                    )}
                     <div className="flex justify-between font-bold text-base pt-1">
                         <span>Total</span>
                         <span>{formatCurrency(receiptData.total)}</span>

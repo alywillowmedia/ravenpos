@@ -1,4 +1,5 @@
 import type { PaymentBreakdownEntry, PaymentMethod, TenderMethod } from '../types';
+import { floorCashCents, roundCashCents } from './cashRounding';
 
 // Store credit and gift cards are listed first: they are applied before the
 // customer pays the remainder with cash, check, or card.
@@ -229,6 +230,8 @@ function tenderKey(entry: PaymentBreakdownEntry): string {
  * Splits a refund across the tenders the sale was paid with, in proportion to
  * what is still refundable on each tender. Store credit goes back to credit,
  * gift card back to the card, and cash/check/card back to the original method.
+ * The cash share is rounded to the nearest nickel, so the amounts returned can
+ * add up to a cent or two more or less than `refundAmount`: record the sum.
  */
 export function allocateRefundToTenders(params: {
     tenders: PaymentBreakdownEntry[];
@@ -279,6 +282,13 @@ export function allocateRefundToTenders(params: {
         leftover -= add;
     }
 
+    // Cash is handed back in nickels. Round the cash share, but never above
+    // what is left on the tender (older sales were paid to the penny).
+    tenders.forEach((entry, index) => {
+        if (entry.method !== 'cash') return;
+        shares[index] = Math.max(0, Math.min(roundCashCents(shares[index]), floorCashCents(remaining[index])));
+    });
+
     return tenders
         .map((entry, index) => ({
             method: entry.method,
@@ -289,4 +299,9 @@ export function allocateRefundToTenders(params: {
             stripe_payment_intent_id: entry.method === 'card' ? entry.stripe_payment_intent_id ?? null : undefined,
         }))
         .filter((entry) => entry.amount > 0);
+}
+
+/** What a refund actually returns: the sum of its tender amounts. */
+export function sumTenderAmounts(entries: PaymentBreakdownEntry[]): number {
+    return entries.reduce((sum, entry) => sum + toCents(entry.amount), 0) / 100;
 }

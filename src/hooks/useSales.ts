@@ -47,6 +47,8 @@ export interface CompleteSaleParams {
     customerId?: string | null;
     orderDiscounts?: Discount[];
     cardFeeAmount?: number;
+    /** Difference from rounding the cash due to a nickel (-0.02 to 0.02). */
+    cashRounding?: number;
     storeCredit?: { amount: number; consignorId: string | null } | null;
     giftCard?: { code: string; amount: number } | null;
     remainder: SaleRemainderPayment;
@@ -125,6 +127,7 @@ export function useSales() {
             customerId,
             orderDiscounts = [],
             cardFeeAmount = 0,
+            cashRounding = 0,
             storeCredit,
             giftCard,
             remainder,
@@ -147,6 +150,8 @@ export function useSales() {
             const discountTotal = itemDiscountTotal + orderDiscountTotal;
             const tenders = buildSaleTenders({ storeCredit, giftCard, remainder });
             const total = Math.round(tenders.reduce((sum, entry) => sum + Math.round(entry.amount * 100), 0)) / 100;
+            // Signed, so it cannot go through roundMoney (which floors at zero).
+            const saleCashRounding = Math.round(Number(cashRounding || 0) * 100) / 100;
             const storeCreditUsed = roundMoney(storeCredit?.amount || 0);
             const giftCardUsed = roundMoney(giftCard?.amount || 0);
             const fallbackMethod: PaymentMethod = remainder.method === 'none' ? 'cash' : remainder.method;
@@ -193,6 +198,7 @@ export function useSales() {
                     store_credit_used: 0,
                     gift_card_used: 0,
                     card_fee_amount: 0,
+                    cash_rounding: saleCashRounding,
                     processed_by_user: processedByUserId || null,
                     processed_by_employee: processedByEmployeeId || null,
                 };
@@ -242,6 +248,7 @@ export function useSales() {
                         store_credit_used: 0,
                         gift_card_used: 0,
                         card_fee_amount: 0,
+                        cash_rounding: saleCashRounding,
                         processed_by_user: offlineSale.processed_by_user || null,
                         processed_by_employee: offlineSale.processed_by_employee || null,
                         completed_at: offlineSale.completed_at,
@@ -283,6 +290,7 @@ export function useSales() {
                 store_credit_used: storeCreditUsed,
                 gift_card_used: giftCardUsed,
                 card_fee_amount: roundMoney(cardFeeAmount),
+                cash_rounding: saleCashRounding,
                 payment_breakdown: tenders,
                 processed_by_user: processedByUserId || null,
                 processed_by_employee: processedByEmployeeId || null,

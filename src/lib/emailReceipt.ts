@@ -245,6 +245,12 @@ export function generateEmailHTML(receipt: ReceiptData): string {
                                     <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">${formatCurrency(receipt.cardFeeAmount)}</td>
                                 </tr>
                                 ` : ''}
+                                ${receipt.cashRounding ? `
+                                <tr>
+                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Cash rounding</td>
+                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">${receipt.cashRounding > 0 ? '+' : '-'}${formatCurrency(Math.abs(receipt.cashRounding))}</td>
+                                </tr>
+                                ` : ''}
                                 <tr>
                                     <td style="padding: 12px 0 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 18px; font-weight: bold; border-top: 2px solid #1a1a1a;">TOTAL</td>
                                     <td style="padding: 12px 0 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 18px; font-weight: bold; border-top: 2px solid #1a1a1a;">${formatCurrency(receipt.total)}</td>

@@ -158,6 +158,7 @@ export function createReceiptData(
         giftCardUsed: sale.gift_card_used ? Number(sale.gift_card_used) : 0,
         total: Number(sale.total),
         cardFeeAmount: sale.card_fee_amount ? Number(sale.card_fee_amount) : 0,
+        cashRounding: sale.cash_rounding ? Number(sale.cash_rounding) : 0,
         cardLast4: sale.card_last4 || undefined,
         paymentMethod: sale.payment_method,
         paymentBreakdown: sale.payment_breakdown ?? null,
@@ -378,6 +379,12 @@ function generateReceiptHTML(receipt: ReceiptData): string {
                 <div style="display: flex; justify-content: space-between;">
                     <span>Card Fee</span>
                     <span>${formatCurrency(receipt.cardFeeAmount)}</span>
+                </div>
+            ` : ''}
+            ${receipt.cashRounding ? `
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Cash rounding</span>
+                    <span>${receipt.cashRounding > 0 ? '+' : '-'}${formatCurrency(Math.abs(receipt.cashRounding))}</span>
                 </div>
             ` : ''}
             <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; margin-top: 4px; padding-top: 4px; border-top: 1px solid #000;">

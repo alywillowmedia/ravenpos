@@ -149,6 +149,12 @@ export function ReceiptTemplate({ receipt }: ReceiptTemplateProps) {
                         <span>{formatCurrency(receipt.cardFeeAmount || 0)}</span>
                     </div>
                 )}
+                {(receipt.cashRounding || 0) !== 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Cash rounding</span>
+                        <span>{(receipt.cashRounding || 0) > 0 ? '+' : '-'}{formatCurrency(Math.abs(receipt.cashRounding || 0))}</span>
+                    </div>
+                )}
                 <div style={{
                     display: 'flex',
                     justifyContent: 'space-between',

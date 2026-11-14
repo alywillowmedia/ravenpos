@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { calculateProRatedRefundAmount } from '../lib/refundCalculations';
-import { allocateRefundToTenders, getSaleTenders } from '../lib/tenders';
+import { allocateRefundToTenders, getSaleTenders, sumTenderAmounts } from '../lib/tenders';
 import type { Sale, SaleItem, RefundItem, Refund, PaymentBreakdownEntry } from '../types';
 
 interface SaleWithItems {
@@ -227,7 +227,8 @@ export function useRefunds() {
             const { data: refund, error: refundError } = await supabase.rpc('record_pos_refund', {
                 p_refund: {
                     sale_id,
-                    refund_amount: effectiveRefundAmount,
+                    // Cash goes back in nickels, so record what was actually returned.
+                    refund_amount: sumTenderAmounts(allocation),
                     stripe_refund_id: stripe_refund_id || null,
                     payment_breakdown: allocation,
                     items: items.map(item => ({

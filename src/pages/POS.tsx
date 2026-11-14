@@ -37,6 +37,7 @@ import { deletePosSavedCart, listPosSavedCarts, restorePosSavedCart, savePosCart
 import type { CartItem, Item, Sale, Customer, CustomerInput, PaymentMethod, PaymentBreakdownEntry, Discount, DiscountType, Invoice, InvoiceRecipientType } from '../types';
 import type { ReceiptData } from '../types/receipt';
 import type { InvoiceEmailData } from '../types/invoice';
+import { floorCashCents, getCashRounding, roundCashAmount } from '../lib/cashRounding';
 import type { OfflineSalesSyncStatus } from '../types/offline';
 
 const STRIPE_READER_MODE_KEY = 'ravenpos-stripe-reader-mode';
@@ -456,7 +457,12 @@ export function POS() {
     const cardPrice = Math.max(0, Math.round((cashPrice + cardFeeAmount) * 100) / 100);
     const parsedSplitCashAmount = Math.max(0, parseFloat(splitCashAmount) || 0);
     const parsedSplitCheckAmount = Math.max(0, parseFloat(splitCheckAmount) || 0);
-    const splitCashApplied = Math.min(parsedSplitCashAmount, cashPrice);
+    // Cash is paid in nickels. On its own, the cash due is the remainder rounded
+    // to the nearest nickel; in a split, the cash part is a nickel amount and the
+    // check or card takes the exact rest.
+    const cashDue = roundCashAmount(cashPrice);
+    const cashRounding = paymentMethod === 'cash' ? getCashRounding(cashPrice) : 0;
+    const splitCashApplied = Math.min(roundCashAmount(parsedSplitCashAmount), floorCashCents(Math.round(cashPrice * 100)) / 100);
     const splitCheckApplied = Math.min(parsedSplitCheckAmount, Math.max(0, cashPrice - splitCashApplied));
     const splitCardBaseAmount = Math.max(0, Math.round((cashPrice - splitCashApplied - splitCheckApplied) * 100) / 100);
     const splitCardFeeAmount = calculateCardSurchargeAmount(splitCardBaseAmount, cardFeeRatio);
@@ -466,7 +472,9 @@ export function POS() {
         ? cardPrice
         : paymentMethod === 'split'
             ? splitTotal
-            : cashPrice;
+            : paymentMethod === 'cash'
+                ? cashDue
+                : cashPrice;
     const activeCardFeeAmount = paymentMethod === 'card'
         ? cardFeeAmount
         : paymentMethod === 'split'
@@ -474,9 +482,9 @@ export function POS() {
             : 0;
     const cardFeeDifference = Math.max(0, Math.round((cardPrice - cashPrice) * 100) / 100);
     const cashAmount = parseFloat(cashTendered) || 0;
-    const change = cashAmount - amountDue;
+    const change = roundCashAmount(cashAmount - amountDue);
     const splitTenderedCash = Math.max(0, parseFloat(splitCashTendered) || 0);
-    const splitCashChange = Math.max(0, Math.round((splitTenderedCash - splitCashApplied) * 100) / 100);
+    const splitCashChange = Math.max(0, roundCashAmount(splitTenderedCash - splitCashApplied));
     const splitCashShort = Math.max(0, Math.round((splitCashApplied - splitTenderedCash) * 100) / 100);
     const splitTenderCount = [splitCashApplied, splitCheckApplied, splitCardTotal].filter((amount) => amount > 0).length;
     const readerCartDisplay = useMemo(() => {
@@ -1021,8 +1029,9 @@ export function POS() {
             customerId: selectedCustomer?.id,
             orderDiscounts,
             ...creditTenders,
-            remainder: cashPrice > 0
-                ? { method: 'cash', amount: cashPrice, tendered: cashAmount, change }
+            cashRounding,
+            remainder: cashDue > 0
+                ? { method: 'cash', amount: cashDue, tendered: cashAmount, change }
                 : { method: 'none' },
             processedByUserId: userRecord?.id,
             processedByEmployeeId: employee?.id,
@@ -2709,6 +2718,12 @@ export function POS() {
                                         <span>{formatCurrency(cashPrice)}</span>
                                     </div>
                                 </>
+                            )}
+                            {cashRounding !== 0 && !isCoveredByCreditTenders && (
+                                <div className="flex justify-between text-sm text-[var(--color-muted)]">
+                                    <span>Cash rounding</span>
+                                    <span className="tabular-nums">{cashRounding > 0 ? '+' : '\u2212'}{formatCurrency(Math.abs(cashRounding))}</span>
+                                </div>
                             )}
                             <div className="flex justify-between items-baseline pt-3 border-t border-[var(--color-border)]">
                                 <span className="eyebrow">{isCoveredByCreditTenders ? 'Amount Due' : paymentMethod === 'card' ? 'Card Total' : paymentMethod === 'split' ? 'Split Total' : 'Amount Due'}</span>

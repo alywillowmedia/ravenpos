@@ -44,6 +44,7 @@ interface ReceiptData {
     // Full order total; the tenders in paymentBreakdown sum to it.
     total: number;
     cardFeeAmount?: number;
+    cashRounding?: number;
     paymentMethod: TenderMethod | 'split';
     paymentBreakdown?: PaymentBreakdownEntry[] | null;
     cardLast4?: string;
@@ -351,6 +352,12 @@ function generateEmailHTML(receipt: ReceiptData, timezone?: string): string {
                                 <tr>
                                     <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Card Fee</td>
                                     <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">${formatCurrency(receipt.cardFeeAmount)}</td>
+                                </tr>
+                                ` : ''}
+                                ${receipt.cashRounding ? `
+                                <tr>
+                                    <td style="padding: 4px 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">Cash rounding</td>
+                                    <td style="padding: 4px 0; text-align: right; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #666;">${receipt.cashRounding > 0 ? '+' : '-'}${formatCurrency(Math.abs(receipt.cashRounding))}</td>
                                 </tr>
                                 ` : ''}
                                 <tr>

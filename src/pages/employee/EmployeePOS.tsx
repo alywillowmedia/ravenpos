@@ -1,6 +1,7 @@
 // Employee POS - Simplified version for employees
 // Hides financial details like consignor splits and margins
 
+import { getCashRounding, roundCashAmount } from '../../lib/cashRounding';
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -57,8 +58,10 @@ export function EmployeePOS() {
     const { subtotal, taxTotal, total, discountTotal } = calculateCartTotals(cart);
     const alySubtotal = calculateVendorSubtotal(cart, 'ALY');
     const cashAmount = parseFloat(cashTendered) || 0;
-    const amountDue = total;
-    const change = cashAmount - amountDue;
+    // Cash is paid in nickels; other payment types stay exact.
+    const amountDue = paymentMethod === 'cash' ? roundCashAmount(total) : total;
+    const cashRounding = paymentMethod === 'cash' ? getCashRounding(total) : 0;
+    const change = roundCashAmount(cashAmount - amountDue);
 
     // Auto-focus scanner input
     useEffect(() => {
@@ -193,7 +196,8 @@ export function EmployeePOS() {
                 customer_id: selectedCustomer?.id || null,
                 subtotal,
                 tax_amount: taxTotal,
-                total,
+                total: amountDue,
+                cash_rounding: cashRounding,
                 discounts: [],
                 discount_total: discountTotal,
                 payment_method: paymentMethod,
@@ -232,7 +236,7 @@ export function EmployeePOS() {
                 return;
             }
 
-            setCompletedSale({ total, change: paymentMethod === 'cash' ? change : 0 });
+            setCompletedSale({ total: amountDue, change: paymentMethod === 'cash' ? change : 0 });
         } catch (err) {
             console.error('Sale error:', err);
             setScanError(formatSupabaseError(err, 'Failed to complete sale'));
@@ -468,7 +472,7 @@ export function EmployeePOS() {
                             </div>
                             <div className="flex justify-between text-2xl font-bold pt-3 border-t border-[var(--color-border)]">
                                 <span>Total</span>
-                                <span className="text-[var(--color-primary)]">{formatCurrency(total)}</span>
+                                <span className="text-[var(--color-primary)]">{formatCurrency(amountDue)}</span>
                             </div>
                         </CardContent>
                     </Card>

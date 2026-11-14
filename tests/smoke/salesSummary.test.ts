@@ -167,6 +167,24 @@ describe('who gets what', () => {
         expect(split.hint).toBeNull();
     });
 
+    it('shows cash rounding on its own row so the split still adds up to Collected', () => {
+        const summary = buildSalesSummary({
+            ...realExample,
+            metrics: { ...realExample.metrics, cashRounding: 0.03, totalCollected: 6226.37, totalReceived: 6226.37 },
+        });
+        expect(summary.split.rows.map((row) => [row.key, row.amount])).toEqual([
+            ['vendors', 4706.91],
+            ['store', 1100.92],
+            ['salesTax', 300.51],
+            ['cardFees', 118],
+            ['cashRounding', 0.03],
+        ]);
+        expect(summary.split.notSplit).toBe(0);
+        expect(summary.split.total).toBe(6226.37);
+        expect(summary.books.right.lines.map((line) => line.key)).toContain('cashRounding');
+        expect(buildSalesSummary(realExample).books.right.lines.map((line) => line.key)).not.toContain('cashRounding');
+    });
+
     it('labels a remainder of one cent or less Rounding, quietly', () => {
         const { split } = buildSalesSummary(withMetrics({}, { payout: { consignorShare: 4706.9, storeShare: 1100.92, consignorCardFees: 0 } }));
         const row = split.rows.find((r) => r.key === 'notSplit');

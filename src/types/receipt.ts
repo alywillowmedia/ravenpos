@@ -36,6 +36,8 @@ export interface ReceiptData {
     // Full order total (subtotal - discounts + tax + card fee); tenders sum to it.
     total: number;
     cardFeeAmount?: number;
+    /** Signed cents from rounding the cash due to a nickel; part of total. */
+    cashRounding?: number;
     cardLast4?: string;
     paymentMethod: PaymentMethod;
     // Every tender on the sale, including store credit and gift card.

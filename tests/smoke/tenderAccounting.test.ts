@@ -295,3 +295,70 @@ describe('vendor card-fee basis', () => {
         expect(feeBySale.get('card')).toBe(2.94); // 2.7% of $107 + $0.05
     });
 });
+
+describe('till accountability with cash rounded to nickels', () => {
+    // $10.00 + $0.73 tax = $10.73, paid as $10.75 cash.
+    const roundedUp = {
+        subtotal: 10,
+        tax_amount: 0.73,
+        total: 10.75,
+        cash_rounding: 0.02,
+        payment_method: 'cash',
+        payment_breakdown: [{ method: 'cash', amount: 10.75, tendered: 20, change: 9.25 }],
+    };
+    // $5.00 + $0.37 tax = $5.37, paid as $5.35 cash.
+    const roundedDown = {
+        subtotal: 5,
+        tax_amount: 0.37,
+        total: 5.35,
+        cash_rounding: -0.02,
+        payment_method: 'cash',
+        payment_breakdown: [{ method: 'cash', amount: 5.35, tendered: 5.35, change: 0 }],
+    };
+
+    it('keeps sales and tax exact and balances the drawer with a rounding line', () => {
+        const metrics = calculateTillAccountabilityMetrics({
+            sales: [roundedUp],
+            refunds: [],
+            giftCardsSold: [],
+        });
+
+        expect(metrics.netSales).toBe(10);
+        expect(metrics.salesTax).toBe(0.73);
+        expect(metrics.cashRounding).toBe(0.02);
+        expect(metrics.cashInDrawer).toBe(10.75);
+        expect(metrics.totalCollected).toBe(10.75);
+        expect(metrics.difference).toBe(0);
+    });
+
+    it('nets rounding up against rounding down', () => {
+        const metrics = calculateTillAccountabilityMetrics({
+            sales: [roundedUp, roundedDown, creditAndCardSale],
+            refunds: [],
+            giftCardsSold: [],
+        });
+
+        expect(metrics.cashRounding).toBe(0);
+        expect(metrics.cashInDrawer).toBe(16.1);
+        expect(metrics.difference).toBe(0);
+    });
+
+    it('rounds gift cards sold for cash once per payment', () => {
+        const metrics = calculateTillAccountabilityMetrics({
+            sales: [],
+            refunds: [],
+            giftCardsSold: [
+                { original_amount: 10.01, purchase_payment_method: 'cash', batch_id: 'b1' },
+                { original_amount: 10.01, purchase_payment_method: 'cash', batch_id: 'b1' },
+                { original_amount: 10.01, purchase_payment_method: 'cash', batch_id: 'b1' },
+                { original_amount: 25.02, purchase_payment_method: 'card', batch_id: 'b2' },
+            ],
+        });
+
+        expect(metrics.giftCertificatesSold).toBe(55.05);
+        expect(metrics.cashRounding).toBe(0.02);
+        expect(metrics.cashInDrawer).toBe(30.05);
+        expect(metrics.creditCardsBatchTotal).toBe(25.02);
+        expect(metrics.difference).toBe(0);
+    });
+});

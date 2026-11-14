@@ -526,7 +526,7 @@ export function Sales() {
             markExtra('gifts', 'loading');
             let query = supabase
                 .from('gift_cards')
-                .select('original_amount, purchase_payment_method');
+                .select('original_amount, purchase_payment_method, batch_id');
 
             if (dateStartIso) {
                 query = query.gte('issued_at', dateStartIso);
@@ -896,6 +896,7 @@ export function Sales() {
             giftCardUsed: sale.gift_card_used ? Number(sale.gift_card_used) : 0,
             total: Number(sale.total),
             cardFeeAmount: sale.card_fee_amount ? Number(sale.card_fee_amount) : 0,
+            cashRounding: sale.cash_rounding ? Number(sale.cash_rounding) : 0,
             cardLast4: sale.card_last4 || undefined,
             paymentMethod: sale.payment_method,
             // Every tender, including store credit and gift card (older rows are
@@ -2028,6 +2029,12 @@ export function Sales() {
                                             <div className="flex justify-between">
                                                 <span className="text-[var(--color-muted)]">Card Fee</span>
                                                 <span className={hasRefunds ? 'line-through' : ''}>{formatCurrency(selectedCardFee)}</span>
+                                            </div>
+                                        )}
+                                        {Number(selectedSale.cash_rounding || 0) !== 0 && (
+                                            <div className="flex justify-between">
+                                                <span className="text-[var(--color-muted)]">Cash rounding</span>
+                                                <span className={hasRefunds ? 'line-through' : ''}>{Number(selectedSale.cash_rounding) > 0 ? '+' : '-'}{formatCurrency(Math.abs(Number(selectedSale.cash_rounding)))}</span>
                                             </div>
                                         )}
                                         <div className="flex justify-between font-semibold pt-1 border-t border-[var(--color-border)]">

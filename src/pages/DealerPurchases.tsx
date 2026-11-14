@@ -1,3 +1,4 @@
+import { roundCashAmount } from '../lib/cashRounding';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Header } from '../components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
@@ -287,14 +288,16 @@ export function DealerPurchases() {
             return;
         }
 
-        const total = Math.round(subtotal * 100) / 100;
+        // Cash is paid out in nickels; the item lines keep their exact costs.
+        const exactTotal = Math.round(subtotal * 100) / 100;
+        const total = paymentMethod === 'cash' ? roundCashAmount(exactTotal) : exactTotal;
 
         setIsSavingPurchase(true);
         const { data: purchase, error: purchaseError } = await supabase
             .from('dealer_purchases')
             .insert({
                 dealer_id: selectedDealer.id,
-                subtotal: total,
+                subtotal: exactTotal,
                 tax_amount: 0,
                 total,
                 payment_method: paymentMethod,
@@ -411,7 +414,8 @@ export function DealerPurchases() {
             return;
         }
 
-        const total = Math.round(editSubtotal * 100) / 100;
+        const exactTotal = Math.round(editSubtotal * 100) / 100;
+        const total = editPaymentMethod === 'cash' ? roundCashAmount(exactTotal) : exactTotal;
 
         setIsSavingEdit(true);
         const { error: purchaseError } = await supabase
@@ -419,7 +423,7 @@ export function DealerPurchases() {
             .update({
                 dealer_id: editDealerId || null,
                 purchased_at: purchasedAtTimestamp,
-                subtotal: total,
+                subtotal: exactTotal,
                 tax_amount: 0,
                 total,
                 payment_method: editPaymentMethod,
@@ -677,11 +681,11 @@ export function DealerPurchases() {
                             </div>
                             <div className="flex items-center justify-between text-lg mt-2">
                                 <span className="font-medium">Total Purchase</span>
-                                <span className="font-bold">{formatCurrency(subtotal)}</span>
+                                <span className="font-bold">{formatCurrency(paymentMethod === 'cash' ? roundCashAmount(subtotal) : subtotal)}</span>
                             </div>
                             {paymentMethod === 'cash' && (
                                 <p className="text-xs text-[var(--color-muted)] mt-2">
-                                    Cash purchase totals are automatically subtracted from expected till cash.
+                                    Cash purchases are paid to the nearest nickel and subtracted from expected till cash.
                                 </p>
                             )}
                         </div>
@@ -1050,7 +1054,7 @@ export function DealerPurchases() {
                     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
                         <div className="flex items-center justify-between text-lg">
                             <span className="font-medium">Updated Total</span>
-                            <span className="font-bold">{formatCurrency(editSubtotal)}</span>
+                            <span className="font-bold">{formatCurrency(editPaymentMethod === 'cash' ? roundCashAmount(editSubtotal) : editSubtotal)}</span>
                         </div>
                     </div>
                 </div>
