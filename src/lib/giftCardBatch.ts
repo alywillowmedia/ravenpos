@@ -43,6 +43,9 @@ export const GIFT_CARD_SHEET_SIZES: GiftCardSheetSize[] = [
 
 export const DEFAULT_GIFT_CARD_SHEET_SIZE: GiftCardSheetSizeId = 'small';
 
+/** Where each register remembers the print size it last used. */
+export const GIFT_CARD_SHEET_SIZE_STORAGE_KEY = 'ravenpos.giftCardSheetSize';
+
 export function getGiftCardSheetSize(id: string | null | undefined): GiftCardSheetSize {
     return GIFT_CARD_SHEET_SIZES.find((size) => size.id === id) || GIFT_CARD_SHEET_SIZES[0];
 }

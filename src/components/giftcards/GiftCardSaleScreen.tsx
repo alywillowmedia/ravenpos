@@ -8,6 +8,7 @@ import { formatCurrency } from '../../lib/utils';
 import { sendGiftCardEmail } from '../../lib/emailGiftCard';
 import {
     DEFAULT_GIFT_CARD_SHEET_SIZE,
+    GIFT_CARD_SHEET_SIZE_STORAGE_KEY,
     GIFT_CARD_AMOUNT_PRESETS,
     GIFT_CARD_MAX_PER_SALE,
     GIFT_CARD_NAME_MAX_LENGTH,
@@ -69,7 +70,7 @@ const STEPS: Array<{ id: Step; label: string }> = [
 ];
 
 /** The print size last used on this register. */
-const SHEET_SIZE_STORAGE_KEY = 'ravenpos.giftCardSheetSize';
+const SHEET_SIZE_STORAGE_KEY = GIFT_CARD_SHEET_SIZE_STORAGE_KEY;
 
 const fieldClass = 'h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 text-sm text-[var(--color-foreground)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20';
 const errorFieldClass = 'border-[var(--color-danger)] focus:border-[var(--color-danger)] focus:ring-[var(--color-danger)]/20';

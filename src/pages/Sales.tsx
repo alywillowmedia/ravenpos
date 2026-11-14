@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
+import { Gift } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Modal, ModalFooter } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
@@ -12,6 +13,7 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { StatCard } from '../components/ui/StatCard';
 import { SalesSummary } from '../components/sales/SalesSummary';
 import { SalesSummaryStrip } from '../components/sales/SalesSummaryStrip';
+import { GiftCardsSoldList } from '../components/sales/GiftCardsSoldList';
 import { ReceiptDeliveryModal } from '../components/receipt/ReceiptDeliveryModal';
 import { useSalesHistory, type SaleWithItems } from '../hooks/useSalesHistory';
 import { useRefundHistory, type RefundWithDetails } from '../hooks/useRefundHistory';
@@ -26,6 +28,7 @@ import { printReceipt } from '../lib/printReceipt';
 import { printTillCountReceipt } from '../lib/printTillCountReceipt';
 import { calculateSaleItemDiscountBreakdown } from '../lib/saleDiscounts';
 import { getOfflineUnsyncedCashNetTotal } from '../lib/offlineCashSales';
+import { GIFT_CARD_SALE_COLUMNS, type GiftCardSaleRow } from '../lib/giftCardSales';
 import {
     fromCurrencyCents,
     getCashTenderCents,
@@ -52,7 +55,7 @@ import type { ReceiptData } from '../types/receipt';
 import type { Customer, CustomerInput, PaymentBreakdownEntry, PaymentMethod } from '../types';
 
 type DatePreset = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'custom';
-type SalesTab = 'sales' | 'refunds' | 'employeeAttribution' | 'salesAnalytics';
+type SalesTab = 'sales' | 'giftCards' | 'refunds' | 'employeeAttribution' | 'salesAnalytics';
 const SALES_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
 function isMissingDealerPurchasesTableError(message?: string): boolean {
@@ -202,6 +205,7 @@ export function Sales() {
     const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
     const [selectedSale, setSelectedSale] = useState<SaleWithItems | null>(null);
     const [salesSearchQuery, setSalesSearchQuery] = useState('');
+    const [giftCardSearchQuery, setGiftCardSearchQuery] = useState('');
     const [filterConsignor, setFilterConsignor] = useState('');
     const [filterDatePreset, setFilterDatePreset] = useState<DatePreset>('last30');
     const [customDateFrom, setCustomDateFrom] = useState(() => toLocalDateInput(new Date()));
@@ -253,7 +257,7 @@ export function Sales() {
     const [checkAmountInput, setCheckAmountInput] = useState('');
     const [cashDealerPurchasesTotal, setCashDealerPurchasesTotal] = useState(0);
     const [offlineUnsyncedCashNetTotal, setOfflineUnsyncedCashNetTotal] = useState(0);
-    const [giftCardSales, setGiftCardSales] = useState<Array<{ original_amount: number; purchase_payment_method: string | null }>>([]);
+    const [giftCardSales, setGiftCardSales] = useState<GiftCardSaleRow[]>([]);
     const [denominationCounts, setDenominationCounts] = useState<Record<string, string>>(() =>
         CASH_DENOMINATIONS.reduce<Record<string, string>>((acc, denomination) => {
             acc[denomination.key] = '';
@@ -267,6 +271,7 @@ export function Sales() {
                 ? [{ id: 'sales', label: 'Sales', icon: <ReceiptSmallIcon /> }]
                 : [
                     { id: 'sales', label: 'Sales', icon: <ReceiptSmallIcon /> },
+                    { id: 'giftCards', label: 'Gift Cards', icon: <Gift size={16} aria-hidden="true" /> },
                     { id: 'refunds', label: 'Refunds', icon: <RefundTabIcon /> },
                     { id: 'employeeAttribution', label: 'By Employee', icon: <EmployeesAttributionIcon /> },
                     { id: 'salesAnalytics', label: 'Summary', icon: <AnalyticsSmallIcon /> },
@@ -526,7 +531,8 @@ export function Sales() {
             markExtra('gifts', 'loading');
             let query = supabase
                 .from('gift_cards')
-                .select('original_amount, purchase_payment_method, batch_id');
+                .select(GIFT_CARD_SALE_COLUMNS)
+                .order('issued_at', { ascending: false });
 
             if (dateStartIso) {
                 query = query.gte('issued_at', dateStartIso);
@@ -551,7 +557,7 @@ export function Sales() {
                 return;
             }
 
-            setGiftCardSales((data || []) as Array<{ original_amount: number; purchase_payment_method: string | null }>);
+            setGiftCardSales((data || []) as unknown as GiftCardSaleRow[]);
             markExtra('gifts', 'ok');
         };
 
@@ -568,6 +574,14 @@ export function Sales() {
         [consignors, filterConsignor]
     );
     const vendorScoped = Boolean(filterConsignor);
+    const giftCardVendors = useMemo(
+        () => consignors.map((consignor) => ({
+            id: consignor.id,
+            name: (consignor.business_name || consignor.name || '').trim() || 'Unnamed vendor',
+            shortcode: consignor.consignor_number || null,
+        })),
+        [consignors]
+    );
     const vendorLabel = selectedVendor
         ? `${selectedVendor.consignor_number} - ${selectedVendor.name}`
         : 'this vendor';
@@ -1402,6 +1416,8 @@ export function Sales() {
                 description={
                     activeTab === 'refunds'
                         ? `${filteredRefunds.length} refund${filteredRefunds.length !== 1 ? 's' : ''}`
+                        : activeTab === 'giftCards'
+                            ? `${giftCardSales.length} gift card${giftCardSales.length !== 1 ? 's' : ''} sold in selected period`
                         : activeTab === 'salesAnalytics'
                             ? `${filteredSalesTotalCount} transaction${filteredSalesTotalCount !== 1 ? 's' : ''} in selected period`
                         : activeTab === 'employeeAttribution'
@@ -1473,6 +1489,15 @@ export function Sales() {
                         />
                     </div>
                 )}
+                {activeTab === 'giftCards' && (
+                    <div className="w-full sm:w-72">
+                        <Input
+                            placeholder="Search code, name, email, vendor..."
+                            value={giftCardSearchQuery}
+                            onChange={(e) => setGiftCardSearchQuery(e.target.value)}
+                        />
+                    </div>
+                )}
                 {!isEmployeeView && activeTab === 'sales' && (
                     <Button
                         variant="secondary"
@@ -1483,7 +1508,7 @@ export function Sales() {
                         Export CSV
                     </Button>
                 )}
-                {((!isEmployeeView && filterConsignor) || filterDatePreset !== 'last30' || salesSearchQuery.trim()) && (
+                {((!isEmployeeView && filterConsignor) || filterDatePreset !== 'last30' || salesSearchQuery.trim() || giftCardSearchQuery.trim()) && (
                     <Button
                         variant="ghost"
                         size="sm"
@@ -1491,6 +1516,7 @@ export function Sales() {
                             setFilterConsignor('');
                             setFilterDatePreset('last30');
                             setSalesSearchQuery('');
+                            setGiftCardSearchQuery('');
                             const today = toLocalDateInput(new Date());
                             setCustomDateFrom(today);
                             setCustomDateTo(today);
@@ -1633,6 +1659,17 @@ export function Sales() {
                         </div>
                     )}
                 </>
+            )}
+
+            {/* Gift Cards Tab Content: gift cards are not sales rows, so they are listed here */}
+            {activeTab === 'giftCards' && !isEmployeeView && (
+                <GiftCardsSoldList
+                    cards={giftCardSales}
+                    state={extras.gifts}
+                    searchQuery={giftCardSearchQuery}
+                    vendors={giftCardVendors}
+                    onRetry={retrySummaryLoad}
+                />
             )}
 
             {/* Refunds Tab Content */}
