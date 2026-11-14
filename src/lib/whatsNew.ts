@@ -15,9 +15,17 @@ export interface WhatsNewRelease {
 
 export const RELEASES: WhatsNewRelease[] = [
     {
-        version: '3.12.2',
+        version: '3.12.3',
         notes: {
             admin: [
+                {
+                    title: 'Cash rounds to the nickel',
+                    body: 'The store no longer gives pennies, so cash due and change round to the nearest 5 cents. Cards, checks, store credit and gift cards stay exact. Receipts and the Sales summary show a "Cash rounding" line, and prices, tax and vendor payouts are unchanged.',
+                },
+                {
+                    title: 'Gift card print sizes',
+                    body: 'Pick Small, Medium, Large or Extra large when printing gift cards. The register remembers the last size used.',
+                },
                 {
                     title: 'Gift cards with real artwork',
                     body: 'Printed gift cards now carry illustrated borders: wildflowers for Alywillow and vintage parchment for Ravenlia. Long names and notes shrink to fit instead of being cut off.',
@@ -56,6 +64,14 @@ export const RELEASES: WhatsNewRelease[] = [
                 },
             ],
             employee: [
+                {
+                    title: 'Cash rounds to the nickel',
+                    body: 'No more pennies: the register rounds cash due and change to the nearest 5 cents, including cash refunds. Cards, checks, store credit and gift cards stay exact.',
+                },
+                {
+                    title: 'Gift card print sizes',
+                    body: 'Pick Small, Medium, Large or Extra large when printing gift cards. The register remembers the last size used.',
+                },
                 {
                     title: 'Gift cards, rebuilt',
                     body: 'Sell gift cards from Options at the register: several cards in one payment, a choice of printed designs, and cards that are good for one vendor only. Cards print on letter paper or go out by email, and any card can be reprinted from its code.',
