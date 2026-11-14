@@ -33,7 +33,7 @@
 **Files:**
 - Create: `src/assets/giftcards/alywillow-bg.webp` (tall-flowers blue border)
 - Create: `src/assets/giftcards/ravenlia-bg.webp` (parchment, lightened: cream `rgb(255,252,242)` at 62% inside the centre ellipse fading to 14% at the edges)
-- Create: `src/assets/giftcards/alywillow-logo.svg` (minimal logo, used as a mask)
+- Create: `src/assets/giftcards/alywillow-logo.webp` (minimal logo, tinted deep green)
 - Create: `src/assets/giftcards/ravenlia-logo.webp` (red and black logo, transparent)
 
 - [ ] Produce the four files with ImageMagick / copies from the mockup folder.

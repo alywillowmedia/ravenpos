@@ -9,6 +9,53 @@ export const GIFT_CARD_MAX_PER_SALE = 48;
 export const GIFT_CARD_NOTE_MAX_LENGTH = 80;
 export const GIFT_CARD_NAME_MAX_LENGTH = 40;
 export const GIFT_CARDS_PER_SHEET = 8;
+
+/** A printed card is always this shape, whatever size it prints at. */
+export const GIFT_CARD_ASPECT = 3.89 / 2.39;
+
+export type GiftCardSheetSizeId = 'small' | 'medium' | 'large' | 'xlarge';
+
+/** One way of laying cards out on a letter page. Sizes are in inches. */
+export interface GiftCardSheetSize {
+    id: GiftCardSheetSizeId;
+    label: string;
+    perSheet: number;
+    columns: number;
+    orientation: 'portrait' | 'landscape';
+    cardWidth: number;
+    cardHeight: number;
+}
+
+function sheetSize(id: GiftCardSheetSizeId, label: string, perSheet: number, columns: number, orientation: 'portrait' | 'landscape', cardWidth: number): GiftCardSheetSize {
+    return { id, label, perSheet, columns, orientation, cardWidth, cardHeight: Math.round((cardWidth / GIFT_CARD_ASPECT) * 1000) / 1000 };
+}
+
+/**
+ * Print sizes, smallest first. Each leaves at least a quarter inch clear at
+ * the page edges, where most printers cannot print.
+ */
+export const GIFT_CARD_SHEET_SIZES: GiftCardSheetSize[] = [
+    sheetSize('small', 'Small', 8, 2, 'portrait', 3.89),
+    sheetSize('medium', 'Medium', 6, 2, 'landscape', 4.18),
+    sheetSize('large', 'Large', 4, 2, 'landscape', 5.1),
+    sheetSize('xlarge', 'Extra large', 2, 1, 'portrait', 7.9),
+];
+
+export const DEFAULT_GIFT_CARD_SHEET_SIZE: GiftCardSheetSizeId = 'small';
+
+export function getGiftCardSheetSize(id: string | null | undefined): GiftCardSheetSize {
+    return GIFT_CARD_SHEET_SIZES.find((size) => size.id === id) || GIFT_CARD_SHEET_SIZES[0];
+}
+
+/** Letter paper in inches, turned to suit the size. */
+export function getGiftCardPage(size: GiftCardSheetSize): { width: number; height: number } {
+    return size.orientation === 'landscape' ? { width: 11, height: 8.5 } : { width: 8.5, height: 11 };
+}
+
+/** "3.9 × 2.4 in", for showing next to a size. */
+export function formatGiftCardSheetSize(size: GiftCardSheetSize): string {
+    return `${size.cardWidth.toFixed(1)} × ${size.cardHeight.toFixed(1)} in`;
+}
 export const GIFT_CARD_AMOUNT_PRESETS = [10, 20, 25, 50, 75, 100];
 
 export interface GiftCardDraft {
@@ -112,7 +159,7 @@ export function buildGiftCardBatchPayload(
     }));
 }
 
-/** Splits cards into printed pages of eight. */
+/** Splits cards into printed pages: eight to a page unless told otherwise. */
 export function chunkGiftCardsIntoSheets<T>(cards: T[], perSheet: number = GIFT_CARDS_PER_SHEET): T[][] {
     const sheets: T[][] = [];
     for (let index = 0; index < cards.length; index += perSheet) {

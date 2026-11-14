@@ -19,15 +19,15 @@
 }
 
 .gcf-alywillow {
-    --gc-paper: #e4eef8;
+    --gc-paper: #faedd2;
     --gc-ink: #33482a;
     --gc-text: #2f3a33;
     --gc-label: #8a6a1f;
     --gc-name: #4f437c;
     --gc-line: #cfae4e;
-    --gc-chip: rgba(255, 255, 255, 0.82);
-    --gc-glow: rgba(255, 255, 255, 0.78);
-    --gc-pad: 30px 108px 56px;
+    --gc-chip: rgba(255, 253, 247, 0.88);
+    --gc-glow: rgba(255, 250, 238, 0.78);
+    --gc-pad: 24px 100px 40px;
     font-family: 'Cormorant Garamond', Georgia, serif;
 }
 
@@ -40,7 +40,7 @@
     --gc-line: #b58a3c;
     --gc-chip: #fffaf0;
     --gc-glow: rgba(255, 251, 240, 0.78);
-    --gc-pad: 46px 126px 56px;
+    --gc-pad: 42px 116px 46px;
     font-family: 'IM Fell English', Georgia, serif;
 }
 
@@ -73,19 +73,9 @@
 
 /* ---- Logo and occasion line ---- */
 
-.gcf-alywillow .gcf-logo {
-    width: 196px;
-    height: 73px;
-    background: var(--gc-ink);
-    -webkit-mask: var(--gc-logo) center / contain no-repeat;
-    mask: var(--gc-logo) center / contain no-repeat;
-}
-
-.gcf-ravenlia .gcf-logo {
-    width: 176px;
-    height: 67px;
-    background: var(--gc-logo) center / contain no-repeat;
-}
+.gcf-logo { background: var(--gc-logo) center / contain no-repeat; }
+.gcf-alywillow .gcf-logo { width: 232px; height: 86px; }
+.gcf-ravenlia .gcf-logo { width: 204px; height: 78px; }
 
 .gcf-head {
     color: var(--gc-accent);
@@ -95,14 +85,14 @@
 .gcf-alywillow .gcf-head {
     font-family: 'Cormorant SC', 'Cormorant Garamond', Georgia, serif;
     font-weight: 600;
-    font-size: 15px;
-    letter-spacing: 0.2em;
-    margin-top: 3px;
+    font-size: 20px;
+    letter-spacing: 0.18em;
+    margin-top: 2px;
 }
 
 .gcf-ravenlia .gcf-head {
     font-family: 'Playball', 'IM Fell English', cursive;
-    font-size: 27px;
+    font-size: 33px;
     line-height: 1.1;
 }
 
@@ -140,12 +130,12 @@
 
 .gcf-who span { color: var(--gc-name); }
 
-.gcf-alywillow .gcf-who b { font-size: 12.5px; }
+.gcf-alywillow .gcf-who b { font-size: 17px; }
 
 .gcf-alywillow .gcf-who span {
     font-family: 'Pinyon Script', 'Cormorant Garamond', cursive;
-    font-size: 33px;
-    line-height: 1.14;
+    font-size: 41px;
+    line-height: 1.12;
     /* Room for the script's swashes without letting a third line peek through. */
     padding: 0 5px;
     margin-top: 1px;
@@ -154,20 +144,20 @@
 .gcf-ravenlia .gcf-who b {
     font-family: 'IM Fell English SC', 'IM Fell English', serif;
     font-weight: 400;
-    font-size: 13.5px;
+    font-size: 17px;
     letter-spacing: 0.14em;
 }
 
 .gcf-ravenlia .gcf-who span {
-    font-size: 22px;
-    line-height: 1.12;
+    font-size: 28px;
+    line-height: 1.1;
     margin-top: 2px;
 }
 
 /* A blank to write on. */
 .gcf-rule {
     display: block;
-    height: 34px;
+    height: 40px;
     border-bottom: 1px solid var(--gc-line);
 }
 
@@ -178,41 +168,41 @@
 }
 
 .gcf-alywillow .gcf-amt {
-    font-size: 76px;
+    font-size: 90px;
     font-weight: 500;
 }
 
 .gcf-ravenlia .gcf-amt {
     font-family: 'Playfair Display', Georgia, serif;
     font-weight: 600;
-    font-size: 68px;
+    font-size: 80px;
 }
 
 /* ---- Message ---- */
 
 .gcf-div {
     height: 1px;
-    width: 230px;
+    width: 270px;
     background: linear-gradient(90deg, transparent, var(--gc-line) 18%, var(--gc-line) 82%, transparent);
 }
 
 .gcf-note {
-    max-width: 370px;
+    max-width: 440px;
     margin-top: 7px;
     font-style: italic;
 }
 
-.gcf-alywillow .gcf-note { font-size: 18.5px; line-height: 1.18; }
-.gcf-ravenlia .gcf-note { font-size: 17px; line-height: 1.2; margin-top: 5px; }
+.gcf-alywillow .gcf-note { font-size: 24px; line-height: 1.15; }
+.gcf-ravenlia .gcf-note { font-size: 22px; line-height: 1.18; margin-top: 5px; }
 
 .gcf-note-lines {
-    width: 330px;
+    width: 380px;
     margin-top: 2px;
 }
 
 .gcf-note-lines i {
     display: block;
-    height: 22px;
+    height: 27px;
     border-bottom: 1px solid var(--gc-line);
 }
 
@@ -220,14 +210,14 @@
 
 /* Scanners need dark bars on a light ground, whatever the art behind. */
 .gcf-chip {
-    width: 300px;
-    height: 46px;
+    width: 320px;
+    height: 54px;
     padding: 6px 12px;
     background: var(--gc-chip);
     border-radius: 3px;
 }
 
-.gcf-ravenlia .gcf-chip { height: 42px; }
+.gcf-ravenlia .gcf-chip { height: 50px; }
 
 .gcf-chip svg {
     display: block;
@@ -243,7 +233,7 @@
 
 .gcf-code {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 14px;
+    font-size: 18px;
     font-weight: 500;
     letter-spacing: 0.1em;
     margin-top: 4px;
@@ -252,20 +242,20 @@
 
 .gcf-scope {
     font-weight: 600;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    margin-top: 2px;
-    max-width: 420px;
+    margin-top: 1px;
+    max-width: 470px;
 }
 
 .gcf-scope span { line-height: 1.3; }
 
-.gcf-alywillow .gcf-scope { font-size: 10.5px; color: var(--gc-ink); }
+.gcf-alywillow .gcf-scope { font-size: 14px; color: var(--gc-ink); }
 
 .gcf-ravenlia .gcf-scope {
     font-family: 'IM Fell English SC', 'IM Fell English', serif;
     font-weight: 400;
-    font-size: 11px;
+    font-size: 14px;
 }
 
 /* A soft light haze behind the small text so it reads over the border art. */
@@ -297,35 +287,40 @@
     padding-bottom: 0;
 }
 
-.gcf-simple .gcf-logo { transform: scale(1.3); transform-origin: 50% 100%; }
+.gcf-simple .gcf-logo { transform: scale(1.15); transform-origin: 50% 100%; }
 .gcf-simple.gcf-alywillow .gcf-head { font-size: 25px; margin-top: 10px; }
 .gcf-simple.gcf-ravenlia .gcf-head { font-size: 42px; margin-top: 4px; }
 .gcf-simple.gcf-alywillow .gcf-amt { font-size: 104px; }
 .gcf-simple.gcf-ravenlia .gcf-amt { font-size: 92px; }
 
-/* ---- Printed sheet: letter page, 2 x 4, cut on the dashed lines ---- */
+/* ---- Printed sheet: a letter page of cards, cut on the dashed lines ----
+   GiftCardSheet sets the page and card size in inches for the chosen print
+   size. Cut lines sit 0.05in from each card and the block is centred, so the
+   spare paper is at the page edges (where a printer cannot print anyway).
+   Sizes are in cqw so the on-screen sheet scales with its box. */
 
 .gc-sheet {
-    aspect-ratio: 8.5 / 11;
+    --gc-in: calc(100cqw / var(--gc-page-w));
+    aspect-ratio: var(--gc-page-w) / var(--gc-page-h);
     width: 100%;
     background: #fff;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: repeat(4, 1fr);
+    grid-template-columns: repeat(var(--gc-cols), max-content);
+    grid-auto-rows: max-content;
+    place-content: center;
     container-type: inline-size;
 }
 
 .gc-cell {
-    /* 0.18in of white around every card so all eight cut out the same. */
-    padding: 2.12cqw;
+    box-sizing: content-box;
+    width: calc(var(--gc-card-w) * var(--gc-in));
+    height: calc(var(--gc-card-h) * var(--gc-in));
+    padding: calc(0.05 * var(--gc-in));
     display: flex;
-    border: 0 dashed #b8b8b8;
-    min-width: 0;
-    min-height: 0;
+    border: 1px dashed #b8b8b8;
+    /* Neighbours share one cut line. */
+    margin: 0 -1px -1px 0;
 }
-
-.gc-cell:nth-child(odd) { border-right-width: 1px; }
-.gc-cell:nth-child(-n + 6) { border-bottom-width: 1px; }
 
 .gc-cell .gcf {
     aspect-ratio: auto;
@@ -348,12 +343,12 @@
 
     html.gc-printing .gc-print-root { display: block; }
 
-    /* On paper a card is 3.89in (373.44px) wide: 373.44 / 778. */
-    html.gc-printing .gc-print-root .gcf-in { transform: scale(0.48) !important; }
+    /* On paper the card is its true size in inches, whatever the screen scale was. */
+    html.gc-printing .gc-print-root .gcf-in { transform: scale(var(--gc-print-scale, 0.48)) !important; }
 
     html.gc-printing .gc-sheet {
-        width: 8.5in;
-        height: 11in;
+        width: calc(var(--gc-page-w) * 1in);
+        height: calc(var(--gc-page-h) * 1in);
         aspect-ratio: auto;
         break-after: page;
         page-break-after: always;

@@ -1,3 +1,4 @@
+import { roundCashAmount } from '../../lib/cashRounding';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Banknote, Check, CreditCard, Gift, Mail, Minus, Plus, Printer, Store, Trash2, TriangleAlert } from 'lucide-react';
 import { Modal } from '../ui/Modal';
@@ -6,18 +7,23 @@ import { supabase } from '../../lib/supabase';
 import { formatCurrency } from '../../lib/utils';
 import { sendGiftCardEmail } from '../../lib/emailGiftCard';
 import {
+    DEFAULT_GIFT_CARD_SHEET_SIZE,
     GIFT_CARD_AMOUNT_PRESETS,
     GIFT_CARD_MAX_PER_SALE,
     GIFT_CARD_NAME_MAX_LENGTH,
     GIFT_CARD_NOTE_MAX_LENGTH,
     buildGiftCardBatchPayload,
+    GIFT_CARD_SHEET_SIZES,
     createGiftCardDraft,
+    formatGiftCardSheetSize,
     getCashSuggestions,
     getGiftCardBatchTotal,
+    getGiftCardSheetSize,
     resizeGiftCardDrafts,
     roundGiftCardMoney,
     validateGiftCardDrafts,
     type GiftCardDraft,
+    type GiftCardSheetSizeId,
 } from '../../lib/giftCardBatch';
 import {
     DEFAULT_GIFT_CARD_OCCASION,
@@ -62,6 +68,9 @@ const STEPS: Array<{ id: Step; label: string }> = [
     { id: 'done', label: 'Print' },
 ];
 
+/** The print size last used on this register. */
+const SHEET_SIZE_STORAGE_KEY = 'ravenpos.giftCardSheetSize';
+
 const fieldClass = 'h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 text-sm text-[var(--color-foreground)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20';
 const errorFieldClass = 'border-[var(--color-danger)] focus:border-[var(--color-danger)] focus:ring-[var(--color-danger)]/20';
 const sectionLabelClass = 'text-sm font-semibold text-[var(--color-foreground)]';
@@ -102,6 +111,21 @@ export function GiftCardSaleScreen({
     const [reprintCode, setReprintCode] = useState('');
     const [reprintMessage, setReprintMessage] = useState<string | null>(null);
     const [isReprinting, setIsReprinting] = useState(false);
+    const [sheetSize, setSheetSize] = useState<GiftCardSheetSizeId>(() => {
+        try {
+            return getGiftCardSheetSize(localStorage.getItem(SHEET_SIZE_STORAGE_KEY)).id;
+        } catch {
+            return DEFAULT_GIFT_CARD_SHEET_SIZE;
+        }
+    });
+    const chooseSheetSize = (id: GiftCardSheetSizeId) => {
+        setSheetSize(id);
+        try {
+            localStorage.setItem(SHEET_SIZE_STORAGE_KEY, id);
+        } catch {
+            // The choice just won't be remembered.
+        }
+    };
     const displayChannelRef = useRef<BroadcastChannel | null>(null);
 
     // Start fresh every time the screen opens.
@@ -159,7 +183,9 @@ export function GiftCardSaleScreen({
     const total = useMemo(() => getGiftCardBatchTotal(drafts), [drafts]);
     const validation = useMemo(() => validateGiftCardDrafts(drafts, { emailEnabled }), [drafts, emailEnabled]);
     const cashAmount = Number.parseFloat(cashTendered) || 0;
-    const changeDue = Math.max(0, roundGiftCardMoney(cashAmount - total));
+    // Cash is paid in nickels; the cards themselves keep their exact amounts.
+    const cashDue = roundCashAmount(total);
+    const changeDue = Math.max(0, roundCashAmount(cashAmount - cashDue));
 
     const toFace = useCallback((draft: GiftCardDraft): GiftCardFaceData => ({
         occasion: draft.occasion || occasion,
@@ -234,8 +260,8 @@ export function GiftCardSaleScreen({
             setError(validation.firstError);
             return;
         }
-        if (paymentMethod === 'cash' && cashAmount + 0.001 < total) {
-            setError(`Cash received is less than ${formatCurrency(total)}.`);
+        if (paymentMethod === 'cash' && cashAmount + 0.001 < cashDue) {
+            setError(`Cash received is less than ${formatCurrency(cashDue)}.`);
             return;
         }
         if (paymentMethod === 'card' && !connectedReader) {
@@ -328,7 +354,7 @@ export function GiftCardSaleScreen({
     };
 
     const handlePrint = async () => {
-        const result = await printGiftCards(issued);
+        const result = await printGiftCards(issued, sheetSize);
         if (!result.success) setError(result.error || 'Unable to print the gift cards.');
     };
 
@@ -357,12 +383,12 @@ export function GiftCardSaleScreen({
             fromName: card.from_name,
             message: card.message,
             code: String(card.code),
-        }]);
+        }], sheetSize);
         setReprintMessage(result.success ? null : result.error || 'Unable to print that card.');
         if (result.success) setReprintCode('');
     };
 
-    const cashSuggestions = getCashSuggestions(total);
+    const cashSuggestions = getCashSuggestions(cashDue);
     const emailedCount = issued.filter((card) => card.emailStatus === 'sent').length;
     const failedEmails = issued.filter((card) => card.emailStatus === 'failed');
     const stepIndex = STEPS.findIndex((entry) => entry.id === step);
@@ -689,7 +715,7 @@ export function GiftCardSaleScreen({
                                     onChange={(event) => setCashTendered(event.target.value)}
                                     className={`${fieldClass} mt-2 h-12 text-lg tabular-nums`}
                                 />
-                                {cashAmount >= total && cashAmount > 0 && (
+                                {cashAmount >= cashDue && cashAmount > 0 && (
                                     <p className="mt-2 text-sm">Change due: <span className="text-lg font-semibold tabular-nums">{formatCurrency(changeDue)}</span></p>
                                 )}
                             </div>
@@ -717,7 +743,7 @@ export function GiftCardSaleScreen({
                             <span className="text-2xl font-semibold tabular-nums">{formatCurrency(total)}</span>
                         </div>
                         <Button className="mt-4" size="xl" fullWidth onClick={() => void handleTakePayment()} isLoading={isSubmitting}>
-                            {paymentMethod === 'card' ? `Charge ${formatCurrency(total)}` : `Take ${formatCurrency(total)} cash`}
+                            {paymentMethod === 'card' ? `Charge ${formatCurrency(total)}` : `Take ${formatCurrency(cashDue)} cash`}
                         </Button>
                         <Button className="mt-2" variant="ghost" fullWidth leftIcon={<ArrowLeft size={15} />} onClick={() => { setError(null); setStep('cards'); }} disabled={isSubmitting}>
                             Back to cards
@@ -733,8 +759,8 @@ export function GiftCardSaleScreen({
                             Print preview · letter paper · cut along the dashed lines
                         </p>
                         <div className="mt-2 space-y-4 rounded-2xl bg-[var(--color-surface)] p-4">
-                            <div className="mx-auto max-w-[560px] space-y-4 [&>.gc-sheet]:shadow-md">
-                                <GiftCardSheets cards={issued} />
+                            <div className={`mx-auto space-y-4 [&>.gc-sheet]:shadow-md ${getGiftCardSheetSize(sheetSize).orientation === 'landscape' ? 'max-w-[720px]' : 'max-w-[560px]'}`}>
+                                <GiftCardSheets cards={issued} size={sheetSize} />
                             </div>
                         </div>
                     </div>
@@ -757,6 +783,25 @@ export function GiftCardSaleScreen({
                                 Could not email {failedEmails.map((card) => card.recipientEmail).join(', ')}. Their cards are still valid and print below.
                             </div>
                         )}
+                        <fieldset>
+                            <legend className="text-xs font-medium text-[var(--color-muted)]">Print size</legend>
+                            <div className="mt-1.5 grid grid-cols-2 gap-2">
+                                {GIFT_CARD_SHEET_SIZES.map((size) => (
+                                    <button
+                                        key={size.id}
+                                        type="button"
+                                        aria-pressed={sheetSize === size.id}
+                                        onClick={() => chooseSheetSize(size.id)}
+                                        className={`rounded-xl border px-3 py-2 text-left transition-colors ${sheetSize === size.id
+                                            ? 'border-[var(--color-primary)] ring-2 ring-[var(--color-primary)]'
+                                            : 'border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]'}`}
+                                    >
+                                        <span className="block text-sm font-medium">{size.label}</span>
+                                        <span className="block text-xs text-[var(--color-muted)]">{size.perSheet} per page · {formatGiftCardSheetSize(size)}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </fieldset>
                         <Button size="xl" fullWidth leftIcon={<Printer size={18} />} onClick={() => void handlePrint()}>Print cards</Button>
                         <Button variant="secondary" fullWidth onClick={onClose}>Done</Button>
                         <details className="text-sm">

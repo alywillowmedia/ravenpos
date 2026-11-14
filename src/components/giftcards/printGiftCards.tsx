@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import type { GiftCardFaceData } from './GiftCardFace';
+import { getGiftCardSheetSize, type GiftCardSheetSizeId } from '../../lib/giftCardBatch';
 import { GiftCardSheets } from './GiftCardSheet';
 
 function nextFrame(): Promise<void> {
@@ -7,16 +8,18 @@ function nextFrame(): Promise<void> {
 }
 
 /**
- * Opens the system print dialog with the cards laid out eight to a page.
+ * Opens the system print dialog with the cards laid out at the chosen size
+ * (eight to a page unless told otherwise).
  * Prints from the current window so the card fonts are already loaded.
  */
-export async function printGiftCards(cards: GiftCardFaceData[]): Promise<{ success: boolean; error?: string }> {
+export async function printGiftCards(cards: GiftCardFaceData[], sizeId?: GiftCardSheetSizeId): Promise<{ success: boolean; error?: string }> {
     if (cards.length === 0) return { success: false, error: 'There are no cards to print.' };
 
     const container = document.createElement('div');
     container.className = 'gc-print-root';
     const pageStyle = document.createElement('style');
-    pageStyle.textContent = '@page { size: letter portrait; margin: 0; }';
+    const size = getGiftCardSheetSize(sizeId);
+    pageStyle.textContent = `@page { size: letter ${size.orientation}; margin: 0; }`;
 
     const root = createRoot(container);
     let cleaned = false;
@@ -34,7 +37,7 @@ export async function printGiftCards(cards: GiftCardFaceData[]): Promise<{ succe
         document.body.appendChild(container);
         document.head.appendChild(pageStyle);
         document.documentElement.classList.add('gc-printing');
-        root.render(<GiftCardSheets cards={cards} />);
+        root.render(<GiftCardSheets cards={cards} size={size.id} />);
 
         // Let React commit, the barcodes draw and the fonts settle before printing.
         await nextFrame();

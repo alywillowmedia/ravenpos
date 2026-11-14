@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
     buildGiftCardBatchPayload,
+    GIFT_CARD_ASPECT,
+    GIFT_CARD_SHEET_SIZES,
     chunkGiftCardsIntoSheets,
+    formatGiftCardSheetSize,
+    getGiftCardPage,
+    getGiftCardSheetSize,
     createGiftCardDraft,
     getCashSuggestions,
     getGiftCardBatchTotal,
@@ -79,6 +84,21 @@ describe('gift card batch', () => {
         const sheets = chunkGiftCardsIntoSheets(Array.from({ length: 19 }, (_, index) => index));
         expect(sheets.map((sheet) => sheet.length)).toEqual([8, 8, 3]);
         expect(chunkGiftCardsIntoSheets([])).toEqual([]);
+    });
+
+    it('offers print sizes that keep the card shape and fit a letter page', () => {
+        expect(GIFT_CARD_SHEET_SIZES.map((size) => size.perSheet)).toEqual([8, 6, 4, 2]);
+        for (const size of GIFT_CARD_SHEET_SIZES) {
+            const page = getGiftCardPage(size);
+            const rows = size.perSheet / size.columns;
+            // 0.05in to the cut line on each side of a card, and 0.2in clear at the page edges.
+            expect(size.columns * (size.cardWidth + 0.1), size.id).toBeLessThanOrEqual(page.width - 0.4);
+            expect(rows * (size.cardHeight + 0.1), size.id).toBeLessThanOrEqual(page.height - 0.4);
+            expect(size.cardWidth / size.cardHeight, size.id).toBeCloseTo(GIFT_CARD_ASPECT, 1);
+        }
+        expect(getGiftCardSheetSize('nonsense').id).toBe('small');
+        expect(formatGiftCardSheetSize(getGiftCardSheetSize('small'))).toBe('3.9 × 2.4 in');
+        expect(chunkGiftCardsIntoSheets([1, 2, 3, 4, 5], 2).map((sheet) => sheet.length)).toEqual([2, 2, 1]);
     });
 
     it('limits a vendor card to that vendor\'s share of the cart', () => {

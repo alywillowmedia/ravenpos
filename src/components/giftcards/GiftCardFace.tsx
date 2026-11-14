@@ -8,7 +8,7 @@ import {
     type GiftCardOccasion,
 } from '../../lib/giftCardThemes';
 import alywillowArt from '../../assets/giftcards/alywillow-bg.webp';
-import alywillowLogo from '../../assets/giftcards/alywillow-logo.svg';
+import alywillowLogo from '../../assets/giftcards/alywillow-logo.webp';
 import ravenliaArt from '../../assets/giftcards/ravenlia-bg.webp';
 import ravenliaLogo from '../../assets/giftcards/ravenlia-logo.webp';
 import './giftcards.css';
