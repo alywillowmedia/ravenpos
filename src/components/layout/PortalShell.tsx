@@ -16,7 +16,7 @@ export interface PortalShellProps {
     collapseStorageKey: 'sidebar-collapsed' | 'sidebar-collapsed-employee' | 'sidebar-collapsed-vendor';
     profile: PortalProfile;
     menuActions: ProfileMenuAction[];
-    footerSlot?: ReactNode;
+    footerSlot?: (isCollapsed: boolean) => ReactNode;
     messaging: ReturnType<typeof useMessaging>;
     children: ReactNode;
 }

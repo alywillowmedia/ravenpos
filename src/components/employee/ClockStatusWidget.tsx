@@ -1,14 +1,16 @@
 // Clock Status Widget - Shows employee clock in/out status
-// Always visible in employee interface header
+// Always visible in the employee sidebar: a full card when the sidebar is open,
+// a compact button when it is collapsed to its rail (as it always is on the register).
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useEmployee } from '../../contexts/EmployeeContext';
 import { formatTime } from '../../lib/timeCalculations';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
+import { cn } from '../../lib/utils';
 import { CheckCircle2, Clock3 } from 'lucide-react';
 
-export function ClockStatusWidget() {
+export function ClockStatusWidget({ compact = false }: { compact?: boolean }) {
     const { employee, clockStatus, clockIn, clockOut } = useEmployee();
     const [showConfirm, setShowConfirm] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -39,8 +41,37 @@ export function ClockStatusWidget() {
         return `${h} hour${h !== 1 ? 's' : ''} ${m} minute${m !== 1 ? 's' : ''}`;
     };
 
-    return (
-        <>
+    let trigger: ReactNode;
+    if (compact) {
+        const isClockedIn = clockStatus.isClockedIn;
+        const status = isClockedIn
+            ? `Clocked in since ${formatTime(clockStatus.startTime!)} (${clockStatus.duration})`
+            : 'Not clocked in';
+        trigger = (
+            <button
+                type="button"
+                onClick={isClockedIn ? () => setShowConfirm(true) : handleClockIn}
+                disabled={isProcessing}
+                title={`${status}. ${isClockedIn ? 'Clock out' : 'Clock in'}`}
+                aria-label={`${status}. ${isClockedIn ? 'Clock out' : 'Clock in'}`}
+                className={cn(
+                    'flex h-11 w-full items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                    isClockedIn
+                        ? 'border-[var(--color-success)]/25 bg-[var(--color-success-bg)] text-[var(--color-success)] hover:brightness-95'
+                        : 'border-transparent bg-[var(--color-primary)] text-[var(--color-primary-foreground)] hover:bg-[var(--color-primary-hover)]'
+                )}
+            >
+                <span className="relative">
+                    <Clock3 className="h-5 w-5" aria-hidden="true" />
+                    {isClockedIn && (
+                        <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-[var(--color-success)]" aria-hidden="true" />
+                    )}
+                </span>
+            </button>
+        );
+    } else {
+        // Full widget
+        trigger = (
             <div className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${clockStatus.isClockedIn ? 'border-[var(--color-success)]/25 bg-[var(--color-success-bg)]' : 'border-[var(--color-border)] bg-[var(--color-surface)]'}`} role="status">
                 <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${clockStatus.isClockedIn ? 'bg-[var(--color-success)]' : 'bg-[var(--color-muted-foreground)]'}`} aria-hidden="true" />
 
@@ -78,6 +109,12 @@ export function ClockStatusWidget() {
                     </Button>
                 )}
             </div>
+        );
+    }
+
+    return (
+        <>
+            {trigger}
 
             {/* Clock Out Confirmation Modal */}
             <Modal

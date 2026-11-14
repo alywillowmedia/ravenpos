@@ -29,7 +29,8 @@ interface PortalSidebarProps {
     navigation: PortalNavEntry[];
     profile: PortalProfile;
     menuActions: ProfileMenuAction[];
-    footerSlot?: ReactNode;
+    /** Rendered above the sidebar footer; told whether the sidebar is collapsed to its rail. */
+    footerSlot?: (isCollapsed: boolean) => ReactNode;
     onOpenWhatsNew: () => void;
     hasUnseenWhatsNew: boolean;
     isCollapsed: boolean;
@@ -266,7 +267,7 @@ export function PortalSidebar({
             </nav>
 
             <div className="shrink-0 space-y-2 p-3">
-                {!isCollapsed && footerSlot}
+                {footerSlot?.(isCollapsed)}
                 <button
                     type="button"
                     onClick={onOpenWhatsNew}

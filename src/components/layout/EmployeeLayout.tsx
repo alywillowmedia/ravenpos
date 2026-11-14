@@ -80,7 +80,7 @@ export function EmployeeLayout() {
                     ),
                 }}
                 menuActions={menuActions}
-                footerSlot={<ClockStatusWidget />}
+                footerSlot={(isCollapsed) => <ClockStatusWidget compact={isCollapsed} />}
                 messaging={messaging}
             >
                 <Outlet key={location.pathname} context={{ messaging }} />
